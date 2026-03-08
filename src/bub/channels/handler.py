@@ -40,11 +40,17 @@ class BufferedMessageHandler:
         self._in_processing = None
         await self._handler(message)
 
+    @staticmethod
+    def prettify(content: str) -> str:
+        return MEDIA_DATA_URL_RE.sub("[media]", content)
+
     async def __call__(self, message: ChannelMessage) -> None:
         now = self._loop.time()
         if message.content.startswith(","):
             logger.info(
-                "session.message received command session_id={}, content={}", message.session_id, message.content
+                "session.message received command session_id={}, content={}",
+                message.session_id,
+                self.prettify(message.content),
             )
             await self._handler(message)
             return
@@ -53,19 +59,27 @@ class BufferedMessageHandler:
         ):
             self._last_active_time = None
             logger.info(
-                "session.message received ignored session_id={}, content={}", message.session_id, message.content
+                "session.message received ignored session_id={}, content={}",
+                message.session_id,
+                self.prettify(message.content),
             )
             return
         self._pending_messages.append(message)
         if message.is_active:
             self._last_active_time = now
             logger.info(
-                "session.message received active session_id={}, content={}", message.session_id, message.content
+                "session.message received active session_id={}, content={}",
+                message.session_id,
+                self.prettify(message.content),
             )
             self._reset_timer(self.debounce_seconds)
             if self._in_processing is None:
                 self._in_processing = asyncio.create_task(self._process())
         elif self._last_active_time is not None and self._in_processing is None:
-            logger.info("session.receive followup session_id={} message={}", message.session_id, message.content)
+            logger.info(
+                "session.receive followup session_id={} message={}",
+                message.session_id,
+                self.prettify(message.content),
+            )
             self._reset_timer(self.max_wait_seconds)
             self._in_processing = asyncio.create_task(self._process())
