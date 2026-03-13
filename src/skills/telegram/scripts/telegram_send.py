@@ -118,6 +118,14 @@ def send_message(
     return response.json()
 
 
+def escape_markdown_v2(text: str) -> str:
+    """
+    Escape special characters for Telegram MarkdownV2 format.
+    """
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return ''.join('\\' + char if char in escape_chars else char for char in text)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Send messages via Telegram Bot API (auto-converts to MarkdownV2)")
     parser.add_argument("--chat-id", "-c", required=True, help="Target chat ID")
@@ -138,6 +146,14 @@ def main():
         "--source-username",
         help="Source username for @username prefix when --source-is-bot is enabled",
     )
+    parser.add_argument(
+        "--source-user-id",
+        help="Source user ID for mention when username is not available (uses tg://user?id= link)",
+    )
+    parser.add_argument(
+        "--source-display-name",
+        help="Display name for user ID mention (defaults to 'User')",
+    )
 
     args = parser.parse_args()
 
@@ -150,13 +166,24 @@ def main():
     # Parse chat IDs
     chat_id = args.chat_id.strip()
     reply_to = args.reply_to
+
+    # Read message from stdin if "-" was passed, otherwise use the inline value.
     message = sys.stdin.read() if args.message == "-" else args.message
 
+    # Handle source-is-bot mode: prefix the message with a mention so the bot picks it up.
     if args.source_is_bot and not reply_to and not message.startswith("/"):
-        if not args.source_username:
-            print("❌ Error: --source-username is required when --source-is-bot is set without --reply-to")
+        if args.source_user_id:
+            # Use tg://user?id= link for mention (works without username)
+            display_name = args.source_display_name or "User"
+            escaped_name = escape_markdown_v2(display_name)
+            mention = f"[{escaped_name}](tg://user?id={args.source_user_id})"
+            message = f"{mention}\n\n{message}"
+        elif args.source_username:
+            # Fall back to explicit /bot@username command mention
+            message = f"/bot@{args.source_username} {message}"
+        else:
+            print("❌ Error: --source-username or --source-user-id is required when --source-is-bot is set without --reply-to")
             sys.exit(1)
-        message = f"/bot@{args.source_username} {message}"
 
     # Send messages
     try:
