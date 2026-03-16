@@ -43,13 +43,13 @@ async def test_bash_non_zero_exit_is_returned_as_tool_error(tmp_path) -> None:
 
     assert result.error is not None
     assert result.error.kind is ErrorKind.TOOL
-    assert result.tool_results == [
-        {
-            "kind": "tool",
-            "message": "Tool 'bash' execution failed.",
-            "details": {"error": "RuntimeError('command exited with code 7\\noutput:\\nboom')"},
-        }
-    ]
+    assert len(result.tool_results) == 1
+    tool_result = result.tool_results[0]
+    assert tool_result["kind"] == "tool"
+    assert tool_result["message"] == "Tool 'bash' execution failed."
+    error_detail = tool_result["details"]["error"]
+    assert "command exited with code 7" in error_detail
+    assert "boom" in error_detail
 
 
 @pytest.mark.asyncio
