@@ -23,6 +23,14 @@ DEFAULT_HEADERS = {"accept": "text/markdown"}
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 10
 
 
+def _raise_for_failed_shell(returncode: int | None, output: str) -> None:
+    if returncode in (None, 0):
+        return
+
+    body = output.strip() or "(no output)"
+    raise RuntimeError(f"command exited with code {returncode}\noutput:\n{body}")
+
+
 def _get_agent(context: ToolContext) -> Agent:
     if "_runtime_agent" not in context.state:
         raise RuntimeError("no runtime agent found in tool context")
@@ -76,10 +84,11 @@ async def bash(
         return f"started: {shell.shell_id}"
     try:
         async with asyncio.timeout(timeout_seconds):
-            await shell_manager.wait_closed(shell.shell_id)
+            shell = await shell_manager.wait_closed(shell.shell_id)
     except TimeoutError:
         await shell_manager.terminate(shell.shell_id)
         return f"command timed out after {timeout_seconds} seconds and was terminated"
+    _raise_for_failed_shell(shell.returncode, shell.output)
     return shell.output.strip() or "(no output)"
 
 
