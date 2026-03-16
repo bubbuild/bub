@@ -120,8 +120,9 @@ def tool(
         context=context,
     )
     if isinstance(result, Tool):
-        REGISTRY[result.name] = result
-        return _add_logging(result)
+        tool_instance = _add_logging(result)
+        REGISTRY[tool_instance.name] = tool_instance
+        return tool_instance
 
     def decorator(func: Callable) -> Tool:
         tool_instance = _add_logging(result(func))

@@ -74,6 +74,20 @@ async def test_tool_wrapper_logs_failures_before_reraising(monkeypatch: pytest.M
     assert errors[0].startswith("tool.call.error name=tests.failing_tool elapsed_time=")
 
 
+@pytest.mark.asyncio
+async def test_tool_direct_call_registers_wrapped_instance_in_registry() -> None:
+    tool_name = "tests.direct_call"
+    REGISTRY.pop(tool_name, None)
+
+    def direct_call(value: str) -> str:
+        return value.upper()
+
+    direct_tool = tool(direct_call, name=tool_name)
+
+    assert REGISTRY[tool_name] is direct_tool
+    assert await REGISTRY[tool_name].run("hello") == "HELLO"
+
+
 def test_model_tools_rewrites_dotted_names_without_mutating_original() -> None:
     tool_name = "tests.rename_me"
     REGISTRY.pop(tool_name, None)
