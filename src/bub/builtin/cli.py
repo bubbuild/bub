@@ -83,7 +83,7 @@ def chat(
     if channel is None:
         typer.echo("CLI channel not found. Please check your hook implementations.")
         raise typer.Exit(1)
-    channel.set_metadata(chat_id=chat_id, session_id=session_id)  # type: ignore[attr-defined]
+    channel.set_metadata(chat_id=chat_id, session_id=session_id, workspace=ctx.obj.workspace)  # type: ignore[attr-defined]
     asyncio.run(manager.listen_and_run())
 
 

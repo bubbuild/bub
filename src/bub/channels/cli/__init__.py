@@ -49,11 +49,13 @@ class CliChannel(Channel):
         info = await self._agent.tapes.info(tape.name)
         self._last_tape_info = info
 
-    def set_metadata(self, session_id: str | None = None, chat_id: str | None = None) -> None:
+    def set_metadata(self, session_id: str | None = None, chat_id: str | None = None, workspace: Path | None = None) -> None:
         if session_id is not None:
             self._message_template["session_id"] = session_id
         if chat_id is not None:
             self._message_template["chat_id"] = chat_id
+        if workspace is not None:
+            self._workspace = workspace
 
     async def start(self, stop_event: asyncio.Event) -> None:
         self._stop_event = stop_event
