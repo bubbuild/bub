@@ -76,7 +76,7 @@ async def bash(
     *,
     context: ToolContext,
 ) -> str:
-    """Run a shell command. Use background=true to keep it running and fetch output later via bash_output."""
+    """Run a shell command. Use background=true to keep it running and fetch output later via bash.output."""
     workspace = context.state.get("_runtime_workspace")
     target_cwd = cwd or workspace
     shell = await shell_manager.start(cmd=cmd, cwd=target_cwd)
@@ -293,8 +293,8 @@ def show_help() -> str:
         "  ,fs.write path=tmp.txt content='hello'\n"
         "  ,fs.edit path=tmp.txt old=hello new=world\n"
         "  ,bash cmd='sleep 5' background=true\n"
-        "  ,bash_output shell_id=bsh-12345678\n"
-        "  ,kill_bash shell_id=bsh-12345678\n"
+        "  ,bash.output shell_id=bsh-12345678\n"
+        "  ,bash.kill shell_id=bsh-12345678\n"
         "Any unknown command after ',' is executed as shell via bash."
     )
 
