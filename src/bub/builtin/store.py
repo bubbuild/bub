@@ -301,7 +301,7 @@ class TapeFile:
             self._read_locked()
             with self.path.open("a", encoding="utf-8") as handle:
                 next_id = self._next_id()
-                stored = TapeEntry(next_id, entry.kind, dict(entry.payload), dict(entry.meta))
-                handle.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+                stored = TapeEntry(next_id, entry.kind, dict(entry.payload), dict(entry.meta), entry.date)
+                handle.write(json.dumps(asdict(stored), ensure_ascii=False) + "\n")
                 self._read_entries.append(stored)
                 self._read_offset = handle.tell()
