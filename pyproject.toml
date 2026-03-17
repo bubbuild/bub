@@ -35,6 +35,9 @@ dependencies = [
     "aiohttp>=3.13.3",
 ]
 
+[project.optional-dependencies]
+effect-log = ["ai-effectlog>=0.1.0"]
+
 [project.urls]
 Homepage = "https://bub.build"
 Repository = "https://github.com/bubbuild/bub"

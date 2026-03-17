@@ -24,7 +24,7 @@ from bub.builtin.store import ForkTapeStore
 from bub.builtin.tape import TapeService
 from bub.framework import BubFramework
 from bub.skills import discover_skills, render_skills_prompt
-from bub.tools import REGISTRY, model_tools, render_tools_prompt
+from bub.tools import EFFECT_KINDS, REGISTRY, enable_effect_log, make_adapted_handler, model_tools, render_tools_prompt, unwrap_handler
 from bub.types import State
 from bub.utils import workspace_from_state
 
@@ -39,6 +39,7 @@ class Agent:
     def __init__(self, framework: BubFramework) -> None:
         self.settings = _load_runtime_settings()
         self.framework = framework
+        self._effect_log_sessions: set[str] = set()
 
     @cached_property
     def tapes(self) -> TapeService:
@@ -61,6 +62,7 @@ class Agent:
     ) -> str:
         if not prompt:
             return "error: empty prompt"
+        self._maybe_enable_effect_log(session_id)
         tape = self.tapes.session_tape(session_id, workspace_from_state(state))
         tape.context.state.update(state)
         merge_back = not session_id.startswith("temp/")
@@ -71,6 +73,57 @@ class Agent:
             return await self._agent_loop(
                 tape=tape, prompt=prompt, model=model, allowed_skills=allowed_skills, allowed_tools=allowed_tools
             )
+
+    def _maybe_enable_effect_log(self, session_id: str) -> None:
+        """Auto-initialize effect-log for this session if BUB_EFFECT_LOG=true."""
+        if not self.settings.effect_log:
+            return
+        if not EFFECT_KINDS:
+            return
+        if session_id in self._effect_log_sessions:
+            return
+        try:
+            from effect_log import EffectKind, EffectLog, ToolDef
+        except ImportError:
+            logger.warning("effect_log: BUB_EFFECT_LOG=true but ai-effectlog is not installed. pip install bub[effect-log]")
+            return
+
+        if self.settings.effect_log_storage:
+            # User-provided storage (e.g. "memory://" or a custom sqlite path)
+            storage = self.settings.effect_log_storage
+            recover = False
+        else:
+            # Default: per-session SQLite under ~/.bub/effects/
+            effects_dir = self.settings.home / "effects"
+            effects_dir.mkdir(parents=True, exist_ok=True)
+            safe_name = session_id.replace("/", "_").replace("\\", "_")
+            db_path = effects_dir / f"{safe_name}.db"
+            storage = f"sqlite:///{db_path}"
+            recover = db_path.exists()
+
+        tooldefs = []
+        for name, kind_str in EFFECT_KINDS.items():
+            if name not in REGISTRY:
+                continue
+            tool_instance = REGISTRY[name]
+            handler = tool_instance.handler
+            if handler is None:
+                continue
+            raw = unwrap_handler(handler)
+
+            kind = getattr(EffectKind, kind_str, None)
+            if kind is None:
+                logger.warning("effect_log: unknown effect kind '{}' for tool '{}'", kind_str, name)
+                continue
+            tooldefs.append(ToolDef(name, kind, make_adapted_handler(raw, tool_instance.context)))
+
+        log = EffectLog(execution_id=session_id, tools=tooldefs, storage=storage, recover=recover)
+        enable_effect_log(log)
+        # Cap tracked sessions to prevent unbounded growth in long-running processes
+        if len(self._effect_log_sessions) >= 1000:
+            self._effect_log_sessions.clear()
+        self._effect_log_sessions.add(session_id)
+        logger.info("effect_log: enabled for session={} storage={} recover={}", session_id, storage, recover)
 
     async def _run_command(self, tape: Tape, *, line: str) -> str:
         line = line[1:].strip()

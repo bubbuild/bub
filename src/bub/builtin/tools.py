@@ -59,7 +59,7 @@ class SubAgentInput(BaseModel):
     )
 
 
-@tool(context=True)
+@tool(context=True, effect="IrreversibleWrite")
 async def bash(
     cmd: str,
     cwd: str | None = None,
@@ -83,7 +83,7 @@ async def bash(
     return shell.output.strip() or "(no output)"
 
 
-@tool(name="bash.output")
+@tool(name="bash.output", effect="ReadOnly")
 async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) -> str:
     """Read buffered output from a background shell, with optional offset/limit for incremental polling."""
     shell = shell_manager.get(shell_id)
@@ -98,7 +98,7 @@ async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) 
     return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {exit_code}\nnext_offset: {end}\noutput:\n{body}"
 
 
-@tool(name="bash.kill")
+@tool(name="bash.kill", effect="IrreversibleWrite")
 async def kill_bash(shell_id: str) -> str:
     """Terminate a background shell process."""
     shell = shell_manager.get(shell_id)
@@ -109,7 +109,7 @@ async def kill_bash(shell_id: str) -> str:
     return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {shell.returncode}"
 
 
-@tool(context=True, name="fs.read")
+@tool(context=True, name="fs.read", effect="ReadOnly")
 def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> str:
     """Read a text file and return its content. Supports optional pagination with offset and limit."""
     resolved_path = _resolve_path(context, path)
@@ -120,7 +120,7 @@ def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: To
     return "\n".join(lines[start:end])
 
 
-@tool(context=True, name="fs.write")
+@tool(context=True, name="fs.write", effect="IdempotentWrite")
 def fs_write(path: str, content: str, *, context: ToolContext) -> str:
     """Write content to a text file."""
     resolved_path = _resolve_path(context, path)
@@ -129,7 +129,7 @@ def fs_write(path: str, content: str, *, context: ToolContext) -> str:
     return f"wrote: {resolved_path}"
 
 
-@tool(context=True, name="fs.edit")
+@tool(context=True, name="fs.edit", effect="IdempotentWrite")
 def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> str:
     """Edit a text file by replacing old text with new text. You can specify the line number to start searching for the old text."""
     resolved_path = _resolve_path(context, path)
@@ -145,7 +145,7 @@ def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolConte
     return f"edited: {resolved_path}"
 
 
-@tool(context=True, name="skill")
+@tool(context=True, name="skill", effect="ReadOnly")
 def skill_describe(name: str, *, context: ToolContext) -> str:
     """Load the skill content by name. Return the location and skill content."""
     from bub.utils import workspace_from_state
@@ -162,7 +162,7 @@ def skill_describe(name: str, *, context: ToolContext) -> str:
     return f"Location: {skill.location}\n---\n{skill.body() or '(no content)'}"
 
 
-@tool(context=True, name="tape.info")
+@tool(context=True, name="tape.info", effect="ReadOnly")
 async def tape_info(context: ToolContext) -> str:
     """Get information about the current tape, such as number of entries and anchors."""
     agent = _get_agent(context)
@@ -177,7 +177,7 @@ async def tape_info(context: ToolContext) -> str:
     )
 
 
-@tool(context=True, name="tape.search", model=SearchInput)
+@tool(context=True, name="tape.search", model=SearchInput, effect="ReadOnly")
 async def tape_search(param: SearchInput, *, context: ToolContext) -> str:
     """Search for entries in the current tape that match the query. Returns a list of matching entries."""
     agent = _get_agent(context)
@@ -200,7 +200,7 @@ async def tape_search(param: SearchInput, *, context: ToolContext) -> str:
     return f"[tape.search]: {len(entries)} matches" + "".join(f"\n{line}" for line in lines)
 
 
-@tool(context=True, name="tape.reset")
+@tool(context=True, name="tape.reset", effect="IrreversibleWrite")
 async def tape_reset(archive: bool = False, *, context: ToolContext) -> str:
     """Reset the current tape, optionally archiving it."""
     agent = _get_agent(context)
@@ -208,7 +208,7 @@ async def tape_reset(archive: bool = False, *, context: ToolContext) -> str:
     return result
 
 
-@tool(context=True, name="tape.handoff")
+@tool(context=True, name="tape.handoff", effect="IdempotentWrite")
 async def tape_handoff(name: str = "handoff", summary: str = "", *, context: ToolContext) -> str:
     """Add a handoff anchor to the current tape."""
     agent = _get_agent(context)
@@ -216,7 +216,7 @@ async def tape_handoff(name: str = "handoff", summary: str = "", *, context: Too
     return f"anchor added: {name}"
 
 
-@tool(context=True, name="tape.anchors")
+@tool(context=True, name="tape.anchors", effect="ReadOnly")
 async def tape_anchors(*, context: ToolContext) -> str:
     """List anchors in the current tape."""
     agent = _get_agent(context)
@@ -226,7 +226,7 @@ async def tape_anchors(*, context: ToolContext) -> str:
     return "\n".join(f"- {anchor.name}" for anchor in anchors)
 
 
-@tool(name="web.fetch")
+@tool(name="web.fetch", effect="ReadOnly")
 async def web_fetch(url: str, headers: dict | None = None, timeout: int | None = None) -> str:
     """Fetch(GET) the content of a web page, returning markdown if possible."""
     import aiohttp
@@ -242,7 +242,7 @@ async def web_fetch(url: str, headers: dict | None = None, timeout: int | None =
         return await response.text()
 
 
-@tool(name="subagent", context=True, model=SubAgentInput)
+@tool(name="subagent", context=True, model=SubAgentInput, effect="IrreversibleWrite")
 async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
     """Run a task with sub-agent using specific model and session."""
     agent = _get_agent(context)
@@ -268,7 +268,7 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
     )
 
 
-@tool(name="help")
+@tool(name="help", effect="ReadOnly")
 def show_help() -> str:
     """Show a help message."""
     return (

@@ -6,7 +6,7 @@ import pytest
 from loguru import logger
 from pydantic import BaseModel
 
-from bub.tools import REGISTRY, model_tools, render_tools_prompt, tool
+from bub.tools import EFFECT_KINDS, REGISTRY, enable_effect_log, model_tools, render_tools_prompt, tool
 
 
 class EchoInput(BaseModel):
@@ -109,3 +109,97 @@ def test_render_tools_prompt_renders_available_tools_block() -> None:
 
 def test_render_tools_prompt_returns_empty_string_for_empty_input() -> None:
     assert render_tools_prompt([]) == ""
+
+
+def test_effect_parameter_populates_effect_kinds_registry() -> None:
+    tool_name = "tests.effect_tool"
+    REGISTRY.pop(tool_name, None)
+    EFFECT_KINDS.pop(tool_name, None)
+
+    @tool(name=tool_name, effect="IrreversibleWrite")
+    def effect_tool() -> str:
+        return "done"
+
+    assert EFFECT_KINDS[tool_name] == "IrreversibleWrite"
+    assert REGISTRY[tool_name] is effect_tool
+
+
+def test_effect_parameter_none_does_not_register_effect_kind() -> None:
+    tool_name = "tests.no_effect_tool"
+    REGISTRY.pop(tool_name, None)
+    EFFECT_KINDS.pop(tool_name, None)
+
+    @tool(name=tool_name)
+    def no_effect_tool() -> str:
+        return "done"
+
+    assert tool_name not in EFFECT_KINDS
+    assert REGISTRY[tool_name] is no_effect_tool
+
+
+def test_effect_parameter_works_with_decorator_factory() -> None:
+    tool_name = "tests.factory_effect"
+    REGISTRY.pop(tool_name, None)
+    EFFECT_KINDS.pop(tool_name, None)
+
+    @tool(name=tool_name, description="test", effect="ReadOnly")
+    def factory_effect(value: str) -> str:
+        return value
+
+    assert EFFECT_KINDS[tool_name] == "ReadOnly"
+
+
+@pytest.mark.asyncio
+async def test_enable_effect_log_wraps_handlers() -> None:
+    tool_name = "tests.wrappable"
+    REGISTRY.pop(tool_name, None)
+    EFFECT_KINDS.pop(tool_name, None)
+    call_count = 0
+
+    @tool(name=tool_name, effect="IdempotentWrite")
+    def wrappable(msg: str) -> str:
+        nonlocal call_count
+        call_count += 1
+        return f"original: {msg}"
+
+    # Create a mock EffectLog that records calls
+    executed: list[tuple[str, dict]] = []
+
+    class MockEffectLog:
+        def execute(self, name: str, args: dict):
+            executed.append((name, args))
+            return f"sealed: {args.get('msg', '')}"
+
+    mock_log = MockEffectLog()
+    test_registry = {tool_name: REGISTRY[tool_name]}
+    enable_effect_log(mock_log, registry=test_registry)
+
+    # Call the wrapped tool
+    result = await test_registry[tool_name].run(msg="hello")
+
+    assert result == "sealed: hello"
+    assert len(executed) == 1
+    assert executed[0] == (tool_name, {"msg": "hello"})
+    assert call_count == 0  # original handler was NOT called
+
+
+@pytest.mark.asyncio
+async def test_enable_effect_log_skips_tools_without_effect() -> None:
+    tool_name = "tests.not_wrapped"
+    REGISTRY.pop(tool_name, None)
+    EFFECT_KINDS.pop(tool_name, None)
+
+    @tool(name=tool_name)
+    def not_wrapped(msg: str) -> str:
+        return f"original: {msg}"
+
+    class MockEffectLog:
+        def execute(self, name: str, args: dict):
+            raise AssertionError("should not be called")
+
+    test_registry = {tool_name: REGISTRY[tool_name]}
+    enable_effect_log(MockEffectLog(), registry=test_registry)
+
+    # Tool without effect should still run its original handler
+    result = await test_registry[tool_name].run(msg="hello")
+    assert result == "original: hello"

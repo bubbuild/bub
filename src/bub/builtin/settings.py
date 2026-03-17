@@ -28,6 +28,8 @@ class AgentSettings(BaseSettings):
     max_steps: int = 50
     max_tokens: int = DEFAULT_MAX_TOKENS
     model_timeout_seconds: int | None = None
+    effect_log: bool = False
+    effect_log_storage: str | None = None
 
     @classmethod
     def from_env(cls) -> AgentSettings:

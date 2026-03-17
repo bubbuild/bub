@@ -7,6 +7,19 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "ai-effectlog"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1b/53/ac072b5d0d99625d8dce9dee7111a70f22668d5deb987ee6acbd0538ea67/ai_effectlog-0.1.0.tar.gz", hash = "sha256:3fe20c1c633b070ef3e573b95a1260be68fb398e6473a9201ac21f48727172b7", size = 41415, upload-time = "2026-03-15T05:11:27.687Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/b8/e1fe1390f5c2cd09ffdd12229764065f68c10e8b11b313e91867bd8f8341/ai_effectlog-0.1.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:66bc7136a71db1f989762b6e04f881882f8ec2ef9ee4136a1be0bc22c0da3a62", size = 1735596, upload-time = "2026-03-15T05:11:16.287Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/b5/56a727c1616152dd831f36d802d3aa0757d777e2c5fd94a369fe5a6c7f8e/ai_effectlog-0.1.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:3a126a3e28371e393030eb1bec6bb8e7eef0aa699f2bd703a893553af29bb97f", size = 1655797, upload-time = "2026-03-15T05:11:17.865Z" },
+    { url = "https://files.pythonhosted.org/packages/0c/a1/8333d628a7bb4d8cc3af8ae8de93326e1a148d082841ec939d460cbbf038/ai_effectlog-0.1.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:655b2e73f8ef6a75eb9ad810fc7aa474d65c030ca6654e2c8020049c35c6e0e3", size = 1565094, upload-time = "2026-03-15T05:11:19.203Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/25/1eadff93db93e8c424f088b2dedcaf8d08a46f3e9d7abfb4a4ca9476f52a/ai_effectlog-0.1.0-cp312-cp312-win_amd64.whl", hash = "sha256:66a5e203c4a4ade8d58ddbbadd37c2fc0f64919238b766e67dadf372e7dd9ddb", size = 1525159, upload-time = "2026-03-15T05:11:21.079Z" },
+    { url = "https://files.pythonhosted.org/packages/81/95/378d9fedbe37229380d3a200be401255a54d8e48ed04f58d297672ab08d6/ai_effectlog-0.1.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:2383ee19431e3da47113cfdf56dfc52d2856e0265e1588f98fed7a1e34415fc0", size = 1564662, upload-time = "2026-03-15T05:11:22.811Z" },
+]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -226,6 +239,11 @@ dependencies = [
     { name = "typer" },
 ]
 
+[package.optional-dependencies]
+effect-log = [
+    { name = "ai-effectlog" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "mkdocs" },
@@ -243,6 +261,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "ai-effectlog", marker = "extra == 'effect-log'", specifier = ">=0.1.0" },
     { name = "aiohttp", specifier = ">=3.13.3" },
     { name = "any-llm-sdk", extras = ["anthropic"] },
     { name = "loguru", specifier = ">=0.7.2" },
@@ -257,6 +276,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0.0" },
     { name = "typer", specifier = ">=0.9.0" },
 ]
+provides-extras = ["effect-log"]
 
 [package.metadata.requires-dev]
 dev = [
