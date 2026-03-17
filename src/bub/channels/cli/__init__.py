@@ -40,9 +40,9 @@ class CliChannel(Channel):
         self._mode = "agent"  # or "shell"
         self._main_task: asyncio.Task | None = None
         self._renderer = CliRenderer(get_console())
-        self._prompt = self._build_prompt(Path.cwd())
         self._last_tape_info: TapeInfo | None = None
-        self._workspace = Path.cwd()
+        self._workspace = self._agent.framework.workspace
+        self._prompt = self._build_prompt(self._workspace)
 
     async def _refresh_tape_info(self) -> None:
         tape = self._agent.tapes.session_tape(self._message_template["session_id"], self._workspace)
