@@ -68,7 +68,9 @@ class BubFramework:
 
     def create_cli_app(self) -> typer.Typer:
         """Create CLI app by collecting commands from hooks. Can be used for custom CLI entry point."""
-        app = typer.Typer(name="bub", help="A common shape for agents that live alongside people.", add_completion=False)
+        app = typer.Typer(
+            name="bub", help="A common shape for agents that live alongside people.", add_completion=False
+        )
 
         @app.callback(invoke_without_command=True)
         def _main(
