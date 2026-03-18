@@ -1,126 +1,134 @@
 # Bub
 
-[Bub](https://github.com/bubbuild/bub) is a common shape for agents.
+**A common shape for agents that live alongside people.**
 
-It starts from a simple question: if there are many agents in the world, what kind of agent is a Bub?
+Bub started in group chats. Not as a demo or a personal assistant, but as a teammate that had to coexist with real humans and other agents in the same messy conversations — concurrent tasks, incomplete context, and nobody waiting.
 
-A Bub is an agent that can live inside shared operator environments with explicit boundaries, visible execution evidence, and safe handoff.
+It is hook-first, built on [pluggy](https://pluggy.readthedocs.io/), with a small core (~200 lines) and builtins that are just default plugins you can replace. Context comes from [tape](https://tape.systems), not session accumulation. The same pipeline runs across CLI, Telegram, and any channel you add.
 
-The point is not only to complete tasks, but to remain understandable, reviewable, and continuable when more humans and agents join the work.
-
-## Current Implementation
-
-This repository is the current Python implementation of Bub.
-It is hook-first, built on `pluggy`, and keeps the core small while builtins and plugins provide behavior.
-In this implementation, Bub uses [Republic](https://github.com/bubbuild/republic) as its context runtime and [constructs context from tape](https://tape.systems).
-
-- CLI bootstrap: `src/bub/__main__.py` (Typer app)
-- Turn orchestrator: `src/bub/framework.py`
-- Hook contract: `src/bub/hookspecs.py`
-- Builtin hooks/runtime: `src/bub/builtin/hook_impl.py` + `src/bub/builtin/engine.py`
-- Skill discovery and validation: `src/bub/skills.py`
+[Website](https://bub.build) · [GitHub](https://github.com/bubbuild/bub)
 
 ## Quick Start
+
+```bash
+pip install bub
+```
+
+Or from source:
 
 ```bash
 git clone https://github.com/bubbuild/bub.git
 cd bub
 uv sync
-uv run bub --help
 ```
 
 ```bash
-# Runtime off: falls back to model_output=prompt
-BUB_RUNTIME_ENABLED=0 uv run bub run "hello"
+uv run bub chat                         # interactive session
+uv run bub run "summarize this repo"    # one-shot task
+uv run bub gateway                      # channel listener mode
 ```
 
-```bash
-# Internal command mode (line starts with ',')
-BUB_RUNTIME_ENABLED=0 uv run bub run ",help"
+## How It Works
+
+Every inbound message goes through one turn pipeline. Each stage is a hook.
+
+```
+resolve_session → load_state → build_prompt → run_model
+                                                   ↓
+              dispatch_outbound ← render_outbound ← save_state
 ```
 
-```bash
-# Model runtime (hosted providers usually require a key)
-BUB_API_KEY=your_key uv run bub run "Summarize this repository"
+Builtins are plugins registered first. Later plugins override earlier ones. No special cases.
+
+If `AGENTS.md` exists in the workspace, it is appended to the system prompt automatically.
+
+Key source files:
+
+- Turn orchestrator: [`src/bub/framework.py`](src/bub/framework.py)
+- Hook contract: [`src/bub/hookspecs.py`](src/bub/hookspecs.py)
+- Builtin hooks: [`src/bub/builtin/hook_impl.py`](src/bub/builtin/hook_impl.py)
+- Skill discovery: [`src/bub/skills.py`](src/bub/skills.py)
+
+## What Sets It Apart
+
+Bub grew up in multi-person chats with multiple agents running at the same time. Single-user flows hide structural problems; shared environments expose them fast. That shaped a few things:
+
+- **Context from tape.** History is append-only facts. Anchors mark phase transitions. Context is assembled on demand — not accumulated, not compressed into lossy summaries.
+- **Hooks all the way down.** The turn pipeline *is* hooks. Override `build_prompt`, `run_model`, or `render_outbound` to change behavior. The core does not privilege its own builtins.
+- **One pipeline across channels.** CLI and Telegram share the same `process_inbound()` path. Hooks don't know which channel they're in.
+- **Skills as documents.** Skills are `SKILL.md` files with validated frontmatter, not code modules with magic registration.
+
+## Extend It
+
+```python
+from bub import hookimpl
+
+class EchoPlugin:
+    @hookimpl
+    def build_prompt(self, message, session_id, state):
+        return f"[echo] {message['content']}"
+
+    @hookimpl
+    async def run_model(self, prompt, session_id, state):
+        return prompt
 ```
-
-```bash
-# OpenAI Codex OAuth (no provider API key required)
-uv run bub login openai
-BUB_MODEL=openai:gpt-5-codex uv run bub chat
-```
-
-## CLI Commands
-
-- `bub run MESSAGE`: execute one inbound turn and print outbound messages
-- `bub login openai`: persist OpenAI Codex OAuth credentials for later runs
-- `bub hooks`: print hook-to-plugin bindings
-- `bub install PLUGIN_SPEC`: install plugin from PyPI or `owner/repo` (GitHub shorthand)
-
-## Runtime Behavior
-
-- Regular text input: uses `run_model`; if runtime is unavailable, output falls back to the prompt text
-- Comma commands: `,help`, `,tools`, `,fs.read ...`, etc.
-- Unknown comma commands: executed as `bash -lc` in workspace
-- Session event log: `.bub/runtime/<session-hash>.jsonl`
-- `AGENTS.md`: if present in workspace, appended to runtime system prompt
-
-## Skills
-
-- Discovery roots with deterministic override:
-  1. `<workspace>/.agent/skills`
-  2. `~/.agent/skills`
-  3. `src/skills`
-- Each skill directory must include `SKILL.md`
-- Supported frontmatter fields:
-  - required: `name`, `description`
-  - optional: `license`, `compatibility`, `metadata`, `allowed-tools`
-
-## Plugin Development
-
-Plugins are loaded from Python entry points in `group="bub"`:
 
 ```toml
 [project.entry-points."bub"]
-my_plugin = "my_package.my_plugin"
+echo = "my_package.plugin:EchoPlugin"
 ```
 
-Implement hooks with `@hookimpl` following `BubHookSpecs`.
+See the [Extension Guide](https://bub.build/extension-guide/) for hook semantics and plugin packaging.
 
-## Runtime Environment Variables
+## CLI
 
-- `BUB_RUNTIME_ENABLED`: `auto` (default), `1`, `0`
-- `BUB_MODEL`: default `openrouter:qwen/qwen3-coder-next`
-- `BUB_API_KEY`: runtime provider key; optional when using `openai:*` models with `bub login openai`
-- `BUB_API_BASE`: optional provider base URL
-- `BUB_API_FORMAT`: upstream API shape; default `completion`
-  Use `responses` for OpenAI Responses-compatible providers and `messages` for chat-completions-style providers.
-- `BUB_RUNTIME_MAX_STEPS`: default `8`
-- `BUB_RUNTIME_MAX_TOKENS`: default `1024`
-- `BUB_RUNTIME_MODEL_TIMEOUT_SECONDS`: default `90`
+| Command | Description |
+|---------|-------------|
+| `bub chat` | Interactive REPL |
+| `bub run MESSAGE` | One-shot turn |
+| `bub gateway` | Channel listener (Telegram, etc.) |
+| `bub login openai` | OpenAI Codex OAuth |
+| `bub hooks` | Print hook-to-plugin bindings |
 
-```bash
-# Use a Responses-compatible upstream API.
-BUB_MODEL=openai:gpt-5-codex \
-BUB_API_FORMAT=responses \
-uv run bub chat
-```
+Lines starting with `,` enter internal command mode (`,help`, `,tools`, `,fs.read path=README.md`).
 
-## Documentation
+## Configuration
 
-- `docs/index.md`: overview
-- `docs/architecture.md`: lifecycle, precedence, and failure isolation
-- `docs/skills.md`: skill discovery and frontmatter constraints
-- `docs/cli.md`: CLI usage and comma command mode
-- `docs/features.md`: implemented capabilities and limits
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BUB_MODEL` | `openrouter:qwen/qwen3-coder-next` | Model identifier |
+| `BUB_API_KEY` | — | Provider key (optional with `bub login openai`) |
+| `BUB_API_BASE` | — | Custom provider endpoint |
+| `BUB_API_FORMAT` | `completion` | `completion`, `responses`, or `messages` |
+| `BUB_RUNTIME_MAX_STEPS` | `50` | Max tool-use loop iterations |
+| `BUB_RUNTIME_MAX_TOKENS` | `1024` | Max tokens per model call |
+| `BUB_RUNTIME_MODEL_TIMEOUT_SECONDS` | — | Model call timeout (seconds) |
 
-## Development Checks
+## Background
+
+We care less about whether an agent can finish a demo task, and more about whether it can coexist with real people under real conditions. Context is not baggage to carry forever — it is a working set, constructed when needed and let go when done.
+
+Read more: [Context from Tape](https://tape.systems) · [Socialized Evaluation and Agent Partnership](https://bub.build/posts/2026-03-01-bub-socialized-evaluation-and-agent-partnership/)
+
+## Docs
+
+- [Architecture](https://bub.build/architecture/) — lifecycle, hook precedence, error handling
+- [Features](https://bub.build/features/) — what ships today and current boundaries
+- [CLI](https://bub.build/cli/) — commands and comma mode
+- [Skills](https://bub.build/skills/) — discovery and authoring
+- [Extension Guide](https://bub.build/extension-guide/) — hooks, tools, plugin packaging
+- [Channels](https://bub.build/channels/) — adapters and sessions
+- [Deployment](https://bub.build/deployment/) — Docker, Telegram, operations
+
+## Development
 
 ```bash
 uv run ruff check .
 uv run mypy src
 uv run pytest -q
 ```
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 

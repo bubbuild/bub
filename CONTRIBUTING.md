@@ -68,7 +68,7 @@ Then, install and activate the environment with:
 uv sync
 ```
 
-1. Install prek to run linters/formatters at commit time:
+4. Install prek to run linters/formatters at commit time:
 
 ```bash
 uv run prek install
@@ -96,7 +96,7 @@ Now, validate that all unit tests are passing:
 just test
 ```
 
-9. Before raising a pull request you should also run tox.
+8. Before raising a pull request you should also run tox.
    This will run the tests across different versions of Python:
 
 ```bash

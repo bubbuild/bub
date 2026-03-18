@@ -1,13 +1,11 @@
 # Channels
 
-Bub uses channel adapters to run the same agent pipeline across different I/O endpoints.
+Bub uses channel adapters to run the same pipeline across different I/O endpoints. Hooks don't know which channel they're in.
 
 ## Builtin Channels
 
-- `cli`: local interactive terminal channel (`uv run bub chat`)
-- `telegram`: Telegram bot channel (`uv run bub gateway`)
-
-See [Telegram](telegram.md) for channel-specific configuration and runtime behavior.
+- `cli`: local interactive terminal — see [CLI](cli.md)
+- `telegram`: Telegram bot — see [Telegram](telegram.md)
 
 ## Run Modes
 

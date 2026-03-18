@@ -1,35 +1,45 @@
 # Key Features
 
-## Framework Core
+## Hook-First Runtime
 
-- Hook-first architecture powered by `pluggy`.
-- Deterministic turn pipeline in `BubFramework.process_inbound()`.
-- Safe fallback to prompt text when `run_model` returns no value (with `on_error` notification).
-- Automatic fallback outbound when `render_outbound` produces nothing.
+Every turn stage is a [pluggy](https://pluggy.readthedocs.io/) hook.
+Builtins are ordinary plugins — override any stage by registering your own.
+Both first-result hooks (override) and broadcast hooks (observer) are supported.
+Safe fallback to prompt text when `run_model` returns no value (with `on_error` notification).
+Automatic fallback outbound when `render_outbound` produces nothing.
 
-## Runtime And Commands
+## Tape-Based Context
 
-- Builtin CLI commands: `run`, `hooks`, `message`, `chat`.
-- Builtin `RuntimeEngine`:
-  - normal input goes through model + tool loop (Republic)
-  - comma-prefixed input enters internal command mode (`,help`, `,tools`, `,fs.read`, etc.)
-  - unknown internal commands fall back to shell execution via the `bash` tool
-- Runtime events are persisted to tapes (default under `~/.bub/tapes`).
+Runtime events are recorded to tapes (default under `~/.bub/tapes`).
+Context is reconstructed from tape records, not accumulated in session state.
 
-## Channel Capability
+## Builtin Batteries
 
-- Builtin channels: `cli` and `telegram`.
-- `message` mode runs the same framework pipeline for channel-driven traffic.
-- Outbound delivery is routed by `ChannelManager`, keeping business hooks channel-agnostic.
+- **CLI**: `run`, `chat`, `gateway`, `login`, `hooks` via Typer.
+- **Model runtime**: agent loop with tool use, backed by [Republic](https://github.com/bubbuild/republic).
+- **Comma commands**: `,help`, `,tools`, `,fs.read`, etc. Unknown commands fall back to shell.
+- **Channels**: `cli` and `telegram` ship as defaults.
+
+All of these are hook implementations. Replace what you need.
+
+## Channel-Agnostic Pipeline
+
+CLI and Telegram use the same `process_inbound()` path.
+Hooks don't know which channel they're in.
+Outbound routing is handled by `ChannelManager`.
+
+## Skills
+
+Skills are `SKILL.md` files with validated frontmatter.
+Plugins can ship their own by including a `skills/` directory.
 
 ## Plugin Extensibility
 
-- External plugins are loaded via Python entry points (`group="bub"`).
-- Later-registered plugins run first and can override builtin behavior.
-- Supports both first-result hooks (override style) and broadcast hooks (observer style).
+External plugins are loaded via Python entry points (`group="bub"`).
+Later-registered plugins run first and can override builtin behavior.
 
 ## Current Boundaries
 
-- No strict envelope schema: `Envelope` is intentionally flexible.
+- `Envelope` is intentionally weakly typed (`Any` + accessor helpers).
 - No centralized key contract for shared plugin `state`.
-- Core repository does not currently ship a builtin Discord channel adapter.
+- No builtin Discord adapter — implement one via `provide_channels`.

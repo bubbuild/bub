@@ -1,7 +1,7 @@
 [project]
 name = "bub"
 version = "0.3.0"
-description = "Bub it. Build it. Batteries-included, hook-first AI framework."
+description = "A common shape for agents that live alongside people."
 authors = [
     { name = "Chojan Shang", email = "psiace@apache.org" },
     { name = "Frost Ming", email = "me@frostming.com" },

@@ -1,6 +1,6 @@
 # CLI
 
-`bub` currently exposes five builtin commands: `run`, `gateway`, `chat`, `login`, and the hidden compatibility command `message`.
+`bub` exposes four main commands (`run`, `gateway`, `chat`, `login`) plus two hidden ones (`hooks` for diagnostics, `message` as a compatibility alias for `gateway`).
 
 ## `bub run`
 

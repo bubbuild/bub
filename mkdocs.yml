@@ -1,7 +1,7 @@
 site_name: bub
 repo_url: https://github.com/bubbuild/bub
 site_url: https://bub.build
-site_description: "An agent partner for real teams: visible execution, reliable collaboration."
+site_description: "A common shape for agents that live alongside people."
 site_author: Bub Build
 edit_uri: edit/main/docs/
 repo_name: bubbuild/bub
@@ -10,16 +10,13 @@ copyright: Copyright (c) 2026 <a href="https://github.com/bubbuild">Bub Build</a
 nav:
   - Home: index.md
   - Core:
-      - Overview: core/index.md
       - Architecture: architecture.md
       - Key Features: features.md
-  - Workflows:
-      - Overview: workflows/index.md
-      - CLI: cli.md
-      - Skills: skills.md
   - Channels:
       - Overview: channels/index.md
+      - CLI: channels/cli.md
       - Telegram: channels/telegram.md
+  - Skills: skills.md
   - Deployment: deployment.md
   - Extension Guide: extension-guide.md
   - Posts:

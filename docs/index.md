@@ -1,16 +1,12 @@
 # Bub
 
-[Bub](https://github.com/bubbuild/bub) is a common shape for agents.
+**A common shape for agents that live alongside people.**
 
-It exists to answer a harder question than "can an agent finish a task?":
-when many humans and agents work in the same environment, what kind of agent remains understandable, reviewable, and safe to continue?
+Bub started in group chats. Not as a demo or a personal assistant, but as a teammate that had to coexist with real humans and other agents in the same messy conversations — concurrent tasks, incomplete context, and nobody waiting.
 
-Bub's answer is an agent form with explicit boundaries, visible evidence, and safe handoff.
-The current repository is one implementation of that idea, using hook-based composition, [Republic](https://github.com/bubbuild/republic) as the context runtime, and [constructing context from tape](https://tape.systems) as the current context model.
+It is hook-first, built on [pluggy](https://pluggy.readthedocs.io/), with a small core (~200 lines) and builtins that are just default plugins you can replace. Context comes from [tape](https://tape.systems) via [Republic](https://github.com/bubbuild/republic), not session accumulation. The same pipeline runs across CLI, Telegram, and any channel you add.
 
 ## Quick Start
-
-Install dependencies and create local config:
 
 ```bash
 git clone https://github.com/bubbuild/bub.git
@@ -19,35 +15,30 @@ uv sync
 cp env.example .env
 ```
 
-Run interactive local chat:
-
 ```bash
-uv run bub chat
+uv run bub chat                         # interactive session
+uv run bub run "summarize this repo"    # one-shot task
+uv run bub gateway                      # channel listener mode
 ```
 
-Run a one-shot task:
+## How It Works
 
-```bash
-uv run bub run "summarize this repository"
+Every inbound message goes through one turn pipeline. Each stage is a hook.
+
+```
+resolve_session → load_state → build_prompt → run_model
+                                                   ↓
+              dispatch_outbound ← render_outbound ← save_state
 ```
 
-Start channel listener mode:
-
-```bash
-uv run bub gateway
-```
-
-## Deployment
-
-For production setup and operations, read:
-
-- [Deployment Guide](deployment.md)
-- [Channels Overview](channels/index.md)
-- [Telegram Channel](channels/telegram.md)
+Builtins are plugins registered first. Later plugins override earlier ones. No special cases.
 
 ## Read Next
 
-- [Core Overview](core/index.md): architecture and capability summary in one place
-- [Workflows Overview](workflows/index.md): CLI and skills usage in one place
-- [Extension Guide](extension-guide.md): build and publish hook-based extensions
-- [Posts](posts/index.md): project notes and updates
+- [Architecture](architecture.md) — lifecycle, hook precedence, error handling
+- [Features](features.md) — what ships today and current boundaries
+- [Channels](channels/index.md) — CLI, Telegram, and custom adapters
+- [Skills](skills.md) — discovery and authoring
+- [Extension Guide](extension-guide.md) — hooks, tools, plugin packaging
+- [Deployment](deployment.md) — Docker, environment, upgrades
+- [Posts](posts/index.md) — design notes
