@@ -20,6 +20,8 @@ from republic.tape.store import is_async_tape_store
 from bub.utils import get_entry_text
 
 current_store: contextvars.ContextVar[TapeStore] = contextvars.ContextVar("current_store")
+current_fork_tape: contextvars.ContextVar[str | None] = contextvars.ContextVar("current_fork_tape", default=None)
+current_tape_was_reset: contextvars.ContextVar[bool] = contextvars.ContextVar("current_tape_was_reset", default=False)
 WORD_PATTERN = re.compile(r"[a-z0-9_/-]+")
 MIN_FUZZY_QUERY_LENGTH = 3
 MIN_FUZZY_SCORE = 80
@@ -37,18 +39,31 @@ class ForkTapeStore:
     def _current(self) -> TapeStore:
         return current_store.get(_emtpy_store)
 
+    @property
+    def _fork_tape(self) -> str | None:
+        return current_fork_tape.get()
+
+    @property
+    def _current_was_reset(self) -> bool:
+        return current_tape_was_reset.get()
+
     async def list_tapes(self) -> list[str]:
         return cast(list[str], await self._parent.list_tapes())
 
     async def reset(self, tape: str) -> None:
         self._current.reset(tape)
-        await self._parent.reset(tape)
+        if self._current is _emtpy_store or self._fork_tape != tape:
+            await self._parent.reset(tape)
+            return
+        current_tape_was_reset.set(True)
 
     async def fetch_all(self, query: TapeQuery[AsyncTapeStore]) -> Iterable[TapeEntry]:
-        try:
-            parent_entries = await self._parent.fetch_all(query)
-        except Exception:
-            parent_entries = []
+        parent_entries: Iterable[TapeEntry] = []
+        if not (query.tape == self._fork_tape and self._current_was_reset):
+            try:
+                parent_entries = await self._parent.fetch_all(query)
+            except Exception:
+                parent_entries = []
         this_entries: list[TapeEntry] = []
         if hasattr(self._current, "read"):
             for entry in cast(list[TapeEntry], self._current.read(query.tape) or []):
@@ -87,11 +102,18 @@ class ForkTapeStore:
     async def fork(self, tape: str, merge_back: bool = True) -> AsyncGenerator[None, None]:
         store = InMemoryTapeStore()
         token = current_store.set(store)
+        tape_token = current_fork_tape.set(tape)
+        reset_token = current_tape_was_reset.set(False)
         try:
             yield
         finally:
+            was_reset = current_tape_was_reset.get()
             current_store.reset(token)
+            current_fork_tape.reset(tape_token)
+            current_tape_was_reset.reset(reset_token)
             if merge_back:
+                if was_reset:
+                    await self._parent.reset(tape)
                 entries = store.read(tape)
                 if entries:
                     count = len(entries)
