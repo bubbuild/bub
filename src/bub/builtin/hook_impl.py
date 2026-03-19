@@ -21,7 +21,7 @@ DEFAULT_SYSTEM_PROMPT = """\
 Call tools or skills to finish the task.
 </general_instruct>
 <response_instruct>
-Before ending the run, you MUST determine whether a response needs to be sent to the channel, checking the following conditions:
+Before ending this run, you MUST determine whether a response needs to be sent via channel, checking the following conditions:
 1. Has the user asked you a question waiting for your answer?
 2. Is there any error or important information that needs to be sent to the user immediately?
 3. If it is a casual chat, does the conversation need to be continued?
@@ -31,10 +31,10 @@ Before ending the run, you MUST determine whether a response needs to be sent to
 
 When responding to a channel message, you MUST:
 1. Identify the channel from the message metadata (e.g., `$telegram`, `$discord`)
-2. Send the message as instructed by the channel skill (e.g., `telegram` skill for `$telegram` channel)
+2. Send your message as instructed by the channel skill (e.g., `telegram` skill for `$telegram` channel)
 </response_instruct>
 <context_contract>
-Excessively long context may cause model call failures. In this case, you MAY use tape.info to the token usage and you SHOULD use tape.handoff tool to shorten the length of the retrieved history.
+Excessively long context may cause model call failures. In this case, you MAY use tape.info to retrieve the token usage and you SHOULD use tape.handoff tool to shorten the retrieved history.
 </context_contract>
 """
 
