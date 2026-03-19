@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import functools
 from collections.abc import Collection
 
 from loguru import logger
@@ -45,7 +46,7 @@ class ChannelManager:
         else:
             self._enabled_channels = self._settings.enabled_channels.split(",")
         self._messages = asyncio.Queue[ChannelMessage]()
-        self._ongoing_tasks: set[asyncio.Task] = set()
+        self._ongoing_tasks: dict[str, set[asyncio.Task]] = {}
         self._session_handlers: dict[str, MessageHandler] = {}
 
     async def on_receive(self, message: ChannelMessage) -> None:
@@ -92,15 +93,26 @@ class ChannelManager:
         await channel.send(outbound)
         return True
 
+    async def quit(self, session_id: str) -> None:
+        tasks = self._ongoing_tasks.pop(session_id, set())
+        for task in tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        logger.info(f"channel.manager quit session_id={session_id}, cancelled {len(tasks)} tasks")
+
     def enabled_channels(self) -> list[Channel]:
         if "all" in self._enabled_channels:
             # Exclude 'cli' channel from 'all' to prevent interference with other channels
             return [channel for name, channel in self._channels.items() if name != "cli"]
         return [channel for name, channel in self._channels.items() if name in self._enabled_channels]
 
-    def _on_task_done(self, task: asyncio.Task) -> None:
+    def _on_task_done(self, session_id: str, task: asyncio.Task) -> None:
         task.exception()  # to log any exception
-        self._ongoing_tasks.discard(task)
+        tasks = self._ongoing_tasks.get(session_id, set())
+        tasks.discard(task)
+        if not tasks:
+            self._ongoing_tasks.pop(session_id, None)
 
     async def listen_and_run(self) -> None:
         stop_event = asyncio.Event()
@@ -112,8 +124,8 @@ class ChannelManager:
             while True:
                 message = await wait_until_stopped(self._messages.get(), stop_event)
                 task = asyncio.create_task(self.framework.process_inbound(message))
-                task.add_done_callback(self._on_task_done)
-                self._ongoing_tasks.add(task)
+                task.add_done_callback(functools.partial(self._on_task_done, message.session_id))
+                self._ongoing_tasks.setdefault(message.session_id, set()).add(task)
         except asyncio.CancelledError:
             logger.info("channel.manager received shutdown signal")
         except Exception:
@@ -126,12 +138,13 @@ class ChannelManager:
 
     async def shutdown(self) -> None:
         count = 0
-        while self._ongoing_tasks:
-            task = self._ongoing_tasks.pop()
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-            count += 1
+        for tasks in self._ongoing_tasks.values():
+            for task in tasks:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+                count += 1
+        self._ongoing_tasks.clear()
         logger.info(f"channel.manager cancelled {count} in-flight tasks")
         for channel in self.enabled_channels():
             await channel.stop()

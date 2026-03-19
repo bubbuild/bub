@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -159,13 +160,37 @@ async def test_channel_manager_shutdown_cancels_tasks_and_stops_enabled_channels
         await asyncio.sleep(10)
 
     task = asyncio.create_task(never_finish())
-    manager._ongoing_tasks.add(task)
+    manager._ongoing_tasks["telegram:chat"] = {task}
 
     await manager.shutdown()
 
     assert task.cancelled()
     assert telegram.stopped is True
     assert cli.stopped is False
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_quit_cancels_only_matching_session_tasks() -> None:
+    manager = ChannelManager(FakeFramework({"telegram": FakeChannel("telegram")}), enabled_channels=["telegram"])
+
+    async def never_finish() -> None:
+        await asyncio.sleep(10)
+
+    target_task = asyncio.create_task(never_finish())
+    other_task = asyncio.create_task(never_finish())
+    manager._ongoing_tasks["session:target"] = {target_task}
+    manager._ongoing_tasks["session:other"] = {other_task}
+
+    await manager.quit("session:target")
+
+    assert target_task.cancelled()
+    assert "session:target" not in manager._ongoing_tasks
+    assert other_task.cancelled() is False
+    assert manager._ongoing_tasks["session:other"] == {other_task}
+
+    other_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await other_task
 
 
 def test_cli_channel_normalize_input_prefixes_shell_commands() -> None:

@@ -68,9 +68,7 @@ class BubFramework:
 
     def create_cli_app(self) -> typer.Typer:
         """Create CLI app by collecting commands from hooks. Can be used for custom CLI entry point."""
-        app = typer.Typer(
-            name="bub", help="A common shape for agents that live alongside people.", add_completion=False
-        )
+        app = typer.Typer(name="bub", help="Batteries-included, hook-first AI framework", add_completion=False)
 
         @app.callback(invoke_without_command=True)
         def _main(
@@ -148,6 +146,10 @@ class BubFramework:
         if self._outbound_router is None:
             return False
         return await self._outbound_router.dispatch(message)
+
+    async def quit_via_router(self, session_id: str) -> None:
+        if self._outbound_router is not None:
+            await self._outbound_router.quit(session_id)
 
     @staticmethod
     def _default_session_id(message: Envelope) -> str:

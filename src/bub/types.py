@@ -14,6 +14,7 @@ type OutboundDispatcher = Callable[[Envelope], Coroutine[Any, Any, bool]]
 
 class OutboundChannelRouter(Protocol):
     async def dispatch(self, message: Envelope) -> bool: ...
+    async def quit(self, session_id: str) -> None: ...
 
 
 @dataclass(frozen=True)

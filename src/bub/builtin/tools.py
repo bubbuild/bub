@@ -295,8 +295,18 @@ def show_help() -> str:
         "  ,bash cmd='sleep 5' background=true\n"
         "  ,bash.output shell_id=bsh-12345678\n"
         "  ,bash.kill shell_id=bsh-12345678\n"
+        "  ,quit\n"
         "Any unknown command after ',' is executed as shell via bash."
     )
+
+
+@tool(name="quit", context=True)
+async def quit_tool(*, context: ToolContext) -> str:
+    """Quit the tasks of the current session."""
+    agent = _get_agent(context)
+    session_id = context.state.get("session_id", "temp/unknown")
+    await agent.framework.quit_via_router(session_id)
+    return "Session tasks stopped."
 
 
 def _resolve_path(context: ToolContext, raw_path: str) -> Path:
