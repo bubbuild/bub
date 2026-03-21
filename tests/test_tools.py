@@ -6,7 +6,7 @@ import pytest
 from loguru import logger
 from pydantic import BaseModel
 
-from bub.tools import REGISTRY, model_tools, render_tools_prompt, tool
+from bub.tools import REGISTRY, model_tools, render_tools_prompt, resolve_tool_names, tool
 
 
 class EchoInput(BaseModel):
@@ -123,3 +123,33 @@ def test_render_tools_prompt_renders_available_tools_block() -> None:
 
 def test_render_tools_prompt_returns_empty_string_for_empty_input() -> None:
     assert render_tools_prompt([]) == ""
+
+
+def test_resolve_tool_names_accepts_runtime_names_and_model_aliases() -> None:
+    dotted_name = "tests.resolve_alias"
+    underscored_name = "tests_with_underscore"
+    REGISTRY.pop(dotted_name, None)
+    REGISTRY.pop(underscored_name, None)
+
+    @tool(name=dotted_name)
+    def resolve_alias() -> str:
+        return "alias"
+
+    @tool(name=underscored_name)
+    def resolve_runtime_name() -> str:
+        return "runtime"
+
+    assert resolve_tool_names([" tests_resolve_alias ", " tests_with_underscore "], exclude={" subagent "}) == {
+        dotted_name,
+        underscored_name,
+    }
+    assert dotted_name not in resolve_tool_names(None, exclude={" tests_resolve_alias "})
+    assert resolve_tool_names(None, exclude={" tests_resolve_alias "}) >= {underscored_name}
+
+
+def test_resolve_tool_names_rejects_unknown_names() -> None:
+    with pytest.raises(ValueError, match="tests_missing_tool"):
+        resolve_tool_names([" tests_missing_tool "])
+
+    with pytest.raises(ValueError, match="tests_missing_tool"):
+        resolve_tool_names(None, exclude={" tests_missing_tool "})

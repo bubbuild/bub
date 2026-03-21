@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from bub.builtin.tools import run_subagent
+from bub.tools import REGISTRY, tool
 
 
 class FakeContext:
@@ -94,3 +95,50 @@ async def test_subagent_default_session_when_missing() -> None:
 
     call_kwargs = agent.run.call_args.kwargs
     assert call_kwargs["session_id"] == "temp/unknown"
+
+
+@pytest.mark.asyncio
+async def test_subagent_empty_allowed_tools_defaults_to_all_non_subagent_tools() -> None:
+    tool_name = "tests.allowed_tool_default"
+    REGISTRY.pop(tool_name, None)
+
+    @tool(name=tool_name)
+    def allowed_tool_default() -> str:
+        return "ok"
+
+    agent = FakeAgent()
+    ctx = FakeContext({"_runtime_agent": agent, "session_id": "user/abc"})
+
+    await run_subagent.run(prompt="task", allowed_tools=[], context=ctx)
+
+    allowed_tools = agent.run.call_args.kwargs["allowed_tools"]
+    assert tool_name in allowed_tools
+    assert "subagent" not in allowed_tools
+
+
+@pytest.mark.asyncio
+async def test_subagent_resolves_model_tool_aliases_to_runtime_names() -> None:
+    tool_name = "tests.resolve_subagent"
+    REGISTRY.pop(tool_name, None)
+
+    @tool(name=tool_name)
+    def resolve_subagent() -> str:
+        return "ok"
+
+    agent = FakeAgent()
+    ctx = FakeContext({"_runtime_agent": agent, "session_id": "user/abc"})
+
+    await run_subagent.run(prompt="task", allowed_tools=[" tests_resolve_subagent "], context=ctx)
+
+    assert agent.run.call_args.kwargs["allowed_tools"] == {tool_name}
+
+
+@pytest.mark.asyncio
+async def test_subagent_rejects_unknown_allowed_tools() -> None:
+    agent = FakeAgent()
+    ctx = FakeContext({"_runtime_agent": agent, "session_id": "user/abc"})
+
+    with pytest.raises(ValueError, match="tests_missing_tool"):
+        await run_subagent.run(prompt="task", allowed_tools=[" tests_missing_tool "], context=ctx)
+
+    agent.run.assert_not_called()

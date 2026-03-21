@@ -11,7 +11,7 @@ from republic import AsyncTapeStore, TapeQuery, ToolContext
 
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
-from bub.tools import REGISTRY, tool
+from bub.tools import resolve_tool_names, tool
 
 if TYPE_CHECKING:
     from bub.builtin.agent import Agent
@@ -263,10 +263,7 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
     else:
         subagent_session = param.session
     state = {**context.state, "session_id": subagent_session}
-    if param.allowed_tools:
-        allowed_tools = set(param.allowed_tools) - {"subagent"}
-    else:
-        allowed_tools = set(REGISTRY.keys()) - {"subagent"}
+    allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"})
     return await agent.run(
         session_id=subagent_session,
         prompt=param.prompt,

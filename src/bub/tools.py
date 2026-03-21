@@ -136,6 +136,53 @@ def _to_model_name(name: str) -> str:
     return name.replace(".", "_")
 
 
+def _tool_name_index() -> dict[str, str]:
+    real_names = {tool_name.casefold(): tool_name for tool_name in REGISTRY}
+    alias_names = {_to_model_name(tool_name).casefold(): tool_name for tool_name in REGISTRY}
+    return {**alias_names, **real_names}
+
+
+def resolve_tool_name(name: str) -> str | None:
+    """Resolve a user/model-provided tool name to the runtime registry name."""
+    key = name.strip().casefold()
+    if not key:
+        return None
+    return _tool_name_index().get(key)
+
+
+def _resolve_explicit_tool_names(names: Iterable[str]) -> tuple[set[str], set[str]]:
+    resolved: set[str] = set()
+    unknown: set[str] = set()
+    for name in names:
+        normalized_name = name.strip()
+        if resolved_name := resolve_tool_name(normalized_name):
+            resolved.add(resolved_name)
+        else:
+            unknown.add(normalized_name)
+    return resolved, unknown
+
+
+def _raise_unknown_tool_names(names: set[str]) -> None:
+    formatted = ", ".join(sorted(repr(name) for name in names))
+    raise ValueError(f"unknown tool name(s): {formatted}")
+
+
+def resolve_tool_names(
+    names: Iterable[str] | None = None, *, exclude: Iterable[str] = ()
+) -> set[str]:
+    """Resolve tool names from either runtime names or model-facing aliases."""
+    excluded, unknown_excluded = _resolve_explicit_tool_names(exclude)
+    if unknown_excluded:
+        _raise_unknown_tool_names(unknown_excluded)
+    if names is None:
+        return set(REGISTRY) - excluded
+
+    resolved, unknown = _resolve_explicit_tool_names(names)
+    if unknown:
+        _raise_unknown_tool_names(unknown)
+    return resolved - excluded
+
+
 def model_tools(tools: Iterable[Tool]) -> list[Tool]:
     """Helper to convert a list of Tool instances into a format accepted by LLMs."""
     return [replace(tool, name=_to_model_name(tool.name)) for tool in tools]
