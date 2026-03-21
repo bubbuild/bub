@@ -9,10 +9,10 @@ from typing import Any
 from republic import TapeContext, TapeEntry
 
 
-def default_tape_context(state: dict[str, Any] | None = None) -> TapeContext:
+def default_tape_context() -> TapeContext:
     """Return the default context selection for Bub."""
 
-    return TapeContext(select=_select_messages, state=state or {})
+    return TapeContext(select=_select_messages, state={})
 
 
 def _select_messages(entries: Iterable[TapeEntry], _context: TapeContext) -> list[dict[str, Any]]:

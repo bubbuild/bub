@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pluggy
-from republic import AsyncTapeStore
+from republic import AsyncTapeStore, TapeContext
 from republic.tape import TapeStore
 
 from bub.types import Envelope, MessageHandler, State
@@ -92,4 +92,9 @@ class BubHookSpecs:
     @hookspec
     def provide_channels(self, message_handler: MessageHandler) -> list[Channel]:
         """Provide a list of channels for receiving messages."""
+        raise NotImplementedError
+
+    @hookspec(firstresult=True)
+    def build_tape_context(self) -> TapeContext:
+        """Build a tape context for the current session, to be used to build context messages."""
         raise NotImplementedError

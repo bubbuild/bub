@@ -6,9 +6,11 @@ from typing import cast
 
 import typer
 from loguru import logger
+from republic import TapeContext
 from republic.tape import TapeStore
 
 from bub.builtin.agent import Agent
+from bub.builtin.context import default_tape_context
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.envelope import content_of, field_of
@@ -187,3 +189,7 @@ class BuiltinImpl:
         from bub.builtin.store import FileTapeStore
 
         return FileTapeStore(directory=self.agent.settings.home / "tapes")
+
+    @hookimpl
+    def build_tape_context(self) -> TapeContext:
+        return default_tape_context()

@@ -15,10 +15,9 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from republic import LLM, AsyncTapeStore, ToolAutoResult, ToolContext
+from republic import LLM, AsyncTapeStore, TapeContext, ToolAutoResult, ToolContext
 from republic.tape import InMemoryTapeStore, Tape
 
-from bub.builtin.context import default_tape_context
 from bub.builtin.settings import AgentSettings
 from bub.builtin.store import ForkTapeStore
 from bub.builtin.tape import TapeService
@@ -46,7 +45,7 @@ class Agent:
         if tape_store is None:
             tape_store = InMemoryTapeStore()
         tape_store = ForkTapeStore(tape_store)
-        llm = _build_llm(self.settings, tape_store)
+        llm = _build_llm(self.settings, tape_store, self.framework.build_tape_context())
         return TapeService(llm, self.settings.home / "tapes", tape_store)
 
     async def run(
@@ -265,7 +264,7 @@ def _resolve_tool_auto_result(output: ToolAutoResult) -> _ToolAutoOutcome:
     return _ToolAutoOutcome(kind="error", error=f"{error_kind}: {output.error.message}")
 
 
-def _build_llm(settings: AgentSettings, tape_store: AsyncTapeStore) -> LLM:
+def _build_llm(settings: AgentSettings, tape_store: AsyncTapeStore, tape_context: TapeContext) -> LLM:
     from republic.auth.openai_codex import openai_codex_oauth_resolver
 
     return LLM(
@@ -276,7 +275,7 @@ def _build_llm(settings: AgentSettings, tape_store: AsyncTapeStore) -> LLM:
         api_key_resolver=openai_codex_oauth_resolver(),
         tape_store=tape_store,
         api_format=settings.api_format,
-        context=default_tape_context(),
+        context=tape_context,
         verbose=settings.verbose,
     )
 

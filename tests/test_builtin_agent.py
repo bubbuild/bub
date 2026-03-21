@@ -25,12 +25,11 @@ def test_build_llm_passes_codex_resolver_to_republic(monkeypatch) -> None:
 
     monkeypatch.setattr(agent_module, "LLM", FakeLLM)
     monkeypatch.setattr(openai_codex, "openai_codex_oauth_resolver", lambda: resolver)
-    monkeypatch.setattr(agent_module, "default_tape_context", lambda: "ctx")
 
     settings = AgentSettings(model="openai:gpt-5-codex", api_key=None, api_base=None)
     tape_store = object()
 
-    agent_module._build_llm(settings, tape_store)
+    agent_module._build_llm(settings, tape_store, "ctx")
 
     assert captured["args"] == ("openai:gpt-5-codex",)
     assert captured["kwargs"]["api_key"] is None

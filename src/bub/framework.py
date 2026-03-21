@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 import pluggy
 import typer
 from loguru import logger
-from republic import AsyncTapeStore
+from republic import AsyncTapeStore, TapeContext
 from republic.tape import TapeStore
 
 from bub.envelope import content_of, field_of, unpack_batch
@@ -209,3 +209,6 @@ class BubFramework:
             for result in reversed(self._hook_runtime.call_many_sync("system_prompt", prompt=prompt, state=state))
             if result
         )
+
+    def build_tape_context(self) -> TapeContext:
+        return self._hook_runtime.call_first_sync("build_tape_context")
