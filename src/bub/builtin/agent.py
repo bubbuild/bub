@@ -122,6 +122,16 @@ class Agent:
     ) -> str:
         next_prompt: str | list[dict] = prompt
         display_model = model or self.settings.model
+        await self.tapes.append_event(
+            tape.name,
+            "loop.start",
+            {
+                "model": display_model,
+                "prompt": prompt,
+                "allowed_skills": list(allowed_skills) if allowed_skills else None,
+                "allowed_tools": list(allowed_tools) if allowed_tools else None,
+            },
+        )
         for step in range(1, self.settings.max_steps + 1):
             start = time.monotonic()
             logger.info("loop.step step={} tape={} model={}", step, tape.name, display_model)
