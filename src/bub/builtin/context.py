@@ -12,7 +12,7 @@ from republic import TapeContext, TapeEntry
 def default_tape_context() -> TapeContext:
     """Return the default context selection for Bub."""
 
-    return TapeContext(select=_select_messages, state={})
+    return TapeContext(select=_select_messages)
 
 
 def _select_messages(entries: Iterable[TapeEntry], _context: TapeContext) -> list[dict[str, Any]]:

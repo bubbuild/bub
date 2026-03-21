@@ -8,7 +8,7 @@ import re
 import shlex
 import time
 from collections.abc import Collection
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import cached_property
 from pathlib import Path
@@ -61,7 +61,7 @@ class Agent:
         if not prompt:
             return "error: empty prompt"
         tape = self.tapes.session_tape(session_id, workspace_from_state(state))
-        tape.context.state.update(state)
+        tape.context = replace(tape.context, state=state)
         merge_back = not session_id.startswith("temp/")
         async with self.tapes.fork_tape(tape.name, merge_back=merge_back):
             await self.tapes.ensure_bootstrap_anchor(tape.name)

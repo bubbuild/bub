@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import republic.auth.openai_codex as openai_codex
-from republic import ToolAutoResult
+from republic import TapeContext, ToolAutoResult
 
 import bub.builtin.agent as agent_module
 from bub.builtin.agent import Agent
@@ -80,7 +80,7 @@ class _FakeTapeService:
     def session_tape(self, session_id: str, workspace: Any) -> MagicMock:
         tape = MagicMock()
         tape.name = "test-tape"
-        tape.context.state = {}
+        tape.context = TapeContext(state={})
 
         async def fake_run_tools_async(**kwargs: Any) -> ToolAutoResult:
             self.run_tools_model = kwargs.get("model")
