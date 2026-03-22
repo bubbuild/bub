@@ -167,9 +167,7 @@ def _raise_unknown_tool_names(names: set[str]) -> None:
     raise ValueError(f"unknown tool name(s): {formatted}")
 
 
-def resolve_tool_names(
-    names: Iterable[str] | None = None, *, exclude: Iterable[str] = ()
-) -> set[str]:
+def resolve_tool_names(names: Iterable[str] | None = None, *, exclude: Iterable[str] = ()) -> set[str]:
     """Resolve tool names from either runtime names or model-facing aliases."""
     excluded, unknown_excluded = _resolve_explicit_tool_names(exclude)
     if unknown_excluded:
