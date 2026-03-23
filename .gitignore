@@ -145,3 +145,4 @@ reference/
 
 # Local legacy backups created during framework migrations
 backup/
+.alma-snapshots

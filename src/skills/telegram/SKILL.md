@@ -69,6 +69,9 @@ But when any explanation or details are needed, use a normal reply instead.
 Paths are relative to this skill directory.
 
 ```bash
+# Load environment variables from .env first
+set -a; source .env 2>/dev/null || true; set +a
+
 # Send simple text with SINGLE quotes
 uv run ${SKILL_DIR}/scripts/telegram_send.py \
   --chat-id <CHAT_ID> \
