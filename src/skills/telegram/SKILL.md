@@ -14,10 +14,12 @@ metadata:
 
 Agent-facing execution guide for Telegram outbound communication.
 
+# Load environment variables from .env first
+set -a; source .env 2>/dev/null || true; set +a
+
 Assumption: `BUB_TELEGRAM_TOKEN` is already available.
 
 ## Required Inputs
-
 Collect these before execution:
 
 - `chat_id` (required)
