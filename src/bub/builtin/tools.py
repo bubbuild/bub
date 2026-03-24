@@ -83,13 +83,16 @@ async def bash(
     if background:
         return f"started: {shell.shell_id}"
     try:
-        async with asyncio.timeout(timeout_seconds):
-            shell = await shell_manager.wait_closed(shell.shell_id)
-    except TimeoutError:
-        await shell_manager.terminate(shell.shell_id)
-        return f"command timed out after {timeout_seconds} seconds and was terminated"
-    _raise_for_failed_shell(shell.returncode, shell.output)
-    return shell.output.strip() or "(no output)"
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                shell = await shell_manager.wait_closed(shell.shell_id)
+        except TimeoutError:
+            await shell_manager.terminate(shell.shell_id)
+            return f"command timed out after {timeout_seconds} seconds and was terminated"
+        _raise_for_failed_shell(shell.returncode, shell.output)
+        return shell.output.strip() or "(no output)"
+    finally:
+        shell_manager.release(shell.shell_id)
 
 
 @tool(name="bash.output")

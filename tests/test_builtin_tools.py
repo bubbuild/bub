@@ -9,6 +9,8 @@ from republic import ToolContext
 from republic.core.errors import ErrorKind
 from republic.tools.executor import ToolExecutor
 
+import bub.builtin.tools as builtin_tools
+from bub.builtin.shell_manager import ShellManager
 from bub.builtin.tools import bash, bash_output, kill_bash
 
 
@@ -25,6 +27,28 @@ async def test_bash_returns_stdout_for_foreground_command(tmp_path) -> None:
     result = await bash.run(cmd=_python_shell("print('hello')"), context=_tool_context(tmp_path))
 
     assert result == "hello"
+
+
+@pytest.mark.asyncio
+async def test_foreground_bash_releases_shell_from_shell_manager(tmp_path, monkeypatch) -> None:
+    manager = ShellManager()
+    monkeypatch.setattr(builtin_tools, "shell_manager", manager)
+
+    result = await bash.run(cmd=_python_shell("print('hello')"), context=_tool_context(tmp_path))
+
+    assert result == "hello"
+    assert manager._shells == {}
+
+
+@pytest.mark.asyncio
+async def test_foreground_bash_releases_shell_when_command_fails(tmp_path, monkeypatch) -> None:
+    manager = ShellManager()
+    monkeypatch.setattr(builtin_tools, "shell_manager", manager)
+
+    with pytest.raises(RuntimeError, match="command exited with code"):
+        await bash.run(cmd=_python_shell("import sys; sys.exit(2)"), context=_tool_context(tmp_path))
+
+    assert manager._shells == {}
 
 
 @pytest.mark.asyncio
