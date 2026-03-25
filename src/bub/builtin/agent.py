@@ -18,7 +18,7 @@ from loguru import logger
 from republic import LLM, AsyncTapeStore, TapeContext, ToolAutoResult, ToolContext
 from republic.tape import InMemoryTapeStore, Tape
 
-from bub.builtin.settings import AgentSettings
+from bub.builtin.settings import AgentSettings, load_settings
 from bub.builtin.store import ForkTapeStore
 from bub.builtin.tape import TapeService
 from bub.framework import BubFramework
@@ -36,7 +36,7 @@ class Agent:
     """Agent that processes prompts using hooks and tools. Backed by republic."""
 
     def __init__(self, framework: BubFramework) -> None:
-        self.settings = _load_runtime_settings()
+        self.settings = load_settings()
         self.framework = framework
 
     @cached_property
@@ -288,10 +288,6 @@ def _build_llm(settings: AgentSettings, tape_store: AsyncTapeStore, tape_context
         context=tape_context,
         verbose=settings.verbose,
     )
-
-
-def _load_runtime_settings() -> AgentSettings:
-    return AgentSettings.from_env()
 
 
 @dataclass(frozen=True)
