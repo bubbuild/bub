@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import pluggy
 import typer
+from dotenv import load_dotenv
 from loguru import logger
 from republic import AsyncTapeStore, TapeContext
 from republic.tape import TapeStore
@@ -19,6 +20,9 @@ from bub.types import Envelope, MessageHandler, OutboundChannelRouter, TurnResul
 
 if TYPE_CHECKING:
     from bub.channels.base import Channel
+
+
+load_dotenv()
 
 
 @dataclass(frozen=True)
