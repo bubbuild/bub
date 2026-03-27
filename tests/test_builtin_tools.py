@@ -95,7 +95,7 @@ async def test_background_bash_exposes_output_via_bash_output(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_kill_bash_terminates_background_process(tmp_path) -> None:
+async def test_kill_bash_terminates_background_process_and_releases_shell(tmp_path) -> None:
     started = await bash.run(
         cmd=_python_shell("import time; time.sleep(10)"),
         background=True,
@@ -104,11 +104,11 @@ async def test_kill_bash_terminates_background_process(tmp_path) -> None:
     shell_id = started.removeprefix("started: ").strip()
 
     killed = await kill_bash.run(shell_id=shell_id)
-    output = await bash_output.run(shell_id=shell_id)
 
     assert killed.startswith(f"id: {shell_id}\nstatus: exited\nexit_code: ")
     assert "exit_code: null" not in killed
-    assert output.startswith(f"id: {shell_id}\nstatus: exited\n")
+    with pytest.raises(KeyError, match="unknown shell id"):
+        await bash_output.run(shell_id=shell_id)
 
 
 @pytest.mark.asyncio

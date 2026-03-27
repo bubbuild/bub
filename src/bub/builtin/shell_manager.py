@@ -83,6 +83,7 @@ class ShellManager:
         for task in shell.read_tasks:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        self._shells.pop(shell.shell_id, None)
 
     async def _drain_stream(
         self,
