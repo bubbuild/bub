@@ -97,6 +97,12 @@ If the upstream endpoint expects a specific OpenAI-compatible request shape, set
 BUB_MODEL=openai:gpt-5-codex BUB_API_FORMAT=responses uv run bub chat
 ```
 
+WeChat QR login is exposed under the same top-level namespace:
+
+```bash
+uv run bub login wechat
+```
+
 ## Notes
 
 - `--workspace` is parsed before the subcommand, for example `uv run bub --workspace /repo chat`.

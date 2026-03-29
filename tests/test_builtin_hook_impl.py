@@ -140,7 +140,7 @@ def test_system_prompt_ignores_missing_agents_file(tmp_path: Path) -> None:
     assert result == DEFAULT_SYSTEM_PROMPT + "\n\n"
 
 
-def test_provide_channels_returns_cli_and_telegram(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_provide_channels_returns_cli_telegram_and_wechat(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _, impl, agent = _build_impl(tmp_path)
 
     class DummyCliChannel:
@@ -156,21 +156,30 @@ def test_provide_channels_returns_cli_and_telegram(tmp_path: Path, monkeypatch: 
         def __init__(self, on_receive) -> None:
             self.on_receive = on_receive
 
+    class DummyWeChatChannel:
+        name = "wechat"
+
+        def __init__(self, on_receive) -> None:
+            self.on_receive = on_receive
+
     import bub.channels.cli
     import bub.channels.telegram
+    import bub.channels.wechat
 
     monkeypatch.setattr(bub.channels.cli, "CliChannel", DummyCliChannel)
     monkeypatch.setattr(bub.channels.telegram, "TelegramChannel", DummyTelegramChannel)
+    monkeypatch.setattr(bub.channels.wechat, "WeChatChannel", DummyWeChatChannel)
 
     def message_handler(message) -> None:
         return None
 
     channels = impl.provide_channels(message_handler)
 
-    assert [channel.name for channel in channels] == ["telegram", "cli"]
+    assert [channel.name for channel in channels] == ["telegram", "wechat", "cli"]
     assert channels[0].on_receive is message_handler
     assert channels[1].on_receive is message_handler
-    assert channels[1].agent is agent
+    assert channels[2].on_receive is message_handler
+    assert channels[2].agent is agent
 
 
 @pytest.mark.asyncio

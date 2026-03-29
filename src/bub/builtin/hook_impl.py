@@ -138,9 +138,11 @@ class BuiltinImpl:
     def provide_channels(self, message_handler: MessageHandler) -> list[Channel]:
         from bub.channels.cli import CliChannel
         from bub.channels.telegram import TelegramChannel
+        from bub.channels.wechat import WeChatChannel
 
         return [
             TelegramChannel(on_receive=message_handler),
+            WeChatChannel(on_receive=message_handler),
             CliChannel(on_receive=message_handler, agent=self.agent),
         ]
 

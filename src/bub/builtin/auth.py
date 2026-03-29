@@ -57,3 +57,14 @@ def openai(
         raise typer.Exit(1) from exc
 
     _render_codex_login_result(tokens, resolved_codex_home / "auth.json")
+
+
+@app.command()
+def wechat(
+    state_file: Path | None = typer.Option(None, "--state-file", help="Override the WeChat state file"),  # noqa: B008
+) -> None:
+    """Login with the official WeChat QR flow."""
+
+    from bub.channels.wechat import login_command
+
+    login_command(state_file=state_file)

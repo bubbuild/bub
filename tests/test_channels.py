@@ -93,6 +93,7 @@ async def test_buffered_handler_passes_commands_through_immediately() -> None:
 async def test_channel_manager_dispatch_uses_output_channel_and_preserves_metadata() -> None:
     cli_channel = FakeChannel("cli")
     manager = ChannelManager(FakeFramework({"cli": cli_channel}), enabled_channels=["cli"])
+    media = [SimpleNamespace(type="image", mime_type="image/png", filename="diagram.png")]
 
     result = await manager.dispatch({
         "session_id": "session",
@@ -102,6 +103,7 @@ async def test_channel_manager_dispatch_uses_output_channel_and_preserves_metada
         "content": "hello",
         "kind": "command",
         "context": {"source": "test"},
+        "media": media,
     })
 
     assert result is True
@@ -112,6 +114,7 @@ async def test_channel_manager_dispatch_uses_output_channel_and_preserves_metada
     assert outbound.content == "hello"
     assert outbound.kind == "command"
     assert outbound.context["source"] == "test"
+    assert outbound.media == media
 
 
 def test_channel_manager_enabled_channels_excludes_cli_from_all() -> None:

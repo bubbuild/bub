@@ -89,6 +89,7 @@ class ChannelManager:
             content=content_of(message),
             context=field_of(message, "context", {}),
             kind=field_of(message, "kind", "normal"),
+            media=field_of(message, "media", []),
         )
         await channel.send(outbound)
         return True

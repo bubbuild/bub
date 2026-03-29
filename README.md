@@ -95,8 +95,9 @@ See the [Extension Guide](https://bub.build/extension-guide/) for hook semantics
 | ------------------ | --------------------------------- |
 | `bub chat`         | Interactive REPL                  |
 | `bub run MESSAGE`  | One-shot turn                     |
-| `bub gateway`      | Channel listener (Telegram, etc.) |
+| `bub gateway`      | Channel listener (Telegram, WeChat, etc.) |
 | `bub login openai` | OpenAI Codex OAuth                |
+| `bub login wechat` | WeChat QR login                   |
 | `bub hooks`        | Print hook-to-plugin bindings     |
 
 Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-skill`, `,fs.read path=README.md`).
