@@ -43,6 +43,11 @@ Documentation = "https://bub.build"
 [project.scripts]
 bub = "bub.__main__:app"
 
+[project.optional-dependencies]
+logfire = [
+    "logfire>=4.31.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=7.2.0",

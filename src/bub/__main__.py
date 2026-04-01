@@ -7,7 +7,21 @@ import typer
 from bub.framework import BubFramework
 
 
+def _instrument_bub() -> None:
+    try:
+        import logfire
+
+        logfire.configure()
+    except ImportError:
+        pass
+    else:
+        from loguru import logger
+
+        logger.configure(handlers=[logfire.loguru_handler()])
+
+
 def create_cli_app() -> typer.Typer:
+    _instrument_bub()
     framework = BubFramework()
     framework.load_hooks()
     app = framework.create_cli_app()
