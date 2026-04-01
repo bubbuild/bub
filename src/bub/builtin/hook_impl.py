@@ -117,7 +117,7 @@ class BuiltinImpl:
         app.command("chat")(cli.chat)
         app.add_typer(cli.login_app)
         app.command("hooks", hidden=True)(cli.list_hooks)
-        app.command("message", hidden=True)(app.command("gateway")(cli.gateway))
+        app.command("gateway")(cli.gateway)
 
     def _read_agents_file(self, state: State) -> str:
         workspace = state.get("_runtime_workspace", str(Path.cwd()))

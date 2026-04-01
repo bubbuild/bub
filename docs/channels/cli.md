@@ -1,6 +1,6 @@
 # CLI
 
-`bub` exposes four main commands (`run`, `gateway`, `chat`, `login`) plus two hidden ones (`hooks` for diagnostics, `message` as a compatibility alias for `gateway`).
+`bub` exposes four main commands (`run`, `gateway`, `chat`, `login`) plus one hidden one (`hooks` for diagnostics).
 
 ## `bub run`
 
@@ -55,8 +55,6 @@ Enable only selected channels:
 ```bash
 uv run bub gateway --enable-channel telegram
 ```
-
-`bub message` is kept as a hidden compatibility alias and forwards to the same command implementation.
 
 ## `bub chat`
 

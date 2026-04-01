@@ -49,7 +49,7 @@ Builtin `BuiltinImpl` behavior includes:
 - `build_prompt`: supports comma command mode; non-command text may include `context_str`.
 - `run_model`: delegates to `Agent.run()`.
 - `system_prompt`: combines a default prompt with workspace `AGENTS.md`.
-- `register_cli_commands`: installs `run`, `gateway`, `chat`, plus hidden compatibility/diagnostic commands.
+- `register_cli_commands`: installs `run`, `gateway`, `chat`, plus hidden diagnostic commands.
 - `provide_channels`: returns `telegram` and `cli` channel adapters.
 - `provide_tape_store`: returns a file-backed tape store under `~/.bub/tapes`.
 
