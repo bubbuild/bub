@@ -104,8 +104,10 @@ class ChannelManager:
     def enabled_channels(self) -> list[Channel]:
         if "all" in self._enabled_channels:
             # Exclude 'cli' channel from 'all' to prevent interference with other channels
-            return [channel for name, channel in self._channels.items() if name != "cli"]
-        return [channel for name, channel in self._channels.items() if name in self._enabled_channels]
+            return [channel for name, channel in self._channels.items() if name != "cli" and channel.enabled]
+        return [
+            channel for name, channel in self._channels.items() if name in self._enabled_channels and channel.enabled
+        ]
 
     def _on_task_done(self, session_id: str, task: asyncio.Task) -> None:
         task.exception()  # to log any exception

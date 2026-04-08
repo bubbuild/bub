@@ -154,6 +154,10 @@ class TelegramChannel(Channel):
         self._typing_tasks: dict[str, asyncio.Task] = {}
 
     @property
+    def enabled(self) -> bool:
+        return bool(self._settings.token)
+
+    @property
     def needs_debounce(self) -> bool:
         return True
 

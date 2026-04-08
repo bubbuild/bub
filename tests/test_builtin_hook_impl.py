@@ -156,6 +156,10 @@ def test_provide_channels_returns_cli_and_telegram(tmp_path: Path, monkeypatch: 
         def __init__(self, on_receive) -> None:
             self.on_receive = on_receive
 
+        @property
+        def enabled(self) -> bool:
+            return True
+
     import bub.channels.cli
     import bub.channels.telegram
 

@@ -23,6 +23,11 @@ class Channel(ABC):
         """Whether this channel needs debounce to prevent overload. Default to False."""
         return False
 
+    @property
+    def enabled(self) -> bool:
+        """Whether this channel is enabled. Default to True."""
+        return True
+
     async def send(self, message: ChannelMessage) -> None:
         """Send a message to the channel. Optional to implement."""
         # Do nothing by default
