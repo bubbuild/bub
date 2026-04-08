@@ -34,6 +34,10 @@ class FakeChannel:
     async def stop(self) -> None:
         self.stopped = True
 
+    @property
+    def enabled(self) -> bool:
+        return True
+
     async def send(self, message: ChannelMessage) -> None:
         self.sent.append(message)
 
