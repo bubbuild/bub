@@ -101,6 +101,8 @@ class Agent:
         tape.context = replace(tape.context, state=state)
         merge_back = not session_id.startswith("temp/")
         stack = AsyncExitStack()
+        # the fork_tape context manager must not be exited until the last chunk of the stream is consumed.
+        # So we use an AsyncExitStack and inject a callback to the iterator.
         await stack.enter_async_context(self.tapes.fork_tape(tape.name, merge_back=merge_back))
         await self.tapes.ensure_bootstrap_anchor(tape.name)
         if isinstance(prompt, str) and prompt.strip().startswith(","):
