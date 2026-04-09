@@ -91,10 +91,7 @@ class Agent:
         allowed_tools: Collection[str] | None = None,
     ) -> AsyncStreamEvents:
         if not prompt:
-            events = [
-                StreamEvent("text", {"delta": "error: empty prompt"}),
-                StreamEvent("error", {"message": "empty prompt"}),
-            ]
+            events = [StreamEvent("text", {"delta": "error: empty prompt"})]
             return self._events_from_iterable(events)
 
         tape = self.tapes.session_tape(session_id, workspace_from_state(state))
