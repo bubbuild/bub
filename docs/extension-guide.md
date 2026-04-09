@@ -100,10 +100,17 @@ Current `process_inbound()` hook usage:
 1. `resolve_session` (`call_first`)
 2. `load_state` (`call_many`, then merged by framework)
 3. `build_prompt` (`call_first`)
-4. `run_model` (`call_first`)
+4. `run_model_stream` (`call_first`)
 5. `save_state` (`call_many`, always executed in `finally`)
 6. `render_outbound` (`call_many`)
 7. `dispatch_outbound` (`call_many`, per outbound)
+
+Compatibility note:
+
+- `run_model_stream` is the primary model hook.
+- If no plugin implements `run_model_stream`, Bub falls back to `run_model`.
+- The `run_model` return value is wrapped into a stream with exactly one text chunk.
+- A plugin should implement one of these hooks, not both.
 
 Other hook consumers:
 
@@ -150,6 +157,8 @@ class SessionPlugin:
 ```python
 from __future__ import annotations
 
+from republic import AsyncStreamEvents, StreamEvent
+
 from bub import hookimpl
 
 
@@ -159,8 +168,11 @@ class EchoPlugin:
         return f"[echo] {message['content']}"
 
     @hookimpl
-    async def run_model(self, prompt, session_id, state):
-        return prompt
+    async def run_model_stream(self, prompt, session_id, state):
+        async def iterator():
+            yield StreamEvent("text", {"delta": prompt})
+
+        return AsyncStreamEvents(iterator())
 ```
 
 Run and verify:
@@ -170,9 +182,56 @@ uv run bub hooks
 uv run bub run "hello"
 ```
 
-Check that your plugin is listed for `build_prompt` / `run_model`, and output reflects your override.
+Check that your plugin is listed for `build_prompt` / `run_model_stream`, and output reflects your override.
+If you intentionally use the legacy compatibility hook, check for `run_model`.
 
-## 10) Common Pitfalls
+## 10) Listen To Parent Stream
+
+If you want to observe or transform the parent stream instead of fully replacing it, implement `run_model_stream` and wrap the parent hook's async iterator.
+
+This pattern uses `subset_hook_caller(...)` to call the same hook chain without the current plugin, then returns a new `AsyncStreamEvents` wrapper.
+
+```python
+from __future__ import annotations
+
+from republic import AsyncStreamEvents, StreamEvent
+
+from bub import hookimpl
+
+
+class StreamTapPlugin:
+    def __init__(self, framework) -> None:
+        self.framework = framework
+
+    @hookimpl
+    async def run_model_stream(self, prompt, session_id, state):
+        parent_hook = self.framework._plugin_manager.subset_hook_caller(
+            "run_model_stream",
+            remove_plugins=[self],
+        )
+        parent_stream = await parent_hook(
+            prompt=prompt,
+            session_id=session_id,
+            state=state,
+        )
+        if parent_stream is None:
+            raise RuntimeError("no parent run_model_stream implementation found")
+
+        async def iterator():
+            async for event in parent_stream:
+                if event.kind == "text":
+                    delta = str(event.data.get("delta", ""))
+                    print(delta, end="")
+                yield event
+
+        return AsyncStreamEvents(iterator(), state=parent_stream._state)
+```
+
+Use this when you need to log chunks, redact text, inject extra events, or measure stream timing without reimplementing the underlying model call.
+
+If you also need to support parents that only implement legacy `run_model`, add your own fallback path and wrap that text result into a one-chunk stream.
+
+## 11) Common Pitfalls
 
 - Defining `@tool` functions without importing the module from your plugin means the tools never register.
 - Returning awaitables from hooks invoked via sync paths (`call_many_sync` / `call_first_sync`) causes skip.

@@ -16,11 +16,13 @@
 2. Initialize state with `_runtime_workspace` from `BubFramework.workspace`.
 3. Merge all `load_state(message, session_id)` dicts.
 4. Build prompt via `build_prompt(message, session_id, state)` (fallback to inbound `content` if empty).
-5. Execute `run_model(prompt, session_id, state)`.
+5. Execute `run_model_stream(prompt, session_id, state)`.
 6. Always execute `save_state(...)` in a `finally` block.
 7. Render outbound batches via `render_outbound(...)`, then flatten them.
 8. If no outbound exists, emit one fallback outbound.
 9. Dispatch each outbound via `dispatch_outbound(message)`.
+
+If no plugin implements `run_model_stream`, `HookRuntime` falls back to `run_model(prompt, session_id, state)` and adapts the returned text into a stream with a single text chunk.
 
 ## Hook Priority Semantics
 
@@ -47,7 +49,7 @@
 Builtin `BuiltinImpl` behavior includes:
 
 - `build_prompt`: supports comma command mode; non-command text may include `context_str`.
-- `run_model`: delegates to `Agent.run()`.
+- `run_model_stream`: delegates to `Agent.run()`.
 - `system_prompt`: combines a default prompt with workspace `AGENTS.md`.
 - `register_cli_commands`: installs `run`, `gateway`, `chat`, plus hidden diagnostic commands.
 - `provide_channels`: returns `telegram` and `cli` channel adapters.

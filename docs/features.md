@@ -5,7 +5,9 @@
 Every turn stage is a [pluggy](https://pluggy.readthedocs.io/) hook.
 Builtins are ordinary plugins — override any stage by registering your own.
 Both first-result hooks (override) and broadcast hooks (observer) are supported.
-Safe fallback to prompt text when `run_model` returns no value (with `on_error` notification).
+`run_model_stream` is the primary model hook.
+Legacy `run_model` hooks still work and are adapted into a single text chunk stream.
+Safe fallback to prompt text when no model hook returns a value (with `on_error` notification).
 Automatic fallback outbound when `render_outbound` produces nothing.
 
 ## Tape-Based Context

@@ -31,11 +31,13 @@ uv run bub gateway                      # channel listener mode
 
 Every inbound message goes through one turn pipeline. Each stage is a hook.
 
+```text
+resolve_session → load_state → build_prompt → run_model_stream
+                                                          ↓
+                     dispatch_outbound ← render_outbound ← save_state
 ```
-resolve_session → load_state → build_prompt → run_model
-                                                   ↓
-              dispatch_outbound ← render_outbound ← save_state
-```
+
+`run_model` remains supported as a compatibility hook and is adapted into a single-chunk stream when `run_model_stream` is absent.
 
 Builtins are plugins registered first. Later plugins override earlier ones. No special cases.
 
