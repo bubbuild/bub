@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import datetime
 from hashlib import md5
 from pathlib import Path
@@ -11,16 +12,25 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
+from republic import StreamEvent
 from rich import get_console
+from rich.live import Live
 
 from bub.builtin.agent import Agent
 from bub.builtin.tape import TapeInfo
 from bub.channels.base import Channel
 from bub.channels.cli.renderer import CliRenderer
-from bub.channels.message import ChannelMessage
-from bub.envelope import content_of, field_of
+from bub.channels.message import ChannelMessage, MessageKind
+from bub.envelope import field_of
 from bub.tools import REGISTRY
 from bub.types import MessageHandler
+
+
+@dataclass
+class _StreamRenderState:
+    live: Live
+    kind: MessageKind
+    text: str = ""
 
 
 class CliChannel(Channel):
@@ -65,15 +75,6 @@ class CliChannel(Channel):
             with contextlib.suppress(asyncio.CancelledError):
                 await self._main_task
 
-    async def send(self, message: ChannelMessage) -> None:
-        match message.kind:
-            case "error":
-                self._renderer.error(content_of(message))
-            case "command":
-                self._renderer.command_output(content_of(message))
-            case _:
-                self._renderer.assistant_output(content_of(message))
-
     async def _main_loop(self) -> None:
         self._renderer.welcome(model=self._agent.settings.model, workspace=str(self._workspace))
         await self._refresh_tape_info()
@@ -103,9 +104,8 @@ class CliChannel(Channel):
                 content=request,
                 lifespan=self.message_lifespan(request_completed),
             )
-            with self._renderer.console.status("[cyan]Processing...[/cyan]", spinner="dots"):
-                await self._on_receive(message)
-                await request_completed.wait()
+            await self._on_receive(message)
+            await request_completed.wait()
             request_completed.clear()
 
         self._renderer.info("Bye.")
@@ -130,6 +130,22 @@ class CliChannel(Channel):
         cwd = Path.cwd().name
         symbol = ">" if self._mode == "agent" else ","
         return FormattedText([("bold", f"{cwd} {symbol} ")])
+
+    async def on_event(self, event: StreamEvent, message: ChannelMessage) -> None:
+        streams = self._stream_render_states()
+        state = streams.get(message.session_id)
+        if event.kind == "text":
+            if state is None:
+                state = _StreamRenderState(live=self._renderer.start_stream(message.kind), kind=message.kind)
+                streams[message.session_id] = state
+            content = str(event.data.get("delta", ""))
+            state.text += content
+            self._renderer.update_stream(state.live, kind=message.kind, text=state.text)
+        elif event.kind == "final":
+            if state is None:
+                return
+            self._renderer.finish_stream(state.live, kind=state.kind, text=state.text)
+            streams.pop(message.session_id, None)
 
     def _build_prompt(self, workspace: Path) -> PromptSession[str]:
         kb = KeyBindings()
@@ -172,3 +188,10 @@ class CliChannel(Channel):
     def _history_file(home: Path, workspace: Path) -> Path:
         workspace_hash = md5(str(workspace).encode("utf-8"), usedforsecurity=False).hexdigest()
         return home / "history" / f"{workspace_hash}.history"
+
+    def _stream_render_states(self) -> dict[str, _StreamRenderState]:
+        states = getattr(self, "_active_stream_renders", None)
+        if states is None:
+            states = {}
+            self._active_stream_renders = states
+        return states

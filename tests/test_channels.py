@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from republic import StreamEvent
 
 from bub.channels.cli import CliChannel
 from bub.channels.handler import BufferedMessageHandler
@@ -98,7 +99,7 @@ async def test_channel_manager_dispatch_uses_output_channel_and_preserves_metada
     cli_channel = FakeChannel("cli")
     manager = ChannelManager(FakeFramework({"cli": cli_channel}), enabled_channels=["cli"])
 
-    result = await manager.dispatch({
+    result = await manager.dispatch_output({
         "session_id": "session",
         "channel": "telegram",
         "output_channel": "cli",
@@ -206,20 +207,32 @@ def test_cli_channel_normalize_input_prefixes_shell_commands() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cli_channel_send_routes_by_message_kind() -> None:
+async def test_cli_channel_on_event_renders_stream_and_suppresses_followup_send() -> None:
     channel = CliChannel.__new__(CliChannel)
-    events: list[tuple[str, str]] = []
+    events: list[tuple[str, str, str]] = []
+    live_handle = object()
     channel._renderer = SimpleNamespace(
-        error=lambda content: events.append(("error", content)),
-        command_output=lambda content: events.append(("command", content)),
-        assistant_output=lambda content: events.append(("assistant", content)),
+        start_stream=lambda kind: events.append(("start", kind, "")) or live_handle,
+        update_stream=lambda live, *, kind, text: events.append(("update", kind, text)),
+        finish_stream=lambda live, *, kind, text: events.append(("finish", kind, text)),
+        error=lambda content: events.append(("error", "error", content)),
+        command_output=lambda content: events.append(("send", "command", content)),
+        assistant_output=lambda content: events.append(("send", "normal", content)),
     )
 
-    await channel.send(_message("bad", channel="cli", kind="error"))
-    await channel.send(_message("ok", channel="cli", kind="command"))
-    await channel.send(_message("hi", channel="cli"))
+    message = _message("ignored", channel="cli", kind="command", session_id="cli:1")
 
-    assert events == [("error", "bad"), ("command", "ok"), ("assistant", "hi")]
+    await channel.on_event(StreamEvent("text", {"delta": "hel"}), message)
+    await channel.on_event(StreamEvent("text", {"delta": "lo"}), message)
+    await channel.on_event(StreamEvent("final", {}), message)
+    await channel.send(_message("hello", channel="cli", kind="command", session_id="cli:1"))
+
+    assert events == [
+        ("start", "command", ""),
+        ("update", "command", "hel"),
+        ("update", "command", "hello"),
+        ("finish", "command", "hello"),
+    ]
 
 
 def test_cli_channel_history_file_uses_workspace_hash(tmp_path: Path) -> None:

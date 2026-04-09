@@ -2,6 +2,8 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import ClassVar
 
+from republic import StreamEvent
+
 from bub.channels.message import ChannelMessage
 
 
@@ -30,5 +32,10 @@ class Channel(ABC):
 
     async def send(self, message: ChannelMessage) -> None:
         """Send a message to the channel. Optional to implement."""
+        # Do nothing by default
+        return
+
+    async def on_event(self, event: StreamEvent, message: ChannelMessage) -> None:
+        """Handle an event from the agent. Optional to implement."""
         # Do nothing by default
         return

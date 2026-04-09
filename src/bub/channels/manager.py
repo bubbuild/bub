@@ -6,6 +6,7 @@ from collections.abc import Collection
 from loguru import logger
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from republic import StreamEvent
 
 from bub.channels.base import Channel
 from bub.channels.handler import BufferedMessageHandler
@@ -72,7 +73,7 @@ class ChannelManager:
     def get_channel(self, name: str) -> Channel | None:
         return self._channels.get(name)
 
-    async def dispatch(self, message: Envelope) -> bool:
+    async def dispatch_output(self, message: Envelope) -> bool:
         channel_name = field_of(message, "output_channel", field_of(message, "channel"))
         if channel_name is None:
             return False
@@ -92,6 +93,18 @@ class ChannelManager:
         )
         await channel.send(outbound)
         return True
+
+    async def dispatch_event(self, event: StreamEvent, message: Envelope) -> None:
+        channel_name = field_of(message, "output_channel", field_of(message, "channel"))
+        if channel_name is None:
+            return
+
+        channel_key = str(channel_name)
+        channel = self.get_channel(channel_key)
+        if channel is None:
+            return
+
+        await channel.on_event(event, message)
 
     async def quit(self, session_id: str) -> None:
         tasks = self._ongoing_tasks.pop(session_id, set())

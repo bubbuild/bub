@@ -141,6 +141,7 @@ class BubFramework:
         else:
             parts: list[str] = []
             async for event in stream:
+                await self.dispatch_event_via_router(event, inbound)
                 if event.kind == "text":
                     parts.append(str(event.data.get("delta", "")))
                 elif event.kind == "error":
@@ -160,7 +161,13 @@ class BubFramework:
     async def dispatch_via_router(self, message: Envelope) -> bool:
         if self._outbound_router is None:
             return False
-        return await self._outbound_router.dispatch(message)
+        return await self._outbound_router.dispatch_output(message)
+
+    async def dispatch_event_via_router(self, event: Any, message: Envelope) -> bool:
+        if self._outbound_router is not None:
+            await self._outbound_router.dispatch_event(event, message)
+            return True
+        return False
 
     async def quit_via_router(self, session_id: str) -> None:
         if self._outbound_router is not None:
