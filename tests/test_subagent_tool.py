@@ -4,6 +4,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from republic import AsyncStreamEvents, StreamEvent
 
 from bub.builtin.tools import run_subagent
 from bub.tools import REGISTRY, tool
@@ -19,7 +20,13 @@ class FakeContext:
 
 class FakeAgent:
     def __init__(self) -> None:
-        self.run = AsyncMock(return_value="agent result")
+        self.run = AsyncMock(side_effect=self._run)
+
+    async def _run(self, **kwargs: Any) -> AsyncStreamEvents:
+        async def iterator():
+            yield StreamEvent("text", {"delta": "agent result"})
+
+        return AsyncStreamEvents(iterator())
 
 
 @pytest.mark.asyncio

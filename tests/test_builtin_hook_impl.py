@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from republic import AsyncStreamEvents, StreamEvent
 
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.builtin.store import FileTapeStore
@@ -28,9 +29,13 @@ class FakeAgent:
         self.settings = SimpleNamespace(home=home)
         self.calls: list[tuple[str, str, dict[str, object]]] = []
 
-    async def run(self, *, session_id: str, prompt: str, state: dict[str, object]) -> str:
+    async def run(self, *, session_id: str, prompt: str, state: dict[str, object]) -> AsyncStreamEvents:
         self.calls.append((session_id, prompt, state))
-        return "agent-output"
+
+        async def iterator():
+            yield StreamEvent("text", {"delta": "agent-output"})
+
+        return AsyncStreamEvents(iterator())
 
 
 def _raise_value_error() -> None:
@@ -113,13 +118,14 @@ async def test_build_prompt_marks_commands_and_prefixes_context(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
-async def test_run_model_delegates_to_agent(tmp_path: Path) -> None:
+async def test_run_model_stream_delegates_to_agent(tmp_path: Path) -> None:
     _, impl, agent = _build_impl(tmp_path)
     state = {"context": "ctx"}
 
-    result = await impl.run_model(prompt="prompt", session_id="session", state=state)
+    stream = await impl.run_model_stream(prompt="prompt", session_id="session", state=state)
+    events = [event async for event in stream]
 
-    assert result == "agent-output"
+    assert [(event.kind, event.data) for event in events] == [("text", {"delta": "agent-output"})]
     assert agent.calls == [("session", "prompt", state)]
 
 

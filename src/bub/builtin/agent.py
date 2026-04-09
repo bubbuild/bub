@@ -331,7 +331,7 @@ class Agent:
             tools = list(REGISTRY.values())
         async with asyncio.timeout(self.settings.model_timeout_seconds):
             return await tape.stream_events_async(
-                prompt=prompt,  # type: ignore[arg-type]
+                prompt=prompt,
                 system_prompt=self._system_prompt(prompt_text, state=tape.context.state, allowed_skills=allowed_skills),
                 max_tokens=self.settings.max_tokens,
                 tools=model_tools(tools),
