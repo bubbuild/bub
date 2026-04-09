@@ -168,6 +168,7 @@ async def test_agent_run_empty_prompt_returns_error() -> None:
 
     assert [(event.kind, event.data) for event in events] == [
         ("text", {"delta": "error: empty prompt"}),
+        ("final", {"ok": False, "text": "error: empty prompt"}),
     ]
 
 

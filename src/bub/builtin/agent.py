@@ -91,7 +91,10 @@ class Agent:
         allowed_tools: Collection[str] | None = None,
     ) -> AsyncStreamEvents:
         if not prompt:
-            events = [StreamEvent("text", {"delta": "error: empty prompt"})]
+            events = [
+                StreamEvent("text", {"delta": "error: empty prompt"}),
+                StreamEvent("final", {"text": "error: empty prompt", "ok": False}),
+            ]
             return self._events_from_iterable(events)
 
         tape = self.tapes.session_tape(session_id, workspace_from_state(state))
@@ -102,7 +105,10 @@ class Agent:
         await self.tapes.ensure_bootstrap_anchor(tape.name)
         if isinstance(prompt, str) and prompt.strip().startswith(","):
             result = await self._run_command(tape=tape, line=prompt.strip())
-            events = self._events_from_iterable([StreamEvent("text", {"delta": result})])
+            events = self._events_from_iterable([
+                StreamEvent("text", {"delta": result}),
+                StreamEvent("final", {"text": result, "ok": True}),
+            ])
         else:
             events = await self._agent_loop(
                 tape=tape, prompt=prompt, model=model, allowed_skills=allowed_skills, allowed_tools=allowed_tools
