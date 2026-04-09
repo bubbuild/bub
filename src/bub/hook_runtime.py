@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import pluggy
 from loguru import logger
+from republic import AsyncStreamEvents, StreamEvent, StreamState
 
 from bub.types import Envelope
 
@@ -158,12 +160,21 @@ class HookRuntime:
     def _kwargs_for_impl(impl: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
         return {name: kwargs[name] for name in impl.argnames if name in kwargs}
 
+    async def run_model_stream(
+        self, prompt: str | list[dict], session_id: str, state: dict[str, Any]
+    ) -> AsyncStreamEvents | None:
+        """Run the first `run_model_stream` hook found and fallback to `run_model` hook."""
+        for _, plugin in reversed(self._plugin_manager.list_name_plugin()):
+            if hasattr(plugin, "run_model_stream"):
+                return await self.call_first("run_model_stream", prompt=prompt, session_id=session_id, state=state)
+            elif hasattr(plugin, "run_model"):
 
-def _message_from_kwargs(kwargs: dict[str, Any]) -> Envelope | None:
-    message = kwargs.get("message")
-    if message is None:
+                async def iterator() -> AsyncGenerator[StreamEvent, None]:
+                    result = await self.call_first("run_model", prompt=prompt, session_id=session_id, state=state)
+                    yield StreamEvent("text", {"delta": result})
+
+                return AsyncStreamEvents(iterator(), state=StreamState())
         return None
-    return message
 
 
 _SKIP_VALUE = object()

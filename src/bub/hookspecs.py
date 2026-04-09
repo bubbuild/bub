@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pluggy
-from republic import AsyncTapeStore, TapeContext
+from republic import AsyncStreamEvents, AsyncTapeStore, TapeContext
 from republic.tape import TapeStore
 
 from bub.types import Envelope, MessageHandler, State
@@ -42,7 +42,12 @@ class BubHookSpecs:
 
     @hookspec(firstresult=True)
     def run_model(self, prompt: str | list[dict], session_id: str, state: State) -> str:
-        """Run model for one turn and return plain text output."""
+        """Run model for one turn and return plain text output. Should not be implemented if `run_model_stream` is implemented."""
+        raise NotImplementedError
+
+    @hookspec(firstresult=True)
+    def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> AsyncStreamEvents:
+        """Run model for one turn and return a stream of events. Should not be implemented if `run_model` is implemented."""
         raise NotImplementedError
 
     @hookspec

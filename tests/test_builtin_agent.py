@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import republic.auth.openai_codex as openai_codex
-from republic import TapeContext, ToolAutoResult
+from republic import AsyncStreamEvents, StreamEvent, TapeContext
 
 import bub.builtin.agent as agent_module
 from bub.builtin.agent import Agent
@@ -90,11 +90,15 @@ class _FakeTapeService:
         tape.name = "test-tape"
         tape.context = TapeContext(state={})
 
-        async def fake_run_tools_async(**kwargs: Any) -> ToolAutoResult:
+        async def fake_stream_events_async(**kwargs: Any) -> AsyncStreamEvents:
             self.run_tools_model = kwargs.get("model")
-            return ToolAutoResult(kind="text", text="done", tool_calls=[], tool_results=[], error=None)
 
-        tape.run_tools_async = fake_run_tools_async
+            async def iterator():
+                yield StreamEvent("final", {"text": "done"})
+
+            return AsyncStreamEvents(iterator())
+
+        tape.stream_events_async = fake_stream_events_async
         return tape
 
     async def ensure_bootstrap_anchor(self, tape_name: str) -> None:
@@ -116,7 +120,8 @@ async def test_agent_run_regular_session_merges_back() -> None:
     fork_capture = _ForkCapture()
     agent.tapes = _FakeTapeService(fork_capture)  # type: ignore[assignment]
 
-    await agent.run(session_id="user/session1", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
+    result = await agent.run(session_id="user/session1", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
+    [event async for event in result]
 
     assert fork_capture.merge_back_values == [True]
 
@@ -128,20 +133,27 @@ async def test_agent_run_temp_session_does_not_merge_back() -> None:
     fork_capture = _ForkCapture()
     agent.tapes = _FakeTapeService(fork_capture)  # type: ignore[assignment]
 
-    await agent.run(session_id="temp/abc123", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
+    result = await agent.run(session_id="temp/abc123", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
+    [event async for event in result]
 
     assert fork_capture.merge_back_values == [False]
 
 
 @pytest.mark.asyncio
 async def test_agent_run_passes_model_to_llm() -> None:
-    """The model parameter should be forwarded to run_tools_async."""
+    """The model parameter should be forwarded to stream_events_async."""
     agent = _make_agent()
     fork_capture = _ForkCapture()
     fake_tapes = _FakeTapeService(fork_capture)
     agent.tapes = fake_tapes  # type: ignore[assignment]
 
-    await agent.run(session_id="user/s1", prompt="hello", state={"_runtime_workspace": "/tmp"}, model="openai:gpt-4o")  # noqa: S108
+    result = await agent.run(
+        session_id="user/s1",
+        prompt="hello",
+        state={"_runtime_workspace": "/tmp"},  # noqa: S108
+        model="openai:gpt-4o",
+    )
+    [event async for event in result]
 
     assert fake_tapes.run_tools_model == "openai:gpt-4o"
 
@@ -152,8 +164,12 @@ async def test_agent_run_empty_prompt_returns_error() -> None:
     agent.tapes = MagicMock()  # type: ignore[assignment]
 
     result = await agent.run(session_id="user/s1", prompt="", state={})
+    events = [event async for event in result]
 
-    assert result == "error: empty prompt"
+    assert [(event.kind, event.data) for event in events] == [
+        ("text", {"delta": "error: empty prompt"}),
+        ("error", {"message": "empty prompt"}),
+    ]
 
 
 @pytest.mark.asyncio
@@ -164,6 +180,7 @@ async def test_agent_run_model_defaults_to_none() -> None:
     fake_tapes = _FakeTapeService(fork_capture)
     agent.tapes = fake_tapes  # type: ignore[assignment]
 
-    await agent.run(session_id="user/s1", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
+    result = await agent.run(session_id="user/s1", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
+    [event async for event in result]
 
     assert fake_tapes.run_tools_model is None
