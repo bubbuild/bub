@@ -17,10 +17,11 @@
 3. Merge all `load_state(message, session_id)` dicts.
 4. Build prompt via `build_prompt(message, session_id, state)` (fallback to inbound `content` if empty).
 5. Execute `run_model_stream(prompt, session_id, state)`.
-6. Always execute `save_state(...)` in a `finally` block.
-7. Render outbound batches via `render_outbound(...)`, then flatten them.
-8. If no outbound exists, emit one fallback outbound.
-9. Dispatch each outbound via `dispatch_outbound(message)`.
+6. For each stream event, call `OutboundChannelRouter.dispatch_event(...)`, which forwards to `channel.on_event(event, message)` when the target channel exists.
+7. Always execute `save_state(...)` in a `finally` block.
+8. Render outbound batches via `render_outbound(...)`, then flatten them.
+9. If no outbound exists, emit one fallback outbound.
+10. Dispatch each outbound via `dispatch_outbound(message)`.
 
 If no plugin implements `run_model_stream`, `HookRuntime` falls back to `run_model(prompt, session_id, state)` and adapts the returned text into a stream with a single text chunk.
 
@@ -54,6 +55,17 @@ Builtin `BuiltinImpl` behavior includes:
 - `register_cli_commands`: installs `run`, `gateway`, `chat`, plus hidden diagnostic commands.
 - `provide_channels`: returns `telegram` and `cli` channel adapters.
 - `provide_tape_store`: returns a file-backed tape store under `~/.bub/tapes`.
+
+## Channel Event Streaming
+
+Channels have two different outbound surfaces:
+
+- `send(message)`: handles the final rendered outbound message.
+- `on_event(event, message)`: handles raw stream events while the model is still running.
+
+`on_event` is optional. Implement it when a channel can benefit from incremental rendering, typing indicators, progress updates, or partial text display. The `message` argument is the original inbound message, so channel implementations usually use it to recover routing metadata such as target channel, chat id, session id, or message kind.
+
+If a channel does not implement any special event behavior, it can ignore `on_event` and rely entirely on `send()`.
 
 ## Boundaries
 

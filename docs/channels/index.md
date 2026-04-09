@@ -33,6 +33,17 @@ uv run bub gateway --enable-channel telegram
 - Telegram channel session id: `telegram:<chat_id>`
 - `chat` command default session id: `cli_session` (override with `--session-id`)
 
+## Outbound Delivery Surfaces
+
+Channel adapters can receive outbound data in two forms:
+
+- `send(message)`: the final rendered outbound message
+- `on_event(event, message)`: streaming events emitted while the model is still producing output
+
+Use `on_event` for incremental UX such as live text updates, typing indicators, progress bars, or chunk-level logging. Use `send` for the final durable outbound payload.
+
+`on_event` is optional. A channel that does not need streaming behavior can ignore it and only implement `send`.
+
 ## Debounce Behavior
 
 - `cli` does not debounce; each input is processed immediately.
