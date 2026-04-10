@@ -115,8 +115,7 @@ def _is_in_venv() -> bool:
 
 
 project_opt = typer.Option(
-    _default_project(),
-    "--project",
+    default_factory=_default_project,
     help="Path to the project directory (default: ~/.bub/bub-project)",
     envvar="BUB_PROJECT",
 )
