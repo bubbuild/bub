@@ -100,18 +100,36 @@ def _find_uv() -> str:
     return uv_path
 
 
+@lru_cache(maxsize=1)
+def _default_project() -> Path:
+    from .settings import load_settings
+
+    settings = load_settings()
+    project = settings.home / "bub-project"
+    project.mkdir(exist_ok=True, parents=True)
+    return project
+
+
 def _is_in_venv() -> bool:
     return sys.prefix != getattr(sys, "base_prefix", sys.prefix)
 
 
-def _uv(*args: str) -> subprocess.CompletedProcess:
+project_opt = typer.Option(
+    _default_project(),
+    "--project",
+    help="Path to the project directory (default: ~/.bub/bub-project)",
+    envvar="BUB_PROJECT",
+)
+
+
+def _uv(*args: str, cwd: Path) -> subprocess.CompletedProcess:
     uv_executable = _find_uv()
     if not _is_in_venv():
         typer.secho("Please install Bub in a virtual environment to use this command.", err=True, fg="red")
         raise typer.Exit(1)
     env = {**os.environ, "VIRTUAL_ENV": sys.prefix}
     try:
-        return subprocess.run([uv_executable, *args], env=env, check=True)
+        return subprocess.run([uv_executable, *args], env=env, check=True, cwd=cwd)
     except subprocess.CalledProcessError as e:
         typer.secho(f"Command 'uv {' '.join(args)}' failed with exit code {e.returncode}.", err=True, fg="red")
         raise typer.Exit(e.returncode) from e
@@ -136,40 +154,49 @@ def _build_requirement(spec: str) -> str:
         return f"git+{BUB_CONTRIB_REPO}{ref}#subdirectory=packages/{name}"
 
 
-def _ensure_project() -> None:
-    if (Path.cwd() / "pyproject.toml").is_file():
+def _ensure_project(project: Path) -> None:
+    if (project / "pyproject.toml").is_file():
         return
-    _uv("init", "--bare", "--name", "bub-project", "--app")
+    _uv("init", "--bare", "--name", "bub-project", "--app", cwd=project)
 
 
 def install(
-    spec: str = typer.Argument(
-        ..., help="Package specification to install, can be a git URL, owner/repo, or package name in bub-contrib."
+    specs: list[str] = typer.Argument(
+        default_factory=list,
+        help="Package specification to install, can be a git URL, owner/repo, or package name in bub-contrib.",
     ),
+    project: Path = project_opt,
 ) -> None:
-    """Install a plugin into Bub's environment."""
-    _ensure_project()
-    req = _build_requirement(spec)
-    _uv("add", "--active", req)
+    """Install a plugin into Bub's environment, or sync the environment if no specifications are provided."""
+    _ensure_project(project)
+    if not specs:
+        _uv("sync", "--active", "--inexact", cwd=project)
+    else:
+        _uv("add", "--active", *map(_build_requirement, specs), cwd=project)
 
 
 def uninstall(
-    package: str = typer.Argument(..., help="Package name to uninstall (must match the name in pyproject.toml)"),
+    packages: list[str] = typer.Argument(..., help="Package name to uninstall (must match the name in pyproject.toml)"),
+    project: Path = project_opt,
 ) -> None:
     """Uninstall a plugin from Bub's environment."""
-    _ensure_project()
-    _uv("remove", "--active", "--no-sync", package)
-    _uv("sync", "--active", "--frozen", "--inexact")
+    _ensure_project(project)
+    _uv("remove", "--active", "--no-sync", *packages, cwd=project)
+    _uv("sync", "--active", "--frozen", "--inexact", cwd=project)
 
 
 def update(
-    package: str | None = typer.Argument(
-        None, help="Optional package name to update (must match the name in pyproject.toml)"
+    packages: list[str] = typer.Argument(
+        default_factory=list, help="Optional package name to update (must match the name in pyproject.toml)"
     ),
+    project: Path = project_opt,
 ) -> None:
     """Update selected package or all packages in Bub's environment."""
-    _ensure_project()
-    if package is None:
-        _uv("sync", "--active", "--upgrade", "--inexact")
+    _ensure_project(project)
+    if not packages:
+        _uv("sync", "--active", "--upgrade", "--inexact", cwd=project)
     else:
-        _uv("sync", "--active", "--inexact", "--upgrade-package", package)
+        package_args: list[str] = []
+        for pkg in packages:
+            package_args.extend(["--upgrade-package", pkg])
+        _uv("sync", "--active", "--inexact", *package_args, cwd=project)
