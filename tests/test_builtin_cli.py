@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
 
 import bub.builtin.auth as auth
+import bub.builtin.cli as cli
 from bub.framework import BubFramework
 
 
@@ -69,3 +71,80 @@ def test_login_rejects_unsupported_provider() -> None:
 
     assert result.exit_code == 2
     assert "No such command 'anthropic'" in result.stderr
+
+
+def test_build_bub_requirement_uses_direct_url_json(monkeypatch) -> None:
+    class FakeDistribution:
+        version = "0.3.4"
+        name = "bub"
+
+        def read_text(self, filename: str) -> str:
+            assert filename == "direct_url.json"
+            return json.dumps({
+                "url": "https://github.com/bubbuild/bub.git",
+                "vcs_info": {"vcs": "git", "requested_revision": "main"},
+                "subdirectory": "python",
+            })
+
+    monkeypatch.setattr(cli.metadata, "distribution", lambda name: FakeDistribution())
+
+    assert cli._build_bub_requirement() == ["git+https://github.com/bubbuild/bub.git@main#subdirectory=python"]
+
+
+def test_build_bub_requirement_falls_back_to_installed_version(monkeypatch) -> None:
+    class FakeDistribution:
+        version = "0.3.4"
+        name = "bub"
+
+        def read_text(self, filename: str) -> None:
+            assert filename == "direct_url.json"
+            return None
+
+    monkeypatch.setattr(cli.metadata, "distribution", lambda name: FakeDistribution())
+
+    assert cli._build_bub_requirement() == ["bub"]
+
+
+def test_build_bub_requirement_uses_local_path_for_file_dist(monkeypatch) -> None:
+    class FakeDistribution:
+        name = "bub"
+
+        def read_text(self, filename: str) -> str:
+            assert filename == "direct_url.json"
+            return json.dumps({"url": "file:///tmp/worktrees/bub"})
+
+    monkeypatch.setattr(cli.metadata, "distribution", lambda name: FakeDistribution())
+
+    assert cli._build_bub_requirement() == ["/tmp/worktrees/bub"]  # noqa: S108
+
+
+def test_build_bub_requirement_marks_editable_local_dist(monkeypatch) -> None:
+    class FakeDistribution:
+        name = "bub"
+
+        def read_text(self, filename: str) -> str:
+            assert filename == "direct_url.json"
+            return json.dumps({
+                "url": "file:///tmp/worktrees/bub",
+                "dir_info": {"editable": True},
+            })
+
+    monkeypatch.setattr(cli.metadata, "distribution", lambda name: FakeDistribution())
+
+    assert cli._build_bub_requirement() == ["--editable", "/tmp/worktrees/bub"]  # noqa: S108
+
+
+def test_ensure_project_initializes_project_and_adds_bub_dependency(tmp_path: Path, monkeypatch) -> None:
+    project = tmp_path / "managed-project"
+    project.mkdir()
+    captured: list[tuple[tuple[str, ...], Path]] = []
+
+    monkeypatch.setattr(cli, "_build_bub_requirement", lambda: ["--editable", "/tmp/bub"])  # noqa: S108
+    monkeypatch.setattr(cli, "_uv", lambda *args, cwd: captured.append((args, cwd)))
+
+    cli._ensure_project(project)
+
+    assert captured == [
+        (("init", "--bare", "--name", "bub-project", "--app"), project),
+        (("add", "--active", "--no-sync", "--editable", "/tmp/bub"), project),  # noqa: S108
+    ]

@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import sys
 from functools import lru_cache
+from importlib import metadata
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import typer
 
@@ -156,10 +159,56 @@ def _build_requirement(spec: str) -> str:
             return name
 
 
+def _build_local_requirement_path(url: str, subdirectory: str | None = None) -> str | None:
+    parsed = urlsplit(url)
+    if parsed.scheme != "file":
+        return None
+
+    local_path = Path.from_uri(url)
+    if subdirectory:
+        local_path /= subdirectory
+    return os.fspath(local_path)
+
+
+def _build_bub_requirement() -> list[str]:
+    dist = metadata.distribution("bub")
+    dist_name = dist.name
+    direct_url_text = dist.read_text("direct_url.json")
+    if not direct_url_text:
+        return [dist_name]
+
+    direct_url = json.loads(direct_url_text)
+    requirement_url = str(direct_url["url"])
+    subdirectory = direct_url.get("subdirectory")
+    normalized_subdirectory = subdirectory if isinstance(subdirectory, str) and subdirectory else None
+
+    local_path = _build_local_requirement_path(requirement_url, normalized_subdirectory)
+    if local_path is not None:
+        dir_info = direct_url.get("dir_info")
+        editable = isinstance(dir_info, dict) and bool(dir_info.get("editable"))
+        return ["--editable", local_path] if editable else [local_path]
+
+    vcs_info = direct_url.get("vcs_info")
+    if isinstance(vcs_info, dict):
+        vcs = vcs_info.get("vcs")
+        requested_revision = vcs_info.get("requested_revision")
+        if isinstance(vcs, str) and vcs:
+            requirement_url = f"{vcs}+{requirement_url}"
+        if isinstance(requested_revision, str) and requested_revision:
+            requirement_url = f"{requirement_url}@{requested_revision}"
+
+    if normalized_subdirectory:
+        requirement_url = f"{requirement_url}#subdirectory={normalized_subdirectory}"
+
+    return [requirement_url]
+
+
 def _ensure_project(project: Path) -> None:
     if (project / "pyproject.toml").is_file():
         return
     _uv("init", "--bare", "--name", "bub-project", "--app", cwd=project)
+    bub_requirement = _build_bub_requirement()
+    _uv("add", "--active", "--no-sync", *bub_requirement, cwd=project)
 
 
 def install(
@@ -183,8 +232,7 @@ def uninstall(
 ) -> None:
     """Uninstall a plugin from Bub's environment."""
     _ensure_project(project)
-    _uv("remove", "--active", "--no-sync", *packages, cwd=project)
-    _uv("sync", "--active", "--frozen", "--inexact", cwd=project)
+    _uv("remove", "--active", *packages, cwd=project)
 
 
 def update(

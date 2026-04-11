@@ -119,8 +119,7 @@ class BuiltinImpl:
         app.command("hooks", hidden=True)(cli.list_hooks)
         app.command("gateway")(cli.gateway)
         app.command("install")(cli.install)
-        # TODO: uninstall command can't work properly
-        # app.command("uninstall")(cli.uninstall)
+        app.command("uninstall")(cli.uninstall)
         app.command("update")(cli.update)
 
     def _read_agents_file(self, state: State) -> str:
