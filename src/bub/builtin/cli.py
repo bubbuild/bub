@@ -148,9 +148,12 @@ def _build_requirement(spec: str) -> str:
         return f"git+https://github.com/{repo}.git{ref}"
     else:
         # Assume it's a package name in bub-contrib
-        name, *rest = spec.partition("@")
-        ref = "".join(rest)
-        return f"git+{BUB_CONTRIB_REPO}{ref}#subdirectory=packages/{name}"
+        name, has_ref, ref = spec.partition("@")
+        if has_ref:
+            ref = f"@{ref}"
+            return f"git+{BUB_CONTRIB_REPO}{ref}#subdirectory=packages/{name}"
+        else:  # PyPI package name
+            return name
 
 
 def _ensure_project(project: Path) -> None:

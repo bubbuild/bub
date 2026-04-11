@@ -96,10 +96,13 @@ See the [Extension Guide](https://bub.build/extension-guide/) for hook semantics
 | `bub chat`         | Interactive REPL                  |
 | `bub run MESSAGE`  | One-shot turn                     |
 | `bub gateway`      | Channel listener (Telegram, etc.) |
+| `bub install`      | Install or sync Bub plugin deps   |
+| `bub update`       | Upgrade Bub plugin deps           |
 | `bub login openai` | OpenAI Codex OAuth                |
-| `bub hooks`        | Print hook-to-plugin bindings     |
 
 Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-skill`, `,fs.read path=README.md`).
+
+`bub hooks` still exists for diagnostics, but it is hidden from top-level help. `bub install` and `bub update` manage a separate uv project for Bub plugins, defaulting to `~/.bub/bub-project` or `BUB_PROJECT`.
 
 ## Configuration
 

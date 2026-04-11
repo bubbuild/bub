@@ -32,6 +32,7 @@ uv run bub gateway --enable-channel telegram
 - `run` command default session id: `<channel>:<chat_id>`
 - Telegram channel session id: `telegram:<chat_id>`
 - `chat` command default session id: `cli_session` (override with `--session-id`)
+- `chat` command default chat id: `local`
 
 ## Outbound Delivery Surfaces
 
