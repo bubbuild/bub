@@ -28,7 +28,7 @@ Collect these before execution:
 1. If handling a Telegram message and `message_id` is known, send a reply message with `--reply-to`.
 2. If there is no message to reply to, send a normal message to `chat_id`.
 3. For long-running tasks, optionally send one progress message, then edit that same message for final status.
-4. For multi-line text, pass the content via heredoc command substitution instead of embedding raw line breaks in quoted strings.
+4. **ALWAYS pass message content via stdin using heredoc pipe and `--message -` (or `--text -`).** NEVER embed message text directly in shell arguments — special characters like `'`, `"`, `$`, `!` will be mangled or cause syntax errors.
 5. Avoid emitting HTML tags in message content; use Markdown for formatting instead.
 
 ## Bot to co-Bot Communication
@@ -75,33 +75,21 @@ But when any explanation or details are needed, use a normal reply instead.
 Paths are relative to this skill directory.
 
 ```bash
-# Send simple text with SINGLE quotes
-uv run ${SKILL_DIR}/scripts/telegram_send.py \
-  --chat-id <CHAT_ID> \
-  --message '<TEXT>'
-
-# Or, send multi-line message using heredoc and double quotes
-uv run ${SKILL_DIR}/scripts/telegram_send.py \
-  --chat-id <CHAT_ID> \
-  --message "$(cat <<'EOF'
-Build finished successfully.
-Summary:
-- 12 tests passed
-- 0 failures
+# Send message (ALWAYS use heredoc stdin, never inline text in arguments)
+cat << 'EOF' | uv run ${SKILL_DIR}/scripts/telegram_send.py --chat-id <CHAT_ID> --message -
+Your message content here.
+Special characters are safe: $100, "quotes", 'apostrophes', !exclamation
 EOF
-)"
 
-# Send reply to a specific message
-uv run ${SKILL_DIR}/scripts/telegram_send.py \
-  --chat-id <CHAT_ID> \
-  --message '<TEXT>' \
-  --reply-to <MESSAGE_ID>
+# Reply to a specific message
+cat << 'EOF' | uv run ${SKILL_DIR}/scripts/telegram_send.py --chat-id <CHAT_ID> --reply-to <MESSAGE_ID> --message -
+Reply content here.
+EOF
 
-# Edit existing message
-uv run ${SKILL_DIR}/scripts/telegram_edit.py \
-  --chat-id <CHAT_ID> \
-  --message-id <MESSAGE_ID> \
-  --text '<TEXT>'
+# Edit an existing message
+cat << 'EOF' | uv run ${SKILL_DIR}/scripts/telegram_edit.py --chat-id <CHAT_ID> --message-id <MESSAGE_ID> --text -
+Updated content here.
+EOF
 ```
 
 When sending message to a bot, either use `--reply-to` argument or pass `--source-is-bot` with `--source-username` otherwise the bot will not receive the message.
@@ -113,7 +101,7 @@ For other actions that not covered by these scripts, use `curl` to call Telegram
 ### `telegram_send.py`
 
 - `--chat-id`, `-c`: required, supports comma-separated ids
-- `--message`, `-m`: required
+- `--message`, `-m`: required (use `-` to read from stdin)
 - `--reply-to`, `-r`: optional
 - `--token`, `-t`: optional (normally not needed)
 
@@ -121,5 +109,5 @@ For other actions that not covered by these scripts, use `curl` to call Telegram
 
 - `--chat-id`, `-c`: required
 - `--message-id`, `-m`: required
-- `--text`, `-t`: required
+- `--text`, `-t`: required (use `-` to read from stdin)
 - `--token`: optional (normally not needed)

@@ -150,7 +150,7 @@ def main():
     # Parse chat IDs
     chat_id = args.chat_id.strip()
     reply_to = args.reply_to
-    message = args.message
+    message = sys.stdin.read() if args.message == "-" else args.message
 
     if args.source_is_bot and not reply_to and not message.startswith("/"):
         if not args.source_username:
