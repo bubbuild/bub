@@ -75,33 +75,25 @@ But when any explanation or details are needed, use a normal reply instead.
 Paths are relative to this skill directory.
 
 ```bash
-# Send simple text with SINGLE quotes
-uv run ${SKILL_DIR}/scripts/telegram_send.py \
-  --chat-id <CHAT_ID> \
-  --message '<TEXT>'
-
-# Or, send multi-line message using heredoc and double quotes
-uv run ${SKILL_DIR}/scripts/telegram_send.py \
-  --chat-id <CHAT_ID> \
-  --message "$(cat <<'EOF'
-Build finished successfully.
-Summary:
-- 12 tests passed
-- 0 failures
+# Preferred: pipe message via stdin to avoid shell escaping issues
+cat <<'EOF' | uv run ${SKILL_DIR}/scripts/telegram_send.py --chat-id <CHAT_ID> --message -
+Your message content here, with `backticks`, $variables, and "quotes" safely preserved.
 EOF
-)"
 
-# Send reply to a specific message
+# Simple text (no special characters)
 uv run ${SKILL_DIR}/scripts/telegram_send.py \
   --chat-id <CHAT_ID> \
-  --message '<TEXT>' \
-  --reply-to <MESSAGE_ID>
+  --message 'simple text'
 
-# Edit existing message
-uv run ${SKILL_DIR}/scripts/telegram_edit.py \
-  --chat-id <CHAT_ID> \
-  --message-id <MESSAGE_ID> \
-  --text '<TEXT>'
+# Reply via stdin
+cat <<'EOF' | uv run ${SKILL_DIR}/scripts/telegram_send.py --chat-id <CHAT_ID> --reply-to <MESSAGE_ID> --message -
+Reply content here.
+EOF
+
+# Edit via stdin
+cat <<'EOF' | uv run ${SKILL_DIR}/scripts/telegram_edit.py --chat-id <CHAT_ID> --message-id <MESSAGE_ID> --text -
+Updated content here.
+EOF
 ```
 
 When sending message to a bot, either use `--reply-to` argument or pass `--source-is-bot` with `--source-username` otherwise the bot will not receive the message.
@@ -113,7 +105,7 @@ For other actions that not covered by these scripts, use `curl` to call Telegram
 ### `telegram_send.py`
 
 - `--chat-id`, `-c`: required, supports comma-separated ids
-- `--message`, `-m`: required
+- `--message`, `-m`: required (use `-` to read from stdin)
 - `--reply-to`, `-r`: optional
 - `--token`, `-t`: optional (normally not needed)
 
@@ -121,5 +113,5 @@ For other actions that not covered by these scripts, use `curl` to call Telegram
 
 - `--chat-id`, `-c`: required
 - `--message-id`, `-m`: required
-- `--text`, `-t`: required
+- `--text`, `-t`: required (use `-` to read from stdin)
 - `--token`: optional (normally not needed)
