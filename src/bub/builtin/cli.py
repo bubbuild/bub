@@ -11,7 +11,8 @@ import sys
 from functools import lru_cache
 from importlib import metadata
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
+from urllib.request import url2pathname
 
 import typer
 
@@ -164,7 +165,10 @@ def _build_local_requirement_path(url: str, subdirectory: str | None = None) -> 
     if parsed.scheme != "file":
         return None
 
-    local_path = Path.from_uri(url)
+    path = parsed.path
+    if parsed.netloc and parsed.netloc != "localhost":
+        path = f"//{parsed.netloc}{path}"
+    local_path = Path(url2pathname(unquote(path)))
     if subdirectory:
         local_path /= subdirectory
     return os.fspath(local_path)
