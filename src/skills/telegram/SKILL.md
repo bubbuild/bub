@@ -28,7 +28,7 @@ Collect these before execution:
 1. If handling a Telegram message and `message_id` is known, send a reply message with `--reply-to`.
 2. If there is no message to reply to, send a normal message to `chat_id`.
 3. For long-running tasks, optionally send one progress message, then edit that same message for final status.
-4. For multi-line text, pass the content via heredoc command substitution instead of embedding raw line breaks in quoted strings.
+4. **ALWAYS pass message content via stdin using heredoc pipe and `--message -` (or `--text -`).** NEVER embed message text directly in shell arguments — special characters like `'`, `"`, `$`, `!` will be mangled or cause syntax errors.
 5. Avoid emitting HTML tags in message content; use Markdown for formatting instead.
 
 ## Bot to co-Bot Communication
@@ -75,23 +75,19 @@ But when any explanation or details are needed, use a normal reply instead.
 Paths are relative to this skill directory.
 
 ```bash
-# Preferred: pipe message via stdin to avoid shell escaping issues
-cat <<'EOF' | uv run ${SKILL_DIR}/scripts/telegram_send.py --chat-id <CHAT_ID> --message -
-Your message content here, with `backticks`, $variables, and "quotes" safely preserved.
+# Send message (ALWAYS use heredoc stdin, never inline text in arguments)
+cat << 'EOF' | uv run ${SKILL_DIR}/scripts/telegram_send.py --chat-id <CHAT_ID> --message -
+Your message content here.
+Special characters are safe: $100, "quotes", 'apostrophes', !exclamation
 EOF
 
-# Simple text (no special characters)
-uv run ${SKILL_DIR}/scripts/telegram_send.py \
-  --chat-id <CHAT_ID> \
-  --message 'simple text'
-
-# Reply via stdin
-cat <<'EOF' | uv run ${SKILL_DIR}/scripts/telegram_send.py --chat-id <CHAT_ID> --reply-to <MESSAGE_ID> --message -
+# Reply to a specific message
+cat << 'EOF' | uv run ${SKILL_DIR}/scripts/telegram_send.py --chat-id <CHAT_ID> --reply-to <MESSAGE_ID> --message -
 Reply content here.
 EOF
 
-# Edit via stdin
-cat <<'EOF' | uv run ${SKILL_DIR}/scripts/telegram_edit.py --chat-id <CHAT_ID> --message-id <MESSAGE_ID> --text -
+# Edit an existing message
+cat << 'EOF' | uv run ${SKILL_DIR}/scripts/telegram_edit.py --chat-id <CHAT_ID> --message-id <MESSAGE_ID> --text -
 Updated content here.
 EOF
 ```
