@@ -207,7 +207,7 @@ def test_cli_channel_normalize_input_prefixes_shell_commands() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cli_channel_on_event_renders_stream_and_suppresses_followup_send() -> None:
+async def test_cli_channel_stream_events_renders_stream_and_yields_events() -> None:
     channel = CliChannel.__new__(CliChannel)
     events: list[tuple[str, str, str]] = []
     live_handle = object()
@@ -222,10 +222,12 @@ async def test_cli_channel_on_event_renders_stream_and_suppresses_followup_send(
 
     message = _message("ignored", channel="cli", kind="command", session_id="cli:1")
 
-    await channel.on_event(StreamEvent("text", {"delta": "hel"}), message)
-    await channel.on_event(StreamEvent("text", {"delta": "lo"}), message)
-    await channel.on_event(StreamEvent("final", {}), message)
-    await channel.send(_message("hello", channel="cli", kind="command", session_id="cli:1"))
+    async def source() -> asyncio.AsyncIterator[StreamEvent]:
+        yield StreamEvent("text", {"delta": "hel"})
+        yield StreamEvent("text", {"delta": "lo"})
+        yield StreamEvent("final", {})
+
+    yielded = [event async for event in channel.stream_events(message, source())]
 
     assert events == [
         ("start", "command", ""),
@@ -233,6 +235,7 @@ async def test_cli_channel_on_event_renders_stream_and_suppresses_followup_send(
         ("update", "command", "hello"),
         ("finish", "command", "hello"),
     ]
+    assert [event.kind for event in yielded] == ["text", "text", "final"]
 
 
 def test_cli_channel_history_file_uses_workspace_hash(tmp_path: Path) -> None:

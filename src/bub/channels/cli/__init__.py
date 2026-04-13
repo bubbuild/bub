@@ -1,7 +1,6 @@
 import asyncio
 import contextlib
-from collections.abc import AsyncGenerator
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator, AsyncIterable
 from datetime import datetime
 from hashlib import md5
 from pathlib import Path
@@ -20,17 +19,10 @@ from bub.builtin.agent import Agent
 from bub.builtin.tape import TapeInfo
 from bub.channels.base import Channel
 from bub.channels.cli.renderer import CliRenderer
-from bub.channels.message import ChannelMessage, MessageKind
+from bub.channels.message import ChannelMessage
 from bub.envelope import field_of
 from bub.tools import REGISTRY
 from bub.types import MessageHandler
-
-
-@dataclass
-class _StreamRenderState:
-    live: Live
-    kind: MessageKind
-    text: str = ""
 
 
 class CliChannel(Channel):
@@ -74,6 +66,11 @@ class CliChannel(Channel):
             self._main_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._main_task
+
+    async def send(self, message: ChannelMessage) -> None:
+        if message.kind != "error":
+            return
+        self._renderer.error(message.content)
 
     async def _main_loop(self) -> None:
         self._renderer.welcome(model=self._agent.settings.model, workspace=str(self._workspace))
@@ -131,21 +128,25 @@ class CliChannel(Channel):
         symbol = ">" if self._mode == "agent" else ","
         return FormattedText([("bold", f"{cwd} {symbol} ")])
 
-    async def on_event(self, event: StreamEvent, message: ChannelMessage) -> None:
-        streams = self._stream_render_states()
-        state = streams.get(message.session_id)
-        if event.kind == "text":
-            if state is None:
-                state = _StreamRenderState(live=self._renderer.start_stream(message.kind), kind=message.kind)
-                streams[message.session_id] = state
-            content = str(event.data.get("delta", ""))
-            state.text += content
-            self._renderer.update_stream(state.live, kind=message.kind, text=state.text)
-        elif event.kind == "final":
-            if state is None:
-                return
-            self._renderer.finish_stream(state.live, kind=state.kind, text=state.text)
-            streams.pop(message.session_id, None)
+    async def stream_events(
+        self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]
+    ) -> AsyncIterable[StreamEvent]:
+        live: Live | None = None
+        text = ""
+        try:
+            async for event in stream:
+                if event.kind == "text":
+                    content = str(event.data.get("delta", ""))
+                    if not content.strip() and not text:
+                        continue  # skip leading whitespace-only events
+                    if live is None:
+                        live = self._renderer.start_stream(message.kind)
+                    text += content
+                    self._renderer.update_stream(live, kind=message.kind, text=text)
+                yield event
+        finally:
+            if live is not None:
+                self._renderer.finish_stream(live, kind=message.kind, text=text)
 
     def _build_prompt(self, workspace: Path) -> PromptSession[str]:
         kb = KeyBindings()
@@ -188,10 +189,3 @@ class CliChannel(Channel):
     def _history_file(home: Path, workspace: Path) -> Path:
         workspace_hash = md5(str(workspace).encode("utf-8"), usedforsecurity=False).hexdigest()
         return home / "history" / f"{workspace_hash}.history"
-
-    def _stream_render_states(self) -> dict[str, _StreamRenderState]:
-        states = getattr(self, "_active_stream_renders", None)
-        if states is None:
-            states = {}
-            self._active_stream_renders = states
-        return states

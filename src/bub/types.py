@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine
+from collections.abc import AsyncIterable, Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -16,7 +16,7 @@ type OutboundDispatcher = Callable[[Envelope], Coroutine[Any, Any, bool]]
 
 class OutboundChannelRouter(Protocol):
     async def dispatch_output(self, message: Envelope) -> bool: ...
-    async def dispatch_event(self, event: StreamEvent, message: Envelope) -> None: ...
+    def wrap_stream(self, message: Envelope, stream: AsyncIterable[StreamEvent]) -> AsyncIterable[StreamEvent]: ...
     async def quit(self, session_id: str) -> None: ...
 
 

@@ -1,5 +1,6 @@
 import asyncio
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterable
 from typing import ClassVar
 
 from republic import StreamEvent
@@ -35,7 +36,6 @@ class Channel(ABC):
         # Do nothing by default
         return
 
-    async def on_event(self, event: StreamEvent, message: ChannelMessage) -> None:
-        """Handle an event from the agent. Optional to implement."""
-        # Do nothing by default
-        return
+    def stream_events(self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]) -> AsyncIterable[StreamEvent]:
+        """Optionally wrap the output stream for this channel."""
+        return stream

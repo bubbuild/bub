@@ -1,7 +1,7 @@
 import asyncio
 import contextlib
 import functools
-from collections.abc import Collection
+from collections.abc import AsyncIterable, Collection
 
 from loguru import logger
 from pydantic import Field
@@ -94,17 +94,17 @@ class ChannelManager:
         await channel.send(outbound)
         return True
 
-    async def dispatch_event(self, event: StreamEvent, message: Envelope) -> None:
+    def wrap_stream(self, message: Envelope, stream: AsyncIterable[StreamEvent]) -> AsyncIterable[StreamEvent]:
         channel_name = field_of(message, "output_channel", field_of(message, "channel"))
         if channel_name is None:
-            return
+            return stream
 
         channel_key = str(channel_name)
         channel = self.get_channel(channel_key)
         if channel is None:
-            return
+            return stream
 
-        await channel.on_event(event, message)
+        return channel.stream_events(message, stream)
 
     async def quit(self, session_id: str) -> None:
         tasks = self._ongoing_tasks.pop(session_id, set())
