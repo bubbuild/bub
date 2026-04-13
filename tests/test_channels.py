@@ -78,9 +78,11 @@ def _message(
 @pytest.mark.asyncio
 async def test_buffered_handler_passes_commands_through_immediately() -> None:
     handled: list[str] = []
+    done = asyncio.Event()
 
     async def receive(message: ChannelMessage) -> None:
         handled.append(message.content)
+        done.set()
 
     handler = BufferedMessageHandler(
         receive,
@@ -90,8 +92,114 @@ async def test_buffered_handler_passes_commands_through_immediately() -> None:
     )
 
     await handler(_message(",help"))
+    await asyncio.wait_for(done.wait(), timeout=1)
 
     assert handled == [",help"]
+
+
+@pytest.mark.asyncio
+async def test_buffered_handler_batches_active_and_followup_messages() -> None:
+    handled: list[str] = []
+    done = asyncio.Event()
+
+    async def receive(message: ChannelMessage) -> None:
+        handled.append(message.content)
+        done.set()
+
+    handler = BufferedMessageHandler(
+        receive,
+        active_time_window=10,
+        max_wait_seconds=0.01,
+        debounce_seconds=0.05,
+    )
+
+    await handler(_message("a", is_active=True))
+    await handler(_message("b"))
+    await asyncio.wait_for(done.wait(), timeout=1)
+
+    assert handled == ["a\nb"]
+
+
+@pytest.mark.asyncio
+async def test_buffered_handler_serializes_messages_while_handler_is_running() -> None:
+    handled: list[str] = []
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    max_inflight = 0
+    inflight = 0
+
+    async def receive(message: ChannelMessage) -> None:
+        nonlocal inflight, max_inflight
+        inflight += 1
+        max_inflight = max(max_inflight, inflight)
+        handled.append(message.content)
+        if message.content == "a":
+            first_started.set()
+            await release_first.wait()
+        inflight -= 1
+
+    handler = BufferedMessageHandler(
+        receive,
+        active_time_window=10,
+        max_wait_seconds=0.01,
+        debounce_seconds=0.01,
+    )
+
+    await handler(_message("a", is_active=True))
+    await asyncio.wait_for(first_started.wait(), timeout=1)
+
+    await handler(_message("b", is_active=True))
+    await asyncio.sleep(0.03)
+
+    assert handled == ["a"]
+    assert max_inflight == 1
+
+    release_first.set()
+    await _wait_for(lambda: handled == ["a", "b"])
+    assert max_inflight == 1
+
+
+@pytest.mark.asyncio
+async def test_buffered_handler_preserves_order_around_commands() -> None:
+    handled: list[str] = []
+
+    async def receive(message: ChannelMessage) -> None:
+        handled.append(message.content)
+
+    handler = BufferedMessageHandler(
+        receive,
+        active_time_window=10,
+        max_wait_seconds=0.01,
+        debounce_seconds=0.01,
+    )
+
+    await handler(_message("a", is_active=True))
+    await handler(_message(",help"))
+    await handler(_message("b", is_active=True))
+
+    await _wait_for(lambda: handled == ["a", ",help", "b"])
+
+
+@pytest.mark.asyncio
+async def test_buffered_handler_continues_after_handler_error() -> None:
+    handled: list[str] = []
+
+    async def receive(message: ChannelMessage) -> None:
+        if message.content == ",boom":
+            raise RuntimeError("boom")
+        handled.append(message.content)
+
+    handler = BufferedMessageHandler(
+        receive,
+        active_time_window=10,
+        max_wait_seconds=0.01,
+        debounce_seconds=0.01,
+    )
+
+    await handler(_message(",boom"))
+    await handler(_message(",ok"))
+
+    await _wait_for(lambda: handled == [",ok"])
 
 
 @pytest.mark.asyncio
@@ -153,6 +261,16 @@ async def test_channel_manager_on_receive_uses_buffer_for_debounced_channel(monk
     assert calls == [message, message]
     assert message.session_id in manager._session_handlers
     assert isinstance(manager._session_handlers[message.session_id], StubBufferedMessageHandler)
+
+
+async def _wait_for(predicate, timeout: float = 1.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        if predicate():
+            return
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError("condition not met before timeout")
+        await asyncio.sleep(0.001)
 
 
 @pytest.mark.asyncio
