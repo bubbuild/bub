@@ -164,7 +164,7 @@ class CliChannel(Channel):
         history_file.parent.mkdir(parents=True, exist_ok=True)
         history = FileHistory(str(history_file))
         tool_names = sorted((f",{name}" for name in REGISTRY), key=_tool_sort_key)
-        completer = WordCompleter(tool_names, ignore_case=True)
+        completer = WordCompleter(tool_names, ignore_case=True, sentence=True)
         return PromptSession(
             completer=completer,
             complete_while_typing=True,
