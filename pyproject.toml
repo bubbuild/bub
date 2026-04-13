@@ -1,6 +1,6 @@
 [project]
 name = "bub"
-version = "0.3.5"
+dynamic = ["version"]
 description = "A common shape for agents that live alongside people."
 authors = [
     { name = "Chojan Shang", email = "psiace@apache.org" },
@@ -64,8 +64,14 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/bub/_version.py"
 
 [tool.hatch.build.targets.sdist]
 only-include = ["src/bub", "src/skills", "tests"]

@@ -204,7 +204,6 @@ wheels = [
 
 [[package]]
 name = "bub"
-version = "0.3.5"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
