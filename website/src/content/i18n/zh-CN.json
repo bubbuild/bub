@@ -1,0 +1,13 @@
+{
+  "themeSelect.accessibleLabel": "切换主题",
+  "languageSelect.accessibleLabel": "切换语言",
+  "menuButton.accessibleLabel": "菜单",
+  "sidebarNav.accessibleLabel": "主导航",
+  "tableOfContents.onThisPage": "本页内容",
+  "tableOfContents.overview": "概览",
+  "page.editLink": "编辑此页",
+  "page.lastUpdated": "最后更新：",
+  "page.previousLink": "上一页",
+  "page.nextLink": "下一页",
+  "404.text": "页面不存在。请检查 URL，或尝试使用搜索框。"
+}

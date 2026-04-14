@@ -1,0 +1,119 @@
+---
+const {
+  docsHref = '/en/docs/',
+  blogHref = '/en/blog/socialized-evaluation/',
+  languageHref = '/zh-cn/',
+  languageLabel = 'EN / 中文',
+  homeHref = '/',
+  docsLabel = 'Docs',
+  blogLabel = 'Blog',
+  githubLabel = 'GitHub',
+  brandLabel = 'Bub',
+  menuLabel = 'Menu',
+  closeLabel = 'Close',
+} = Astro.props;
+
+const navItems = [
+  { href: docsHref, label: docsLabel },
+  { href: blogHref, label: blogLabel },
+  { href: 'https://github.com/bubbuild/bub', label: githubLabel, external: true },
+];
+---
+
+<header class="relative z-20">
+  <div class="mx-auto max-w-[calc(var(--content-max)+var(--page-gutter)*2)] px-[var(--page-gutter)] pt-5 md:pt-7">
+    <div class="rounded-[1.6rem] border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_82%,transparent)] px-4 py-3 shadow-[var(--shadow)] backdrop-blur md:px-6">
+      <div class="hidden items-center justify-between gap-6 md:flex">
+        <a class="flex items-center gap-3 text-[0.95rem] font-semibold tracking-[0.18em] text-[var(--fg)] no-underline" href={homeHref}>
+          <span class="grid h-10 w-10 place-items-center rounded-2xl border border-[var(--line)] bg-[color:var(--accent-soft)] font-['JetBrains_Mono'] text-sm text-[var(--accent)]">B</span>
+          <span class="uppercase">{brandLabel}</span>
+        </a>
+        <nav class="flex items-center gap-5 text-sm text-[var(--muted)]">
+          {navItems.map((item) => (
+            <a
+              class="text-inherit no-underline transition-[color] duration-150 hover:text-[var(--accent)] focus-visible:text-[var(--accent)]"
+              href={item.href}
+              target={item.external ? '_blank' : undefined}
+              rel={item.external ? 'noreferrer' : undefined}
+            >
+              {item.label}
+            </a>
+          ))}
+        </nav>
+        <div class="flex items-center gap-3">
+          <a
+            class="inline-flex min-h-[2.9rem] items-center justify-center gap-[0.6rem] rounded-full border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_88%,transparent)] px-[1.2rem] py-[0.8rem] text-sm font-bold text-[var(--fg)] no-underline transition-[border-color,transform] duration-150 hover:border-[color:color-mix(in_oklab,var(--accent)_38%,var(--line))] hover:-translate-y-px focus-visible:border-[color:color-mix(in_oklab,var(--accent)_38%,var(--line))] focus-visible:-translate-y-px"
+            href={languageHref}
+          >
+            {languageLabel}
+          </a>
+          <button
+            class="theme-toggle inline-flex h-[2.9rem] w-[2.9rem] cursor-pointer items-center justify-center rounded-full border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_84%,transparent)] text-[var(--fg)] transition-[border-color,transform] duration-150 hover:border-[color:color-mix(in_oklab,var(--accent)_38%,var(--line))] hover:-translate-y-px focus-visible:border-[color:color-mix(in_oklab,var(--accent)_38%,var(--line))] focus-visible:-translate-y-px"
+            type="button"
+            aria-label="Toggle color theme"
+            data-theme-toggle
+          >
+            <span class="moon" aria-hidden="true">◐</span>
+            <span class="sun" aria-hidden="true">◑</span>
+          </button>
+        </div>
+      </div>
+
+      <details class="group md:hidden">
+        <summary class="flex list-none items-center justify-between gap-4 marker:content-none">
+          <a class="flex items-center gap-3 text-[0.95rem] font-semibold tracking-[0.18em] text-[var(--fg)] no-underline" href={homeHref}>
+            <span class="grid h-10 w-10 place-items-center rounded-2xl border border-[var(--line)] bg-[color:var(--accent-soft)] font-['JetBrains_Mono'] text-sm text-[var(--accent)]">B</span>
+            <span class="uppercase">{brandLabel}</span>
+          </a>
+          <span class="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-[var(--line)] text-[var(--fg)]">
+            <span class="group-open:hidden">{menuLabel}</span>
+            <span class="hidden group-open:inline">{closeLabel}</span>
+          </span>
+        </summary>
+        <div class="grid gap-3 pt-4 text-sm text-[var(--muted)]">
+          {navItems.map((item) => (
+            <a
+              class="rounded-2xl border border-[var(--line)] px-4 py-3 text-inherit no-underline transition-[border-color,color] duration-150 hover:border-[color:color-mix(in_oklab,var(--accent)_36%,var(--line))] hover:text-[var(--fg)] focus-visible:border-[color:color-mix(in_oklab,var(--accent)_36%,var(--line))] focus-visible:text-[var(--fg)]"
+              href={item.href}
+              target={item.external ? '_blank' : undefined}
+              rel={item.external ? 'noreferrer' : undefined}
+            >
+              {item.label}
+            </a>
+          ))}
+          <div class="grid grid-cols-[1fr_auto] gap-3">
+            <a
+              class="inline-flex min-h-[2.9rem] items-center justify-center gap-[0.6rem] rounded-full border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_88%,transparent)] px-[1.2rem] py-[0.8rem] text-sm font-bold text-[var(--fg)] no-underline transition-[border-color,transform] duration-150 hover:border-[color:color-mix(in_oklab,var(--accent)_38%,var(--line))] hover:-translate-y-px focus-visible:border-[color:color-mix(in_oklab,var(--accent)_38%,var(--line))] focus-visible:-translate-y-px"
+              href={languageHref}
+            >
+              {languageLabel}
+            </a>
+            <button
+              class="theme-toggle inline-flex h-[2.9rem] w-[2.9rem] cursor-pointer items-center justify-center rounded-full border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_84%,transparent)] text-[var(--fg)] transition-[border-color,transform] duration-150 hover:border-[color:color-mix(in_oklab,var(--accent)_38%,var(--line))] hover:-translate-y-px focus-visible:border-[color:color-mix(in_oklab,var(--accent)_38%,var(--line))] focus-visible:-translate-y-px"
+              type="button"
+              aria-label="Toggle color theme"
+              data-theme-toggle
+            >
+              <span class="moon" aria-hidden="true">◐</span>
+              <span class="sun" aria-hidden="true">◑</span>
+            </button>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
+</header>
+
+<style>
+  .theme-toggle .sun {
+    display: none;
+  }
+
+  :global(:root[data-theme='light']) .theme-toggle .sun {
+    display: inline;
+  }
+
+  :global(:root[data-theme='light']) .theme-toggle .moon {
+    display: none;
+  }
+</style>

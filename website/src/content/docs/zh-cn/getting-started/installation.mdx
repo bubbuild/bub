@@ -1,0 +1,27 @@
+---
+title: 安装
+description: 通过 PyPI 或源码方式安装 Bub。
+---
+
+# 安装
+
+## 通过 PyPI
+
+```bash
+pip install bub
+```
+
+## 从源码运行
+
+```bash
+git clone https://github.com/bubbuild/bub.git
+cd bub
+uv sync
+uv run bub chat
+```
+
+## 常用命令
+
+- `uv run bub chat` 启动交互式 CLI。
+- `uv run bub run "summarize this repo"` 执行单轮 turn。
+- `uv run bub gateway` 启动 channel listener。

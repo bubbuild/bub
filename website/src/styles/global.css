@@ -1,0 +1,78 @@
+@import '@fontsource-variable/manrope';
+@import '@fontsource/jetbrains-mono';
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+  --bg: oklch(0.18 0.018 255);
+  --bg-elevated: oklch(0.24 0.024 255);
+  --bg-soft: oklch(0.3 0.022 255);
+  --fg: oklch(0.95 0.01 95);
+  --muted: oklch(0.78 0.018 245);
+  --line: color-mix(in oklab, var(--fg) 10%, transparent);
+  --accent: oklch(0.77 0.14 165);
+  --accent-strong: oklch(0.66 0.16 165);
+  --accent-soft: color-mix(in oklab, var(--accent) 18%, transparent);
+  --shadow: 0 24px 80px color-mix(in oklab, var(--bg) 70%, black 30%);
+  --page-gutter: clamp(1.1rem, 3vw, 2.5rem);
+  --content-max: 76rem;
+  --radius-xl: 1.75rem;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: oklch(0.97 0.01 95);
+  --bg-elevated: oklch(1 0 0);
+  --bg-soft: oklch(0.94 0.014 95);
+  --fg: oklch(0.23 0.02 255);
+  --muted: oklch(0.48 0.02 255);
+  --line: color-mix(in oklab, var(--fg) 14%, transparent);
+  --accent: oklch(0.64 0.14 165);
+  --accent-strong: oklch(0.56 0.16 165);
+  --accent-soft: color-mix(in oklab, var(--accent) 12%, white);
+  --shadow: 0 24px 60px color-mix(in oklab, var(--accent) 8%, transparent);
+}
+
+html {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Manrope Variable', sans-serif;
+  scroll-behavior: smooth;
+}
+
+body {
+  background:
+    radial-gradient(circle at top, color-mix(in oklab, var(--accent) 12%, transparent), transparent 32rem),
+    linear-gradient(180deg, color-mix(in oklab, var(--bg) 92%, black 8%), var(--bg));
+  color: var(--fg);
+  min-height: 100vh;
+}
+
+a,
+button,
+summary {
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease,
+    opacity 160ms ease;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 32%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

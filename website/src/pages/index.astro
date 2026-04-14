@@ -1,0 +1,47 @@
+---
+import '../styles/global.css';
+import Hero from '../components/Hero.astro';
+import NavBar from '../components/NavBar.astro';
+import { getLandingPageCopy } from '../i18n/landing-page';
+
+const { htmlLang, title, description, nav, hero } = getLandingPageCopy('en');
+---
+
+<!doctype html>
+<html lang={htmlLang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <script is:inline>
+      (() => {
+        const storedTheme = localStorage.getItem('bub-theme');
+        const preferredTheme =
+          storedTheme || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        document.documentElement.dataset.theme = preferredTheme;
+      })();
+    </script>
+  </head>
+  <body class="min-h-screen antialiased">
+    <NavBar {...nav} />
+    <main>
+      <Hero {...hero} />
+    </main>
+    <script is:inline>
+      function setTheme(theme) {
+        document.documentElement.dataset.theme = theme;
+        localStorage.setItem('bub-theme', theme);
+      }
+
+      function toggleTheme() {
+        const current = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+        setTheme(current === 'light' ? 'dark' : 'light');
+      }
+
+      document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
+        button.addEventListener('click', toggleTheme);
+      });
+    </script>
+  </body>
+</html>

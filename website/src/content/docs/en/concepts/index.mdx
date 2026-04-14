@@ -1,0 +1,16 @@
+---
+title: Concepts
+description: The mental model behind hooks, tape, and channel-agnostic runtime flow.
+---
+
+# Concepts
+
+Bub is organized around a single turn pipeline:
+
+```text
+resolve_session -> load_state -> build_prompt -> run_model
+                                                   |
+             dispatch_outbound <- render_outbound <- save_state
+```
+
+Each step is a hook, and builtins are just the default plugin implementation.
