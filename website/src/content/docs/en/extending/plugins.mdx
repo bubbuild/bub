@@ -1,0 +1,91 @@
+---
+title: Plugins
+description: How to build Bub extension plugins — imports, entry points, exposing tools, and shipping skills in extension packages.
+---
+
+This guide explains how to build Bub plugins using `@hookimpl`.
+
+## Import And Basic Shape
+
+Use the marker exported by Bub:
+
+```python
+from bub import hookimpl
+```
+
+Implement hooks on a plugin object:
+
+```python
+from __future__ import annotations
+
+from bub import hookimpl
+
+
+class MyPlugin:
+    @hookimpl
+    def build_prompt(self, message, session_id, state):
+        return "custom prompt"
+
+my_plugin = MyPlugin()
+```
+
+## Register Plugin Via Entry Points
+
+Expose your plugin in `pyproject.toml`:
+
+```toml
+[project.entry-points."bub"]
+my_plugin = "my_package.plugin:my_plugin"
+```
+
+`BubFramework.load_hooks()` loads builtin first, then entry points in `group="bub"`.
+
+## Expose Tools By Importing The Module
+
+Tools are registered through the `@tool` decorator's import-time side effect.
+Your plugin must import the module that contains the `@tool` definitions before the agent starts using them.
+
+Example:
+
+```python
+from __future__ import annotations
+
+from bub import hookimpl
+
+from . import tools  # noqa: F401
+
+
+class MyPlugin:
+    @hookimpl
+    def system_prompt(self, prompt, state):
+        return "extension prompt"
+```
+
+If that import is missing, the tool module never runs, nothing is inserted into `bub.tools.REGISTRY`, and the tool will not be available to the agent or CLI completion.
+
+## Ship Skills In Extension Packages
+
+Extension packages can also ship skills by including a top-level `skills/` directory in the distribution.
+
+Example layout:
+
+```text
+my-extension/
+├─ src/
+│  ├─ my_extension/
+│  │  └─ plugin.py
+│  └─ skills/
+│     └─ my-skill/
+│        └─ SKILL.md
+└─ pyproject.toml
+```
+
+Configure your build backend to include the `skills/` directory in the package data. For example, with `pdm-backend`:
+
+```toml
+[tool.pdm.build]
+includes = ["src/"]
+```
+
+At runtime, Bub discovers builtin skills from `<site-packages>/skills`, so packaged skills in that location are loaded automatically.
+These skills use normal precedence rules and can still be overridden by workspace (`.agents/skills`) or user (`~/.agents/skills`) skills.

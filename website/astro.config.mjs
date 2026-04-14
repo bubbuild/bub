@@ -28,45 +28,33 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Getting Started',
-          translations: {
-            'zh-CN': '快速开始',
-          },
-          items: ['getting-started', 'getting-started/installation'],
+          translations: { 'zh-CN': '快速开始' },
+          autogenerate: { directory: 'getting-started' },
         },
         {
           label: 'Concepts',
-          translations: {
-            'zh-CN': '概念',
-          },
-          items: ['concepts'],
+          translations: { 'zh-CN': '概念' },
+          autogenerate: { directory: 'concepts' },
         },
         {
           label: 'Guides',
-          translations: {
-            'zh-CN': '指南',
-          },
-          items: ['guides'],
+          translations: { 'zh-CN': '指南' },
+          autogenerate: { directory: 'guides' },
         },
         {
           label: 'Extending',
-          translations: {
-            'zh-CN': '扩展',
-          },
-          items: ['extending'],
+          translations: { 'zh-CN': '扩展' },
+          autogenerate: { directory: 'extending' },
         },
         {
           label: 'Reference',
-          translations: {
-            'zh-CN': '参考',
-          },
-          items: ['reference'],
+          translations: { 'zh-CN': '参考' },
+          autogenerate: { directory: 'reference' },
         },
         {
           label: 'Blog',
-          translations: {
-            'zh-CN': '博客',
-          },
-          items: ['blog', 'blog/socialized-evaluation'],
+          translations: { 'zh-CN': '博客' },
+          autogenerate: { directory: 'blog' },
         },
       ],
     }),

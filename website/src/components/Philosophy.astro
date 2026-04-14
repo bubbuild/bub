@@ -1,0 +1,65 @@
+---
+const {
+  eyebrow = 'Philosophy',
+  heading = 'Born in group chats,\nnot demos.',
+  body = [
+    'Most agent systems are built for single-user demos. Bub was built for the messier reality: agents coexisting with real humans in shared conversations — concurrent tasks, incomplete context, nobody waiting.',
+    'Bub treats humans and agents as equivalent operators. Same boundaries, same evidence trails, same handoff semantics. When work gets messy, it should still feel like a dependable teammate.',
+  ],
+  quoteText = 'Build agents that are useful in real social systems, not only impressive in isolated demos.',
+  blogHref = '/en/blog/socialized-evaluation/',
+  blogLabel = 'Read: Socialized Evaluation',
+  highlights = [
+    { label: 'Operator Equivalence', description: 'Humans and agents share the same collaboration model.' },
+    { label: 'Verifiable Execution', description: 'Tape records make every action auditable and continuable.' },
+    { label: 'Channel Neutrality', description: 'One pipeline, any surface — CLI, Telegram, or custom.' },
+  ],
+} = Astro.props;
+---
+
+<section class="py-20 md:py-28">
+  <div class="mx-auto max-w-[calc(var(--content-max)+var(--page-gutter)*2)] px-[var(--page-gutter)]">
+    <div class="grid gap-12 lg:grid-cols-2 lg:gap-20 lg:items-start">
+      <div>
+        <p class="mb-4 font-['JetBrains_Mono'] text-xs uppercase tracking-[0.18em] text-[var(--accent)]">
+          {eyebrow}
+        </p>
+        <h2 class="whitespace-pre-line text-[clamp(1.9rem,4vw,3rem)] font-[780] leading-[1.05] tracking-[-0.04em] text-[var(--fg)]">
+          {heading}
+        </h2>
+        <div class="mt-6 space-y-4">
+          {body.map((paragraph) => (
+            <p class="text-[1.02rem] leading-7 text-[var(--muted)]">{paragraph}</p>
+          ))}
+        </div>
+        <a
+          class="mt-8 inline-flex min-h-[2.75rem] items-center gap-2 rounded-full border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_88%,transparent)] px-[1.2rem] py-[0.7rem] text-sm font-bold text-[var(--fg)] no-underline transition-[border-color,transform] duration-150 hover:border-[color:color-mix(in_oklab,var(--accent)_38%,var(--line))] hover:-translate-y-px"
+          href={blogHref}
+        >
+          {blogLabel}
+          <span aria-hidden="true">→</span>
+        </a>
+      </div>
+
+      <div class="space-y-4">
+        <figure class="rounded-[1.6rem] border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_80%,transparent)] p-7">
+          <blockquote class="text-[1.05rem] font-[600] leading-7 tracking-[-0.02em] text-[var(--fg)] before:content-['"'] after:content-['"']">
+            {quoteText}
+          </blockquote>
+        </figure>
+
+        <div class="grid gap-3">
+          {highlights.map((item) => (
+            <div class="flex items-start gap-4 rounded-[1.35rem] border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_72%,transparent)] px-5 py-4">
+              <span class="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-[var(--accent)]" aria-hidden="true" />
+              <div>
+                <p class="text-sm font-[700] text-[var(--fg)]">{item.label}</p>
+                <p class="mt-0.5 text-sm leading-5 text-[var(--muted)]">{item.description}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

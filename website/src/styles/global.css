@@ -48,6 +48,10 @@ body {
   min-height: 100vh;
 }
 
+main > section + section {
+  border-top: 1px solid var(--line);
+}
+
 a,
 button,
 summary {

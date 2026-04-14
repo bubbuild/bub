@@ -2,9 +2,13 @@
 import '../../styles/global.css';
 import Hero from '../../components/Hero.astro';
 import NavBar from '../../components/NavBar.astro';
+import Features from '../../components/Features.astro';
+import QuickStart from '../../components/QuickStart.astro';
+import Philosophy from '../../components/Philosophy.astro';
+import Footer from '../../components/Footer.astro';
 import { getLandingPageCopy } from '../../i18n/landing-page';
 
-const { htmlLang, title, description, nav, hero } = getLandingPageCopy('zh-cn');
+const { htmlLang, title, description, nav, hero, features, quickStart, philosophy, footer } = getLandingPageCopy('zh-cn');
 ---
 
 <!doctype html>
@@ -27,7 +31,11 @@ const { htmlLang, title, description, nav, hero } = getLandingPageCopy('zh-cn');
     <NavBar {...nav} />
     <main>
       <Hero {...hero} />
+      <Features {...features} />
+      <QuickStart {...quickStart} />
+      <Philosophy {...philosophy} />
     </main>
+    <Footer {...footer} />
     <script is:inline>
       function setTheme(theme) {
         document.documentElement.dataset.theme = theme;
