@@ -1,0 +1,90 @@
+---
+interface Props {
+  eyebrow?: string;
+  heading?: string;
+  description?: string[];
+}
+
+const {
+  eyebrow = 'Context model',
+  heading = 'Tape: the only source of truth.',
+  description = [
+    "Context isn't kept in fragile session state. It's reconstructed from an append-only tape — a ledger of immutable records.",
+    'Corrections append new entries. They never overwrite. Every action is auditable, continuable, and safe to replay.',
+  ],
+} = Astro.props;
+
+const tapeEntries = [
+  { ts: '14:32:01', op: 'user_msg', key: 'e_101', value: '"explain hooks"' },
+  { ts: '14:32:02', op: 'build_prompt', key: 'e_102', value: 'system + 12 msgs' },
+  { ts: '14:32:04', op: 'model_reply', key: 'e_103', value: '"Hooks are pluggy…"' },
+  { ts: '14:32:04', op: 'tool_call', key: 'e_104', value: 'read_docs("hooks")' },
+  { ts: '14:32:05', op: 'tool_result', key: 'e_105', value: '{ok: true, lines: 47}' },
+  { ts: '14:32:05', op: 'correction', key: 'e_106', value: 'corrects e_103', accent: true },
+  { ts: '14:32:06', op: 'save_state', key: 'e_107', value: 'tape flushed' },
+];
+---
+
+<section class="relative py-20 md:py-28" data-reveal>
+  <div class="mx-auto max-w-6xl px-5 md:px-8">
+    <div class="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
+      <!-- Tape visualization -->
+      <div class="relative order-2 lg:order-1">
+        <div class="overflow-hidden rounded-2xl border border-border bg-[oklch(0.13_0.02_265)] shadow-xl">
+          <div class="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3">
+            <span class="h-2.5 w-2.5 rounded-full bg-white/10"></span>
+            <span class="h-2.5 w-2.5 rounded-full bg-white/10"></span>
+            <span class="h-2.5 w-2.5 rounded-full bg-white/10"></span>
+            <span class="ml-2 font-mono text-[0.65rem] text-white/25">~/.bub/tapes/session_a1b2</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left font-mono text-xs">
+              <thead>
+                <tr class="border-b border-white/[0.06] text-white/40">
+                  <th class="px-5 py-2.5 font-medium">time</th>
+                  <th class="px-3 py-2.5 font-medium">op</th>
+                  <th class="px-3 py-2.5 font-medium">key</th>
+                  <th class="px-3 py-2.5 font-medium">value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tapeEntries.map((e) => (
+                  <tr class:list={[
+                    'border-b border-white/[0.04] transition-colors',
+                    e.accent ? 'bg-accent/15' : ''
+                  ]}>
+                    <td class="whitespace-nowrap px-5 py-2.5 text-white/35">{e.ts}</td>
+                    <td class:list={['whitespace-nowrap px-3 py-2.5', e.accent ? 'text-accent font-semibold' : 'text-white/80']}>{e.op}</td>
+                    <td class="whitespace-nowrap px-3 py-2.5 text-white/35">{e.key}</td>
+                    <td class="px-3 py-2.5 text-white/50">{e.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div class="flex items-center gap-3 border-t border-white/[0.06] px-5 py-3">
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-1 font-mono text-[0.6rem] font-bold text-accent">
+              7 entries
+            </span>
+            <span class="font-mono text-[0.6rem] text-white/25">append-only · correction at e_106 supersedes e_103</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Text -->
+      <div class="order-1 lg:order-2">
+        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-muted-foreground">
+          {eyebrow}
+        </p>
+        <h2 class="text-[clamp(1.8rem,4vw,2.75rem)] font-extrabold leading-[1.1] tracking-tight text-foreground">
+          {heading}
+        </h2>
+        <div class="mt-5 space-y-3">
+          {description.map((p) => (
+            <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{p}</p>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

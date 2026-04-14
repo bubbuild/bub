@@ -1,132 +1,88 @@
 ---
+import { Code } from 'astro-expressive-code/components';
+import Icon from './ui/Icon.astro';
+
 const {
-  badge = 'Born in group chats',
-  title = 'A common shape for agents that live alongside people.',
-  description = 'Hook-first. Tape-driven context. Channel-agnostic. Built for the messy, shared conversations where agents have to work beside real humans instead of performing in a sandbox.',
+  badge = 'Hook-first · Tape-driven · Channel-agnostic',
+  title = 'Bub is a tiny runtime for agents that live alongside people.',
+  description = '~200 lines of core code. Hooks reshape every turn stage. Tapes record every decision. Channels adapt to any surface — CLI, Telegram, or your own.',
   primaryHref = '/en/getting-started/installation/',
   primaryLabel = 'Get Started',
   secondaryHref = 'https://github.com/bubbuild/bub',
   secondaryLabel = 'View on GitHub',
-  metrics = [
-    { label: 'Core size', value: '~200 lines' },
-    { label: 'Context model', value: 'Tape-driven' },
-    { label: 'Channels', value: 'CLI + Telegram' },
-  ],
-  panelEyebrow = 'Turn pipeline',
-  panelDescription = 'CSS-only staggered flow matching the core Bub runtime.',
-  panelBadge = 'live shape',
-  renderOutboundLabel = 'render_outbound',
-  bottomNotes = [
-    'Hooks stay replaceable, so the core never needs a special case to accommodate channels or providers.',
-    'The same turn shape survives CLI, Telegram, and future adapters without changing the orchestration model.',
-  ],
 } = Astro.props;
 
-const pipeline = [
-  'resolve_session',
-  'load_state',
-  'build_prompt',
-  'run_model',
-  'render_outbound',
-  'save_state',
-  'dispatch_outbound',
-];
+const terminalCode = `$ pip install bub
+$ echo 'BUB_MODEL=openai/gpt-4.1' > .env
+$ bub chat
+🤖 Bub is ready. Type a message…
+
+> summarize this repo
+  ✓ resolve_session
+  ✓ load_state (tape: 0 entries)
+  ✓ build_prompt (system + tools)
+  ✓ run_model → gpt-4.1
+  ✓ render_outbound
+  ✓ save_state (tape: +3 entries)`;
 ---
 
-<section class="hero-grid relative overflow-hidden pb-18 pt-12 md:pb-24 md:pt-18">
-  <div class="mx-auto max-w-[calc(var(--content-max)+var(--page-gutter)*2)] px-[var(--page-gutter)]">
-    <div class="grid items-start gap-12 lg:grid-cols-[minmax(0,1.12fr)_minmax(20rem,0.88fr)] lg:gap-8">
-      <div class="max-w-3xl">
-        <div class="hero-chip inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_84%,transparent)] px-[0.9rem] py-[0.55rem] font-['JetBrains_Mono'] text-[0.75rem] uppercase tracking-[0.08em] text-[var(--muted)]">
-          <span class="hero-chip-dot h-[0.55rem] w-[0.55rem] rounded-full bg-[var(--accent)]"></span>
-          <span>{badge}</span>
+<section class="hero-section relative overflow-hidden pb-20 pt-14 md:pb-28 md:pt-20">
+  <!-- Dot grid bg -->
+  <div class="dot-grid pointer-events-none absolute inset-0 text-foreground/[0.04]" aria-hidden="true"></div>
+  <!-- Glow -->
+  <div class="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2" aria-hidden="true">
+    <div class="h-[500px] w-[800px] rounded-full bg-accent/10 blur-[120px]"></div>
+  </div>
+
+  <div class="relative mx-auto max-w-6xl px-5 md:px-8">
+    <div class="grid items-center gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:gap-10">
+      <!-- Left: text -->
+      <div class="max-w-2xl">
+        <!-- Badge -->
+        <div class="inline-flex items-center gap-2 rounded-full border border-border bg-secondary/60 px-3.5 py-1.5 font-mono text-[0.7rem] uppercase tracking-widest text-muted-foreground">
+          <span class="h-1.5 w-1.5 rounded-full bg-accent"></span>
+          {badge}
         </div>
-        <h1 class="mt-7 max-w-4xl text-[clamp(2.9rem,7vw,5.8rem)] font-[780] leading-[0.92] tracking-[-0.06em] text-[var(--fg)]">
-          {title}
-        </h1>
-        <p class="mt-6 max-w-2xl text-[1.08rem] leading-8 text-[var(--muted)] md:text-[1.18rem]">
+
+        <!-- Logo + heading -->
+        <div class="mt-8 flex items-start gap-4">
+          <img src="/bub-logo.png" alt="" width="56" height="56" class="hidden h-14 w-14 shrink-0 sm:block" aria-hidden="true" />
+          <h1 class="text-[clamp(2.2rem,5.5vw,3.8rem)] font-extrabold leading-[1.05] tracking-tight text-foreground">
+            <span class="bg-gradient-to-r from-accent via-primary to-accent bg-clip-text text-transparent">Bub</span>{' '}
+            {title.replace(/^Bub\s*/, '')}
+          </h1>
+        </div>
+
+        <p class="mt-6 max-w-xl text-[1.05rem] leading-7 text-muted-foreground">
           {description}
         </p>
+
+        <!-- CTAs -->
         <div class="mt-8 flex flex-col gap-3 sm:flex-row">
           <a
-            class="inline-flex min-h-[2.9rem] items-center justify-center gap-[0.6rem] rounded-full bg-[linear-gradient(135deg,var(--accent),var(--accent-strong))] px-[1.2rem] py-[0.8rem] font-bold text-[oklch(0.18_0.02_175)] no-underline shadow-[0_20px_40px_color-mix(in_oklab,var(--accent)_22%,transparent)] transition-transform duration-150 hover:-translate-y-px focus-visible:-translate-y-px"
+            class="inline-flex items-center justify-center gap-2 rounded-full bg-accent px-6 py-3 text-sm font-bold text-accent-foreground no-underline shadow-lg shadow-accent/20 transition-transform hover:-translate-y-0.5"
             href={primaryHref}
           >
             {primaryLabel}
-            <span aria-hidden="true">↗</span>
+            <Icon name="arrowUpRight" size={15} />
           </a>
           <a
-            class="inline-flex min-h-[2.9rem] items-center justify-center gap-[0.6rem] rounded-full border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_88%,transparent)] px-[1.2rem] py-[0.8rem] font-bold text-[var(--fg)] no-underline transition-[border-color,transform] duration-150 hover:border-[color:color-mix(in_oklab,var(--accent)_38%,var(--line))] hover:-translate-y-px focus-visible:border-[color:color-mix(in_oklab,var(--accent)_38%,var(--line))] focus-visible:-translate-y-px"
+            class="inline-flex items-center justify-center gap-2 rounded-full border border-border px-6 py-3 text-sm font-bold text-foreground no-underline transition-colors hover:bg-secondary"
             href={secondaryHref}
             target="_blank"
             rel="noreferrer"
           >
+            <Icon name="github" size={15} />
             {secondaryLabel}
           </a>
         </div>
-        <dl class="mt-10 grid max-w-2xl gap-4 sm:grid-cols-3">
-          {metrics.map((metric) => (
-            <div class="rounded-[1.35rem] border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_80%,transparent)] p-4">
-              <dt class="font-['JetBrains_Mono'] text-xs uppercase tracking-[0.18em] text-[var(--muted)]">{metric.label}</dt>
-              <dd class="mt-3 text-2xl font-[800] tracking-[-0.05em] text-[var(--fg)]">{metric.value}</dd>
-            </div>
-          ))}
-        </dl>
       </div>
 
+      <!-- Right: terminal -->
       <div class="relative">
-        <div class="absolute inset-x-[12%] top-10 h-52 rounded-full bg-[color:color-mix(in_oklab,var(--accent)_24%,transparent)] blur-3xl"></div>
-        <div class="relative overflow-hidden rounded-[2rem] border border-[var(--line)] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--bg-elevated)_88%,transparent),color-mix(in_oklab,var(--bg)_92%,black_8%))] p-5 shadow-[var(--shadow)] md:p-6">
-          <div class="flex items-center justify-between gap-4 border-b border-[var(--line)] pb-4">
-            <div>
-              <p class="font-['JetBrains_Mono'] text-xs uppercase tracking-[0.22em] text-[var(--muted)]">{panelEyebrow}</p>
-              <p class="mt-2 text-sm text-[var(--muted)]">{panelDescription}</p>
-            </div>
-            <span class="rounded-full border border-[var(--line)] px-3 py-1 font-['JetBrains_Mono'] text-[0.68rem] uppercase tracking-[0.2em] text-[var(--accent)]">
-              {panelBadge}
-            </span>
-          </div>
-          <div class="mt-6 rounded-[1.5rem] border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg)_75%,black_25%)] p-4 font-['JetBrains_Mono'] text-[0.82rem] leading-7 text-[var(--fg)] md:p-5">
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-              {pipeline.slice(0, 4).map((step, index) => (
-                <>
-                  <span class="pipeline-node rounded-full border border-[var(--line)] bg-[color:var(--bg-elevated)] px-3 py-1" style={`--delay:${index * 120}ms`}>
-                    {step}
-                  </span>
-                  {index < 3 && (
-                    <span class="pipeline-arrow" aria-hidden="true" style={`--delay:${index * 120 + 80}ms`}>
-                      →
-                    </span>
-                  )}
-                </>
-              ))}
-            </div>
-            <div class="ml-auto mt-5 flex w-fit items-center gap-3">
-              <span class="pipeline-arrow text-xl" aria-hidden="true" style="--delay:560ms">↓</span>
-              <span class="rounded-full border border-[var(--line)] bg-[color:var(--accent-soft)] px-3 py-1 text-[var(--accent)]">{renderOutboundLabel}</span>
-            </div>
-            <div class="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 md:justify-end">
-              {pipeline.slice(5).reverse().map((step, index) => (
-                <>
-                  <span class="pipeline-node rounded-full border border-[var(--line)] bg-[color:var(--bg-elevated)] px-3 py-1" style={`--delay:${760 + index * 120}ms`}>
-                    {step}
-                  </span>
-                  {index < 1 && (
-                    <span class="pipeline-arrow" aria-hidden="true" style={`--delay:${840 + index * 120}ms`}>
-                      ←
-                    </span>
-                  )}
-                </>
-              ))}
-            </div>
-          </div>
-          <div class="mt-5 grid gap-3 text-sm text-[var(--muted)] sm:grid-cols-2">
-            {bottomNotes.map((note) => (
-              <div class="rounded-[1.35rem] border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_72%,transparent)] p-4">
-                {note}
-              </div>
-            ))}
-          </div>
+        <div class="pointer-events-none absolute inset-x-[10%] top-8 h-48 rounded-full bg-accent/15 blur-3xl" aria-hidden="true"></div>
+        <div class="hero-terminal relative overflow-hidden rounded-2xl border border-border shadow-2xl shadow-black/10">
+          <Code code={terminalCode} lang="ansi" frame="terminal" title="bub" />
         </div>
       </div>
     </div>
@@ -134,51 +90,17 @@ const pipeline = [
 </section>
 
 <style>
-  .hero-grid::before {
-    background-image:
-      linear-gradient(to right, color-mix(in oklab, var(--line) 88%, transparent) 1px, transparent 1px),
-      linear-gradient(to bottom, color-mix(in oklab, var(--line) 88%, transparent) 1px, transparent 1px);
-    background-position: center;
-    background-size: 22px 22px;
-    content: '';
-    inset: 0;
-    mask-image: radial-gradient(circle at center, black 45%, transparent 88%);
-    opacity: 0.28;
-    pointer-events: none;
-    position: absolute;
+  .hero-terminal :global(.expressive-code) {
+    margin: 0;
   }
-
-  .pipeline-node {
-    animation: fade-up 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
-    animation-delay: var(--delay, 0ms);
+  .hero-terminal :global(.expressive-code .frame) {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
   }
-
-  .pipeline-arrow {
-    animation: pulse-line 1.8s ease-in-out infinite;
-    animation-delay: var(--delay, 0ms);
-    color: color-mix(in oklab, var(--accent) 76%, var(--fg));
-  }
-
-  @keyframes fade-up {
-    from {
-      opacity: 0;
-      transform: translateY(18px);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  @keyframes pulse-line {
-    0%,
-    100% {
-      opacity: 0.35;
-    }
-
-    50% {
-      opacity: 1;
-    }
+  .hero-terminal :global(.expressive-code pre) {
+    font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
+    font-size: 0.78rem;
+    line-height: 1.7;
   }
 </style>

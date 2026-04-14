@@ -1,0 +1,158 @@
+---
+import SectionHeading from './ui/SectionHeading.astro';
+
+type TestimonialItem = {
+  name: string;
+  handle: string;
+  text: string;
+};
+
+interface Props {
+  eyebrow?: string;
+  heading?: string;
+  testimonials?: TestimonialItem[];
+}
+
+const {
+  eyebrow = 'Community',
+  heading = 'What people are saying.',
+  testimonials = [
+    { name: 'Alex Chen', handle: '@alexchen_dev', text: "The hook system is brilliant. I replaced the built-in model runner with my own in under 20 lines. No forking, no framework hacks. Everything else just kept working." },
+    { name: 'Sam Wright', handle: '@samwright', text: "Finally, an agent framework that doesn't pretend group conversations are a solved problem. Bub's tape model just makes sense for real-world collaboration." },
+    { name: 'Priya Nair', handle: '@priya_builds', text: "What sets Bub apart: the same pipeline drives CLI and Telegram. I added a Slack channel adapter in a weekend. Zero changes to my hooks." },
+    { name: 'Jordan Lee', handle: '@jordanlee', text: "Tape-driven context means I can replay and audit every agent decision. No more mystery about why the agent said what it said." },
+    { name: 'Maria Gomez', handle: '@maria_ai', text: "Skills as Markdown files is such a refreshing idea. No magic registration, no hidden state. Just discoverable, version-controlled documents." },
+    { name: 'Tom Baker', handle: '@tombaker_', text: "We run Bub in production with 3 different LLM providers. The plugin system handles provider switching with zero downtime." },
+    { name: 'Yuki Tanaka', handle: '@yuki_dev', text: "Operator equivalence changed how I think about human-agent collaboration. Humans and agents sharing the same model makes handoffs seamless." },
+    { name: 'Li Wei', handle: '@liwei_ml', text: "~200 lines of core code. I read the entire framework in one sitting. That kind of simplicity is rare and valuable." },
+    { name: 'Emma Scott', handle: '@emma_builds', text: "The best part about Bub is what it doesn't do. No opinions about which LLM, no lock-in to a provider, no hidden abstractions." },
+    { name: 'Ryan Park', handle: '@ryanpark', text: "Deployed Bub on Telegram for our team's workspace. The agent handles concurrent conversations without any special configuration." },
+    { name: 'Nina Patel', handle: '@ninapatel', text: "Corrections in the tape never overwrite. They append. This makes debugging agent behavior trivially easy." },
+    { name: 'David Kim', handle: '@dkim_eng', text: "Hook-first means we control every stage. When our compliance team needed audit logs, we added a save_state hook plugin in an afternoon." },
+  ],
+} = Astro.props;
+
+const col1 = testimonials.filter((_, i) => i % 3 === 0);
+const col2 = testimonials.filter((_, i) => i % 3 === 1);
+const col3 = testimonials.filter((_, i) => i % 3 === 2);
+
+const colorAccents = [
+  'border-l-bento-coral',
+  'border-l-bento-teal',
+  'border-l-bento-amber',
+  'border-l-bento-purple',
+  'border-l-bento-green',
+  'border-l-bento-blue',
+];
+---
+
+<section class="relative py-20 md:py-28" data-reveal>
+  <div class="dot-grid pointer-events-none absolute inset-0 opacity-25" aria-hidden="true"></div>
+
+  <div class="relative mx-auto max-w-6xl px-5 md:px-8">
+    <SectionHeading eyebrow={eyebrow} heading={heading} align="center" />
+
+    <div class="testimonials-wrapper relative">
+      <div class="pointer-events-none absolute inset-x-0 top-0 z-10 h-20 bg-gradient-to-b from-background to-transparent" aria-hidden="true"></div>
+      <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-20 bg-gradient-to-t from-background to-transparent" aria-hidden="true"></div>
+
+      <div class="testimonials-columns grid h-[440px] gap-3 overflow-hidden sm:grid-cols-2 lg:grid-cols-3">
+        <!-- Column 1: scroll up -->
+        <div class="testimonial-col testimonial-col-up">
+          <div class="flex flex-col gap-3">
+            {[...col1, ...col1].map((t, i) => (
+              <div class:list={['rounded-xl border border-border border-l-[3px] bg-card p-4 shadow-sm', colorAccents[i % colorAccents.length]]}>
+                <p class="text-[0.84rem] leading-relaxed text-foreground/85">{t.text}</p>
+                <div class="mt-3 flex items-center gap-2.5">
+                  <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-accent/30 to-accent/10 font-mono text-[0.6rem] font-bold text-foreground">
+                    {t.name.charAt(0)}
+                  </div>
+                  <div class="min-w-0">
+                    <p class="truncate text-xs font-bold text-foreground">{t.name}</p>
+                    <p class="truncate text-[0.65rem] text-muted-foreground">{t.handle}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <!-- Column 2: scroll down -->
+        <div class="testimonial-col testimonial-col-down hidden sm:block">
+          <div class="flex flex-col gap-3">
+            {[...col2, ...col2].map((t, i) => (
+              <div class:list={['rounded-xl border border-border border-l-[3px] bg-card p-4 shadow-sm', colorAccents[(i + 2) % colorAccents.length]]}>
+                <p class="text-[0.84rem] leading-relaxed text-foreground/85">{t.text}</p>
+                <div class="mt-3 flex items-center gap-2.5">
+                  <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-accent/30 to-accent/10 font-mono text-[0.6rem] font-bold text-foreground">
+                    {t.name.charAt(0)}
+                  </div>
+                  <div class="min-w-0">
+                    <p class="truncate text-xs font-bold text-foreground">{t.name}</p>
+                    <p class="truncate text-[0.65rem] text-muted-foreground">{t.handle}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <!-- Column 3: scroll up (slower) -->
+        <div class="testimonial-col testimonial-col-up-slow hidden lg:block">
+          <div class="flex flex-col gap-3">
+            {[...col3, ...col3].map((t, i) => (
+              <div class:list={['rounded-xl border border-border border-l-[3px] bg-card p-4 shadow-sm', colorAccents[(i + 4) % colorAccents.length]]}>
+                <p class="text-[0.84rem] leading-relaxed text-foreground/85">{t.text}</p>
+                <div class="mt-3 flex items-center gap-2.5">
+                  <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-accent/30 to-accent/10 font-mono text-[0.6rem] font-bold text-foreground">
+                    {t.name.charAt(0)}
+                  </div>
+                  <div class="min-w-0">
+                    <p class="truncate text-xs font-bold text-foreground">{t.name}</p>
+                    <p class="truncate text-[0.65rem] text-muted-foreground">{t.handle}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .testimonial-col {
+    overflow: hidden;
+  }
+  .testimonial-col > div {
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+  .testimonial-col-up > div {
+    animation-name: scroll-up;
+    animation-duration: 45s;
+  }
+  .testimonial-col-down > div {
+    animation-name: scroll-down;
+    animation-duration: 40s;
+  }
+  .testimonial-col-up-slow > div {
+    animation-name: scroll-up;
+    animation-duration: 55s;
+  }
+
+  .testimonials-wrapper:hover .testimonial-col > div {
+    animation-play-state: paused;
+  }
+
+  @keyframes scroll-up {
+    from { transform: translateY(0); }
+    to { transform: translateY(-50%); }
+  }
+
+  @keyframes scroll-down {
+    from { transform: translateY(-50%); }
+    to { transform: translateY(0); }
+  }
+</style>

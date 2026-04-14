@@ -1,0 +1,129 @@
+---
+interface Props {
+  eyebrow?: string;
+  heading?: string;
+  description?: string[];
+  hookStages?: { name: string; note: string }[];
+}
+
+const {
+  eyebrow = 'Architecture',
+  heading = 'Hooks define every turn stage.',
+  description = [
+    'Every stage in a Bub turn is a pluggy hook. The built-in implementation is just another plugin.',
+    'Override any stage by registering your own. Later plugins take priority. No forking, no framework privilege.',
+  ],
+  hookStages = [
+    { name: 'resolve_session', note: 'Route to the right conversation' },
+    { name: 'load_state', note: 'Reconstruct context from tape' },
+    { name: 'build_prompt', note: 'Assemble system + history + tools' },
+    { name: 'run_model', note: 'Call the LLM provider' },
+    { name: 'render_outbound', note: 'Format the reply for the channel' },
+    { name: 'save_state', note: 'Persist to tape' },
+    { name: 'dispatch_outbound', note: 'Send to CLI / Telegram / etc.' },
+  ],
+} = Astro.props;
+---
+
+<section class="relative overflow-hidden py-20 md:py-28" data-reveal>
+  <!-- Teal/cyan gradient background -->
+  <div class="absolute inset-0 bg-gradient-to-br from-bento-teal via-bento-teal/80 to-bento-green/60" aria-hidden="true"></div>
+  <div class="absolute inset-0 opacity-[0.03]" style="background-image: url('data:image/svg+xml,%3Csvg width=&quot;20&quot; height=&quot;20&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot;%3E%3Ccircle cx=&quot;1&quot; cy=&quot;1&quot; r=&quot;1&quot; fill=&quot;%23000&quot;/%3E%3C/svg%3E'); background-size: 20px 20px;" aria-hidden="true"></div>
+
+  <div class="relative mx-auto max-w-6xl px-5 md:px-8">
+    <div class="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
+      <!-- Text -->
+      <div>
+        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-foreground/50">
+          {eyebrow}
+        </p>
+        <h2 class="text-[clamp(1.8rem,4vw,2.75rem)] font-extrabold leading-[1.1] tracking-tight text-foreground">
+          {heading}
+        </h2>
+        <div class="mt-5 space-y-3">
+          {description.map((p) => (
+            <p class="text-[0.95rem] leading-relaxed text-foreground/70">{p}</p>
+          ))}
+        </div>
+      </div>
+
+      <!-- Hook stepper -->
+      <div class="relative" data-hook-stages>
+        <div class="overflow-hidden rounded-2xl border border-foreground/8 bg-card/90 p-5 shadow-xl shadow-black/5 backdrop-blur-sm md:p-7">
+          <p class="mb-4 font-mono text-[0.7rem] uppercase tracking-widest text-muted-foreground">
+            process_inbound()
+          </p>
+          <div class="space-y-0.5">
+            {hookStages.map((stage, i) => (
+              <div
+                class="hook-stage rounded-xl px-3.5 py-2.5 transition-all duration-500"
+                data-hook-stage={i}
+              >
+                <div class="flex items-center gap-3">
+                  <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary font-mono text-[0.65rem] font-bold text-muted-foreground transition-colors duration-500">
+                    {i + 1}
+                  </span>
+                  <span class="font-mono text-[0.82rem] font-medium text-foreground">{stage.name}()</span>
+                </div>
+                <p class="hook-note mt-1 ml-9 text-xs text-muted-foreground opacity-0 transition-all duration-500" style="max-height:0;overflow:hidden">
+                  {stage.note}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hook-stage.active {
+    background-color: var(--primary);
+  }
+  .hook-stage.active .hook-note {
+    opacity: 1;
+    max-height: 2rem;
+    color: var(--primary-foreground);
+  }
+  .hook-stage.active span:first-child {
+    background-color: var(--primary-foreground);
+    color: var(--primary);
+  }
+  .hook-stage.active span.font-mono {
+    color: var(--primary-foreground);
+  }
+</style>
+
+<script>
+  import { inView } from 'motion';
+
+  function initHookAnimation() {
+    const container = document.querySelector('[data-hook-stages]');
+    if (!container) return;
+
+    const stages = container.querySelectorAll('[data-hook-stage]');
+    if (!stages.length) return;
+
+    let current = 0;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    function cycle() {
+      stages.forEach((s) => s.classList.remove('active'));
+      stages[current]?.classList.add('active');
+      current = (current + 1) % stages.length;
+    }
+
+    inView(container, () => {
+      cycle();
+      interval = setInterval(cycle, 2200);
+      return () => {
+        if (interval) clearInterval(interval);
+        stages.forEach((s) => s.classList.remove('active'));
+      };
+    }, { margin: '-10% 0px' });
+  }
+
+  initHookAnimation();
+  document.addEventListener('astro:page-load', initHookAnimation);
+</script>

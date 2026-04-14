@@ -1,73 +1,94 @@
 ---
+import Icon from './ui/Icon.astro';
+import SectionHeading from './ui/SectionHeading.astro';
+
 const {
   eyebrow = 'Why Bub',
   heading = 'Every decision has a reason.',
   subheading = 'Bub was designed for real multi-agent collaboration from day one — not retrofitted for it.',
   features = [
     {
-      icon: '🪝',
+      icon: 'webhook',
       title: 'Hook-First',
       description:
         '~200-line core. Every turn stage is a pluggy hook. Builtins are just default plugins — override any stage without forking the runtime.',
+      color: 'coral',
     },
     {
-      icon: '📼',
+      icon: 'layers',
       title: 'Tape Context',
       description:
         'Context is reconstructed from append-only tape records, not accumulated in session state. No lossy summaries, no phantom memory.',
+      color: 'amber',
     },
     {
-      icon: '🔌',
+      icon: 'radioTower',
       title: 'Channel-Agnostic',
       description:
         'The same process_inbound() pipeline drives CLI, Telegram, and any channel you add. Hooks never know which surface they\'re on.',
+      color: 'teal',
     },
     {
-      icon: '📄',
+      icon: 'fileSearch',
       title: 'Skills as Docs',
       description:
         'Skills are SKILL.md files with validated frontmatter — not code modules with magic registration. Discoverable, overridable, auditable.',
+      color: 'purple',
     },
     {
-      icon: '👥',
+      icon: 'users',
       title: 'Operator Equivalence',
       description:
         'Humans and agents share the same operator model: same boundaries, same evidence trails, same handoff semantics. No special cases.',
+      color: 'green',
     },
     {
-      icon: '🧩',
+      icon: 'wrench',
       title: 'Plugin System',
       description:
         'Python entry-points under group="bub". Later-registered plugins run first and override earlier ones. No framework privilege.',
+      color: 'blue',
     },
   ],
 } = Astro.props;
+
+const bentoColors: Record<string, string> = {
+  coral: 'bg-bento-coral',
+  amber: 'bg-bento-amber',
+  teal: 'bg-bento-teal',
+  purple: 'bg-bento-purple',
+  green: 'bg-bento-green',
+  blue: 'bg-bento-blue',
+};
 ---
 
-<section class="py-20 md:py-28">
-  <div class="mx-auto max-w-[calc(var(--content-max)+var(--page-gutter)*2)] px-[var(--page-gutter)]">
-    <div class="mb-14 max-w-2xl">
-      <p class="mb-4 font-['JetBrains_Mono'] text-xs uppercase tracking-[0.18em] text-[var(--accent)]">
-        {eyebrow}
-      </p>
-      <h2 class="text-[clamp(1.9rem,4vw,3rem)] font-[780] leading-[1.05] tracking-[-0.04em] text-[var(--fg)]">
-        {heading}
-      </h2>
-      <p class="mt-4 text-[1.05rem] leading-7 text-[var(--muted)]">{subheading}</p>
-    </div>
+<section class="relative py-20 md:py-28" data-reveal>
+  <div class="mx-auto max-w-6xl px-5 md:px-8">
+    <SectionHeading eyebrow={eyebrow} heading={heading} subheading={subheading} />
 
+    <!-- Asymmetric BentoGrid: row 1 = large + small, row 2 = 3 equal -->
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {
-        features.map((feature) => (
-          <div class="feature-card group relative overflow-hidden rounded-[1.6rem] border border-[var(--line)] bg-[color:color-mix(in_oklab,var(--bg-elevated)_80%,transparent)] p-6 transition-[border-color,transform] duration-200 hover:border-[color:color-mix(in_oklab,var(--accent)_28%,var(--line))] hover:-translate-y-0.5">
-            <div class="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--line)] bg-[color:var(--accent-soft)] text-xl transition-transform duration-200 group-hover:scale-110">
-              {feature.icon}
+      {features.map((feature, i) => {
+        const isWide = i === 0 || i === 3;
+        return (
+          <div class:list={[
+            'group relative overflow-hidden rounded-2xl border border-border p-6 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg',
+            bentoColors[feature.color] || 'bg-card',
+            isWide && 'lg:col-span-2',
+          ]}>
+            {/* Decorative gradient orb */}
+            <div class="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-accent/8 blur-2xl transition-transform duration-500 group-hover:scale-150" aria-hidden="true"></div>
+
+            <div class="relative">
+              <div class="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm">
+                <Icon name={feature.icon} size={20} class="text-foreground/70" />
+              </div>
+              <h3 class="mb-2 text-[1rem] font-bold tracking-tight text-foreground">{feature.title}</h3>
+              <p class="text-[0.88rem] leading-relaxed text-foreground/65">{feature.description}</p>
             </div>
-            <h3 class="mb-2 text-[1rem] font-[720] tracking-[-0.02em] text-[var(--fg)]">{feature.title}</h3>
-            <p class="text-[0.9rem] leading-6 text-[var(--muted)]">{feature.description}</p>
           </div>
-        ))
-      }
+        );
+      })}
     </div>
   </div>
 </section>

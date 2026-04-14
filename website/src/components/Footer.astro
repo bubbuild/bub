@@ -1,39 +1,39 @@
 ---
+import Icon from './ui/Icon.astro';
+
 const {
-  docsHref = '/en/docs/',
+  docsHref = '/en/getting-started/',
   docsLabel = 'Docs',
-  blogHref = '/en/blog/',
-  blogLabel = 'Blog',
   githubHref = 'https://github.com/bubbuild/bub',
   githubLabel = 'GitHub',
   licenseHref = 'https://github.com/bubbuild/bub/blob/main/LICENSE',
   licenseLabel = 'Apache-2.0',
-  brandLabel = 'Bub',
-  builtWith = 'Built with Astro + Starlight',
   copyright = `© ${new Date().getFullYear()} Bub Contributors`,
 } = Astro.props;
 ---
 
-<footer class="border-t border-[var(--line)] py-10">
-  <div class="mx-auto max-w-[calc(var(--content-max)+var(--page-gutter)*2)] px-[var(--page-gutter)]">
-    <div class="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
-      <div class="flex items-center gap-3">
-        <span class="grid h-8 w-8 place-items-center rounded-xl border border-[var(--line)] bg-[color:var(--accent-soft)] font-['JetBrains_Mono'] text-xs text-[var(--accent)]">B</span>
-        <span class="font-semibold uppercase tracking-[0.18em] text-[var(--fg)]">{brandLabel}</span>
-      </div>
+<footer class="relative overflow-hidden border-t border-border bg-gradient-to-b from-bento-teal/30 to-background py-14">
+  <div class="dot-grid pointer-events-none absolute inset-0 opacity-20" aria-hidden="true"></div>
 
-      <nav class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-[var(--muted)]" aria-label="Footer navigation">
-        <a class="no-underline transition-colors duration-150 hover:text-[var(--accent)]" href={docsHref}>{docsLabel}</a>
-        <a class="no-underline transition-colors duration-150 hover:text-[var(--accent)]" href={blogHref}>{blogLabel}</a>
-        <a class="no-underline transition-colors duration-150 hover:text-[var(--accent)]" href={githubHref} target="_blank" rel="noreferrer">{githubLabel}</a>
-        <a class="no-underline transition-colors duration-150 hover:text-[var(--accent)]" href={licenseHref} target="_blank" rel="noreferrer">{licenseLabel}</a>
-      </nav>
+  <div class="relative mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-5 sm:flex-row sm:items-center md:px-8">
+    <div class="flex items-center gap-2.5">
+      <img src="/bub-logo.png" alt="Bub" width="28" height="28" class="h-7 w-7" />
+      <span class="text-sm font-bold tracking-tight text-foreground">Bub</span>
     </div>
 
-    <div class="mt-6 flex flex-col gap-1 text-[0.8rem] text-[var(--muted)] opacity-60 sm:flex-row sm:gap-4">
-      <span>{copyright}</span>
-      <span class="hidden sm:inline" aria-hidden="true">·</span>
-      <span>{builtWith}</span>
-    </div>
+    <nav class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground" aria-label="Footer navigation">
+      <a class="no-underline transition-colors hover:text-foreground" href={docsHref}>
+        <Icon name="book" size={13} class="mr-1 inline-flex opacity-50" />
+        {docsLabel}
+      </a>
+      <a class="no-underline transition-colors hover:text-foreground" href={githubHref} target="_blank" rel="noreferrer">
+        <Icon name="github" size={13} class="mr-1 inline-flex opacity-50" />
+        {githubLabel}
+      </a>
+      <a class="no-underline transition-colors hover:text-foreground" href={licenseHref} target="_blank" rel="noreferrer">
+        {licenseLabel}
+      </a>
+      <span class="text-xs text-muted-foreground/50">{copyright}</span>
+    </nav>
   </div>
 </footer>

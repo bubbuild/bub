@@ -1,0 +1,83 @@
+---
+import '../styles/global.css';
+import Hero from '../components/Hero.astro';
+import NavBar from '../components/NavBar.astro';
+import Features from '../components/Features.astro';
+import HookIntro from '../components/HookIntro.astro';
+import TapeModel from '../components/TapeModel.astro';
+import Testimonials from '../components/Testimonials.astro';
+import Footer from '../components/Footer.astro';
+
+const { htmlLang, title, description, nav, hero, features, hookIntro, tapeModel, testimonials, footer } = Astro.props;
+---
+
+<!doctype html>
+<html lang={htmlLang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <script type="module">
+      if (import.meta.env.DEV) {
+        import("react-grab");
+      }
+    </script>
+    <script is:inline>
+      (() => {
+        const storedTheme = localStorage.getItem('bub-theme');
+        const preferredTheme =
+          storedTheme || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        document.documentElement.dataset.theme = preferredTheme;
+      })();
+    </script>
+  </head>
+  <body class="min-h-screen antialiased">
+    <NavBar {...nav} />
+    <main>
+      <Hero {...hero} />
+      <Features {...features} />
+      <HookIntro {...hookIntro} />
+      <TapeModel {...tapeModel} />
+      <Testimonials {...testimonials} />
+    </main>
+    <Footer {...footer} />
+    <script is:inline>
+      function setTheme(theme) {
+        document.documentElement.dataset.theme = theme;
+        localStorage.setItem('bub-theme', theme);
+      }
+
+      function toggleTheme() {
+        const current = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+        setTheme(current === 'light' ? 'dark' : 'light');
+      }
+
+      document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
+        button.addEventListener('click', toggleTheme);
+      });
+    </script>
+    <script>
+      import { inView, animate } from 'motion';
+
+      function initScrollReveals() {
+        document.querySelectorAll('[data-reveal]').forEach((el) => {
+          const htmlEl = el as HTMLElement;
+          htmlEl.style.opacity = '0';
+          htmlEl.style.transform = 'translateY(24px)';
+
+          inView(htmlEl, () => {
+            animate(htmlEl, { opacity: [0, 1], transform: ['translateY(24px)', 'translateY(0)'] }, { duration: 0.6, easing: [0.25, 0.1, 0.25, 1] });
+          }, { margin: '0px 0px -10% 0px' });
+        });
+      }
+
+      requestAnimationFrame(() => {
+        initScrollReveals();
+      });
+      document.addEventListener('astro:page-load', () => {
+        requestAnimationFrame(initScrollReveals);
+      });
+    </script>
+  </body>
+</html>
