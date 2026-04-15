@@ -30,11 +30,8 @@ const tapeEntries = [
     <div class="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
       <!-- Tape visualization -->
       <div class="relative order-2 lg:order-1">
-        <div class="overflow-hidden rounded-2xl border border-border bg-[oklch(0.13_0.02_265)] shadow-xl">
+        <div class="overflow-hidden border border-border bg-[oklch(0.13_0.02_265)]">
           <div class="flex items-center gap-2 border-b border-white/[0.06] px-5 py-3">
-            <span class="h-2.5 w-2.5 rounded-full bg-white/10"></span>
-            <span class="h-2.5 w-2.5 rounded-full bg-white/10"></span>
-            <span class="h-2.5 w-2.5 rounded-full bg-white/10"></span>
             <span class="ml-2 font-mono text-[0.65rem] text-white/25">~/.bub/tapes/session_a1b2</span>
           </div>
           <div class="overflow-x-auto">
@@ -51,10 +48,10 @@ const tapeEntries = [
                 {tapeEntries.map((e) => (
                   <tr class:list={[
                     'border-b border-white/[0.04] transition-colors',
-                    e.accent ? 'bg-accent/15' : ''
+                    e.accent ? 'bg-primary/10' : ''
                   ]}>
                     <td class="whitespace-nowrap px-5 py-2.5 text-white/35">{e.ts}</td>
-                    <td class:list={['whitespace-nowrap px-3 py-2.5', e.accent ? 'text-accent font-semibold' : 'text-white/80']}>{e.op}</td>
+                    <td class:list={['whitespace-nowrap px-3 py-2.5', e.accent ? 'text-primary font-semibold' : 'text-white/80']}>{e.op}</td>
                     <td class="whitespace-nowrap px-3 py-2.5 text-white/35">{e.key}</td>
                     <td class="px-3 py-2.5 text-white/50">{e.value}</td>
                   </tr>
@@ -63,7 +60,7 @@ const tapeEntries = [
             </table>
           </div>
           <div class="flex items-center gap-3 border-t border-white/[0.06] px-5 py-3">
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-2.5 py-1 font-mono text-[0.6rem] font-bold text-accent">
+            <span class="inline-flex items-center gap-1.5 bg-primary/10 px-2.5 py-1 font-mono text-[0.6rem] font-bold text-primary">
               7 entries
             </span>
             <span class="font-mono text-[0.6rem] text-white/25">append-only · correction at e_106 supersedes e_103</span>

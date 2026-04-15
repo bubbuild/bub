@@ -21,7 +21,7 @@ const navItems = [
 ];
 ---
 
-<header class="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-lg">
+<header class="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm">
   <div class="mx-auto flex max-w-6xl items-center justify-between px-5 py-3 md:px-8">
     <!-- Brand -->
     <a class="flex items-center gap-2.5 text-[0.95rem] font-bold tracking-tight text-foreground no-underline" href={homeHref}>
@@ -47,33 +47,33 @@ const navItems = [
     <!-- Right side -->
     <div class="flex items-center gap-2">
       <a
-        class="hidden rounded-full border border-border px-3.5 py-1.5 text-sm font-semibold text-foreground no-underline transition-colors hover:bg-secondary md:inline-flex"
+        class="hidden border border-border px-3.5 py-1.5 text-sm font-semibold text-foreground no-underline transition-colors hover:bg-secondary md:inline-flex"
         href={languageHref}
       >
         <Icon name="globe" size={14} class="mr-1.5 inline opacity-50" />
         {languageLabel}
       </a>
       <button
-        class="theme-toggle inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-border text-foreground transition-colors hover:bg-secondary"
+        class="theme-toggle inline-flex h-9 w-9 cursor-pointer items-center justify-center border border-border text-foreground transition-colors hover:bg-secondary"
         type="button"
         aria-label="Toggle color theme"
         data-theme-toggle
       >
-        <Icon name="moon" size={16} class="moon-icon" />
-        <Icon name="sun" size={16} class="sun-icon" />
+        <Icon name="moon" size={16} class="dark:hidden" />
+        <Icon name="sun" size={16} class="hidden dark:block" />
       </button>
 
       <!-- Mobile menu -->
       <details class="group md:hidden">
-        <summary class="inline-flex h-9 w-9 list-none items-center justify-center rounded-full border border-border text-foreground marker:content-none">
+        <summary class="inline-flex h-9 w-9 list-none items-center justify-center border border-border text-foreground marker:content-none">
           <Icon name="menu" size={18} class="group-open:hidden" />
           <Icon name="x" size={18} class="hidden group-open:block" />
         </summary>
-        <div class="absolute left-0 right-0 top-full border-b border-border bg-background/95 p-5 backdrop-blur-lg">
+        <div class="absolute left-0 right-0 top-full border-b border-border bg-background/95 p-5">
           <div class="grid gap-2 text-sm">
             {navItems.map((item) => (
               <a
-                class="rounded-lg px-3 py-2.5 text-foreground no-underline transition-colors hover:bg-secondary"
+                class="px-3 py-2.5 text-foreground no-underline transition-colors hover:bg-secondary"
                 href={item.href}
                 target={item.external ? '_blank' : undefined}
                 rel={item.external ? 'noreferrer' : undefined}
@@ -81,7 +81,7 @@ const navItems = [
                 {item.label}
               </a>
             ))}
-            <a class="rounded-lg px-3 py-2.5 text-foreground no-underline transition-colors hover:bg-secondary" href={languageHref}>
+            <a class="px-3 py-2.5 text-foreground no-underline transition-colors hover:bg-secondary" href={languageHref}>
               {languageLabel}
             </a>
           </div>
@@ -91,10 +91,11 @@ const navItems = [
   </div>
 </header>
 
-<style>
-  .theme-toggle .sun-icon { display: none; }
-  :global(:root[data-theme='light']) .theme-toggle .sun-icon { display: inline; }
-  :global(:root[data-theme='light']) .theme-toggle .moon-icon { display: none; }
-  :global(:root:not([data-theme])) .theme-toggle .sun-icon { display: inline; }
-  :global(:root:not([data-theme])) .theme-toggle .moon-icon { display: none; }
-</style>
+<script is:inline>
+  document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+      localStorage.setItem('bub-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+    });
+  });
+</script>

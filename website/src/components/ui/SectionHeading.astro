@@ -12,7 +12,7 @@ const { eyebrow, heading, subheading, align = 'left', class: className } = Astro
 
 <div class:list={[align === 'center' && 'mx-auto text-center', 'mb-12 max-w-2xl', className]}>
   {eyebrow && (
-    <p class="mb-4 font-mono text-xs uppercase tracking-widest text-accent">
+    <p class="mb-4 font-mono text-xs uppercase tracking-widest text-muted-foreground">
       {eyebrow}
     </p>
   )}

@@ -21,16 +21,15 @@ const { htmlLang, title, description, nav, hero, features, footer } = getLanding
     <meta name="description" content={description} />
     <script is:inline>
       (() => {
-        const storedTheme = localStorage.getItem('bub-theme');
-        const preferredTheme =
-          storedTheme || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-        document.documentElement.dataset.theme = preferredTheme;
+        const stored = localStorage.getItem('bub-theme');
+        const dark = stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
       })();
     </script>
   </head>
-  <body class="min-h-screen antialiased">
+  <body class="min-h-screen antialiased font-sans">
     <NavBar {...nav} />
-    <main>
+    <main class="divide-y divide-border">
       <Hero {...hero} />
       <Features {...features} />
       <HookIntro />
@@ -38,21 +37,6 @@ const { htmlLang, title, description, nav, hero, features, footer } = getLanding
       <Testimonials />
     </main>
     <Footer {...footer} />
-    <script is:inline>
-      function setTheme(theme) {
-        document.documentElement.dataset.theme = theme;
-        localStorage.setItem('bub-theme', theme);
-      }
-
-      function toggleTheme() {
-        const current = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
-        setTheme(current === 'light' ? 'dark' : 'light');
-      }
-
-      document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
-        button.addEventListener('click', toggleTheme);
-      });
-    </script>
 
     <script>
       import { inView } from 'motion';
