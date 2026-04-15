@@ -25,9 +25,12 @@ const {
 
 <div class="flex items-center gap-3">
   <div class="flex -space-x-3">
-    {contributors.map((c) => (
+    {contributors.map((c, i) => (
       <div
-        class="flex h-8 w-8 items-center justify-center rounded-full border-2 border-background text-xs font-bold text-white"
+        class:list={[
+          'flex h-7 w-7 items-center justify-center rounded-full border-2 border-background text-xs font-bold text-white md:h-8 md:w-8',
+          i >= 5 ? 'hidden md:flex' : '',
+        ]}
         style={`background-color: ${c.bg};`}
       >
         {c.initial}
@@ -35,7 +38,7 @@ const {
     ))}
     <!-- Ellipsis avatar -->
     <div
-      class="flex h-8 w-8 items-center justify-center rounded-full border-2 border-background bg-secondary text-muted-foreground"
+      class="flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-secondary text-muted-foreground md:h-8 md:w-8"
       title="and many more"
       aria-label="and many more contributors"
     >

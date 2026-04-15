@@ -34,14 +34,14 @@ const tapeEntries = [
           <div class="flex items-center gap-2 border-b border-border px-5 py-3">
             <span class="ml-2 font-mono text-[0.65rem] text-muted-foreground/60">~/.bub/tapes/session_a1b2</span>
           </div>
-          <div class="overflow-x-auto">
+          <div class="tape-scroll-area relative overflow-x-auto">
             <table class="w-full text-left font-mono text-xs">
               <thead>
                 <tr class="border-b border-border text-muted-foreground">
-                  <th class="px-5 py-2.5 font-medium">time</th>
-                  <th class="px-3 py-2.5 font-medium">op</th>
-                  <th class="px-3 py-2.5 font-medium">key</th>
-                  <th class="px-3 py-2.5 font-medium">value</th>
+                  <th class="hidden px-3 py-2 font-medium sm:table-cell sm:px-5 sm:py-2.5">time</th>
+                  <th class="px-3 py-2 font-medium sm:py-2.5">op</th>
+                  <th class="px-3 py-2 font-medium sm:py-2.5">key</th>
+                  <th class="px-3 py-2 font-medium sm:py-2.5">value</th>
                 </tr>
               </thead>
               <tbody>
@@ -50,10 +50,10 @@ const tapeEntries = [
                     'border-b border-border/50 transition-colors',
                     e.accent ? 'bg-primary/10' : ''
                   ]}>
-                    <td class="whitespace-nowrap px-5 py-2.5 text-muted-foreground">{e.ts}</td>
-                    <td class:list={['whitespace-nowrap px-3 py-2.5', e.accent ? 'text-primary font-semibold' : 'text-foreground']}>{e.op}</td>
-                    <td class="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{e.key}</td>
-                    <td class="px-3 py-2.5 text-muted-foreground">{e.value}</td>
+                    <td class="hidden whitespace-nowrap px-3 py-2 text-muted-foreground sm:table-cell sm:px-5 sm:py-2.5">{e.ts}</td>
+                    <td class:list={['whitespace-nowrap px-3 py-2 sm:py-2.5', e.accent ? 'text-primary font-semibold' : 'text-foreground']}>{e.op}</td>
+                    <td class="whitespace-nowrap px-3 py-2 text-muted-foreground sm:py-2.5">{e.key}</td>
+                    <td class="px-3 py-2 text-muted-foreground sm:py-2.5">{e.value}</td>
                   </tr>
                 ))}
               </tbody>
@@ -85,3 +85,15 @@ const tapeEntries = [
     </div>
   </div>
 </section>
+
+<style>
+  .tape-scroll-area {
+    -webkit-overflow-scrolling: touch;
+  }
+  @media (max-width: 639px) {
+    .tape-scroll-area {
+      mask-image: linear-gradient(to right, black 90%, transparent 100%);
+      -webkit-mask-image: linear-gradient(to right, black 90%, transparent 100%);
+    }
+  }
+</style>

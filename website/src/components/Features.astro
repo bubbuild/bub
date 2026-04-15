@@ -55,7 +55,7 @@ const {
 
     <div class="grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
       {/* Row 1: feature[0] col-span-2 + feature[1] */}
-      <div class="feature-card group relative col-span-1 overflow-hidden bg-background p-8 transition-all duration-300 sm:col-span-2 lg:col-span-2 hover:bg-secondary/40">
+      <div class="feature-card group relative col-span-1 overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 lg:col-span-2 hover:bg-secondary/40">
         <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
           <Icon name={features[0].icon} size={120} />
         </div>
@@ -64,7 +64,7 @@ const {
           <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[0].description}</p>
         </div>
       </div>
-      <div class="feature-card group relative overflow-hidden bg-background p-8 transition-all duration-300 hover:bg-secondary/40">
+      <div class="feature-card group relative overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 hover:bg-secondary/40">
         <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
           <Icon name={features[1].icon} size={96} />
         </div>
@@ -75,7 +75,7 @@ const {
       </div>
 
       {/* Row 2: feature[2] + LOGO CENTER + feature[3] */}
-      <div class="feature-card group relative overflow-hidden bg-background p-8 transition-all duration-300 hover:bg-secondary/40">
+      <div class="feature-card group relative overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 hover:bg-secondary/40">
         <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
           <Icon name={features[2].icon} size={96} />
         </div>
@@ -84,12 +84,12 @@ const {
           <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[2].description}</p>
         </div>
       </div>
-      {/* Center: Bub logo */}
-      <div class="flex items-center justify-center bg-background p-8">
+      {/* Center: Bub logo — hidden below lg where there's no 3-col grid */}
+      <div class="hidden items-center justify-center bg-background p-8 lg:flex">
         <img src="/bub-logo.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110 dark:hidden" />
         <img src="/bub-logo-dark.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110 hidden dark:block" />
       </div>
-      <div class="feature-card group relative overflow-hidden bg-background p-8 transition-all duration-300 hover:bg-secondary/40">
+      <div class="feature-card group relative overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 hover:bg-secondary/40">
         <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
           <Icon name={features[3].icon} size={96} />
         </div>
@@ -100,7 +100,7 @@ const {
       </div>
 
       {/* Row 3: feature[4] + feature[5] col-span-2 */}
-      <div class="feature-card group relative overflow-hidden bg-background p-8 transition-all duration-300 hover:bg-secondary/40">
+      <div class="feature-card group relative overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 hover:bg-secondary/40">
         <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
           <Icon name={features[4].icon} size={96} />
         </div>
@@ -109,7 +109,7 @@ const {
           <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[4].description}</p>
         </div>
       </div>
-      <div class="feature-card group relative col-span-1 overflow-hidden bg-background p-8 transition-all duration-300 sm:col-span-2 lg:col-span-2 hover:bg-secondary/40">
+      <div class="feature-card group relative col-span-1 overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 lg:col-span-2 hover:bg-secondary/40">
         <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
           <Icon name={features[5].icon} size={120} />
         </div>
@@ -124,6 +124,11 @@ const {
 
 <style>
   .feature-card {
-    min-height: 180px;
+    min-height: 140px;
+  }
+  @media (min-width: 640px) {
+    .feature-card {
+      min-height: 180px;
+    }
   }
 </style>

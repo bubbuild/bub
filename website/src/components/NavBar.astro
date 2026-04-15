@@ -81,20 +81,23 @@ const stars = '99k';
           <Icon name="menu" size={18} class="group-open:hidden" />
           <Icon name="x" size={18} class="hidden group-open:block" />
         </summary>
-        <div class="absolute left-0 right-0 top-full border-b border-border bg-background/95 p-5">
-          <div class="grid gap-2 text-sm">
+        <div class="mobile-dropdown absolute left-0 right-0 top-full border-b border-border bg-background/95 backdrop-blur-sm p-5">
+          <div class="grid gap-0 text-sm">
             {navItems.map((item) => (
               <a
-                class="px-3 py-2.5 text-foreground no-underline transition-colors hover:bg-secondary"
+                class="flex items-center gap-2.5 border-b border-border/50 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary"
                 href={item.href}
               >
+                <Icon name={item.icon} size={15} class="opacity-50" />
                 {item.label}
               </a>
             ))}
-            <a class="px-3 py-2.5 text-foreground no-underline transition-colors hover:bg-secondary" href="https://github.com/bubbuild/bub" target="_blank" rel="noreferrer">
+            <a class="flex items-center gap-2.5 border-b border-border/50 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href="https://github.com/bubbuild/bub" target="_blank" rel="noreferrer">
+              <Icon name="github" size={15} class="opacity-50" />
               GitHub ★ {stars}
             </a>
-            <a class="px-3 py-2.5 text-foreground no-underline transition-colors hover:bg-secondary" href={languageHref}>
+            <a class="flex items-center gap-2.5 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href={languageHref}>
+              <Icon name="globe" size={15} class="opacity-50" />
               {languageLabel}
             </a>
           </div>
@@ -103,6 +106,22 @@ const stars = '99k';
     </div>
   </div>
 </header>
+
+<style>
+  .mobile-dropdown {
+    animation: mobile-menu-slide-down 0.2s ease-out;
+  }
+  @keyframes mobile-menu-slide-down {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+</style>
 
 <script is:inline>
   document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {

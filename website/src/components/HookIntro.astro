@@ -57,7 +57,7 @@ const initStyle = hookStages.map((_, i) => {
       </div>
 
       <!-- Right: vertical stage visualization (centered bars, fixed row height) -->
-      <div class="flex flex-1 flex-col items-center gap-1.5" data-hook-stages>
+      <div class="flex flex-1 flex-col items-center gap-1.5 overflow-hidden" data-hook-stages>
         {hookStages.map((stage, i) => (
           <div class="flex h-11 w-full items-center justify-center">
             <div
@@ -71,7 +71,7 @@ const initStyle = hookStages.map((_, i) => {
               <span class="stage-name whitespace-nowrap font-mono text-[0.65rem] font-medium leading-tight text-foreground md:text-[0.72rem]">
                 {stage.name}()
               </span>
-              <p class="hook-note ml-auto whitespace-nowrap pl-3 text-right text-[0.58rem] leading-snug text-muted-foreground md:text-[0.62rem]">
+              <p class="hook-note ml-auto hidden whitespace-nowrap pl-3 text-right text-[0.58rem] leading-snug text-muted-foreground md:block md:text-[0.62rem]">
                 {stage.note}
               </p>
             </div>
