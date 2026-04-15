@@ -1,49 +1,8 @@
 ---
-import '../styles/global.css';
-import Hero from '../components/Hero.astro';
-import NavBar from '../components/NavBar.astro';
-import Features from '../components/Features.astro';
-import HookIntro from '../components/HookIntro.astro';
-import TapeModel from '../components/TapeModel.astro';
-import Testimonials from '../components/Testimonials.astro';
-import Footer from '../components/Footer.astro';
+import LandingLayout from '../layouts/LandingLayout.astro';
 import { getLandingPageCopy } from '../i18n/landing-page';
 
-const { htmlLang, title, description, nav, hero, features, footer } = getLandingPageCopy('en');
+const copy = getLandingPageCopy('en');
 ---
 
-<!doctype html>
-<html lang={htmlLang}>
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title}</title>
-    <meta name="description" content={description} />
-    <script is:inline>
-      (() => {
-        const stored = localStorage.getItem('bub-theme');
-        const dark = stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (dark) document.documentElement.classList.add('dark');
-      })();
-    </script>
-  </head>
-  <body class="min-h-screen antialiased font-sans">
-    <NavBar {...nav} />
-    <main class="divide-y divide-border">
-      <Hero {...hero} />
-      <Features {...features} />
-      <HookIntro />
-      <TapeModel />
-      <Testimonials />
-    </main>
-    <Footer {...footer} />
-
-    <script>
-      import { inView } from 'motion';
-      document.querySelectorAll('[data-reveal]').forEach((el) => {
-        Object.assign(el.style, { opacity: '0', transform: 'translateY(24px)', transition: 'opacity 0.7s ease, transform 0.7s ease' });
-        inView(el, () => { Object.assign(el.style, { opacity: '1', transform: 'translateY(0)' }); }, { margin: '-8% 0px' });
-      });
-    </script>
-  </body>
-</html>
+<LandingLayout {...copy} />

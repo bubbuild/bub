@@ -55,84 +55,66 @@ const {
 
     <div class="grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
       {/* Row 1: feature[0] col-span-2 + feature[1] */}
-      <div class="feature-card group relative col-span-1 overflow-hidden bg-background p-6 transition-all duration-300 sm:col-span-2 lg:col-span-2 hover:bg-secondary/40">
-        <div class="feature-icon-bg pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.04] transition-all duration-500 group-hover:opacity-[0.08] group-hover:scale-110" aria-hidden="true">
-          <Icon name={features[0].icon} size={180} />
+      <div class="feature-card group relative col-span-1 overflow-hidden bg-background p-8 transition-all duration-300 sm:col-span-2 lg:col-span-2 hover:bg-secondary/40">
+        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
+          <Icon name={features[0].icon} size={120} />
         </div>
         <div class="relative">
-          <div class="mb-4 inline-flex h-10 w-10 items-center justify-center border border-border bg-background">
-            <Icon name={features[0].icon} size={18} class="text-foreground/70" />
-          </div>
-          <h3 class="mb-2 text-[1rem] font-bold tracking-tight text-foreground">{features[0].title}</h3>
-          <p class="text-[0.85rem] leading-relaxed text-muted-foreground">{features[0].description}</p>
+          <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{features[0].title}</h3>
+          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[0].description}</p>
         </div>
       </div>
-      <div class="feature-card group relative overflow-hidden bg-background p-6 transition-all duration-300 hover:bg-secondary/40">
-        <div class="feature-icon-bg pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.04] transition-all duration-500 group-hover:opacity-[0.08] group-hover:scale-110" aria-hidden="true">
-          <Icon name={features[1].icon} size={140} />
+      <div class="feature-card group relative overflow-hidden bg-background p-8 transition-all duration-300 hover:bg-secondary/40">
+        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
+          <Icon name={features[1].icon} size={96} />
         </div>
         <div class="relative">
-          <div class="mb-4 inline-flex h-10 w-10 items-center justify-center border border-border bg-background">
-            <Icon name={features[1].icon} size={18} class="text-foreground/70" />
-          </div>
-          <h3 class="mb-2 text-[1rem] font-bold tracking-tight text-foreground">{features[1].title}</h3>
-          <p class="text-[0.85rem] leading-relaxed text-muted-foreground">{features[1].description}</p>
+          <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{features[1].title}</h3>
+          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[1].description}</p>
         </div>
       </div>
 
       {/* Row 2: feature[2] + LOGO CENTER + feature[3] */}
-      <div class="feature-card group relative overflow-hidden bg-background p-6 transition-all duration-300 hover:bg-secondary/40">
-        <div class="feature-icon-bg pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.04] transition-all duration-500 group-hover:opacity-[0.08] group-hover:scale-110" aria-hidden="true">
-          <Icon name={features[2].icon} size={140} />
+      <div class="feature-card group relative overflow-hidden bg-background p-8 transition-all duration-300 hover:bg-secondary/40">
+        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
+          <Icon name={features[2].icon} size={96} />
         </div>
         <div class="relative">
-          <div class="mb-4 inline-flex h-10 w-10 items-center justify-center border border-border bg-background">
-            <Icon name={features[2].icon} size={18} class="text-foreground/70" />
-          </div>
-          <h3 class="mb-2 text-[1rem] font-bold tracking-tight text-foreground">{features[2].title}</h3>
-          <p class="text-[0.85rem] leading-relaxed text-muted-foreground">{features[2].description}</p>
+          <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{features[2].title}</h3>
+          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[2].description}</p>
         </div>
       </div>
       {/* Center: Bub logo */}
       <div class="flex items-center justify-center bg-background p-8">
         <img src="/bub-logo.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110" />
       </div>
-      <div class="feature-card group relative overflow-hidden bg-background p-6 transition-all duration-300 hover:bg-secondary/40">
-        <div class="feature-icon-bg pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.04] transition-all duration-500 group-hover:opacity-[0.08] group-hover:scale-110" aria-hidden="true">
-          <Icon name={features[3].icon} size={140} />
+      <div class="feature-card group relative overflow-hidden bg-background p-8 transition-all duration-300 hover:bg-secondary/40">
+        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
+          <Icon name={features[3].icon} size={96} />
         </div>
         <div class="relative">
-          <div class="mb-4 inline-flex h-10 w-10 items-center justify-center border border-border bg-background">
-            <Icon name={features[3].icon} size={18} class="text-foreground/70" />
-          </div>
-          <h3 class="mb-2 text-[1rem] font-bold tracking-tight text-foreground">{features[3].title}</h3>
-          <p class="text-[0.85rem] leading-relaxed text-muted-foreground">{features[3].description}</p>
+          <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{features[3].title}</h3>
+          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[3].description}</p>
         </div>
       </div>
 
       {/* Row 3: feature[4] + feature[5] col-span-2 */}
-      <div class="feature-card group relative overflow-hidden bg-background p-6 transition-all duration-300 hover:bg-secondary/40">
-        <div class="feature-icon-bg pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.04] transition-all duration-500 group-hover:opacity-[0.08] group-hover:scale-110" aria-hidden="true">
-          <Icon name={features[4].icon} size={140} />
+      <div class="feature-card group relative overflow-hidden bg-background p-8 transition-all duration-300 hover:bg-secondary/40">
+        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
+          <Icon name={features[4].icon} size={96} />
         </div>
         <div class="relative">
-          <div class="mb-4 inline-flex h-10 w-10 items-center justify-center border border-border bg-background">
-            <Icon name={features[4].icon} size={18} class="text-foreground/70" />
-          </div>
-          <h3 class="mb-2 text-[1rem] font-bold tracking-tight text-foreground">{features[4].title}</h3>
-          <p class="text-[0.85rem] leading-relaxed text-muted-foreground">{features[4].description}</p>
+          <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{features[4].title}</h3>
+          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[4].description}</p>
         </div>
       </div>
-      <div class="feature-card group relative col-span-1 overflow-hidden bg-background p-6 transition-all duration-300 sm:col-span-2 lg:col-span-2 hover:bg-secondary/40">
-        <div class="feature-icon-bg pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.04] transition-all duration-500 group-hover:opacity-[0.08] group-hover:scale-110" aria-hidden="true">
-          <Icon name={features[5].icon} size={180} />
+      <div class="feature-card group relative col-span-1 overflow-hidden bg-background p-8 transition-all duration-300 sm:col-span-2 lg:col-span-2 hover:bg-secondary/40">
+        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
+          <Icon name={features[5].icon} size={120} />
         </div>
         <div class="relative">
-          <div class="mb-4 inline-flex h-10 w-10 items-center justify-center border border-border bg-background">
-            <Icon name={features[5].icon} size={18} class="text-foreground/70" />
-          </div>
-          <h3 class="mb-2 text-[1rem] font-bold tracking-tight text-foreground">{features[5].title}</h3>
-          <p class="text-[0.85rem] leading-relaxed text-muted-foreground">{features[5].description}</p>
+          <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{features[5].title}</h3>
+          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[5].description}</p>
         </div>
       </div>
     </div>
@@ -141,9 +123,6 @@ const {
 
 <style>
   .feature-card {
-    min-height: 160px;
-  }
-  .feature-card:hover .feature-icon-bg {
-    filter: blur(6px);
+    min-height: 180px;
   }
 </style>

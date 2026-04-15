@@ -1,4 +1,6 @@
 ---
+import Icon from './ui/Icon.astro';
+
 interface Props {
   contributors?: { initial: string; bg: string }[];
   label?: string;
@@ -26,6 +28,14 @@ const {
         {c.initial}
       </div>
     ))}
+    <!-- Ellipsis avatar -->
+    <div
+      class="flex h-8 w-8 items-center justify-center rounded-full border-2 border-background bg-secondary text-muted-foreground"
+      title="and many more"
+      aria-label="and many more contributors"
+    >
+      <Icon name="moreHorizontal" size={14} />
+    </div>
   </div>
   <span class="text-xs text-muted-foreground">{label}</span>
 </div>

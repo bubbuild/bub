@@ -8,7 +8,7 @@ import TapeModel from '../components/TapeModel.astro';
 import Testimonials from '../components/Testimonials.astro';
 import Footer from '../components/Footer.astro';
 
-const { htmlLang, title, description, nav, hero, features, hookIntro, tapeModel, testimonials, footer } = Astro.props;
+const { htmlLang, title, description, nav, hero, features = {}, hookIntro = {}, tapeModel = {}, testimonials = {}, footer = {} } = Astro.props;
 ---
 
 <!doctype html>
@@ -18,16 +18,15 @@ const { htmlLang, title, description, nav, hero, features, hookIntro, tapeModel,
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
-    <script type="module">
-      if (import.meta.env.DEV) {
-        import("react-grab");
-      }
-    </script>
+    <link rel="icon" type="image/png" href="/bub-logo.png" />
     <script is:inline>
       (() => {
         const stored = localStorage.getItem('bub-theme');
         const dark = stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (dark) document.documentElement.classList.add('dark');
+        if (dark) {
+          document.documentElement.classList.add('dark');
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
       })();
     </script>
   </head>

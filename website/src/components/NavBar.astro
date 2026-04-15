@@ -47,10 +47,10 @@ const navItems = [
     <!-- Right side -->
     <div class="flex items-center gap-2">
       <a
-        class="hidden border border-border px-3.5 py-1.5 text-sm font-semibold text-foreground no-underline transition-colors hover:bg-secondary md:inline-flex"
+        class="hidden items-center gap-1.5 border border-border px-3.5 py-1.5 text-sm text-foreground no-underline transition-colors hover:bg-secondary md:inline-flex"
         href={languageHref}
       >
-        <Icon name="globe" size={14} class="mr-1.5 inline opacity-50" />
+        <Icon name="globe" size={14} class="opacity-50" />
         {languageLabel}
       </a>
       <button
@@ -94,8 +94,9 @@ const navItems = [
 <script is:inline>
   document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      document.documentElement.classList.toggle('dark');
-      localStorage.setItem('bub-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+      const isDark = document.documentElement.classList.toggle('dark');
+      document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+      localStorage.setItem('bub-theme', isDark ? 'dark' : 'light');
     });
   });
 </script>
