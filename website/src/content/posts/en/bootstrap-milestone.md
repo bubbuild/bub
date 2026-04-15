@@ -1,8 +1,9 @@
 ---
-title: "Baby Bub：从灵感到自举里程碑"
-description: Bub 如何借鉴现代 Agent 设计，以及为什么修复一个 mypy 错误是迈向自我改进 AI 的有意义一步。
-sidebar:
-  order: 2
+title: "Baby Bub: From Inspiration to Bootstrap Milestone"
+description: "How Bub draws from modern agent design, and why fixing a single mypy issue is a meaningful step toward self-improving AI."
+date: 2025-07-16
+locale: en
+tags: [milestone, engineering]
 ---
 
 ## Genesis: Inspiration from Modern Agents

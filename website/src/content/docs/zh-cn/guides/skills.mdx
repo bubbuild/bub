@@ -3,67 +3,67 @@ title: 技能
 description: 技能即 SKILL.md 文档——最小契约、前置字段、发现与覆盖、运行时访问、编写指南和脚本约定。
 ---
 
-Bub treats skills as discoverable `SKILL.md` documents with validated frontmatter.
+Bub 将技能视为可发现的 `SKILL.md` 文档，带有经过验证的 frontmatter。
 
-## Minimal Contract
+## 最小契约
 
-Each skill directory must contain a `SKILL.md` file:
+每个技能目录必须包含一个 `SKILL.md` 文件：
 
 ```text
 my-skill/
 `-- SKILL.md
 ```
 
-Validation rules from `src/bub/skills.py`:
+`src/bub/skills.py` 中的验证规则：
 
-- `SKILL.md` must start with YAML frontmatter (`--- ... ---`)
-- frontmatter must include non-empty `name` and `description`
-- directory name must exactly match frontmatter `name`
-- `name` must match regex `^[a-z0-9]+(?:-[a-z0-9]+)*$`
-- `name` length must be `<= 64`
-- `description` length must be `<= 1024`
-- if provided, `metadata` must be a map of `string -> string`
+- `SKILL.md` 必须以 YAML frontmatter 开头（`--- ... ---`）
+- frontmatter 必须包含非空的 `name` 和 `description`
+- 目录名必须与 frontmatter 中的 `name` 完全匹配
+- `name` 必须匹配正则 `^[a-z0-9]+(?:-[a-z0-9]+)*$`
+- `name` 长度必须 `<= 64`
+- `description` 长度必须 `<= 1024`
+- 如果提供了 `metadata`，必须是 `string -> string` 的映射
 
-## Frontmatter Fields
+## Frontmatter 字段
 
-Currently enforced fields:
+当前强制校验的字段：
 
-- required: `name`, `description`
-- optional with type check: `metadata`
+- 必需：`name`、`description`
+- 可选（带类型检查）：`metadata`
 
-Other extra keys are allowed but not validated by core.
+允许其他额外字段，但核心不对其进行验证。
 
-## Discovery And Override
+## 发现与覆盖
 
-Skills are discovered from three roots in this precedence order:
+技能从以下三个根目录按优先级顺序发现：
 
-1. project: `.agents/skills`
-2. user: `~/.agents/skills`
-3. builtin: `src/skills`
+1. 项目级：`.agents/skills`
+2. 用户级：`~/.agents/skills`
+3. 内置：`src/skills`
 
-If names collide, earlier roots in this list win.
+如果名称冲突，列表中靠前的根目录胜出。
 
-Legacy path note: `.agent/skills` is still scanned for compatibility, but Bub emits a deprecation warning and prefers `.agents/skills`.
+遗留路径说明：`.agent/skills` 仍会被扫描以保持兼容，但 Bub 会发出弃用警告并优先使用 `.agents/skills`。
 
-## Runtime Access
+## 运行时访问
 
-Builtin command mode can inspect discovered skills:
+内置命令模式可以检查已发现的技能：
 
 ```bash
 uv run bub run ",skill name=my-skill"
 ```
 
-If a skill is not found, `,skill name=<name>` returns `(no such skill)`.
+如果技能未找到，`,skill name=<name>` 会返回 `(no such skill)`。
 
-## Authoring Guidance
+## 编写指南
 
-- keep `SKILL.md` concise and action-oriented
-- keep metadata small and deterministic
-- use lowercase kebab-case names for compatibility
+- 保持 `SKILL.md` 简洁且面向操作
+- 保持 metadata 精简且确定性
+- 使用小写 kebab-case 命名以保证兼容性
 
-## Optional Script Convention
+## 可选脚本约定
 
-For `scripts/*.py`, a practical standalone convention is PEP 723 with `uv`:
+对于 `scripts/*.py`，推荐使用 PEP 723 配合 `uv` 的独立脚本约定：
 
 ```python
 #!/usr/bin/env -S uv run --script

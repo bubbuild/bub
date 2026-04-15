@@ -7,6 +7,7 @@ import HookIntro from '../components/HookIntro.astro';
 import TapeModel from '../components/TapeModel.astro';
 import Testimonials from '../components/Testimonials.astro';
 import Footer from '../components/Footer.astro';
+import ThemeInit from '../components/ThemeInit.astro';
 
 const { htmlLang, title, description, nav, hero, features = {}, hookIntro = {}, tapeModel = {}, testimonials = {}, footer = {} } = Astro.props;
 ---
@@ -19,20 +20,21 @@ const { htmlLang, title, description, nav, hero, features = {}, hookIntro = {}, 
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="icon" type="image/png" href="/bub-logo.png" />
-    <script is:inline>
-      (() => {
-        const stored = localStorage.getItem('bub-theme');
-        const dark = stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (dark) {
-          document.documentElement.classList.add('dark');
-          document.documentElement.setAttribute('data-theme', 'dark');
-        }
-      })();
-    </script>
+    <link rel="canonical" href="https://bub.build" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content="https://bub.build" />
+    <meta property="og:site_name" content="Bub" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <ThemeInit />
   </head>
   <body class="min-h-screen antialiased font-sans">
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:text-sm focus:font-semibold">Skip to main content</a>
     <NavBar {...nav} />
-    <main class="divide-y divide-border">
+    <main id="main-content" class="divide-y divide-border">
       <Hero {...hero} />
       <Features {...features} />
       <HookIntro {...hookIntro} />
@@ -40,26 +42,65 @@ const { htmlLang, title, description, nav, hero, features = {}, hookIntro = {}, 
       <Testimonials {...testimonials} />
     </main>
     <Footer {...footer} />
+
+    <!-- Back to top -->
+    <button
+      id="back-to-top"
+      class="fixed bottom-6 right-6 z-50 flex h-10 w-10 cursor-pointer items-center justify-center border border-border bg-background/95 text-foreground opacity-0 backdrop-blur-sm transition-all duration-300 hover:bg-secondary pointer-events-none"
+      aria-label="Back to top"
+      type="button"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+    </button>
+
     <script>
       import { inView, animate } from 'motion';
 
       function initScrollReveals() {
-        document.querySelectorAll('[data-reveal]').forEach((el) => {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        const revealElements = document.querySelectorAll('[data-reveal]');
+        revealElements.forEach((el, index) => {
           const htmlEl = el as HTMLElement;
           htmlEl.style.opacity = '0';
           htmlEl.style.transform = 'translateY(24px)';
 
           inView(htmlEl, () => {
-            animate(htmlEl, { opacity: [0, 1], transform: ['translateY(24px)', 'translateY(0)'] }, { duration: 0.6, easing: [0.25, 0.1, 0.25, 1] });
+            animate(
+              htmlEl,
+              { opacity: [0, 1], transform: ['translateY(24px)', 'translateY(0)'] },
+              { duration: 0.6, delay: index * 0.05, easing: [0.25, 0.1, 0.25, 1] }
+            );
           }, { margin: '0px 0px -10% 0px' });
+        });
+      }
+
+      function initBackToTop() {
+        const btn = document.getElementById('back-to-top');
+        if (!btn) return;
+
+        const toggle = () => {
+          const show = window.scrollY > 400;
+          btn.style.opacity = show ? '1' : '0';
+          btn.style.pointerEvents = show ? 'auto' : 'none';
+        };
+
+        window.addEventListener('scroll', toggle, { passive: true });
+        toggle();
+
+        btn.addEventListener('click', () => {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         });
       }
 
       requestAnimationFrame(() => {
         initScrollReveals();
+        initBackToTop();
       });
       document.addEventListener('astro:page-load', () => {
-        requestAnimationFrame(initScrollReveals);
+        requestAnimationFrame(() => {
+          initScrollReveals();
+          initBackToTop();
+        });
       });
     </script>
   </body>

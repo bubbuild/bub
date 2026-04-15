@@ -11,6 +11,7 @@ const {
   primaryLabel = 'Get Started',
   secondaryHref = 'https://github.com/bubbuild/bub',
   secondaryLabel = 'View on GitHub',
+  contributorsLabel = 'Developed by contributors worldwide',
 } = Astro.props;
 
 const exampleCode = `import bub
@@ -35,14 +36,14 @@ def run_model(messages, config):
     )`;
 ---
 
-<section class="pb-20 pt-14 md:pb-28 md:pt-20">
+<section class="pb-20 pt-14 md:pb-28 md:pt-20" aria-label="Hero">
   <div class="mx-auto max-w-6xl px-5 md:px-8">
     <div class="grid items-center gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:gap-10">
       <!-- Left: text -->
       <div class="max-w-2xl">
         <!-- Badge -->
         <div class="inline-flex items-center gap-2 border border-border bg-secondary/40 px-3 py-1.5 font-mono text-[0.7rem] uppercase leading-none tracking-widest text-muted-foreground">
-          <Icon name="cpu" size={11} class="opacity-60" />
+          <Icon name="cpu" size={11} class="opacity-60" aria-hidden="true" />
           {badge}
         </div>
 
@@ -59,7 +60,7 @@ def run_model(messages, config):
 
         <!-- Contributors -->
         <div class="mt-6">
-          <Contributors />
+          <Contributors label={contributorsLabel} />
         </div>
 
         <!-- CTAs -->
@@ -69,7 +70,7 @@ def run_model(messages, config):
             href={primaryHref}
           >
             {primaryLabel}
-            <Icon name="arrowUpRight" size={15} />
+            <Icon name="arrowUpRight" size={15} aria-hidden="true" />
           </a>
           <a
             class="inline-flex w-full items-center justify-center gap-2 border border-border px-6 py-3 text-sm font-semibold leading-none text-foreground no-underline transition-colors hover:bg-secondary sm:w-auto"
@@ -77,14 +78,14 @@ def run_model(messages, config):
             target="_blank"
             rel="noreferrer"
           >
-            <Icon name="github" size={15} />
+            <Icon name="github" size={15} aria-hidden="true" />
             {secondaryLabel}
           </a>
         </div>
       </div>
 
       <!-- Right: code editor -->
-      <div class="hero-terminal overflow-hidden overflow-x-auto border border-border">
+      <div class="hero-terminal overflow-hidden overflow-x-auto border border-border" role="img" aria-label="Example Python code showing Bub hook implementations">
         <Code code={exampleCode} lang="python" frame="code" title="hooks.py" />
       </div>
     </div>

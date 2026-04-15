@@ -1,0 +1,71 @@
+---
+interface Props {
+  title: string;
+  description: string;
+  date: Date;
+  tags: string[];
+  slug: string;
+  locale: string;
+  index?: number;
+}
+
+const { title, description, date, tags, slug, locale, index } = Astro.props;
+
+const href = locale === 'en' ? `/posts/${slug}/` : `/${locale}/posts/${slug}/`;
+const formattedDate = date.toLocaleDateString(locale === 'zh-cn' ? 'zh-CN' : 'en-US', {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+});
+const indexStr = index !== undefined ? String(index).padStart(2, '0') : undefined;
+---
+
+<a
+  href={href}
+  class="group relative flex flex-col bg-background p-7 no-underline transition-colors duration-200 hover:bg-secondary/40 md:p-9"
+  data-reveal
+>
+  <!-- index + arrow row -->
+  <div class="mb-6 flex items-center justify-between">
+    {indexStr && (
+      <span class="font-mono text-[0.65rem] tracking-[0.2em] text-border transition-colors duration-200 group-hover:text-muted-foreground">
+        {indexStr}
+      </span>
+    )}
+    <span class="ml-auto translate-x-0 translate-y-0 text-muted-foreground opacity-0 transition-all duration-200 group-hover:translate-x-1 group-hover:-translate-y-1 group-hover:opacity-100">
+      ↗
+    </span>
+  </div>
+
+  <!-- title -->
+  <h2 class="mb-3 text-xl font-bold leading-snug tracking-tight text-foreground transition-colors duration-200 group-hover:text-foreground/80">
+    {title}
+  </h2>
+
+  <!-- description -->
+  <p class="mb-8 flex-1 text-sm leading-relaxed text-muted-foreground">
+    {description}
+  </p>
+
+  <!-- meta: date + tags -->
+  <div class="flex flex-wrap items-center gap-2">
+    <time class="font-mono text-[0.7rem] tracking-wide text-muted-foreground/70" datetime={date.toISOString()}>
+      {formattedDate}
+    </time>
+    {tags.length > 0 && (
+      <>
+        <span class="text-border" aria-hidden="true">·</span>
+        <div class="flex flex-wrap gap-1.5">
+          {tags.map((tag) => (
+            <span class="border border-border/60 px-1.5 py-px font-mono text-[0.6rem] uppercase tracking-widest text-muted-foreground/60 transition-colors duration-200 group-hover:border-border group-hover:text-muted-foreground">
+              {tag}
+            </span>
+          ))}
+        </div>
+      </>
+    )}
+  </div>
+
+  <!-- bottom accent line -->
+  <span class="absolute bottom-0 left-0 h-px w-0 bg-foreground transition-all duration-300 group-hover:w-full" aria-hidden="true"></span>
+</a>

@@ -3,60 +3,60 @@ title: Hooks
 description: Hook 执行语义、优先级、同步/异步规则、签名匹配、端到端示例、流式 Tap 模式和常见陷阱。
 ---
 
-## Hook Execution Semantics
+## Hook 执行语义
 
-`HookRuntime` drives most framework hooks:
+`HookRuntime` 驱动大部分框架 hook：
 
-- `call_first(...)`: execute by priority, return first non-`None`
-- `call_many(...)`: execute all, collect all return values (including `None`)
-- `call_first_sync(...)` / `call_many_sync(...)`: sync-only bootstrap paths
+- `call_first(...)`：按优先级执行，返回第一个非 `None` 值
+- `call_many(...)`：执行所有实现，收集所有返回值（包括 `None`）
+- `call_first_sync(...)` / `call_many_sync(...)`：仅限同步的引导路径
 
-Current `process_inbound()` hook usage:
+当前 `process_inbound()` 的 hook 使用情况：
 
-1. `resolve_session` (`call_first`)
-2. `load_state` (`call_many`, then merged by framework)
-3. `build_prompt` (`call_first`)
-4. `run_model_stream` (`call_first`)
-5. `save_state` (`call_many`, always executed in `finally`)
-6. `render_outbound` (`call_many`)
-7. `dispatch_outbound` (`call_many`, per outbound)
+1. `resolve_session`（`call_first`）
+2. `load_state`（`call_many`，然后由框架合并）
+3. `build_prompt`（`call_first`）
+4. `run_model_stream`（`call_first`）
+5. `save_state`（`call_many`，始终在 `finally` 中执行）
+6. `render_outbound`（`call_many`）
+7. `dispatch_outbound`（`call_many`，按每条出站执行）
 
-Compatibility note:
+兼容性说明：
 
-- `run_model_stream` is the primary model hook.
-- If no plugin implements `run_model_stream`, Bub falls back to `run_model`.
-- The `run_model` return value is wrapped into a stream with exactly one text chunk.
-- A plugin should implement one of these hooks, not both.
+- `run_model_stream` 是主要的模型 hook。
+- 如果没有插件实现 `run_model_stream`，Bub 会回退到 `run_model`。
+- `run_model` 的返回值会被包装为仅含一个文本块的流。
+- 插件应只实现其中一个 hook，不要同时实现两个。
 
-Other hook consumers:
+其他 hook 消费者：
 
-- `register_cli_commands`: called by `call_many_sync`
-- `provide_channels`: called by `call_many_sync` in `BubFramework.get_channels()`
-- `system_prompt`, `provide_tape_store`, `build_tape_context`: consumed by `BubFramework` and the builtin `Agent`
+- `register_cli_commands`：由 `call_many_sync` 调用
+- `provide_channels`：在 `BubFramework.get_channels()` 中由 `call_many_sync` 调用
+- `system_prompt`、`provide_tape_store`、`build_tape_context`：由 `BubFramework` 和内置 `Agent` 消费
 
-## Priority And Override Rules
+## 优先级与覆盖规则
 
-- Builtin plugin is registered first.
-- Later plugins have higher runtime precedence.
-- `HookRuntime` reverses pluggy implementation order so later registration runs first.
-- For `load_state`, framework re-reverses before merge so high-priority values overwrite low-priority values.
+- 内置插件最先注册。
+- 后注册的插件具有更高的运行时优先级。
+- `HookRuntime` 反转 pluggy 的实现顺序，因此后注册的先执行。
+- 对于 `load_state`，框架在合并前再次反转，使高优先级的值覆盖低优先级的值。
 
-## Sync vs Async Rules
+## 同步与异步规则
 
-- Async hook calls can run both sync and async implementations.
-- Sync hook calls skip awaitable return values and log a warning.
-- Therefore, keep bootstrap hooks synchronous:
+- 异步 hook 调用可以运行同步和异步两种实现。
+- 同步 hook 调用会跳过可等待的返回值并记录警告。
+- 因此，引导阶段的 hook 应保持同步：
   - `register_cli_commands`
   - `provide_channels`
   - `provide_tape_store`
   - `build_tape_context`
 
-## Signature Matching
+## 签名匹配
 
-`HookRuntime` passes only parameters declared in your function signature.
-You can safely omit unused hook arguments.
+`HookRuntime` 只传递你函数签名中声明的参数。
+你可以安全地省略未使用的 hook 参数。
 
-Example:
+示例：
 
 ```python
 from bub import hookimpl
@@ -68,7 +68,7 @@ class SessionPlugin:
         return "my-session"
 ```
 
-## Minimal End-To-End Example
+## 最小端到端示例
 
 ```python
 from __future__ import annotations
@@ -91,21 +91,21 @@ class EchoPlugin:
         return AsyncStreamEvents(iterator())
 ```
 
-Run and verify:
+运行并验证：
 
 ```bash
 uv run bub hooks
 uv run bub run "hello"
 ```
 
-Check that your plugin is listed for `build_prompt` / `run_model_stream`, and output reflects your override.
-If you intentionally use the legacy compatibility hook, check for `run_model`.
+检查你的插件是否出现在 `build_prompt` / `run_model_stream` 的绑定列表中，输出是否反映了你的覆盖。
+如果你有意使用旧版兼容 hook，请检查 `run_model`。
 
-## Listen To Parent Stream
+## 监听父级流
 
-If you want to observe or transform the parent stream instead of fully replacing it, implement `run_model_stream` and wrap the parent hook's async iterator.
+如果你想观察或转换父级流而非完全替换它，请实现 `run_model_stream` 并包装父级 hook 的异步迭代器。
 
-This pattern uses `subset_hook_caller(...)` to call the same hook chain without the current plugin, then returns a new `AsyncStreamEvents` wrapper.
+此模式使用 `subset_hook_caller(...)` 调用去除当前插件的同一 hook 链，然后返回一个新的 `AsyncStreamEvents` 包装器。
 
 ```python
 from __future__ import annotations
@@ -143,13 +143,13 @@ class StreamTapPlugin:
         return AsyncStreamEvents(iterator(), state=parent_stream._state)
 ```
 
-Use this when you need to log chunks, redact text, inject extra events, or measure stream timing without reimplementing the underlying model call.
+当你需要记录块、脱敏文本、注入额外事件或测量流时序，同时又不想重新实现底层模型调用时，可使用此模式。
 
-If you also need to support parents that only implement legacy `run_model`, add your own fallback path and wrap that text result into a one-chunk stream.
+如果你还需要支持仅实现了旧版 `run_model` 的父级，请添加你自己的回退路径，并将文本结果包装为单块流。
 
-## Common Pitfalls
+## 常见陷阱
 
-- Defining `@tool` functions without importing the module from your plugin means the tools never register.
-- Returning awaitables from hooks invoked via sync paths (`call_many_sync` / `call_first_sync`) causes skip.
-- Assuming hook failures are isolated: non-`on_error` hook exceptions propagate and can fail the turn.
-- Using stale hook names: always confirm against `src/bub/hookspecs.py`.
+- 定义了 `@tool` 函数但未在插件中导入该模块，意味着工具永远不会被注册。
+- 从通过同步路径（`call_many_sync` / `call_first_sync`）调用的 hook 返回可等待对象会导致被跳过。
+- 假设 hook 失败是隔离的：非 `on_error` 的 hook 异常会传播，可能导致整个 turn 失败。
+- 使用过时的 hook 名称：请始终对照 `src/bub/hookspecs.py` 确认。

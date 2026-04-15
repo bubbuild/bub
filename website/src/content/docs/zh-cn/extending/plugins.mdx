@@ -3,17 +3,17 @@ title: 插件
 description: 如何构建 Bub 扩展插件——导入、入口点、工具暴露和在扩展包中发布技能。
 ---
 
-This guide explains how to build Bub plugins using `@hookimpl`.
+本指南介绍如何使用 `@hookimpl` 构建 Bub 插件。
 
-## Import And Basic Shape
+## 导入与基本结构
 
-Use the marker exported by Bub:
+使用 Bub 导出的标记：
 
 ```python
 from bub import hookimpl
 ```
 
-Implement hooks on a plugin object:
+在插件对象上实现 hook：
 
 ```python
 from __future__ import annotations
@@ -29,23 +29,23 @@ class MyPlugin:
 my_plugin = MyPlugin()
 ```
 
-## Register Plugin Via Entry Points
+## 通过 Entry Point 注册插件
 
-Expose your plugin in `pyproject.toml`:
+在 `pyproject.toml` 中暴露你的插件：
 
 ```toml
 [project.entry-points."bub"]
 my_plugin = "my_package.plugin:my_plugin"
 ```
 
-`BubFramework.load_hooks()` loads builtin first, then entry points in `group="bub"`.
+`BubFramework.load_hooks()` 先加载内置插件，然后加载 `group="bub"` 中的 entry point。
 
-## Expose Tools By Importing The Module
+## 通过导入模块暴露工具
 
-Tools are registered through the `@tool` decorator's import-time side effect.
-Your plugin must import the module that contains the `@tool` definitions before the agent starts using them.
+工具通过 `@tool` 装饰器的导入时副作用注册。
+你的插件必须在 agent 开始使用工具之前导入包含 `@tool` 定义的模块。
 
-Example:
+示例：
 
 ```python
 from __future__ import annotations
@@ -61,13 +61,13 @@ class MyPlugin:
         return "extension prompt"
 ```
 
-If that import is missing, the tool module never runs, nothing is inserted into `bub.tools.REGISTRY`, and the tool will not be available to the agent or CLI completion.
+如果缺少该导入，工具模块不会执行，`bub.tools.REGISTRY` 中不会插入任何内容，工具也不会对 agent 或 CLI 补全可用。
 
-## Ship Skills In Extension Packages
+## 在扩展包中发布技能
 
-Extension packages can also ship skills by including a top-level `skills/` directory in the distribution.
+扩展包也可以通过在发行版中包含顶层 `skills/` 目录来发布技能。
 
-Example layout:
+示例布局：
 
 ```text
 my-extension/
@@ -80,12 +80,12 @@ my-extension/
 └─ pyproject.toml
 ```
 
-Configure your build backend to include the `skills/` directory in the package data. For example, with `pdm-backend`:
+配置你的构建后端以将 `skills/` 目录包含在包数据中。例如使用 `pdm-backend`：
 
 ```toml
 [tool.pdm.build]
 includes = ["src/"]
 ```
 
-At runtime, Bub discovers builtin skills from `<site-packages>/skills`, so packaged skills in that location are loaded automatically.
-These skills use normal precedence rules and can still be overridden by workspace (`.agents/skills`) or user (`~/.agents/skills`) skills.
+在运行时，Bub 从 `<site-packages>/skills` 发现内置技能，因此位于该位置的打包技能会被自动加载。
+这些技能遵循正常的优先级规则，仍可被工作区（`.agents/skills`）或用户级（`~/.agents/skills`）技能覆盖。

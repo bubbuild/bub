@@ -2,7 +2,7 @@
 import Icon from './ui/Icon.astro';
 
 interface Props {
-  contributors?: { initial: string; bg: string }[];
+  contributors?: { initial: string; bg: string; avatar?: string; name?: string }[];
   label?: string;
 }
 
@@ -28,12 +28,30 @@ const {
     {contributors.map((c, i) => (
       <div
         class:list={[
-          'flex h-7 w-7 items-center justify-center rounded-full border-2 border-background text-xs font-bold text-white md:h-8 md:w-8',
-          i >= 5 ? 'hidden md:flex' : '',
+          'group relative h-7 w-7 md:h-8 md:w-8',
+          i >= 5 ? 'hidden md:block' : '',
         ]}
-        style={`background-color: ${c.bg};`}
       >
-        {c.initial}
+        <div
+          class="absolute inset-0 flex items-center justify-center overflow-hidden rounded-full border-2 border-background text-xs font-bold text-white transition-transform duration-200 ease-out group-hover:-translate-y-2 group-hover:scale-110 group-hover:z-10"
+          style={`background-color: ${c.bg};`}
+          title={c.name}
+        >
+          {c.avatar ? (
+            <img
+              src={c.avatar}
+              alt={c.name ?? c.initial}
+              class="h-full w-full object-cover"
+              onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+            />
+          ) : null}
+          <span
+            class="absolute inset-0 flex items-center justify-center"
+            style={c.avatar ? 'display:none;' : ''}
+          >
+            {c.initial}
+          </span>
+        </div>
       </div>
     ))}
     <!-- Ellipsis avatar -->
@@ -42,8 +60,9 @@ const {
       title="and many more"
       aria-label="and many more contributors"
     >
-      <Icon name="ellipsis" size={14} />
+      <Icon name="ellipsis" size={14} aria-hidden="true" />
     </div>
   </div>
   <span class="text-xs text-muted-foreground">{label}</span>
 </div>
+

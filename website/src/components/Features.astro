@@ -49,7 +49,7 @@ const {
 // Layout: [0]=2cols, [1], [2], CENTER LOGO, [3], [4], [5]=2cols → 3×3 grid
 ---
 
-<section class="relative py-20 md:py-28" data-reveal>
+<section class="relative py-20 md:py-28" data-reveal aria-label="Features">
   <div class="mx-auto max-w-6xl px-5 md:px-8">
     <SectionHeading eyebrow={eyebrow} heading={heading} subheading={subheading} />
 
@@ -86,8 +86,8 @@ const {
       </div>
       {/* Center: Bub logo — hidden below lg where there's no 3-col grid */}
       <div class="hidden items-center justify-center bg-background p-8 lg:flex">
-        <img src="/bub-logo.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110 dark:hidden" />
-        <img src="/bub-logo-dark.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110 hidden dark:block" />
+        <img src="/bub-logo.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110 dark:hidden" loading="lazy" />
+        <img src="/bub-logo-dark.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110 hidden dark:block" loading="lazy" />
       </div>
       <div class="feature-card group relative overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 hover:bg-secondary/40">
         <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">

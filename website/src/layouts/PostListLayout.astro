@@ -1,0 +1,83 @@
+---
+import '../styles/global.css';
+import NavBar from '../components/NavBar.astro';
+import Footer from '../components/Footer.astro';
+import ThemeInit from '../components/ThemeInit.astro';
+
+interface NavProps {
+  docsHref?: string;
+  blogHref?: string;
+  languageHref?: string;
+  languageLabel?: string;
+  homeHref?: string;
+  docsLabel?: string;
+  blogLabel?: string;
+  menuLabel?: string;
+  closeLabel?: string;
+  hubLabel?: string;
+}
+
+interface Props {
+  title: string;
+  description: string;
+  canonicalUrl: string;
+  lang: string;
+  navProps: NavProps;
+}
+
+const { title, description, canonicalUrl, lang, navProps } = Astro.props;
+---
+
+<!doctype html>
+<html lang={lang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/png" href="/bub-logo.png" />
+    <link rel="canonical" href={canonicalUrl} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:site_name" content="Bub" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <ThemeInit />
+  </head>
+  <body class="flex min-h-screen flex-col antialiased font-sans">
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:text-sm focus:font-semibold">Skip to main content</a>
+    <NavBar {...navProps} />
+    <main id="main-content" class="mx-auto w-full max-w-4xl flex-1 px-5 py-16 md:px-8 md:py-24">
+      <slot />
+    </main>
+    <Footer />
+    <script>
+      import { inView, animate } from 'motion';
+
+      function initScrollReveals() {
+        document.querySelectorAll('[data-reveal]').forEach((el) => {
+          const htmlEl = el as HTMLElement;
+          htmlEl.style.opacity = '0';
+          htmlEl.style.transform = 'translateY(24px)';
+          inView(
+            htmlEl,
+            () => {
+              animate(htmlEl, { opacity: [0, 1], transform: ['translateY(24px)', 'translateY(0)'] }, { duration: 0.6, easing: [0.25, 0.1, 0.25, 1] });
+            },
+            { margin: '0px 0px -10% 0px' },
+          );
+        });
+      }
+
+      requestAnimationFrame(() => {
+        initScrollReveals();
+      });
+      document.addEventListener('astro:page-load', () => {
+        requestAnimationFrame(initScrollReveals);
+      });
+    </script>
+  </body>
+</html>

@@ -3,15 +3,15 @@ title: 部署
 description: 先决条件、运行模式、Telegram 配置、Docker Compose、环境变量和安全升级步骤。
 ---
 
-This page covers practical Bub deployment paths based on the current repository behavior.
+本页面介绍基于当前仓库行为的实际 Bub 部署方案。
 
-## Prerequisites
+## 前置条件
 
 - Python 3.12+
-- `uv` installed
-- a valid model provider key (for example `OPENROUTER_API_KEY`)
+- 已安装 `uv`
+- 有效的模型提供商密钥（例如 `OPENROUTER_API_KEY`）
 
-Bootstrap:
+初始化：
 
 ```bash
 git clone https://github.com/bubbuild/bub.git
@@ -20,32 +20,32 @@ uv sync
 cp env.example .env
 ```
 
-Minimum `.env` example:
+最小 `.env` 示例：
 
 ```bash
 BUB_MODEL=openrouter:qwen/qwen3-coder-next
 OPENROUTER_API_KEY=sk-or-...
 ```
 
-Advanced model-client settings:
+高级模型客户端设置：
 
-- `BUB_API_FORMAT` selects the request payload format sent to the upstream model endpoint: `completion`, `responses`, or `messages`.
-- `BUB_CLIENT_ARGS` passes a JSON object through to the underlying model client.
-- The accepted `BUB_CLIENT_ARGS` keys depend on the selected provider and downstream SDK behavior, so treat it as an escape hatch rather than a stable cross-provider interface.
+- `BUB_API_FORMAT` 选择发送到上游模型端点的请求载荷格式：`completion`、`responses` 或 `messages`。
+- `BUB_CLIENT_ARGS` 将 JSON 对象透传给底层模型客户端。
+- `BUB_CLIENT_ARGS` 接受的键取决于所选提供商和下游 SDK 行为，因此应将其视为逃生舱口而非稳定的跨提供商接口。
 
-## Runtime Modes
+## 运行模式
 
-Choose one command based on your operation target:
+根据运营目标选择对应命令：
 
-1. Interactive local operator: `uv run bub chat`
-2. Channel listener service: `uv run bub gateway`
-3. One-shot task execution: `uv run bub run "summarize this repo"`
+1. 本地交互操作：`uv run bub chat`
+2. Channel 监听服务：`uv run bub gateway`
+3. 单次任务执行：`uv run bub run "summarize this repo"`
 
-## Telegram Channel Setup
+## Telegram Channel 配置
 
-Telegram configuration and runtime behavior are documented in [Telegram](telegram).
+Telegram 的配置和运行时行为请参阅 [Telegram](telegram)。
 
-Quick start:
+快速开始：
 
 ```bash
 BUB_TELEGRAM_TOKEN=123456:token uv run bub gateway --enable-channel telegram
@@ -53,49 +53,49 @@ BUB_TELEGRAM_TOKEN=123456:token uv run bub gateway --enable-channel telegram
 
 ## Docker Compose
 
-Repository assets:
+仓库资源：
 
 - `Dockerfile`
 - `docker-compose.yml`
 - `entrypoint.sh`
 
-Build and run:
+构建并运行：
 
 ```bash
 docker compose up -d --build
 docker compose logs -f app
 ```
 
-Current entrypoint behavior:
+当前 entrypoint 行为：
 
-- if `/workspace/startup.sh` exists, entrypoint tries to run `startup.sh`
-- otherwise it starts `bub gateway`
+- 如果 `/workspace/startup.sh` 存在，entrypoint 会尝试运行 `startup.sh`
+- 否则启动 `bub gateway`
 
-Default mounts in `docker-compose.yml`:
+`docker-compose.yml` 中的默认挂载：
 
 - `${BUB_WORKSPACE_PATH:-.}:/workspace`
 - `${BUB_HOME:-${HOME}/.bub}:/data`
 - `${BUB_AGENT_HOME:-${HOME}/.agents}:/root/.agents`
 
-Notes:
+注意事项：
 
-- Bub runtime data is written under `BUB_HOME` (container default: `/root/.bub`).
-- In this compose file, `BUB_HOME` is used as the host bind source for `/data`.
-- Do not set `BUB_HOME=/data` directly in `.env` with this compose file, or the host bind source will also become `/data`.
-- If you want Bub runtime home to be `/data` in container, split variables first (for example `BUB_HOME_HOST` for host path) and then set `BUB_HOME=/data`.
+- Bub 运行时数据写入 `BUB_HOME`（容器默认值：`/root/.bub`）。
+- 在此 compose 文件中，`BUB_HOME` 被用作 `/data` 的宿主机绑定源。
+- 不要在此 compose 文件的 `.env` 中直接设置 `BUB_HOME=/data`，否则宿主机绑定源也会变为 `/data`。
+- 如果你希望容器内 Bub 运行时主目录为 `/data`，请先拆分变量（例如用 `BUB_HOME_HOST` 表示宿主机路径），然后再设置 `BUB_HOME=/data`。
 
-## Operational Checks
+## 运维检查
 
-1. Verify process:
+1. 验证进程：
    `ps aux | rg "bub (chat|gateway|run)"`
-2. Verify model config:
+2. 验证模型配置：
    `rg -n "BUB_MODEL|BUB_API_KEY|BUB_API_BASE|BUB_.*_API_KEY|BUB_.*_API_BASE|OPENROUTER_API_KEY" .env`
-3. Verify Telegram settings:
+3. 验证 Telegram 设置：
    `rg -n "BUB_TELEGRAM_TOKEN|BUB_TELEGRAM_ALLOW_USERS|BUB_TELEGRAM_ALLOW_CHATS" .env`
-4. Verify startup logs:
+4. 验证启动日志：
    `uv run bub gateway --enable-channel telegram`
 
-## Safe Upgrade
+## 安全升级
 
 ```bash
 git fetch --all --tags
@@ -106,4 +106,4 @@ uv run mypy
 uv run pytest -q
 ```
 
-Then restart your service command.
+然后重启你的服务命令。

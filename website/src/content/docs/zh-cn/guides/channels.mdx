@@ -3,58 +3,58 @@ title: 通道
 description: 通道适配器（CLI、Telegram）、运行模式、会话语义、出站传递接口和防抖行为。
 ---
 
-Bub uses channel adapters to run the same pipeline across different I/O endpoints. Hooks don't know which channel they're in.
+Bub 使用 channel 适配器在不同 I/O 端点上运行同一套 pipeline。Hook 不感知当前处于哪个 channel。
 
-## Builtin Channels
+## 内置 Channel
 
-- `cli`: local interactive terminal — see [CLI](cli)
-- `telegram`: Telegram bot — see [Telegram](telegram)
+- `cli`：本地交互终端 — 参见 [CLI](cli)
+- `telegram`：Telegram 机器人 — 参见 [Telegram](telegram)
 
-## Run Modes
+## 运行模式
 
-Local interactive mode:
+本地交互模式：
 
 ```bash
 uv run bub chat
 ```
 
-Channel listener mode (all non-`cli` channels by default):
+Channel 监听模式（默认启用所有非 `cli` channel）：
 
 ```bash
 uv run bub gateway
 ```
 
-Enable only Telegram:
+仅启用 Telegram：
 
 ```bash
 uv run bub gateway --enable-channel telegram
 ```
 
-## Session Semantics
+## Session 语义
 
-- `run` command default session id: `<channel>:<chat_id>`
-- Telegram channel session id: `telegram:<chat_id>`
-- `chat` command default session id: `cli_session` (override with `--session-id`)
-- `chat` command default chat id: `local`
+- `run` 命令的默认 session id：`<channel>:<chat_id>`
+- Telegram channel 的 session id：`telegram:<chat_id>`
+- `chat` 命令的默认 session id：`cli_session`（可通过 `--session-id` 覆盖）
+- `chat` 命令的默认 chat id：`local`
 
-## Outbound Delivery Surfaces
+## 出站传递接口
 
-Channel adapters can receive outbound data in two forms:
+Channel 适配器可以通过两种形式接收出站数据：
 
-- `send(message)`: the final rendered outbound message
-- `on_event(event, message)`: streaming events emitted while the model is still producing output
+- `send(message)`：最终渲染的出站消息
+- `on_event(event, message)`：模型仍在生成输出时发出的流式事件
 
-Use `on_event` for incremental UX such as live text updates, typing indicators, progress bars, or chunk-level logging. Use `send` for the final durable outbound payload.
+使用 `on_event` 实现增量 UX，如实时文本更新、输入指示器、进度条或块级日志。使用 `send` 传递最终的持久化出站载荷。
 
-`on_event` is optional. A channel that does not need streaming behavior can ignore it and only implement `send`.
+`on_event` 是可选的。不需要流式行为的 channel 可以忽略它，仅实现 `send`。
 
-## Debounce Behavior
+## Debounce 行为
 
-- `cli` does not debounce; each input is processed immediately.
-- Other channels can debounce and batch inbound messages per session.
-- Comma commands (`,` prefix) always bypass debounce and execute immediately.
+- `cli` 不做 debounce；每次输入立即处理。
+- 其他 channel 可以按 session 对入站消息进行 debounce 和批处理。
+- 逗号命令（`,` 前缀）始终绕过 debounce，立即执行。
 
-## About Discord
+## 关于 Discord
 
-Core Bub does not currently include a builtin Discord adapter.
-If you need Discord, implement it in an external plugin via `provide_channels`.
+Bub 核心目前不包含内置的 Discord 适配器。
+如需 Discord 支持，请通过 `provide_channels` 在外部插件中实现。

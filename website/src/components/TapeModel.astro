@@ -1,4 +1,6 @@
 ---
+import Icon from './ui/Icon.astro';
+
 interface Props {
   eyebrow?: string;
   heading?: string;
@@ -14,56 +16,136 @@ const {
   ],
 } = Astro.props;
 
-const tapeEntries = [
-  { ts: '14:32:01', op: 'user_msg', key: 'e_101', value: '"explain hooks"' },
-  { ts: '14:32:02', op: 'build_prompt', key: 'e_102', value: 'system + 12 msgs' },
-  { ts: '14:32:04', op: 'model_reply', key: 'e_103', value: '"Hooks are pluggy…"' },
-  { ts: '14:32:04', op: 'tool_call', key: 'e_104', value: 'read_docs("hooks")' },
-  { ts: '14:32:05', op: 'tool_result', key: 'e_105', value: '{ok: true, lines: 47}' },
-  { ts: '14:32:05', op: 'correction', key: 'e_106', value: 'corrects e_103', accent: true },
-  { ts: '14:32:06', op: 'save_state', key: 'e_107', value: 'tape flushed' },
+type TapeEntry = {
+  ts: string;
+  kind: 'event' | 'anchor';
+  op: string;
+  key: string;
+  value: string;
+  corrects?: string;
+};
+
+const tapeEntries: TapeEntry[] = [
+  { ts: '14:32:01', kind: 'event',  op: 'user_msg',     key: 'e_101', value: '"explain hooks"' },
+  { ts: '14:32:02', kind: 'event',  op: 'build_prompt',  key: 'e_102', value: 'system + 12 msgs' },
+  { ts: '14:32:04', kind: 'event',  op: 'model_reply',   key: 'e_103', value: '"Hooks are pluggy…"' },
+  { ts: '14:32:04', kind: 'event',  op: 'tool_call',     key: 'e_104', value: 'read_docs("hooks")' },
+  { ts: '14:32:05', kind: 'event',  op: 'tool_result',   key: 'e_105', value: '{ok: true, lines: 47}' },
+  { ts: '14:32:06', kind: 'anchor', op: 'handoff',       key: 'a_001', value: 'phase: "correction", owner: "agent"' },
+  { ts: '14:32:06', kind: 'event',  op: 'correction',    key: 'e_106', value: 'supersedes e_103', corrects: 'e_103' },
+  { ts: '14:32:07', kind: 'event',  op: 'model_reply',   key: 'e_107', value: '"Updated: Hooks use pluggy…"' },
+  { ts: '14:32:08', kind: 'event',  op: 'save_state',    key: 'e_108', value: 'tape flushed ✓' },
 ];
+
+const entryCount = tapeEntries.filter(e => e.kind === 'event').length;
+const anchorCount = tapeEntries.filter(e => e.kind === 'anchor').length;
 ---
 
-<section class="relative py-20 md:py-28" data-reveal>
+<section class="relative py-20 md:py-28" data-reveal aria-label="Tape context model">
   <div class="mx-auto max-w-6xl px-5 md:px-8">
-    <div class="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
+    <div class="grid items-start gap-10 lg:grid-cols-2 lg:gap-16">
+
       <!-- Tape visualization -->
-      <div class="relative order-2 lg:order-1">
+      <div class="relative order-2 lg:order-1" data-tape-viz>
         <div class="overflow-hidden border border-border bg-card">
-          <div class="flex items-center gap-2 border-b border-border px-5 py-3">
-            <span class="ml-2 font-mono text-[0.65rem] text-muted-foreground/60">~/.bub/tapes/session_a1b2</span>
+          <!-- Title bar -->
+          <div class="flex items-center justify-between border-b border-border px-4 py-2.5 sm:px-5 sm:py-3">
+            <div class="flex items-center gap-2">
+              <span class="tape-rec-dot inline-block h-2 w-2 bg-primary" aria-hidden="true"></span>
+              <span class="font-mono text-[0.65rem] text-muted-foreground/60">~/.bub/tapes/session_a1b2</span>
+            </div>
+            <span class="font-mono text-[0.55rem] uppercase tracking-wider text-muted-foreground/40">live</span>
           </div>
-          <div class="tape-scroll-area relative overflow-x-auto">
-            <table class="w-full text-left font-mono text-xs">
-              <thead>
-                <tr class="border-b border-border text-muted-foreground">
-                  <th class="hidden px-3 py-2 font-medium sm:table-cell sm:px-5 sm:py-2.5">time</th>
-                  <th class="px-3 py-2 font-medium sm:py-2.5">op</th>
-                  <th class="px-3 py-2 font-medium sm:py-2.5">key</th>
-                  <th class="px-3 py-2 font-medium sm:py-2.5">value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tapeEntries.map((e) => (
-                  <tr class:list={[
-                    'border-b border-border/50 transition-colors',
-                    e.accent ? 'bg-primary/10' : ''
+
+          <!-- Timeline entries -->
+          <div class="tape-entries relative px-4 py-3 sm:px-5 sm:py-4">
+
+            {tapeEntries.map((entry, i) => (
+              <div
+                class="tape-entry"
+                data-tape-entry={i}
+                data-kind={entry.kind}
+                data-corrects={entry.corrects ?? ''}
+                data-key={entry.key}
+              >
+                {/* Anchor: full-width separator */}
+                {entry.kind === 'anchor' ? (
+                  <div class="tape-anchor relative my-3 flex items-center gap-3 first:mt-0">
+                    <div class="h-px flex-1 bg-primary/30"></div>
+                    <div class="flex items-center gap-2 border border-primary/40 bg-primary/8 px-3 py-1.5">
+                      <Icon name="anchor" size={11} class="text-primary" aria-hidden="true" />
+                      <span class="font-mono text-[0.62rem] font-semibold uppercase tracking-wider text-primary">
+                        {entry.op}
+                      </span>
+                      <span class="hidden font-mono text-[0.58rem] text-primary/60 sm:inline">
+                        {entry.value}
+                      </span>
+                    </div>
+                    <div class="h-px flex-1 bg-primary/30"></div>
+                  </div>
+                ) : (
+                  <div class:list={[
+                    'tape-event group relative flex items-start gap-3 py-1.5 sm:gap-4',
+                    entry.corrects ? 'tape-correction' : '',
                   ]}>
-                    <td class="hidden whitespace-nowrap px-3 py-2 text-muted-foreground sm:table-cell sm:px-5 sm:py-2.5">{e.ts}</td>
-                    <td class:list={['whitespace-nowrap px-3 py-2 sm:py-2.5', e.accent ? 'text-primary font-semibold' : 'text-foreground']}>{e.op}</td>
-                    <td class="whitespace-nowrap px-3 py-2 text-muted-foreground sm:py-2.5">{e.key}</td>
-                    <td class="px-3 py-2 text-muted-foreground sm:py-2.5">{e.value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    {/* Timeline spine */}
+                    <div class="relative flex flex-col items-center">
+                      <div class:list={[
+                        'tape-dot z-10 mt-1.5 h-2 w-2 shrink-0 border',
+                        entry.corrects
+                          ? 'border-primary bg-primary'
+                          : 'border-muted-foreground/40 bg-background',
+                      ]}></div>
+                      {i < tapeEntries.length - 1 && (
+                        <div class="tape-spine absolute top-3.5 h-[calc(100%+0.25rem)] w-px bg-border"></div>
+                      )}
+                    </div>
+
+                    {/* Content */}
+                    <div class="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden sm:gap-3">
+                      <span class="hidden shrink-0 font-mono text-[0.58rem] tabular-nums text-muted-foreground/40 sm:inline">{entry.ts}</span>
+                      <span class:list={[
+                        'shrink-0 font-mono text-[0.65rem] font-medium',
+                        entry.corrects ? 'text-primary' : 'text-foreground',
+                      ]}>
+                        {entry.op}
+                      </span>
+                      <span class="tape-key shrink-0 font-mono text-[0.58rem] text-muted-foreground/50">
+                        {entry.key}
+                      </span>
+                      <span class="truncate font-mono text-[0.6rem] text-muted-foreground">
+                        {entry.corrects && (
+                          <span class="tape-correction-link mr-1 border-b border-dashed border-primary/40 font-mono text-[0.58rem] text-primary/70">
+                            ← {entry.corrects}
+                          </span>
+                        )}
+                        {entry.value}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Live cursor */}
+            <div class="tape-cursor flex items-center gap-3 pt-2" data-tape-cursor>
+              <div class="relative flex flex-col items-center">
+                <div class="tape-cursor-block h-2 w-2 bg-primary"></div>
+              </div>
+              <span class="font-mono text-[0.55rem] text-primary/50">awaiting next entry…</span>
+            </div>
           </div>
-          <div class="flex items-center gap-3 border-t border-border px-5 py-3">
-            <span class="inline-flex items-center gap-1.5 bg-primary/10 px-2.5 py-1 font-mono text-[0.6rem] font-bold text-primary">
-              7 entries
+
+          {/* Status bar */}
+          <div class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5 sm:gap-3 sm:px-5 sm:py-3">
+            <span class="inline-flex items-center gap-1.5 bg-primary/10 px-2 py-0.5 font-mono text-[0.58rem] font-bold text-primary">
+              {entryCount + anchorCount} entries
             </span>
-            <span class="font-mono text-[0.6rem] text-muted-foreground/60">append-only · correction at e_106 supersedes e_103</span>
+            <span class="inline-flex items-center gap-1.5 font-mono text-[0.58rem] text-muted-foreground/60">
+              {anchorCount} anchor
+            </span>
+            <span class="font-mono text-[0.55rem] text-muted-foreground/40">·</span>
+            <span class="font-mono text-[0.55rem] text-muted-foreground/40">append-only</span>
           </div>
         </div>
       </div>
@@ -81,19 +163,150 @@ const tapeEntries = [
             <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{p}</p>
           ))}
         </div>
+        <a
+          href="https://tape.systems/"
+          target="_blank"
+          rel="noreferrer"
+          class="group mt-6 inline-flex items-center gap-1.5 font-mono text-[0.7rem] text-muted-foreground transition-colors hover:text-primary"
+        >
+          Learn more at tape.systems
+          <Icon name="arrowUpRight" size={12} class="opacity-50 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+        </a>
       </div>
+
     </div>
   </div>
 </section>
 
 <style>
-  .tape-scroll-area {
-    -webkit-overflow-scrolling: touch;
+  /* Initial hidden state for entries — motion will reveal them */
+  .tape-entry {
+    opacity: 0;
+    transform: translateY(8px);
   }
-  @media (max-width: 639px) {
-    .tape-scroll-area {
-      mask-image: linear-gradient(to right, black 90%, transparent 100%);
-      -webkit-mask-image: linear-gradient(to right, black 90%, transparent 100%);
-    }
+  .tape-cursor {
+    opacity: 0;
+  }
+
+  /* Rec dot pulse */
+  .tape-rec-dot {
+    animation: rec-pulse 2s ease-in-out infinite;
+  }
+  @keyframes rec-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.2; }
+  }
+
+  /* Cursor blink */
+  .tape-cursor-block {
+    animation: cursor-blink 1.2s step-end infinite;
+  }
+  @keyframes cursor-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  /* Anchor glow on entrance */
+  .tape-anchor-glow {
+    box-shadow: 0 0 12px oklch(0.7 0.15 250 / 0.25);
+  }
+
+  /* Correction highlight */
+  .tape-correction-highlight {
+    background-color: oklch(0.7 0.15 250 / 0.06);
+  }
+
+  /* Spine connector for corrections */
+  .tape-correction .tape-dot {
+    box-shadow: 0 0 0 2px oklch(0.7 0.15 250 / 0.2);
   }
 </style>
+
+<script>
+  import { animate, stagger, inView } from 'motion';
+
+  function initTapeAnimation() {
+    const viz = document.querySelector('[data-tape-viz]');
+    if (!viz) return;
+
+    const entries = Array.from(
+      viz.querySelectorAll('[data-tape-entry]')
+    ) as HTMLElement[];
+    const cursor = viz.querySelector('[data-tape-cursor]') as HTMLElement | null;
+
+    if (!entries.length) return;
+
+    let cleanup: (() => void) | undefined;
+
+    inView(viz, () => {
+      // Staggered entrance for all entries
+      animate(
+        entries,
+        { opacity: [0, 1], y: [12, 0] },
+        {
+          delay: stagger(0.18, { start: 0.15 }),
+          duration: 0.45,
+          ease: [0.22, 1, 0.36, 1],
+        }
+      );
+
+      // Anchor entries get extra scale pop
+      entries.forEach((el, i) => {
+        if (el.getAttribute('data-kind') === 'anchor') {
+          const anchorInner = el.querySelector('.tape-anchor > div:nth-child(2)') as HTMLElement | null;
+          if (anchorInner) {
+            animate(
+              anchorInner,
+              { scale: [0.85, 1.04, 1] },
+              {
+                delay: 0.15 + i * 0.18,
+                duration: 0.55,
+                ease: [0.22, 1, 0.36, 1],
+              }
+            );
+            anchorInner.classList.add('tape-anchor-glow');
+            setTimeout(() => anchorInner.classList.remove('tape-anchor-glow'), 1500 + i * 180);
+          }
+        }
+
+        // Corrections get a brief highlight flash
+        if (el.getAttribute('data-corrects')) {
+          const eventDiv = el.querySelector('.tape-event') as HTMLElement | null;
+          if (eventDiv) {
+            const entryDelay = (0.15 + i * 0.18) * 1000;
+            setTimeout(() => {
+              eventDiv.classList.add('tape-correction-highlight');
+              setTimeout(() => eventDiv.classList.remove('tape-correction-highlight'), 1200);
+            }, entryDelay + 300);
+          }
+        }
+      });
+
+      // Cursor fades in after all entries
+      if (cursor) {
+        animate(
+          cursor,
+          { opacity: [0, 1] },
+          {
+            delay: 0.15 + entries.length * 0.18 + 0.2,
+            duration: 0.4,
+            ease: 'ease-out',
+          }
+        );
+      }
+
+      // Return cleanup to reset on exit
+      cleanup = () => {
+        entries.forEach((el) => {
+          el.style.opacity = '0';
+          el.style.transform = 'translateY(8px)';
+        });
+        if (cursor) cursor.style.opacity = '0';
+      };
+      return cleanup;
+    }, { margin: '-10% 0px' });
+  }
+
+  initTapeAnimation();
+  document.addEventListener('astro:page-load', initTapeAnimation);
+</script>

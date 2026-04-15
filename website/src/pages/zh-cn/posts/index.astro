@@ -1,0 +1,53 @@
+---
+import PostListLayout from '../../../layouts/PostListLayout.astro';
+import PostCard from '../../../components/PostCard.astro';
+import { getCollection } from 'astro:content';
+
+const allPosts = await getCollection('posts');
+const posts = allPosts
+  .filter((post) => post.data.locale === 'zh-cn')
+  .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+
+const navProps = {
+  docsHref: '/zh-cn/getting-started/',
+  blogHref: '/zh-cn/posts/',
+  languageHref: '/posts/',
+  languageLabel: 'English',
+  homeHref: '/zh-cn/',
+  docsLabel: '文档',
+  blogLabel: '博客',
+  menuLabel: '菜单',
+  closeLabel: '关闭',
+  hubLabel: '插件市场',
+};
+---
+
+<PostListLayout
+  title="文章 | Bub"
+  description="关于 agent 设计、协作与构建 Bub 的思考。"
+  canonicalUrl="https://bub.build/zh-cn/posts/"
+  lang="zh-CN"
+  navProps={navProps}
+>
+  <header class="mb-14" data-reveal>
+    <h1 class="mb-3 text-3xl font-bold tracking-tight text-foreground md:text-4xl">文章</h1>
+    <p class="text-muted-foreground">关于 agent 设计、协作与构建 Bub 的思考。</p>
+  </header>
+
+  <div class="grid gap-px border border-border bg-border sm:grid-cols-2">
+    {posts.map((post, i) => {
+      const slug = post.id.replace(/^zh-cn\//, '');
+      return (
+        <PostCard
+          title={post.data.title}
+          description={post.data.description}
+          date={post.data.date}
+          tags={post.data.tags ?? []}
+          slug={slug}
+          locale="zh-cn"
+          index={i + 1}
+        />
+      );
+    })}
+  </div>
+</PostListLayout>

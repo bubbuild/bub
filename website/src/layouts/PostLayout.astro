@@ -1,0 +1,220 @@
+---
+import '../styles/global.css';
+import NavBar from '../components/NavBar.astro';
+import Footer from '../components/Footer.astro';
+import ThemeInit from '../components/ThemeInit.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  date: Date;
+  locale: string;
+  tags: string[];
+}
+
+const { title, description, date, locale, tags } = Astro.props;
+
+const isZh = locale === 'zh-cn';
+const htmlLang = isZh ? 'zh-CN' : 'en';
+const postsHref = isZh ? '/zh-cn/posts/' : '/posts/';
+const backLabel = isZh ? '← 返回文章列表' : '← Back to Posts';
+
+// Build alternate language URL: swap /zh-cn/posts/ ↔ /posts/
+const pathname = Astro.url.pathname;
+const altHref = isZh
+  ? pathname.replace(/^\/zh-cn\/posts\//, '/posts/')
+  : `/zh-cn${pathname}`;
+
+const formattedDate = date.toLocaleDateString(isZh ? 'zh-CN' : 'en-US', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+});
+
+const navProps = isZh
+  ? {
+      docsHref: '/zh-cn/getting-started/',
+      blogHref: '/zh-cn/posts/',
+      languageHref: altHref,
+      languageLabel: 'English',
+      homeHref: '/zh-cn/',
+      docsLabel: '文档',
+      blogLabel: '博客',
+      menuLabel: '菜单',
+      closeLabel: '关闭',
+      hubLabel: '插件市场',
+    }
+  : {
+      docsHref: '/en/getting-started/',
+      blogHref: '/posts/',
+      languageHref: altHref,
+      languageLabel: '中文',
+    };
+---
+
+<!doctype html>
+<html lang={htmlLang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} | Bub</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/png" href="/bub-logo.png" />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content={`${title} | Bub`} />
+    <meta property="og:description" content={description} />
+    <meta property="og:site_name" content="Bub" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={`${title} | Bub`} />
+    <meta name="twitter:description" content={description} />
+    <ThemeInit />
+  </head>
+  <body class="flex min-h-screen flex-col antialiased font-sans">
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:text-sm focus:font-semibold">Skip to main content</a>
+    <NavBar {...navProps} />
+
+    <main id="main-content" class="mx-auto w-full max-w-3xl flex-1 px-5 py-12 md:px-8 md:py-20">
+      <a
+        href={postsHref}
+        class="mb-8 inline-block font-mono text-sm text-muted-foreground no-underline transition-colors duration-300 hover:text-foreground"
+      >
+        {backLabel}
+      </a>
+
+      <header class="mb-10 border-b border-border pb-8">
+        <h1 class="mb-4 text-3xl font-bold tracking-tight text-foreground md:text-4xl">
+          {title}
+        </h1>
+        <div class="flex flex-wrap items-center gap-3 text-sm">
+          <time class="font-mono text-muted-foreground" datetime={date.toISOString()}>
+            {formattedDate}
+          </time>
+          {tags.length > 0 && (
+            <div class="flex gap-1.5">
+              {tags.map((tag) => (
+                <span class="border border-border px-1.5 py-0.5 font-mono text-[0.65rem] uppercase tracking-wider text-muted-foreground">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </header>
+
+      <article class="post-content text-foreground">
+        <slot />
+      </article>
+    </main>
+
+    <Footer />
+
+    <script>
+      import { inView, animate } from 'motion';
+
+      function initScrollReveals() {
+        document.querySelectorAll('[data-reveal]').forEach((el) => {
+          const htmlEl = el as HTMLElement;
+          htmlEl.style.opacity = '0';
+          htmlEl.style.transform = 'translateY(24px)';
+
+          inView(htmlEl, () => {
+            animate(htmlEl, { opacity: [0, 1], transform: ['translateY(24px)', 'translateY(0)'] }, { duration: 0.6, easing: [0.25, 0.1, 0.25, 1] });
+          }, { margin: '0px 0px -10% 0px' });
+        });
+      }
+
+      requestAnimationFrame(() => {
+        initScrollReveals();
+      });
+      document.addEventListener('astro:page-load', () => {
+        requestAnimationFrame(initScrollReveals);
+      });
+    </script>
+  </body>
+</html>
+
+<style is:global>
+  .post-content {
+    line-height: 1.8;
+  }
+  .post-content h2 {
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--foreground);
+  }
+  .post-content h3 {
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--foreground);
+  }
+  .post-content p {
+    margin-bottom: 1.25rem;
+    color: var(--muted-foreground);
+  }
+  .post-content a {
+    color: var(--foreground);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    transition: opacity 0.2s;
+  }
+  .post-content a:hover {
+    opacity: 0.7;
+  }
+  .post-content ul,
+  .post-content ol {
+    margin-bottom: 1.25rem;
+    padding-left: 1.5rem;
+    color: var(--muted-foreground);
+  }
+  .post-content ul {
+    list-style-type: disc;
+  }
+  .post-content ol {
+    list-style-type: decimal;
+  }
+  .post-content li {
+    margin-bottom: 0.375rem;
+  }
+  .post-content blockquote {
+    margin: 1.5rem 0;
+    padding-left: 1rem;
+    border-left: 2px solid var(--border);
+    color: var(--muted-foreground);
+    font-style: italic;
+  }
+  .post-content code {
+    font-family: "JetBrains Mono Variable", ui-monospace, monospace;
+    font-size: 0.875em;
+    padding: 0.125rem 0.375rem;
+    background: var(--secondary);
+    color: var(--foreground);
+  }
+  .post-content pre {
+    margin: 1.5rem 0;
+    padding: 1.25rem;
+    overflow-x: auto;
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    font-family: "JetBrains Mono Variable", ui-monospace, monospace;
+    font-size: 0.85rem;
+    line-height: 1.7;
+  }
+  .post-content pre code {
+    padding: 0;
+    background: none;
+  }
+  .post-content hr {
+    margin: 2rem 0;
+    border: none;
+    border-top: 1px solid var(--border);
+  }
+  .post-content img {
+    max-width: 100%;
+    margin: 1.5rem 0;
+  }
+</style>

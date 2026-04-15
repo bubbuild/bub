@@ -1,8 +1,9 @@
 ---
-title: "Bub：社会化评估与 Agent 协作"
-description: 为什么 Bub 被设计为人与 Agent 共享同一操作者模型的协作系统。
-sidebar:
-  order: 1
+title: "Bub: Socialized Evaluation and Agent Partnership"
+description: "Why Bub is designed as an agent partner system where humans and agents share the same operator model."
+date: 2026-03-01
+locale: en
+tags: [design, collaboration]
 ---
 
 I care less about whether an agent can complete a demo task, and more about whether a real team can trust it under pressure.

@@ -3,25 +3,25 @@ title: CLI 参考
 description: bub run、bub hooks、bub chat、bub gateway、bub install、bub update 和 bub login 命令的完整参考。
 ---
 
-`bub` exposes six public command groups: `run`, `gateway`, `chat`, `install`, `update`, and `login`. It also keeps one hidden diagnostic command: `hooks`.
+`bub` 提供六个公开命令组：`run`、`gateway`、`chat`、`install`、`update` 和 `login`。另外保留了一个隐藏的诊断命令：`hooks`。
 
 ## `bub run`
 
-Run one inbound message through the full framework pipeline and print outbounds.
+将一条入站消息通过完整框架 pipeline 并打印出站结果。
 
 ```bash
 uv run bub run "hello" --channel cli --chat-id local
 ```
 
-Common options:
+常用选项：
 
-- `--workspace/-w`: workspace root, declared once on the top-level CLI and shared by all subcommands
-- `--channel`: source channel (default `cli`)
-- `--chat-id`: source endpoint id (default `local`)
-- `--sender-id`: sender identity (default `human`)
-- `--session-id`: explicit session id (default is `<channel>:<chat_id>`)
+- `--workspace/-w`：工作区根目录，在顶层 CLI 声明一次，所有子命令共享
+- `--channel`：来源 channel（默认 `cli`）
+- `--chat-id`：来源端点 id（默认 `local`）
+- `--sender-id`：发送者身份（默认 `human`）
+- `--session-id`：显式 session id（默认为 `<channel>:<chat_id>`）
 
-Comma-prefixed input enters internal command mode:
+以逗号为前缀的输入进入内部命令模式：
 
 ```bash
 uv run bub run ",help"
@@ -29,7 +29,7 @@ uv run bub run ",skill name=my-skill"
 uv run bub run ",fs.read path=README.md"
 ```
 
-Unknown comma commands fall back to shell execution:
+未知的逗号命令会回退到 shell 执行：
 
 ```bash
 uv run bub run ",echo hello-from-shell"
@@ -37,23 +37,23 @@ uv run bub run ",echo hello-from-shell"
 
 ## `bub hooks`
 
-Print hook-to-plugin bindings discovered at startup.
+打印启动时发现的 hook 到插件的绑定关系。
 
 ```bash
 uv run bub hooks
 ```
 
-`hooks` remains available for diagnostics, but it is hidden from the top-level help.
+`hooks` 仍可用于诊断，但在顶层帮助中被隐藏。
 
 ## `bub gateway`
 
-Start channel listener mode (defaults to all non-`cli` channels).
+启动 channel 监听模式（默认启用所有非 `cli` channel）。
 
 ```bash
 uv run bub gateway
 ```
 
-Enable only selected channels:
+仅启用指定 channel：
 
 ```bash
 uv run bub gateway --enable-channel telegram
@@ -61,18 +61,18 @@ uv run bub gateway --enable-channel telegram
 
 ## `bub chat`
 
-Start an interactive REPL session via the `cli` channel.
+通过 `cli` channel 启动交互式 REPL 会话。
 
 ```bash
 uv run bub chat
 uv run bub chat --chat-id local --session-id cli:local
 ```
 
-`chat` reuses the top-level `--workspace/-w` option. By default it sets `chat_id=local`, keeps the channel as `cli`, and leaves the underlying CLI channel session id at `cli_session` unless you pass `--session-id`.
+`chat` 复用顶层的 `--workspace/-w` 选项。默认设置 `chat_id=local`，channel 保持为 `cli`，底层 CLI channel 的 session id 保持 `cli_session`，除非你传入 `--session-id`。
 
 ## `bub install`
 
-Install packages into Bub's managed plugin project, or sync that project if no package spec is given.
+将包安装到 Bub 管理的插件项目中；如果未指定包名，则同步该项目。
 
 ```bash
 uv run bub install
@@ -81,75 +81,75 @@ uv run bub install example-owner/example-bub-plugin@main
 uv run bub install https://github.com/example/bub-plugin.git
 ```
 
-Options and behavior:
+选项与行为：
 
-- `--project`: path to the uv project used for Bub-managed plugins
-- `BUB_PROJECT`: environment variable equivalent of `--project`
-- default project path: `~/.bub/bub-project`
-- if the project does not exist yet, Bub creates a bare uv app project automatically
-- Bub must be installed inside a virtual environment before `install` or `update` can run
+- `--project`：用于 Bub 管理插件的 uv 项目路径
+- `BUB_PROJECT`：等效于 `--project` 的环境变量
+- 默认项目路径：`~/.bub/bub-project`
+- 如果项目尚不存在，Bub 会自动创建一个空的 uv app 项目
+- 在运行 `install` 或 `update` 之前，Bub 必须安装在虚拟环境中
 
-Accepted spec forms:
+支持的包指定格式：
 
-- `https://...` or `git@...`: installed as a Git requirement
-- `owner/repo` or `owner/repo@ref`: expanded to a GitHub repository URL
-- `name`: passed through as a normal package requirement
-- `name@ref`: resolved from `bub-contrib` as `packages/<name>` at the given Git ref
+- `https://...` 或 `git@...`：作为 Git 依赖安装
+- `owner/repo` 或 `owner/repo@ref`：展开为 GitHub 仓库 URL
+- `name`：作为普通包依赖传入
+- `name@ref`：从 `bub-contrib` 的 `packages/<name>` 解析指定的 Git ref
 
-If no package specs are provided, `install` runs a project sync instead of adding anything new.
+如果未提供包名，`install` 会执行项目同步而非添加新依赖。
 
 ## `bub update`
 
-Update dependencies inside Bub's managed plugin project.
+更新 Bub 管理的插件项目中的依赖。
 
 ```bash
 uv run bub update
 uv run bub update my-plugin another-plugin
 ```
 
-Behavior:
+行为：
 
-- with no package names, upgrades the whole project
-- with package names, upgrades only the selected dependencies
-- uses the same `--project` / `BUB_PROJECT` location as `install`
-- creates the managed project first if it does not exist yet
+- 不指定包名时，升级整个项目
+- 指定包名时，仅升级选中的依赖
+- 使用与 `install` 相同的 `--project` / `BUB_PROJECT` 路径
+- 如果管理项目尚不存在，先创建它
 
 ## `bub login`
 
-Authenticate with OpenAI Codex OAuth and persist the resulting credentials under `CODEX_HOME` (default `~/.codex`).
+通过 OpenAI Codex OAuth 认证，并将凭据持久化到 `CODEX_HOME`（默认 `~/.codex`）。
 
 ```bash
 uv run bub login openai
 ```
 
-Manual callback mode is useful when the local redirect server is unavailable:
+当本地重定向服务器不可用时，可使用手动回调模式：
 
 ```bash
 uv run bub login openai --manual --no-browser
 ```
 
-After login, you can use an OpenAI model without setting `BUB_API_KEY`:
+登录后，无需设置 `BUB_API_KEY` 即可使用 OpenAI 模型：
 
 ```bash
 BUB_MODEL=openai:gpt-5-codex uv run bub chat
 ```
 
-If the upstream endpoint expects a specific request payload format, set `BUB_API_FORMAT`:
+如果上游端点要求特定的请求载荷格式，请设置 `BUB_API_FORMAT`：
 
-- `completion`: legacy completion-style format; default
-- `responses`: OpenAI Responses API format
-- `messages`: Anthropic Messages API format
+- `completion`：传统 completion 风格格式；默认值
+- `responses`：OpenAI Responses API 格式
+- `messages`：Anthropic Messages API 格式
 
 ```bash
 BUB_MODEL=openai:gpt-5-codex BUB_API_FORMAT=responses uv run bub chat
 ```
 
-## Notes
+## 备注
 
-- `--workspace` is parsed before the subcommand, for example `uv run bub --workspace /repo chat`.
-- `install` and `update` operate on Bub's managed plugin project, not on the current workspace.
-- `uninstall()` exists in the builtin module but is not currently exposed as a public CLI command.
-- `run` prints each outbound as:
+- `--workspace` 在子命令之前解析，例如 `uv run bub --workspace /repo chat`。
+- `install` 和 `update` 操作的是 Bub 管理的插件项目，而非当前工作区。
+- `uninstall()` 存在于内置模块中，但目前未作为公开 CLI 命令暴露。
+- `run` 按如下格式打印每条出站消息：
 
 ```text
 [channel:chat_id]

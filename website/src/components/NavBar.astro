@@ -3,7 +3,7 @@ import Icon from './ui/Icon.astro';
 
 const {
   docsHref = '/en/getting-started/',
-  blogHref = '/en/blog/socialized-evaluation/',
+  blogHref = '/posts/',
   languageHref = '/zh-cn/',
   languageLabel = '中文',
   homeHref = '/',
@@ -23,7 +23,7 @@ const navItems = [
 const stars = '99k';
 ---
 
-<header class="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm">
+<header class="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm" role="banner">
   <div class="mx-auto flex max-w-6xl items-center justify-between px-5 py-3 md:px-8">
     <!-- Brand -->
     <a class="flex items-center gap-2.5 text-[0.95rem] font-bold tracking-tight text-foreground no-underline" href={homeHref}>
@@ -33,13 +33,13 @@ const stars = '99k';
     </a>
 
     <!-- Desktop nav -->
-    <nav class="hidden items-center gap-5 text-sm text-muted-foreground md:flex">
+    <nav class="hidden items-center gap-5 text-sm text-muted-foreground md:flex" role="navigation" aria-label="Main navigation">
       {navItems.map((item) => (
         <a
           class="flex items-center gap-1.5 no-underline transition-colors hover:text-foreground"
           href={item.href}
         >
-          {item.icon && <Icon name={item.icon} size={14} class="opacity-50" />}
+          {item.icon && <Icon name={item.icon} size={14} class="opacity-50" aria-hidden="true" />}
           {item.label}
         </a>
       ))}
@@ -54,7 +54,7 @@ const stars = '99k';
         target="_blank"
         rel="noreferrer"
       >
-        <Icon name="github" size={14} class="opacity-50" />
+        <Icon name="github" size={14} class="opacity-50" aria-hidden="true" />
         <span>Star</span>
         <span class="border-l border-border pl-1.5 text-xs text-muted-foreground">{stars}</span>
       </a>
@@ -62,7 +62,7 @@ const stars = '99k';
         class="hidden items-center gap-1.5 border border-border px-3.5 py-1.5 text-sm text-foreground no-underline transition-colors hover:bg-secondary md:inline-flex"
         href={languageHref}
       >
-        <Icon name="globe" size={14} class="opacity-50" />
+        <Icon name="globe" size={14} class="opacity-50" aria-hidden="true" />
         {languageLabel}
       </a>
       <button
@@ -71,37 +71,37 @@ const stars = '99k';
         aria-label="Toggle color theme"
         data-theme-toggle
       >
-        <Icon name="moon" size={16} class="dark:hidden" />
-        <Icon name="sun" size={16} class="hidden dark:block" />
+        <Icon name="moon" size={16} class="dark:hidden" aria-hidden="true" />
+        <Icon name="sun" size={16} class="hidden dark:block" aria-hidden="true" />
       </button>
 
       <!-- Mobile menu -->
       <details class="group md:hidden">
-        <summary class="inline-flex h-9 w-9 list-none items-center justify-center border border-border text-foreground marker:content-none">
-          <Icon name="menu" size={18} class="group-open:hidden" />
-          <Icon name="x" size={18} class="hidden group-open:block" />
+        <summary class="inline-flex h-9 w-9 list-none items-center justify-center border border-border text-foreground marker:content-none" aria-label="Toggle navigation menu">
+          <Icon name="menu" size={18} class="group-open:hidden" aria-hidden="true" />
+          <Icon name="x" size={18} class="hidden group-open:block" aria-hidden="true" />
         </summary>
-        <div class="mobile-dropdown absolute left-0 right-0 top-full border-b border-border bg-background/95 backdrop-blur-sm p-5">
+        <nav class="mobile-dropdown absolute left-0 right-0 top-full border-b border-border bg-background/95 backdrop-blur-sm p-5" role="navigation" aria-label="Mobile navigation">
           <div class="grid gap-0 text-sm">
             {navItems.map((item) => (
               <a
                 class="flex items-center gap-2.5 border-b border-border/50 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary"
                 href={item.href}
               >
-                <Icon name={item.icon} size={15} class="opacity-50" />
+                <Icon name={item.icon} size={15} class="opacity-50" aria-hidden="true" />
                 {item.label}
               </a>
             ))}
             <a class="flex items-center gap-2.5 border-b border-border/50 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href="https://github.com/bubbuild/bub" target="_blank" rel="noreferrer">
-              <Icon name="github" size={15} class="opacity-50" />
+              <Icon name="github" size={15} class="opacity-50" aria-hidden="true" />
               GitHub ★ {stars}
             </a>
             <a class="flex items-center gap-2.5 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href={languageHref}>
-              <Icon name="globe" size={15} class="opacity-50" />
+              <Icon name="globe" size={15} class="opacity-50" aria-hidden="true" />
               {languageLabel}
             </a>
           </div>
-        </div>
+        </nav>
       </details>
     </div>
   </div>
