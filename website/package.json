@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@astrojs/starlight": "^0.38.3",
+    "astro-expressive-code": "^0.41.7",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@fontsource-variable/outfit": "^5.2.8",
     "@tailwindcss/vite": "^4.1.14",
