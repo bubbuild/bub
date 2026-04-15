@@ -2,66 +2,27 @@
 import Icon from './ui/Icon.astro';
 
 const {
-  githubHref = 'https://github.com/bubbuild/bub',
-  githubLabel = 'GitHub',
-  licenseHref = 'https://github.com/bubbuild/bub/blob/main/LICENSE',
-  licenseLabel = 'Apache-2.0',
   copyright = `© ${new Date().getFullYear()} Bub Contributors`,
 } = Astro.props;
-
-let stars: string = '—';
-try {
-  const res = await fetch('https://api.github.com/repos/bubbuild/bub', {
-    headers: { Accept: 'application/vnd.github+json' },
-  });
-  if (res.ok) {
-    const data = await res.json();
-    const n: number = data.stargazers_count ?? 0;
-    stars = n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-  }
-} catch {}
-
-const buildDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
 ---
 
-<footer class="border-t border-border py-10">
-  <div class="mx-auto max-w-6xl px-5 md:px-8">
-    <!-- Top row: brand + nav links -->
-    <div class="flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
-      <a class="flex items-center gap-2.5 no-underline" href="/">
-        <img src="/bub-logo.png" alt="Bub" width="28" height="28" class="h-7 w-7" />
-        <span class="text-sm font-bold tracking-tight text-foreground">Bub</span>
+<footer class="border-t border-border py-8">
+  <div class="mx-auto flex max-w-6xl items-center justify-between px-5 md:px-8">
+    <a class="flex items-center gap-2 no-underline" href="/">
+      <img src="/bub-logo.png" alt="Bub" width="24" height="24" class="h-6 w-6" />
+      <span class="text-sm font-semibold text-foreground">Bub</span>
+    </a>
+
+    <div class="flex items-center gap-5 text-sm text-muted-foreground">
+      <a class="flex items-center gap-1.5 no-underline transition-colors hover:text-foreground" href="https://github.com/bubbuild/bub" target="_blank" rel="noreferrer">
+        <Icon name="github" size={13} />
+        GitHub
       </a>
-
-      <nav class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground" aria-label="Footer navigation">
-        <a class="flex items-center gap-1.5 no-underline transition-colors hover:text-foreground" href={githubHref} target="_blank" rel="noreferrer">
-          <Icon name="github" size={13} class="opacity-50" />
-          {githubLabel}
-        </a>
-        <a class="flex items-center gap-1.5 no-underline transition-colors hover:text-foreground" href={licenseHref} target="_blank" rel="noreferrer">
-          <Icon name="scale" size={13} class="opacity-50" />
-          {licenseLabel}
-        </a>
-      </nav>
-    </div>
-
-    <!-- Bottom row: meta badges -->
-    <div class="mt-6 flex flex-col items-start justify-between gap-3 border-t border-border pt-6 text-xs text-muted-foreground sm:flex-row sm:items-center">
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <span class="flex items-center gap-1.5">
-          <Icon name="star" size={11} class="opacity-50" />
-          {stars} stars on GitHub
-        </span>
-        <span class="flex items-center gap-1.5">
-          <Icon name="rocket" size={11} class="opacity-50" />
-          Built with Astro · Tailwind CSS
-        </span>
-        <span class="flex items-center gap-1.5">
-          <Icon name="calendarDays" size={11} class="opacity-50" />
-          Built {buildDate}
-        </span>
-      </div>
-      <span class="opacity-50">{copyright}</span>
+      <a class="flex items-center gap-1.5 no-underline transition-colors hover:text-foreground" href="https://github.com/bubbuild/bub/blob/main/LICENSE" target="_blank" rel="noreferrer">
+        <Icon name="scale" size={13} />
+        Apache-2.0
+      </a>
+      <span>{copyright}</span>
     </div>
   </div>
 </footer>

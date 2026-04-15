@@ -13,13 +13,18 @@ const {
     { initial: 'S', bg: '#f59e0b' },
     { initial: 'M', bg: '#8b5cf6' },
     { initial: 'K', bg: '#ef4444' },
+    { initial: 'A', bg: '#3b82f6' },
+    { initial: 'J', bg: '#10b981' },
+    { initial: 'S', bg: '#f59e0b' },
+    { initial: 'M', bg: '#8b5cf6' },
+    { initial: 'K', bg: '#ef4444' },
   ],
-  label = 'Trusted by contributors worldwide',
+  label = 'Developed by contributors worldwide',
 } = Astro.props;
 ---
 
 <div class="flex items-center gap-3">
-  <div class="flex -space-x-2">
+  <div class="flex -space-x-3">
     {contributors.map((c) => (
       <div
         class="flex h-8 w-8 items-center justify-center rounded-full border-2 border-background text-xs font-bold text-white"
@@ -34,7 +39,7 @@ const {
       title="and many more"
       aria-label="and many more contributors"
     >
-      <Icon name="moreHorizontal" size={14} />
+      <Icon name="ellipsis" size={14} />
     </div>
   </div>
   <span class="text-xs text-muted-foreground">{label}</span>

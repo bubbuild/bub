@@ -24,91 +24,142 @@ const {
   ],
 } = Astro.props;
 
-// Parabolic arc heights (center tallest, edges shortest)
-const heights = [120, 147, 173, 200, 173, 147, 120];
-const opacities = [0.5, 0.67, 0.83, 1.0, 0.83, 0.67, 0.5];
+// Bell-curve widths/opacities by distance from active stage
+const WIDTHS   = ['100%', '84%', '66%', '50%', '38%'];
+const OPACITIES = [1.0,    0.7,   0.45,  0.28,  0.16];
+
+// SSR initial state: center stage active for a nice bell shape on load
+const INIT_ACTIVE = 3;
+const initStyle = hookStages.map((_, i) => {
+  const d = Math.min(Math.abs(i - INIT_ACTIVE), WIDTHS.length - 1);
+  return `width:${WIDTHS[d]};opacity:${OPACITIES[d]}`;
+});
 ---
 
 <section class="relative overflow-hidden bg-secondary/30 py-20 md:py-28" data-reveal>
   <div class="relative mx-auto max-w-6xl px-5 md:px-8">
-    <!-- Text block -->
-    <div class="mx-auto mb-14 max-w-2xl text-center">
-      <p class="mb-4 font-mono text-xs uppercase tracking-widest text-muted-foreground">
-        {eyebrow}
-      </p>
-      <h2 class="text-[clamp(1.8rem,4vw,2.75rem)] font-extrabold leading-[1.1] tracking-tight text-foreground">
-        {heading}
-      </h2>
-      <div class="mt-5 space-y-3">
-        {description.map((p) => (
-          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{p}</p>
+    <div class="flex flex-col gap-12 md:flex-row md:items-center md:gap-16 lg:gap-24">
+
+      <!-- Left: intro text -->
+      <div class="md:w-[42%] md:shrink-0">
+        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-muted-foreground">
+          {eyebrow}
+        </p>
+        <h2 class="text-[clamp(1.8rem,4vw,2.75rem)] font-extrabold leading-[1.1] tracking-tight text-foreground">
+          {heading}
+        </h2>
+        <div class="mt-5 space-y-3">
+          {description.map((p) => (
+            <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{p}</p>
+          ))}
+        </div>
+        <p class="mt-8 font-mono text-[0.65rem] text-muted-foreground/50">process_inbound()</p>
+      </div>
+
+      <!-- Right: vertical stage visualization (centered bars, fixed row height) -->
+      <div class="flex flex-1 flex-col items-center gap-1.5" data-hook-stages>
+        {hookStages.map((stage, i) => (
+          <div class="flex h-11 w-full items-center justify-center">
+            <div
+              class="hook-stage flex h-full items-center overflow-hidden border border-border bg-card px-3 md:px-4"
+              data-hook-stage={i}
+              style={initStyle[i]}
+            >
+              <span class="stage-badge mr-3 inline-flex h-5 w-5 shrink-0 items-center justify-center bg-foreground font-mono text-[0.6rem] font-bold text-background">
+                {i + 1}
+              </span>
+              <span class="stage-name whitespace-nowrap font-mono text-[0.65rem] font-medium leading-tight text-foreground md:text-[0.72rem]">
+                {stage.name}()
+              </span>
+              <p class="hook-note ml-auto whitespace-nowrap pl-3 text-right text-[0.58rem] leading-snug text-muted-foreground md:text-[0.62rem]">
+                {stage.note}
+              </p>
+            </div>
+          </div>
         ))}
       </div>
-    </div>
 
-    <!-- Arc visualization -->
-    <div class="flex items-end justify-center gap-2 md:gap-3" data-hook-stages>
-      {hookStages.map((stage, i) => (
-        <div
-          class="hook-stage flex min-w-0 flex-1 flex-col border border-border bg-card p-3 transition-all duration-500 md:p-4"
-          data-hook-stage={i}
-          style={`height: ${heights[i]}px; opacity: ${opacities[i]};`}
-        >
-          <span class="mb-1.5 inline-flex h-5 w-5 shrink-0 items-center justify-center bg-secondary font-mono text-[0.6rem] font-bold text-muted-foreground transition-colors duration-500">
-            {i + 1}
-          </span>
-          <span class="font-mono text-[0.65rem] font-medium leading-tight text-foreground md:text-[0.72rem]">
-            {stage.name}()
-          </span>
-          <p class="hook-note mt-auto text-[0.58rem] leading-snug text-muted-foreground opacity-0 transition-all duration-500 md:text-[0.62rem]">
-            {stage.note}
-          </p>
-        </div>
-      ))}
     </div>
-
-    <p class="mt-4 text-center font-mono text-[0.65rem] text-muted-foreground/60">
-      process_inbound()
-    </p>
   </div>
 </section>
 
 <style>
+  .hook-stage {
+    will-change: width, opacity, transform;
+    transition: background-color 0.35s ease, border-color 0.35s ease;
+  }
   .hook-stage.active {
     background-color: var(--primary);
-    opacity: 1 !important;
-    transform: scale(1.05);
-    transform-origin: bottom center;
+    border-color: var(--primary);
   }
-  .hook-stage.active .hook-note {
-    opacity: 1;
-    color: var(--primary-foreground);
+  .hook-stage .stage-badge,
+  .hook-stage .stage-name {
+    transition: color 0.3s ease, background-color 0.3s ease;
   }
-  .hook-stage.active span:first-child {
+  .hook-stage.active .stage-badge {
     background-color: var(--primary-foreground);
     color: var(--primary);
   }
-  .hook-stage.active span.font-mono {
+  .hook-stage.active .stage-name {
+    color: var(--primary-foreground);
+  }
+  .hook-note {
+    opacity: 0;
+    transition: opacity 0.35s ease, color 0.35s ease;
+  }
+  .hook-stage.active .hook-note {
+    opacity: 0.8;
     color: var(--primary-foreground);
   }
 </style>
 
 <script>
-  import { inView } from 'motion';
+  import { animate, inView } from 'motion';
+
+  const WIDTHS    = ['100%', '84%', '66%', '50%', '38%'];
+  const OPACITIES = [1.0,    0.7,   0.45,  0.28,  0.16];
 
   function initHookAnimation() {
     const container = document.querySelector('[data-hook-stages]');
     if (!container) return;
 
-    const stages = container.querySelectorAll('[data-hook-stage]');
+    const stages = Array.from(
+      container.querySelectorAll('[data-hook-stage]')
+    ) as HTMLElement[];
     if (!stages.length) return;
 
     let current = 0;
     let interval: ReturnType<typeof setInterval> | null = null;
 
+    function applyState(activeIdx: number) {
+      stages.forEach((el, i) => {
+        const dist = Math.min(Math.abs(i - activeIdx), WIDTHS.length - 1);
+        const isActive = i === activeIdx;
+        const delay = dist * 0.045;
+
+        // Width + opacity with spring-like overshoot
+        animate(el, { width: WIDTHS[dist], opacity: OPACITIES[dist] }, {
+          type: 'spring',
+          stiffness: 320,
+          damping: 28,
+          mass: 0.8,
+          delay,
+        });
+
+        // Active bar gets a subtle pop scale
+        if (isActive) {
+          animate(el, { scale: [1, 1.025, 1] }, {
+            duration: 0.5,
+            ease: [0.22, 1, 0.36, 1],
+          });
+        }
+
+        el.classList.toggle('active', isActive);
+      });
+    }
+
     function cycle() {
-      stages.forEach((s) => s.classList.remove('active'));
-      stages[current]?.classList.add('active');
+      applyState(current);
       current = (current + 1) % stages.length;
     }
 
@@ -117,7 +168,10 @@ const opacities = [0.5, 0.67, 0.83, 1.0, 0.83, 0.67, 0.5];
       interval = setInterval(cycle, 2200);
       return () => {
         if (interval) clearInterval(interval);
-        stages.forEach((s) => s.classList.remove('active'));
+        stages.forEach((el) => {
+          el.classList.remove('active');
+          el.style.transform = '';
+        });
       };
     }, { margin: '-10% 0px' });
   }

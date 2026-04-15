@@ -47,11 +47,6 @@ export default defineConfig({
           autogenerate: { directory: 'extending' },
         },
         {
-          label: 'Reference',
-          translations: { 'zh-CN': '参考' },
-          autogenerate: { directory: 'reference' },
-        },
-        {
           label: 'Blog',
           translations: { 'zh-CN': '博客' },
           autogenerate: { directory: 'blog' },

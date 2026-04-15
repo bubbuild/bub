@@ -107,6 +107,7 @@ const landingPageCopy: Record<LandingLocale, LandingPageCopy> = {
       githubLabel: 'GitHub',
       menuLabel: '菜单',
       closeLabel: '关闭',
+      hubLabel: '插件市场',
     },
     hero: {
       badge: 'Hook-first · Tape 驱动 · Channel 无关',

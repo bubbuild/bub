@@ -9,23 +9,26 @@ const {
   homeHref = '/',
   docsLabel = 'Docs',
   blogLabel = 'Blog',
-  githubLabel = 'GitHub',
+  hubLabel = 'Plugin Market',
   menuLabel = 'Menu',
   closeLabel = 'Close',
 } = Astro.props;
 
 const navItems = [
   { href: docsHref, label: docsLabel, icon: 'book' as const },
-  { href: blogHref, label: blogLabel },
-  { href: 'https://github.com/bubbuild/bub', label: githubLabel, icon: 'github' as const, external: true },
+  { href: blogHref, label: blogLabel, icon: 'newspaper' as const },
+  { href: 'https://hub.bub.build', label: hubLabel, icon: 'package' as const },
 ];
+
+const stars = '99k';
 ---
 
 <header class="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm">
   <div class="mx-auto flex max-w-6xl items-center justify-between px-5 py-3 md:px-8">
     <!-- Brand -->
     <a class="flex items-center gap-2.5 text-[0.95rem] font-bold tracking-tight text-foreground no-underline" href={homeHref}>
-      <img src="/bub-logo.png" alt="Bub" width="32" height="32" class="h-8 w-8" />
+      <img src="/bub-logo.png" alt="Bub" width="32" height="32" class="h-8 w-8 dark:hidden" />
+      <img src="/bub-logo-dark.png" alt="Bub" width="32" height="32" class="h-8 w-8 hidden dark:block" />
       <span>Bub</span>
     </a>
 
@@ -35,8 +38,6 @@ const navItems = [
         <a
           class="flex items-center gap-1.5 no-underline transition-colors hover:text-foreground"
           href={item.href}
-          target={item.external ? '_blank' : undefined}
-          rel={item.external ? 'noreferrer' : undefined}
         >
           {item.icon && <Icon name={item.icon} size={14} class="opacity-50" />}
           {item.label}
@@ -46,6 +47,17 @@ const navItems = [
 
     <!-- Right side -->
     <div class="flex items-center gap-2">
+      <!-- GitHub star button (desktop) -->
+      <a
+        class="hidden items-center gap-1.5 border border-border px-3.5 py-1.5 text-sm text-foreground no-underline transition-colors hover:bg-secondary md:inline-flex"
+        href="https://github.com/bubbuild/bub"
+        target="_blank"
+        rel="noreferrer"
+      >
+        <Icon name="github" size={14} class="opacity-50" />
+        <span>Star</span>
+        <span class="border-l border-border pl-1.5 text-xs text-muted-foreground">{stars}</span>
+      </a>
       <a
         class="hidden items-center gap-1.5 border border-border px-3.5 py-1.5 text-sm text-foreground no-underline transition-colors hover:bg-secondary md:inline-flex"
         href={languageHref}
@@ -75,12 +87,13 @@ const navItems = [
               <a
                 class="px-3 py-2.5 text-foreground no-underline transition-colors hover:bg-secondary"
                 href={item.href}
-                target={item.external ? '_blank' : undefined}
-                rel={item.external ? 'noreferrer' : undefined}
               >
                 {item.label}
               </a>
             ))}
+            <a class="px-3 py-2.5 text-foreground no-underline transition-colors hover:bg-secondary" href="https://github.com/bubbuild/bub" target="_blank" rel="noreferrer">
+              GitHub ★ {stars}
+            </a>
             <a class="px-3 py-2.5 text-foreground no-underline transition-colors hover:bg-secondary" href={languageHref}>
               {languageLabel}
             </a>
