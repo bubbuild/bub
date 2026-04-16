@@ -56,6 +56,12 @@ Enable only selected channels:
 uv run bub gateway --enable-channel telegram
 ```
 
+Forward streaming model events to channel adapters instead of waiting for the final rendered message:
+
+```bash
+BUB_STREAM_OUTPUT=true uv run bub gateway --enable-channel telegram
+```
+
 ## `bub chat`
 
 Start an interactive REPL session via the `cli` channel.

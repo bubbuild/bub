@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, cast
 
 import pluggy
 from loguru import logger
@@ -159,6 +159,21 @@ class HookRuntime:
     @staticmethod
     def _kwargs_for_impl(impl: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
         return {name: kwargs[name] for name in impl.argnames if name in kwargs}
+
+    async def run_model(self, prompt: str | list[dict], session_id: str, state: dict[str, Any]) -> str | None:
+        """Run the first `run_model` hook found and return its result."""
+        for _, plugin in reversed(self._plugin_manager.list_name_plugin()):
+            if hasattr(plugin, "run_model"):
+                output = await self.call_first("run_model", prompt=prompt, session_id=session_id, state=state)
+                return cast(str, output)
+            elif hasattr(plugin, "run_model_stream"):
+                stream = await self.call_first("run_model_stream", prompt=prompt, session_id=session_id, state=state)
+                text = ""
+                async for event in stream:
+                    if event.kind == "text":
+                        text += str(event.data.get("delta", ""))
+                return text
+        return None
 
     async def run_model_stream(
         self, prompt: str | list[dict], session_id: str, state: dict[str, Any]

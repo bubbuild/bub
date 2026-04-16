@@ -87,7 +87,7 @@ class BubFramework:
         self._hook_runtime.call_many_sync("register_cli_commands", app=app)
         return app
 
-    async def process_inbound(self, inbound: Envelope) -> TurnResult:
+    async def process_inbound(self, inbound: Envelope, stream_output: bool = False) -> TurnResult:
         """Run one inbound message through hooks and return turn result."""
 
         try:
@@ -109,7 +109,7 @@ class BubFramework:
                 prompt = content_of(inbound)
             model_output = ""
             try:
-                model_output = await self._run_model(inbound, prompt, session_id, state)
+                model_output = await self._run_model(inbound, prompt, session_id, state, stream_output)
             finally:
                 await self._hook_runtime.call_many(
                     "save_state",
@@ -129,8 +129,23 @@ class BubFramework:
             raise
 
     async def _run_model(
-        self, inbound: Envelope, prompt: str | list[dict], session_id: str, state: dict[str, Any]
+        self,
+        inbound: Envelope,
+        prompt: str | list[dict],
+        session_id: str,
+        state: dict[str, Any],
+        stream_output: bool,
     ) -> str:
+        if not stream_output:
+            output = await self._hook_runtime.run_model(prompt=prompt, session_id=session_id, state=state)
+            if output is None:
+                await self._hook_runtime.notify_error(
+                    stage="run_model",
+                    error=RuntimeError("no model skill returned output"),
+                    message=inbound,
+                )
+                return prompt if isinstance(prompt, str) else content_of(inbound)
+            return output
         stream = await self._hook_runtime.run_model_stream(prompt=prompt, session_id=session_id, state=state)
         if stream is None:
             await self._hook_runtime.notify_error(

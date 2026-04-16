@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 import typer
+from republic import AsyncStreamEvents, StreamEvent
 from typer.testing import CliRunner
 
 from bub.channels.base import Channel
+from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
 
@@ -110,3 +114,111 @@ def test_builtin_cli_exposes_login_and_gateway_command() -> None:
     assert gateway_result.exit_code == 0
     assert "bub gateway" in gateway_result.stdout
     assert "Start message listeners" in gateway_result.stdout
+
+
+@pytest.mark.asyncio
+async def test_process_inbound_defaults_to_non_streaming_run_model() -> None:
+    framework = BubFramework()
+    saved_outputs: list[str] = []
+
+    class NonStreamingPlugin:
+        @hookimpl
+        def resolve_session(self, message) -> str:
+            return "session"
+
+        @hookimpl
+        def load_state(self, message, session_id) -> dict[str, str]:
+            return {}
+
+        @hookimpl
+        def build_prompt(self, message, session_id, state) -> str:
+            return "prompt"
+
+        @hookimpl
+        async def run_model(self, prompt, session_id, state) -> str:
+            return "plain-text"
+
+        @hookimpl
+        async def save_state(self, session_id, state, message, model_output) -> None:
+            saved_outputs.append(model_output)
+
+        @hookimpl
+        def render_outbound(self, message, session_id, state, model_output):
+            return [{"content": model_output, "channel": "cli", "chat_id": "room"}]
+
+        @hookimpl
+        async def dispatch_outbound(self, message) -> bool:
+            return True
+
+    framework._plugin_manager.register(NonStreamingPlugin(), name="non-streaming")
+
+    result = await framework.process_inbound(
+        ChannelMessage(session_id="s", channel="cli", chat_id="room", content="hi")
+    )
+
+    assert result.model_output == "plain-text"
+    assert saved_outputs == ["plain-text"]
+
+
+@pytest.mark.asyncio
+async def test_process_inbound_streams_when_requested() -> None:  # noqa: C901
+    framework = BubFramework()
+    stream_calls: list[str] = []
+    wrapped_events: list[str] = []
+
+    class StreamingPlugin:
+        @hookimpl
+        def resolve_session(self, message) -> str:
+            return "session"
+
+        @hookimpl
+        def load_state(self, message, session_id) -> dict[str, str]:
+            return {}
+
+        @hookimpl
+        def build_prompt(self, message, session_id, state) -> str:
+            return "prompt"
+
+        @hookimpl
+        async def run_model_stream(self, prompt, session_id, state):
+            stream_calls.append(prompt)
+
+            async def iterator():
+                yield StreamEvent("text", {"delta": "stream"})
+                yield StreamEvent("text", {"delta": "ed"})
+                yield StreamEvent("final", {"text": "streamed", "ok": True})
+
+            return AsyncStreamEvents(iterator(), state=SimpleNamespace(error=None, usage=None))
+
+        @hookimpl
+        async def save_state(self, session_id, state, message, model_output) -> None:
+            return None
+
+        @hookimpl
+        def render_outbound(self, message, session_id, state, model_output):
+            return [{"content": model_output, "channel": "cli", "chat_id": "room"}]
+
+        @hookimpl
+        async def dispatch_outbound(self, message) -> bool:
+            return True
+
+    class RecordingRouter:
+        def wrap_stream(self, message, stream):
+            async def iterator():
+                async for event in stream:
+                    wrapped_events.append(event.kind)
+                    yield event
+
+            return iterator()
+
+    framework._plugin_manager.register(StreamingPlugin(), name="streaming")
+    framework.bind_outbound_router(RecordingRouter())
+
+    result = await framework.process_inbound(
+        ChannelMessage(session_id="s", channel="cli", chat_id="room", content="hi"),
+        stream_output=True,
+    )
+
+    assert stream_calls == ["prompt"]
+    assert wrapped_events == ["text", "text", "final"]
+    assert result.model_output == "streamed"

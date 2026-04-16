@@ -267,7 +267,7 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
     state = {**context.state, "session_id": subagent_session}
     allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"})
     output = ""
-    async for event in await agent.run(
+    async for event in await agent.run_stream(
         session_id=subagent_session,
         prompt=param.prompt,
         state=state,

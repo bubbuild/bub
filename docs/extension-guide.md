@@ -100,16 +100,16 @@ Current `process_inbound()` hook usage:
 1. `resolve_session` (`call_first`)
 2. `load_state` (`call_many`, then merged by framework)
 3. `build_prompt` (`call_first`)
-4. `run_model_stream` (`call_first`)
+4. `run_model` / `run_model_stream` (`call_first`)
 5. `save_state` (`call_many`, always executed in `finally`)
 6. `render_outbound` (`call_many`)
 7. `dispatch_outbound` (`call_many`, per outbound)
 
 Compatibility note:
 
-- `run_model_stream` is the primary model hook.
-- If no plugin implements `run_model_stream`, Bub falls back to `run_model`.
-- The `run_model` return value is wrapped into a stream with exactly one text chunk.
+- Bub can execute either `run_model` or `run_model_stream`, depending on whether the caller requests streaming.
+- `HookRuntime.run_model()` can consume a streaming plugin by concatenating text chunks.
+- `HookRuntime.run_model_stream()` can consume a plain `run_model()` implementation by wrapping it into a one-chunk stream.
 - A plugin should implement one of these hooks, not both.
 
 Other hook consumers:
@@ -182,8 +182,8 @@ uv run bub hooks
 uv run bub run "hello"
 ```
 
-Check that your plugin is listed for `build_prompt` / `run_model_stream`, and output reflects your override.
-If you intentionally use the legacy compatibility hook, check for `run_model`.
+Check that your plugin is listed for `build_prompt` plus whichever model hook you implement, and output reflects your override.
+If you intentionally use the non-streaming path, check for `run_model`; if you need incremental output, check for `run_model_stream`.
 
 ## 10) Listen To Parent Stream
 
@@ -229,7 +229,7 @@ class StreamTapPlugin:
 
 Use this when you need to log chunks, redact text, inject extra events, or measure stream timing without reimplementing the underlying model call.
 
-If you also need to support parents that only implement legacy `run_model`, add your own fallback path and wrap that text result into a one-chunk stream.
+If you also need to support parents that only implement `run_model`, add your own fallback path and wrap that text result into a one-chunk stream.
 
 ## 11) Common Pitfalls
 

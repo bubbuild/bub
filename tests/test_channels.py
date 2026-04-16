@@ -47,6 +47,7 @@ class FakeFramework:
     def __init__(self, channels: dict[str, FakeChannel]) -> None:
         self._channels = channels
         self.router = None
+        self.process_calls: list[tuple[ChannelMessage, bool]] = []
 
     def get_channels(self, message_handler):
         self.message_handler = message_handler
@@ -54,6 +55,13 @@ class FakeFramework:
 
     def bind_outbound_router(self, router) -> None:
         self.router = router
+
+    async def process_inbound(self, message: ChannelMessage, stream_output: bool = False):
+        self.process_calls.append((message, stream_output))
+        stop_event = getattr(self, "_stop_event", None)
+        if stop_event is not None:
+            stop_event.set()
+        return None
 
 
 def _message(
@@ -172,6 +180,71 @@ async def test_channel_manager_shutdown_cancels_tasks_and_stops_enabled_channels
     assert task.cancelled()
     assert telegram.stopped is True
     assert cli.stopped is False
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_listen_and_run_passes_stream_output_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+
+    class StubChannelSettings:
+        enabled_channels = "telegram"
+        debounce_seconds = 1.0
+        max_wait_seconds = 10.0
+        active_time_window = 60.0
+        stream_output = True
+
+    import bub.channels.manager as manager_module
+
+    monkeypatch.setattr(manager_module, "ChannelSettings", StubChannelSettings)
+    manager = ChannelManager(framework)
+    calls = 0
+    spawned_coroutines = []
+    original_create_task = manager_module.asyncio.create_task
+
+    class DummyTask:
+        def add_done_callback(self, callback) -> None:
+            return None
+
+        def cancel(self) -> None:
+            return None
+
+        def exception(self):
+            return None
+
+    def create_task(coro):
+        spawned_coroutines.append(coro)
+        return DummyTask()
+
+    async def wait_until_stopped(awaitable, current_stop_event):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return await awaitable
+        close = getattr(awaitable, "close", None)
+        if callable(close):
+            close()
+        raise asyncio.CancelledError
+
+    async def shutdown() -> None:
+        return None
+
+    manager.shutdown = shutdown  # type: ignore[method-assign]
+    monkeypatch.setattr(manager_module.asyncio, "create_task", create_task)
+    monkeypatch.setattr(manager_module, "wait_until_stopped", wait_until_stopped)
+
+    listen_task = original_create_task(manager.listen_and_run())
+    await asyncio.sleep(0)
+    await manager.on_receive(_message("hello", channel="telegram"))
+    await listen_task
+    assert len(spawned_coroutines) == 1
+    await spawned_coroutines[0]
+
+    assert len(framework.process_calls) == 1
+    message, stream_output = framework.process_calls[0]
+    assert message.content == "hello"
+    assert stream_output is True
 
 
 @pytest.mark.asyncio

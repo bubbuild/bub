@@ -16,14 +16,14 @@
 2. Initialize state with `_runtime_workspace` from `BubFramework.workspace`.
 3. Merge all `load_state(message, session_id)` dicts.
 4. Build prompt via `build_prompt(message, session_id, state)` (fallback to inbound `content` if empty).
-5. Execute `run_model_stream(prompt, session_id, state)`.
-6. For each stream event, call `OutboundChannelRouter.dispatch_event(...)`, which forwards to `channel.on_event(event, message)` when the target channel exists.
+5. Execute `run_model(prompt, session_id, state)` by default, or `run_model_stream(prompt, session_id, state)` when the caller opts into streaming.
+6. In streaming mode, forward each stream event through the outbound router before collecting final text.
 7. Always execute `save_state(...)` in a `finally` block.
 8. Render outbound batches via `render_outbound(...)`, then flatten them.
 9. If no outbound exists, emit one fallback outbound.
 10. Dispatch each outbound via `dispatch_outbound(message)`.
 
-If no plugin implements `run_model_stream`, `HookRuntime` falls back to `run_model(prompt, session_id, state)` and adapts the returned text into a stream with a single text chunk.
+`HookRuntime` keeps both directions compatible: `run_model()` can consume a streaming plugin by concatenating text chunks, and `run_model_stream()` can consume a plain `run_model()` plugin by adapting its text into a single-chunk stream.
 
 ## Hook Priority Semantics
 
@@ -50,7 +50,8 @@ If no plugin implements `run_model_stream`, `HookRuntime` falls back to `run_mod
 Builtin `BuiltinImpl` behavior includes:
 
 - `build_prompt`: supports comma command mode; non-command text may include `context_str`.
-- `run_model_stream`: delegates to `Agent.run()`.
+- `run_model`: delegates to `Agent.run()`.
+- `run_model_stream`: delegates to `Agent.run_stream()`.
 - `system_prompt`: combines a default prompt with workspace `AGENTS.md`.
 - `register_cli_commands`: installs `run`, `gateway`, `chat`, plus hidden diagnostic commands.
 - `provide_channels`: returns `telegram` and `cli` channel adapters.
@@ -66,6 +67,8 @@ Channels have two different outbound surfaces:
 `on_event` is optional. Implement it when a channel can benefit from incremental rendering, typing indicators, progress updates, or partial text display. The `message` argument is the original inbound message, so channel implementations usually use it to recover routing metadata such as target channel, chat id, session id, or message kind.
 
 If a channel does not implement any special event behavior, it can ignore `on_event` and rely entirely on `send()`.
+
+Channel streaming is opt-in through `BUB_STREAM_OUTPUT=true` (used by `ChannelManager`). When disabled, channels only receive the final rendered outbound message.
 
 ## Boundaries
 

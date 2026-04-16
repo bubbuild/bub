@@ -35,6 +35,7 @@ class ChannelSettings(BaseSettings):
         default=60.0,
         description="Time window in seconds to consider a channel active for processing messages.",
     )
+    stream_output: bool = Field(default=False, description="Whether to stream model output to channels in real-time.")
 
 
 class ChannelManager:
@@ -138,7 +139,7 @@ class ChannelManager:
         try:
             while True:
                 message = await wait_until_stopped(self._messages.get(), stop_event)
-                task = asyncio.create_task(self.framework.process_inbound(message))
+                task = asyncio.create_task(self.framework.process_inbound(message, self._settings.stream_output))
                 task.add_done_callback(functools.partial(self._on_task_done, message.session_id))
                 self._ongoing_tasks.setdefault(message.session_id, set()).add(task)
         except asyncio.CancelledError:

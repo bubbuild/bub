@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import cached_property
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, overload
 
 from loguru import logger
 from republic import (
@@ -24,6 +24,7 @@ from republic import (
     StreamEvent,
     StreamState,
     TapeContext,
+    ToolAutoResult,
     ToolContext,
 )
 from republic.tape import InMemoryTapeStore, Tape
@@ -90,6 +91,29 @@ class Agent:
         model: str | None = None,
         allowed_skills: Collection[str] | None = None,
         allowed_tools: Collection[str] | None = None,
+    ) -> str:
+        if not prompt:
+            return "error: empty prompt"
+        tape = self.tapes.session_tape(session_id, workspace_from_state(state))
+        tape.context = replace(tape.context, state=state)
+        merge_back = not session_id.startswith("temp/")
+        async with self.tapes.fork_tape(tape.name, merge_back=merge_back):
+            await self.tapes.ensure_bootstrap_anchor(tape.name)
+            if isinstance(prompt, str) and prompt.strip().startswith(","):
+                return await self._run_command(tape=tape, line=prompt.strip())
+            return await self._agent_loop(
+                tape=tape, prompt=prompt, model=model, allowed_skills=allowed_skills, allowed_tools=allowed_tools
+            )
+
+    async def run_stream(
+        self,
+        *,
+        session_id: str,
+        prompt: str | list[dict],
+        state: State,
+        model: str | None = None,
+        allowed_skills: Collection[str] | None = None,
+        allowed_tools: Collection[str] | None = None,
     ) -> AsyncStreamEvents:
         if not prompt:
             events = [
@@ -114,7 +138,12 @@ class Agent:
             ])
         else:
             events = await self._agent_loop(
-                tape=tape, prompt=prompt, model=model, allowed_skills=allowed_skills, allowed_tools=allowed_tools
+                tape=tape,
+                prompt=prompt,
+                model=model,
+                allowed_skills=allowed_skills,
+                allowed_tools=allowed_tools,
+                stream_output=True,
             )
         return self._events_with_callback(events, callback=stack.aclose)
 
@@ -158,6 +187,30 @@ class Agent:
             }
             await self.tapes.append_event(tape.name, "command", event_payload)
 
+    @overload
+    async def _agent_loop(
+        self,
+        *,
+        tape: Tape,
+        prompt: str | list[dict],
+        model: str | None = ...,
+        allowed_skills: Collection[str] | None = ...,
+        allowed_tools: Collection[str] | None = ...,
+        stream_output: Literal[False] = ...,
+    ) -> str: ...
+
+    @overload
+    async def _agent_loop(
+        self,
+        *,
+        tape: Tape,
+        prompt: str | list[dict],
+        model: str | None = ...,
+        allowed_skills: Collection[str] | None = ...,
+        allowed_tools: Collection[str] | None = ...,
+        stream_output: Literal[True] = ...,
+    ) -> AsyncStreamEvents: ...
+
     async def _agent_loop(
         self,
         *,
@@ -166,7 +219,8 @@ class Agent:
         model: str | None = None,
         allowed_skills: Collection[str] | None = None,
         allowed_tools: Collection[str] | None = None,
-    ) -> AsyncStreamEvents:
+        stream_output: bool = False,
+    ) -> AsyncStreamEvents | str:
         next_prompt: str | list[dict] = prompt
         display_model = model or self.settings.model
         await self.tapes.append_event(
@@ -179,16 +233,137 @@ class Agent:
                 "allowed_tools": list(allowed_tools) if allowed_tools else None,
             },
         )
-        state = StreamState()
-        iterator = self._stream_events_with_auto_handoff(
-            tape=tape,
-            prompt=next_prompt,
-            state=state,
-            model=model,
-            allowed_skills=allowed_skills,
-            allowed_tools=allowed_tools,
-        )
-        return AsyncStreamEvents(iterator, state=state)
+        if stream_output:
+            state = StreamState()
+            iterator = self._stream_events_with_auto_handoff(
+                tape=tape,
+                prompt=next_prompt,
+                state=state,
+                model=model,
+                allowed_skills=allowed_skills,
+                allowed_tools=allowed_tools,
+            )
+            return AsyncStreamEvents(iterator, state=state)
+        else:
+            return await self._run_tools_with_auto_handoff(
+                tape=tape,
+                prompt=next_prompt,
+                model=model,
+                allowed_skills=allowed_skills,
+                allowed_tools=allowed_tools,
+            )
+
+    async def _run_tools_with_auto_handoff(
+        self,
+        tape: Tape,
+        prompt: str | list[dict],
+        model: str | None = None,
+        allowed_skills: Collection[str] | None = None,
+        allowed_tools: Collection[str] | None = None,
+    ) -> str:
+        auto_handoff_remaining = MAX_AUTO_HANDOFF_RETRIES
+        display_model = model or self.settings.model
+        next_prompt = prompt
+        for step in range(1, self.settings.max_steps + 1):
+            start = time.monotonic()
+            logger.info("loop.step step={} tape={} model={}", step, tape.name, display_model)
+            await self.tapes.append_event(tape.name, "loop.step.start", {"step": step, "prompt": next_prompt})
+            try:
+                output = await self._run_once(
+                    tape=tape,
+                    prompt=next_prompt,
+                    model=model,
+                    allowed_skills=allowed_skills,
+                    allowed_tools=allowed_tools,
+                )
+            except Exception as exc:
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                await self.tapes.append_event(
+                    tape.name,
+                    "loop.step",
+                    {
+                        "step": step,
+                        "elapsed_ms": elapsed_ms,
+                        "status": "error",
+                        "error": f"{exc!s}",
+                        "date": datetime.now(UTC).isoformat(),
+                    },
+                )
+                raise
+
+            outcome = _resolve_tool_auto_result(output)
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            if outcome.kind == "text":
+                await self.tapes.append_event(
+                    tape.name,
+                    "loop.step",
+                    {
+                        "step": step,
+                        "elapsed_ms": elapsed_ms,
+                        "status": "ok",
+                        "date": datetime.now(UTC).isoformat(),
+                    },
+                )
+                return outcome.text
+            if outcome.kind == "continue":
+                if "context" in tape.context.state:
+                    next_prompt = f"{CONTINUE_PROMPT} [context: {tape.context.state['context']}]"
+                else:
+                    next_prompt = CONTINUE_PROMPT
+                await self.tapes.append_event(
+                    tape.name,
+                    "loop.step",
+                    {
+                        "step": step,
+                        "elapsed_ms": elapsed_ms,
+                        "status": "continue",
+                        "date": datetime.now(UTC).isoformat(),
+                    },
+                )
+                continue
+
+            # Check if this is a context-length error that can be recovered via auto-handoff
+            if auto_handoff_remaining > 0 and _is_context_length_error(outcome.error):
+                auto_handoff_remaining -= 1
+                logger.warning(
+                    "auto_handoff: context length exceeded, performing automatic handoff. tape={} step={}",
+                    tape.name,
+                    step,
+                )
+                await self.tapes.handoff(
+                    tape.name,
+                    name="auto_handoff/context_overflow",
+                    state={"reason": "context_length_exceeded", "error": outcome.error},
+                )
+                await self.tapes.append_event(
+                    tape.name,
+                    "loop.step",
+                    {
+                        "step": step,
+                        "elapsed_ms": elapsed_ms,
+                        "status": "auto_handoff",
+                        "error": outcome.error,
+                        "date": datetime.now(UTC).isoformat(),
+                    },
+                )
+                # Retry with original prompt — the handoff anchor will truncate history
+                next_prompt = prompt
+                continue
+
+            await self.tapes.append_event(
+                tape.name,
+                "loop.step",
+                {
+                    "step": step,
+                    "elapsed_ms": elapsed_ms,
+                    "status": "error",
+                    "error": outcome.error,
+                    "date": datetime.now(UTC).isoformat(),
+                },
+            )
+            raise RuntimeError(outcome.error)
+
+        raise RuntimeError(f"max_steps_reached={self.settings.max_steps}")
 
     async def _stream_events_with_auto_handoff(
         self,
@@ -213,6 +388,7 @@ class Agent:
                 model=model,
                 allowed_skills=allowed_skills,
                 allowed_tools=allowed_tools,
+                stream_output=True,
             )
             async for event in output:
                 yield event
@@ -316,6 +492,30 @@ class Agent:
         expanded_skills = set(HINT_RE.findall(prompt)) & set(skill_index.keys())
         return render_skills_prompt(list(skill_index.values()), expanded_skills=expanded_skills)
 
+    @overload
+    async def _run_once(
+        self,
+        *,
+        tape: Tape,
+        prompt: str | list[dict],
+        model: str | None = ...,
+        allowed_skills: Collection[str] | None = ...,
+        allowed_tools: Collection[str] | None = ...,
+        stream_output: Literal[False] = ...,
+    ) -> ToolAutoResult: ...
+
+    @overload
+    async def _run_once(
+        self,
+        *,
+        tape: Tape,
+        prompt: str | list[dict],
+        model: str | None = ...,
+        allowed_skills: Collection[str] | None = ...,
+        allowed_tools: Collection[str] | None = ...,
+        stream_output: Literal[True] = ...,
+    ) -> AsyncStreamEvents: ...
+
     async def _run_once(
         self,
         *,
@@ -324,7 +524,8 @@ class Agent:
         model: str | None = None,
         allowed_tools: Collection[str] | None = None,
         allowed_skills: Collection[str] | None = None,
-    ) -> AsyncStreamEvents:
+        stream_output: bool = False,
+    ) -> AsyncStreamEvents | ToolAutoResult:
         prompt_text = prompt if isinstance(prompt, str) else _extract_text_from_parts(prompt)
         if allowed_tools is not None:
             allowed_tools = {name.casefold() for name in allowed_tools}
@@ -336,13 +537,26 @@ class Agent:
         else:
             tools = list(REGISTRY.values())
         async with asyncio.timeout(self.settings.model_timeout_seconds):
-            return await tape.stream_events_async(
-                prompt=prompt,
-                system_prompt=self._system_prompt(prompt_text, state=tape.context.state, allowed_skills=allowed_skills),
-                max_tokens=self.settings.max_tokens,
-                tools=model_tools(tools),
-                model=model,
-            )
+            if stream_output:
+                return await tape.stream_events_async(
+                    prompt=prompt,
+                    system_prompt=self._system_prompt(
+                        prompt_text, state=tape.context.state, allowed_skills=allowed_skills
+                    ),
+                    max_tokens=self.settings.max_tokens,
+                    tools=model_tools(tools),
+                    model=model,
+                )
+            else:
+                return await tape.run_tools_async(
+                    prompt=prompt,
+                    system_prompt=self._system_prompt(
+                        prompt_text, state=tape.context.state, allowed_skills=allowed_skills
+                    ),
+                    max_tokens=self.settings.max_tokens,
+                    tools=model_tools(tools),
+                    model=model,
+                )
 
     def _system_prompt(self, prompt: str, state: State, allowed_skills: set[str] | None = None) -> str:
         blocks: list[str] = []
@@ -371,6 +585,17 @@ def _resolve_final_data(final_data: dict[str, Any], error: RepublicError | None)
         return _ToolAutoOutcome(kind="text", text=text)
     error_message = error.message if error else ""
     return _ToolAutoOutcome(kind="error", error=error_message or "unknown error")
+
+
+def _resolve_tool_auto_result(output: ToolAutoResult) -> _ToolAutoOutcome:
+    if output.kind == "text":
+        return _ToolAutoOutcome(kind="text", text=output.text or "")
+    if output.kind == "tools" or output.tool_calls or output.tool_results:
+        return _ToolAutoOutcome(kind="continue")
+    if output.error is None:
+        return _ToolAutoOutcome(kind="error", error="tool_auto_error: unknown")
+    error_kind = getattr(output.error.kind, "value", str(output.error.kind))
+    return _ToolAutoOutcome(kind="error", error=f"{error_kind}: {output.error.message}")
 
 
 def _build_llm(settings: AgentSettings, tape_store: AsyncTapeStore, tape_context: TapeContext) -> LLM:

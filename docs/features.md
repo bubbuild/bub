@@ -5,8 +5,8 @@
 Every turn stage is a [pluggy](https://pluggy.readthedocs.io/) hook.
 Builtins are ordinary plugins — override any stage by registering your own.
 Both first-result hooks (override) and broadcast hooks (observer) are supported.
-`run_model_stream` is the primary model hook.
-Legacy `run_model` hooks still work and are adapted into a single text chunk stream.
+`run_model` is the default model hook for turn execution.
+`run_model_stream` remains available for incremental channel output, and either hook shape can be adapted to the other.
 Safe fallback to prompt text when no model hook returns a value (with `on_error` notification).
 Automatic fallback outbound when `render_outbound` produces nothing.
 
@@ -21,6 +21,7 @@ Context is reconstructed from tape records, not accumulated in session state.
 - **Model runtime**: agent loop with tool use, backed by [Republic](https://github.com/bubbuild/republic).
 - **Comma commands**: `,help`, `,skill`, `,fs.read`, etc. Unknown commands fall back to shell.
 - **Channels**: `cli` and `telegram` ship as defaults.
+- **Streaming toggle**: channel event streaming is controlled by `BUB_STREAM_OUTPUT` and is off by default.
 
 All of these are hook implementations. Replace what you need.
 

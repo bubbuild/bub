@@ -27,6 +27,12 @@ Enable only Telegram:
 uv run bub gateway --enable-channel telegram
 ```
 
+Enable streaming event delivery for channel listeners:
+
+```bash
+BUB_STREAM_OUTPUT=true uv run bub gateway --enable-channel telegram
+```
+
 ## Session Semantics
 
 - `run` command default session id: `<channel>:<chat_id>`
@@ -43,7 +49,7 @@ Channel adapters can receive outbound data in two forms:
 
 Use `on_event` for incremental UX such as live text updates, typing indicators, progress bars, or chunk-level logging. Use `send` for the final durable outbound payload.
 
-`on_event` is optional. A channel that does not need streaming behavior can ignore it and only implement `send`.
+`on_event` is optional. A channel that does not need streaming behavior can ignore it and only implement `send`. `ChannelManager` only forwards stream events when `BUB_STREAM_OUTPUT=true`; otherwise channels receive final outbounds only.
 
 ## Debounce Behavior
 

@@ -1,5 +1,6 @@
 import pluggy
 import pytest
+from republic import AsyncStreamEvents, StreamEvent
 
 from bub.hook_runtime import HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
@@ -104,3 +105,37 @@ def test_hook_report_lists_registered_implementations() -> None:
 
     assert "resolve_session" in report
     assert report["resolve_session"] == ["session"]
+
+
+@pytest.mark.asyncio
+async def test_run_model_uses_streaming_hook_when_plain_hook_absent() -> None:
+    class StreamPlugin:
+        @hookimpl
+        async def run_model_stream(self, prompt, session_id, state):
+            async def iterator():
+                yield StreamEvent("text", {"delta": "stream"})
+                yield StreamEvent("text", {"delta": "ed"})
+
+            return AsyncStreamEvents(iterator())
+
+    runtime = _runtime_with_plugins(("stream", StreamPlugin()))
+
+    result = await runtime.run_model(prompt="hello", session_id="s", state={})
+
+    assert result == "streamed"
+
+
+@pytest.mark.asyncio
+async def test_run_model_stream_falls_back_to_plain_hook() -> None:
+    class PlainPlugin:
+        @hookimpl
+        async def run_model(self, prompt, session_id, state):
+            return "plain"
+
+    runtime = _runtime_with_plugins(("plain", PlainPlugin()))
+
+    stream = await runtime.run_model_stream(prompt="hello", session_id="s", state={})
+
+    assert stream is not None
+    events = [event async for event in stream]
+    assert [(event.kind, event.data) for event in events] == [("text", {"delta": "plain"})]
