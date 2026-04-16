@@ -210,9 +210,9 @@ const landingPageCopy: Record<LandingLocale, LandingPageCopy> = {
     },
     hookIntro: {
       eyebrow: '架构',
-      heading: 'Hooks 定义每个 turn 阶段。',
+      heading: 'Hooks 串连每次交互。',
       description: [
-        'Bub turn 中的每个阶段都是一个 pluggy hook。内置实现只是另一个插件。',
+        'Bub 中每个阶段都是一个 pluggy hook。内置实现只是另一个插件。',
         '通过注册你自己的 hook 覆盖任意阶段。后注册的插件优先执行。无需 fork，没有框架特权。',
       ],
       hookStages: [

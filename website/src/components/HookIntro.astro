@@ -8,21 +8,44 @@ interface Props {
 
 const { eyebrow, heading, description = [], hookStages = [] } = Astro.props;
 
-// Bell-curve widths/opacities by distance from active stage
-const WIDTHS   = ['100%', '84%', '66%', '50%', '38%'];
-const OPACITIES = [1.0,    0.7,   0.45,  0.28,  0.16];
+/* ── SVG coordinate system ── */
+const SPACING = 62;
+const FIRST_Y = 44;
+const RX = 305;          // right-side node center x
+const LX = 95;           // left-side node center x
+const VB_W = 400;
+const VB_H = FIRST_Y + (hookStages.length - 1) * SPACING + FIRST_Y;
 
-// SSR initial state: center stage active for a nice bell shape on load
-const INIT_ACTIVE = 3;
-const initStyle = hookStages.map((_, i) => {
-  const d = Math.min(Math.abs(i - INIT_ACTIVE), WIDTHS.length - 1);
-  return `width:${WIDTHS[d]};opacity:${OPACITIES[d]}`;
-});
+const nodeCoords = hookStages.map((_, i) => ({
+  x: i % 2 === 0 ? RX : LX,
+  y: FIRST_Y + i * SPACING,
+}));
+
+/* Build serpentine SVG path (with hidden leader / trailer for seamless loop) */
+const first = nodeCoords[0];
+const last  = nodeCoords[nodeCoords.length - 1];
+const segs: string[] = [
+  `M ${first.x} ${-44}`,
+  `C ${first.x} ${first.y - 20}, ${first.x} ${first.y - 8}, ${first.x} ${first.y}`,
+];
+for (let i = 1; i < nodeCoords.length; i++) {
+  const p = nodeCoords[i - 1], c = nodeCoords[i];
+  const my = (p.y + c.y) / 2;
+  segs.push(`C ${p.x} ${my}, ${c.x} ${my}, ${c.x} ${c.y}`);
+}
+segs.push(
+  `C ${last.x} ${last.y + 8}, ${last.x} ${last.y + 20}, ${last.x} ${VB_H + 44}`,
+);
+const pathD = segs.join(' ');
+
+/* Build straight vertical path for mobile */
+const CX = VB_W / 2;
+const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 ---
 
 <section class="relative overflow-hidden bg-secondary/30 py-20 md:py-28" data-reveal aria-label="Hook architecture">
   <div class="relative mx-auto max-w-6xl px-5 md:px-8">
-    <div class="flex flex-col gap-12 md:flex-row md:items-center md:gap-16 lg:gap-24">
+    <div class="flex flex-col gap-12 md:flex-row md:items-start md:gap-16 lg:gap-24">
 
       <!-- Left: intro text -->
       <div class="md:w-[42%] md:shrink-0">
@@ -37,30 +60,122 @@ const initStyle = hookStages.map((_, i) => {
             <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{p}</p>
           ))}
         </div>
-        <p class="mt-8 font-mono text-[0.65rem] text-muted-foreground/50">process_inbound()</p>
       </div>
 
-      <!-- Right: vertical stage visualization (centered bars, fixed row height) -->
-      <div class="flex flex-1 flex-col items-center gap-1.5 overflow-hidden" data-hook-stages>
-        {hookStages.map((stage, i) => (
-          <div class="flex h-11 w-full items-center justify-center">
-            <div
-              class="hook-stage flex h-full items-center overflow-hidden border border-border bg-card px-3 md:px-4"
-              data-hook-stage={i}
-              style={initStyle[i]}
-            >
-              <span class="stage-badge mr-3 inline-flex h-5 w-5 shrink-0 items-center justify-center bg-foreground font-mono text-[0.6rem] font-bold text-background">
-                {i + 1}
-              </span>
-              <span class="stage-name whitespace-nowrap font-mono text-[0.65rem] font-medium leading-tight text-foreground md:text-[0.72rem]">
-                {stage.name}()
-              </span>
-              <p class="hook-note ml-auto hidden whitespace-nowrap pl-3 text-right text-[0.58rem] leading-snug text-muted-foreground md:block md:text-[0.62rem]">
-                {stage.note}
-              </p>
-            </div>
-          </div>
-        ))}
+      <!-- Right: serpentine flow diagram -->
+      <div class="hook-flow relative flex-1" data-hook-flow>
+        <div
+          class="hook-flow-inner relative mx-auto"
+          style={`aspect-ratio: ${VB_W} / ${VB_H}; max-width: 420px;`}
+        >
+          <!-- Decorative dot grid (inline styles to bypass Astro scoping) -->
+          <div
+            aria-hidden="true"
+            style="position:absolute;inset:0;pointer-events:none;border-radius:12px;background-image:radial-gradient(circle, #999 1px, transparent 1px);background-size:18px 18px;opacity:0.18;"
+          ></div>
+
+          <!-- SVG path layer -->
+          <svg
+            class="absolute inset-0 h-full w-full"
+            viewBox={`0 0 ${VB_W} ${VB_H}`}
+            fill="none"
+            aria-hidden="true"
+          >
+            <defs>
+              <filter id="hook-glow" x="-100%" y="-100%" width="300%" height="300%">
+                <feGaussianBlur stdDeviation="5" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+              <filter id="hook-glow-sm" x="-100%" y="-100%" width="300%" height="300%">
+                <feGaussianBlur stdDeviation="2.5" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+
+            <!-- Desktop: serpentine S-curve paths -->
+            <g class="hook-paths-desktop">
+              <path
+                d={pathD}
+                stroke="var(--border)"
+                stroke-width="1.5"
+                stroke-dasharray="6 4"
+                opacity="0.45"
+              />
+              <path
+                d={pathD}
+                stroke="var(--primary)"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                pathLength="1"
+                class="hook-trail"
+                data-hook-trail
+              />
+            </g>
+
+            <!-- Mobile: straight vertical path -->
+            <g class="hook-paths-mobile">
+              <path
+                d={straightPathD}
+                stroke="var(--border)"
+                stroke-width="1.5"
+                stroke-dasharray="6 4"
+                opacity="0.45"
+              />
+              <path
+                d={straightPathD}
+                stroke="var(--primary)"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                pathLength="1"
+                class="hook-trail"
+                data-hook-trail-mobile
+              />
+            </g>
+
+            <!-- Traveling dot (main) -->
+            <circle
+              r="5.5"
+              cx="-50" cy="-50"
+              fill="var(--primary)"
+              filter="url(#hook-glow)"
+              visibility="hidden"
+              data-hook-dot
+            />
+            <!-- Trailing dot -->
+            <circle
+              r="3"
+              cx="-50" cy="-50"
+              fill="var(--primary)"
+              filter="url(#hook-glow-sm)"
+              visibility="hidden"
+              data-hook-dot-trail
+            />
+          </svg>
+
+          <!-- Node cards -->
+          {hookStages.map((stage, i) => {
+            const yPct = ((FIRST_Y + i * SPACING) / VB_H * 100).toFixed(2);
+            const xPct = (nodeCoords[i].x / VB_W * 100).toFixed(2);
+            return (
+              <div
+                class="hook-node absolute z-10"
+                data-hook-node={i}
+                style={`top:${yPct}%;left:${xPct}%;transform:translate(-50%,-50%);`}
+              >
+                <div class="hook-card">
+                  <span class="hook-card-name">{stage.name}()</span>
+                  <span class="hook-card-note">{stage.note}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
     </div>
@@ -68,98 +183,252 @@ const initStyle = hookStages.map((_, i) => {
 </section>
 
 <style>
-  .hook-stage {
-    will-change: width, opacity, transform;
-    transition: background-color 0.35s ease, border-color 0.35s ease;
+  /* ── Fade-mask at top / bottom of the flow ── */
+  .hook-flow {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      black 7%,
+      black 93%,
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      black 7%,
+      black 93%,
+      transparent 100%
+    );
   }
-  .hook-stage.active {
-    background-color: var(--primary);
-    border-color: var(--primary);
-  }
-  .hook-stage .stage-badge,
-  .hook-stage .stage-name {
-    transition: color 0.3s ease, background-color 0.3s ease;
-  }
-  .hook-stage.active .stage-badge {
-    background-color: var(--primary-foreground);
-    color: var(--primary);
-  }
-  .hook-stage.active .stage-name {
-    color: var(--primary-foreground);
-  }
-  .hook-note {
+
+  /* ── Trail (hidden until JS activates) ── */
+  .hook-trail {
     opacity: 0;
+    stroke-dasharray: 0.14 0.86;
+    stroke-dashoffset: 0.14;
+  }
+
+  /* ── Desktop / mobile path toggle (unscoped for SVG) ── */
+  :global(.hook-paths-mobile) { display: none; }
+  @media (max-width: 639px) {
+    :global(.hook-paths-desktop) { display: none; }
+    :global(.hook-paths-mobile)  { display: block; }
+    .hook-node { left: 50% !important; }
+  }
+
+  /* ── Node card — D2 / Mermaid tech-diagram feel ── */
+  .hook-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 7px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    white-space: nowrap;
+    box-shadow:
+      0 1px 2px rgba(0,0,0,0.04),
+      0 2px 8px rgba(0,0,0,0.03);
+    transition:
+      border-color 0.4s ease,
+      box-shadow   0.4s ease;
+    will-change: box-shadow;
+  }
+
+  .hook-card-name {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--foreground);
+    transition: color 0.35s ease;
+  }
+
+  .hook-card-note {
+    font-family: var(--font-mono);
+    font-size: 0.55rem;
+    line-height: 1.3;
+    color: var(--muted-foreground);
+    opacity: 0.6;
     transition: opacity 0.35s ease, color 0.35s ease;
   }
-  .hook-stage.active .hook-note {
-    opacity: 0.8;
-    color: var(--primary-foreground);
+
+  /* ── Active node: ping flash ── */
+  .hook-node.active .hook-card {
+    border-color: var(--primary);
+    animation: ring-ping 2s ease-out forwards;
+  }
+  .hook-node.active .hook-card-name {
+    color: var(--primary);
+  }
+  .hook-node.active .hook-card-note {
+    opacity: 1;
+  }
+
+  @keyframes ring-ping {
+    0% {
+      box-shadow:
+        0 0 0 0 oklch(0.55 0.06 260 / 0),
+        0 0 0px oklch(0.55 0.06 260 / 0),
+        0 2px 8px rgba(0,0,0,0.03);
+    }
+    15% {
+      box-shadow:
+        0 0 0 3px oklch(0.55 0.06 260 / 0.2),
+        0 0 10px oklch(0.55 0.06 260 / 0.15),
+        0 2px 10px rgba(0,0,0,0.04);
+    }
+    45% {
+      box-shadow:
+        0 0 0 7px oklch(0.55 0.06 260 / 0.06),
+        0 0 6px oklch(0.55 0.06 260 / 0.06),
+        0 2px 10px rgba(0,0,0,0.04);
+    }
+    100% {
+      box-shadow:
+        0 0 0 0 oklch(0.55 0.06 260 / 0),
+        0 0 0px oklch(0.55 0.06 260 / 0),
+        0 2px 8px rgba(0,0,0,0.03);
+    }
   }
 </style>
 
 <script>
   import { animate, inView } from 'motion';
 
-  const WIDTHS    = ['100%', '84%', '66%', '50%', '38%'];
-  const OPACITIES = [1.0,    0.7,   0.45,  0.28,  0.16];
+  /* Layout constants (mirror Astro frontmatter) */
+  const RX = 305;
+  const LX = 95;
+  const FIRST_Y = 44;
+  const SPACING = 62;
+  const CX_MOBILE = 200;
 
-  function initHookAnimation() {
-    const container = document.querySelector('[data-hook-stages]');
-    if (!container) return;
+  const CYCLE_DUR    = 7;
+  const TRAIL_LEAD   = 0.018;
+  const FADE_ZONE    = 0.06;
+  const NEAR_DIST_SQ = 36 * 36;
 
-    const stages = Array.from(
-      container.querySelectorAll('[data-hook-stage]')
-    ) as HTMLElement[];
-    if (!stages.length) return;
-
-    let current = 0;
-    let interval: ReturnType<typeof setInterval> | null = null;
-
-    function applyState(activeIdx: number) {
-      stages.forEach((el, i) => {
-        const dist = Math.min(Math.abs(i - activeIdx), WIDTHS.length - 1);
-        const isActive = i === activeIdx;
-        const delay = dist * 0.045;
-
-        // Width + opacity with spring-like overshoot
-        animate(el, { width: WIDTHS[dist], opacity: OPACITIES[dist] }, {
-          type: 'spring',
-          stiffness: 320,
-          damping: 28,
-          mass: 0.8,
-          delay,
-        });
-
-        // Active bar gets a subtle pop scale
-        if (isActive) {
-          animate(el, { scale: [1, 1.025, 1] }, {
-            duration: 0.5,
-            ease: [0.22, 1, 0.36, 1],
-          });
-        }
-
-        el.classList.toggle('active', isActive);
-      });
-    }
-
-    function cycle() {
-      applyState(current);
-      current = (current + 1) % stages.length;
-    }
-
-    inView(container, () => {
-      cycle();
-      interval = setInterval(cycle, 2200);
-      return () => {
-        if (interval) clearInterval(interval);
-        stages.forEach((el) => {
-          el.classList.remove('active');
-          el.style.transform = '';
-        });
-      };
-    }, { margin: '-10% 0px' });
+  /** Fade envelope: ramps in/out at path ends, 1.0 in the middle. */
+  function fade(v: number): number {
+    if (v < FADE_ZONE) return v / FADE_ZONE;
+    if (v > 1 - FADE_ZONE) return (1 - v) / FADE_ZONE;
+    return 1;
   }
 
-  initHookAnimation();
-  document.addEventListener('astro:page-load', initHookAnimation);
+  function initHookFlow() {
+    const root = document.querySelector('[data-hook-flow]') as HTMLElement | null;
+    if (!root) return;
+
+    let stopAnim: (() => void) | null = null;
+    let activeIdx = -1;
+    let currentMobile: boolean | null = null;
+
+    const nodeEls  = Array.from(root.querySelectorAll('[data-hook-node]')) as HTMLElement[];
+    const dot      = root.querySelector('[data-hook-dot]') as SVGCircleElement | null;
+    const dotTrail = root.querySelector('[data-hook-dot-trail]') as SVGCircleElement | null;
+    if (!dot || !nodeEls.length) return;
+
+    const mql = window.matchMedia('(max-width: 639px)');
+
+    function setupAnimation(isMobile: boolean) {
+      if (isMobile === currentMobile) return;
+      currentMobile = isMobile;
+
+      stopAnim?.();
+      stopAnim = null;
+      activeIdx = -1;
+
+      const group = isMobile ? '.hook-paths-mobile' : '.hook-paths-desktop';
+      const svgPath = root!.querySelector(`${group} path:first-child`) as SVGPathElement | null;
+      const trail   = root!.querySelector(
+        isMobile ? '[data-hook-trail-mobile]' : '[data-hook-trail]',
+      ) as SVGPathElement | null;
+
+      if (!svgPath || !trail) return;
+      const totalLen = svgPath.getTotalLength();
+
+      const nodeCoords = nodeEls.map((el) => {
+        const idx = Number(el.dataset.hookNode);
+        return {
+          x: isMobile ? CX_MOBILE : (idx % 2 === 0 ? RX : LX),
+          y: FIRST_Y + idx * SPACING,
+        };
+      });
+
+      function highlightNode(idx: number) {
+        if (idx === activeIdx) return;
+        activeIdx = idx;
+        nodeEls.forEach((el, i) => el.classList.toggle('active', i === idx));
+      }
+
+      const controls = animate(0, 1, {
+        duration: CYCLE_DUR,
+        repeat: Infinity,
+        repeatDelay: 0.4,
+        ease: 'linear',
+        onUpdate(v: number) {
+          const f = fade(v);
+
+          const pt = svgPath!.getPointAtLength(v * totalLen);
+          dot!.setAttribute('cx', String(pt.x));
+          dot!.setAttribute('cy', String(pt.y));
+          dot!.setAttribute('opacity', String(f));
+          dot!.setAttribute('visibility', 'visible');
+
+          if (dotTrail) {
+            const pt2 = svgPath!.getPointAtLength(Math.max(0, v - TRAIL_LEAD) * totalLen);
+            dotTrail.setAttribute('cx', String(pt2.x));
+            dotTrail.setAttribute('cy', String(pt2.y));
+            dotTrail.setAttribute('opacity', String(f * 0.35));
+            dotTrail.setAttribute('visibility', 'visible');
+          }
+
+          trail!.style.strokeDashoffset = String(0.14 - v);
+          trail!.style.opacity = String(f * 0.35);
+
+          let nearest = -1;
+          let bestSq = NEAR_DIST_SQ;
+          for (let i = 0; i < nodeCoords.length; i++) {
+            const dx = pt.x - nodeCoords[i].x;
+            const dy = pt.y - nodeCoords[i].y;
+            const dSq = dx * dx + dy * dy;
+            if (dSq < bestSq) { bestSq = dSq; nearest = i; }
+          }
+          highlightNode(nearest);
+        },
+      });
+
+      stopAnim = () => {
+        controls.stop();
+        dot!.setAttribute('opacity', '0');
+        dot!.setAttribute('visibility', 'hidden');
+        dotTrail?.setAttribute('opacity', '0');
+        dotTrail?.setAttribute('visibility', 'hidden');
+        trail!.style.opacity = '0';
+        trail!.style.strokeDashoffset = '0.14';
+        activeIdx = -1;
+        nodeEls.forEach((el) => el.classList.remove('active'));
+      };
+    }
+
+    mql.addEventListener('change', () => {
+      const wasRunning = stopAnim !== null;
+      stopAnim?.();
+      stopAnim = null;
+      currentMobile = null;
+      if (wasRunning) setupAnimation(mql.matches);
+    });
+
+    inView(root, () => {
+      setupAnimation(mql.matches);
+      return () => {
+        stopAnim?.();
+        stopAnim = null;
+        currentMobile = null;
+      };
+    }, { margin: '-8% 0px' });
+  }
+
+  initHookFlow();
+  document.addEventListener('astro:page-load', initHookFlow);
 </script>
