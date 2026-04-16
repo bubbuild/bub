@@ -12,10 +12,15 @@ export default defineConfig({
     starlight({
       title: 'Bub',
       description: 'A common shape for agents that live alongside people.',
+      logo: {
+        light: './src/assets/bub-logo.png',
+        dark: './src/assets/bub-logo-dark.png',
+        alt: 'Bub',
+      },
       customCss: ['./src/styles/global.css'],
-      defaultLocale: 'en',
+      disable404Route: true,
       locales: {
-        en: {
+        root: {
           label: 'English',
           lang: 'en',
         },
@@ -29,22 +34,22 @@ export default defineConfig({
         {
           label: 'Getting Started',
           translations: { 'zh-CN': '快速开始' },
-          autogenerate: { directory: 'getting-started' },
+          autogenerate: { directory: 'docs/getting-started' },
         },
         {
           label: 'Concepts',
           translations: { 'zh-CN': '概念' },
-          autogenerate: { directory: 'concepts' },
+          autogenerate: { directory: 'docs/concepts' },
         },
         {
           label: 'Guides',
           translations: { 'zh-CN': '指南' },
-          autogenerate: { directory: 'guides' },
+          autogenerate: { directory: 'docs/guides' },
         },
         {
           label: 'Extending',
           translations: { 'zh-CN': '扩展' },
-          autogenerate: { directory: 'extending' },
+          autogenerate: { directory: 'docs/extending' },
         },
       ],
     }),

@@ -8,9 +8,9 @@
 
 This is the **Bub marketing & docs site** — a static Astro site combining:
 
-- **Landing pages** (home, 404) with custom components.
-- **Starlight docs** (`/en/…`, `/zh-cn/…`) auto-generated from `src/content/docs/`.
-- **Blog** (`/posts/…`, `/zh-cn/posts/…`) powered by Astro content collections.
+- **Landing pages** (home, 404) with custom components — i18n via `src/i18n/`.
+- **Starlight docs** (`/docs/getting-started/…`, `/zh-cn/docs/getting-started/…`) auto-generated from `src/content/docs/` — i18n via Starlight built-in.
+- **Blog** (`/posts/…`, `/zh-cn/posts/…`) powered by Astro content collections — i18n via `src/i18n/`.
 
 Site URL: `https://bub.build`
 
@@ -49,12 +49,13 @@ pnpm preview          # preview production build
 
 ```
 website/
-├── astro.config.mjs          # Astro + Starlight + Tailwind config
+├── astro.config.mjs          # Astro + Starlight + Tailwind config (locales, sidebar translations)
 ├── components.json            # shadcn/ui settings (base-vega style)
 ├── package.json
 ├── tsconfig.json              # strict, path alias @/* → src/*
 ├── public/                    # static assets (logos, favicon)
 ├── src/
+│   ├── content.config.ts      # Content collections: docs (Starlight), i18n (Starlight), posts (blog)
 │   ├── components/            # shared Astro components
 │   │   ├── ui/                # primitives (Icon, SectionHeading)
 │   │   ├── NavBar.astro
@@ -68,10 +69,23 @@ website/
 │   │   ├── PostCard.astro
 │   │   └── ThemeToggle.astro
 │   ├── content/
-│   │   ├── docs/              # Starlight markdown (en/, zh-cn/)
-│   │   ├── i18n/              # Starlight UI string overrides (zh-CN.json) — DO NOT duplicate into src/i18n/
-│   │   └── posts/             # Blog posts (en/, zh-cn/)
-│   ├── i18n/
+│   │   ├── docs/              # [Zone 1] Starlight content collection
+│   │   │   ├── docs/              # EN docs — maps to /docs/… routes
+│   │   │   │   ├── getting-started/
+│   │   │   │   ├── concepts/
+│   │   │   │   ├── guides/
+│   │   │   │   └── extending/
+│   │   │   └── zh-cn/             # Chinese translations
+│   │   │       └── docs/
+│   │   │           ├── getting-started/
+│   │   │           ├── concepts/
+│   │   │           └── …
+│   │   ├── i18n/              # [Zone 1] Starlight UI string overrides — BCP-47 filenames
+│   │   │   └── zh-CN.json    # ⚠️ ONLY for Starlight UI — never duplicate into src/i18n/
+│   │   └── posts/             # [Zone 3] Blog posts
+│   │       ├── en/            # English posts
+│   │       └── zh-cn/         # Chinese posts
+│   ├── i18n/                  # [Zone 2] Custom page i18n module (NOT for Starlight docs)
 │   │   ├── ui.ts              # Flat-key UI strings: nav, footer, 404, posts, site meta
 │   │   ├── utils.ts           # getLangFromUrl, useTranslations, getNavProps, etc.
 │   │   └── landing-page.ts    # Single source of truth for all landing-page copy (both locales)
@@ -81,10 +95,12 @@ website/
 │   │   ├── PostLayout.astro
 │   │   └── PostListLayout.astro
 │   ├── pages/
-│   │   ├── index.astro        # EN landing
-│   │   ├── 404.astro
-│   │   ├── posts/             # EN blog
-│   │   └── zh-cn/             # ZH-CN landing + blog
+│   │   ├── 404.astro              # 404 page (custom page, uses Zone 2 i18n)
+│   │   └── [...locale]/           # Dynamic locale routing — generates EN (root) + ZH-CN variants
+│   │       ├── index.astro        # Landing page (both locales via getStaticPaths)
+│   │       └── posts/
+│   │           ├── index.astro    # Post list (both locales via getStaticPaths)
+│   │           └── [slug].astro   # Single post (both locales via getStaticPaths)
 │   └── styles/
 │       └── global.css         # Tailwind v4 + CSS custom properties
 └── DESIGN.md                  # Visual design guide
@@ -94,13 +110,80 @@ website/
 
 ## i18n Architecture
 
-### Two systems, one site
+> **Design reference**: This architecture follows patterns from the [Starlight docs site](https://github.com/withastro/starlight/tree/main/docs) and the [Astro docs site](https://github.com/withastro/docs). Both use Starlight for documentation and separate systems for non-doc pages. Study those repos when in doubt.
 
-1. **Starlight docs**: i18n is configured in `astro.config.mjs` (`locales`, `defaultLocale`, sidebar `translations`). Override Starlight UI strings in `src/content/i18n/zh-CN.json`.
+### Three zones, clear boundaries
 
-2. **Custom pages** (landing, blog, 404): use the project's own i18n module at `src/i18n/`.
+The site has **three distinct i18n zones**. Each zone has its own translation mechanism. **Never mix them.**
 
-### Custom i18n module — `src/i18n/`
+| Zone | Pages | i18n mechanism | String source |
+|------|-------|---------------|---------------|
+| **1 — Starlight docs** | `/docs/…`, `/zh-cn/docs/…` (all under `src/content/docs/`) | Starlight built-in i18n | `src/content/i18n/{locale}.json` + sidebar `translations` in config |
+| **2 — Custom pages** | Landing (`/`, `/zh-cn/`), 404 | Project's own `src/i18n/` module | `src/i18n/ui.ts` + `src/i18n/landing-page.ts` |
+| **3 — Blog** | `/posts/…`, `/zh-cn/posts/…` | Content collection + project `src/i18n/` | Post markdown in `src/content/posts/{locale}/`, UI strings in `ui.ts` |
+
+### Zone 1 — Starlight docs i18n
+
+Follows the **exact pattern** from [`withastro/starlight/docs`](https://github.com/withastro/starlight/tree/main/docs).
+
+**Locale configuration** — `astro.config.mjs`:
+- English is the **`root` locale** — content files live under `src/content/docs/docs/` (e.g., `docs/getting-started/installation.md`).
+- Other locales get **subdirectories**: `src/content/docs/zh-cn/docs/getting-started/installation.md`.
+- The inner `docs/` directory creates the `/docs/` URL prefix — Starlight 0.38 has no `routePrefix` option, so this nesting is the standard way to namespace docs routes.
+- This keeps the URL scheme consistent: `/docs/…` for docs, `/posts/…` for blog.
+
+```js
+// astro.config.mjs
+locales: {
+  root: { label: 'English', lang: 'en' },      // ← root = no prefix for EN docs
+  'zh-cn': { label: '简体中文', lang: 'zh-CN' },
+},
+```
+
+**Starlight UI string overrides** — `src/content/i18n/{locale}.json`:
+- File names use **BCP-47 language tags** (e.g., `zh-CN.json`, not `zh-cn.json`).
+- Override Starlight's built-in UI strings (theme toggle, nav labels, pagination, 404 text, etc.).
+- Extend with custom keys via `i18nSchema({ extend: z.object({...}) })` in `content.config.ts` (see [Starlight docs `content.config.ts`](https://github.com/withastro/starlight/blob/main/docs/src/content.config.ts) and [Astro docs `i18n-schema.ts`](https://github.com/withastro/docs/blob/main/src/content/i18n-schema.ts) for examples).
+- **Do NOT** put these strings in `src/i18n/ui.ts` — that's Zone 2 only.
+
+**Sidebar translations** — inline in `astro.config.mjs`:
+- Uses the `translations` property on each sidebar group/item.
+- Keys are **BCP-47 language tags** (e.g., `'zh-CN'`), NOT URL-slug locale keys.
+- This matches the Starlight docs pattern where sidebar labels carry translation maps inline.
+
+```js
+sidebar: [{
+  label: 'Getting Started',
+  translations: { 'zh-CN': '快速开始' },
+  autogenerate: { directory: 'docs/getting-started' },
+}]
+```
+
+**Content schema** — `src/content.config.ts`:
+- Uses `docsLoader()` + `docsSchema()` from `@astrojs/starlight/loaders` and `@astrojs/starlight/schema`.
+- Uses `i18nLoader()` + `i18nSchema()` for the i18n collection.
+- Extend the i18n schema with a Zod object if custom Starlight component overrides need translated keys.
+- Extend the docs schema if docs need custom frontmatter fields.
+
+### Zone 2 — Custom page i18n (`src/i18n/`)
+
+For pages **outside Starlight** (landing page, 404). Starlight has no control over these pages.
+
+**`[...locale]` rest-param routing** — All custom pages live under `src/pages/[...locale]/`. A single page file generates both locales via `getStaticPaths()`:
+
+```ts
+// In any page under src/pages/[...locale]/
+export function getStaticPaths() {
+  return Object.keys(languages).map((lang) => ({
+    params: { locale: lang === defaultLang ? undefined : lang },
+    props: { locale: lang as Locale },
+  }));
+}
+// → generates /          (en, root)
+// → generates /zh-cn/    (zh-cn)
+```
+
+**Never duplicate a page file per locale** — use this pattern instead. The 404 page is the only exception (lives at `src/pages/404.astro` root because Astro requires it there).
 
 | File               | Purpose |
 |--------------------|---------|
@@ -108,7 +191,23 @@ website/
 | `utils.ts`         | `getLangFromUrl()`, `useTranslations()`, `useTranslatedPath()`, `getNavProps()`, `getAlternateLocaleHref()` helpers. |
 | `landing-page.ts`  | **Single source of truth for all landing-page copy** — both locales. Structured data (feature arrays with icons/colors, testimonials, hook stages, hero text, CTAs). |
 
-> **Convention**: Landing-page components (Hero, Features, HookIntro, TapeModel, Testimonials) are **pure presentation** — they receive all text/content via props from `landing-page.ts`. They have no hardcoded text defaults. Non-landing UI strings (nav, footer, 404, posts) go in `ui.ts` and are accessed via `t()`.
+> **Convention** (from Astro docs pattern): Landing-page components (Hero, Features, HookIntro, TapeModel, Testimonials) are **pure presentation** — they receive all text/content via props from `landing-page.ts`. They have no hardcoded text defaults. Non-landing UI strings (nav, footer, 404, posts) go in `ui.ts` and are accessed via `t()`.
+
+### Zone 3 — Blog i18n
+
+Blog posts are a **content collection** (`src/content/posts/{locale}/`). The collection schema includes a `locale` field to identify the language. Blog UI strings (page titles, back-links, etc.) live in `src/i18n/ui.ts` (Zone 2), not in Starlight's i18n.
+
+### Boundary rules
+
+| ✅ Do | ❌ Don't |
+|-------|----------|
+| Put Starlight UI overrides in `src/content/i18n/` | Duplicate Starlight keys into `src/i18n/ui.ts` |
+| Put nav/footer/404/post-list strings in `src/i18n/ui.ts` | Put custom page strings in `src/content/i18n/` |
+| Put landing-page structured copy in `src/i18n/landing-page.ts` | Put landing text in `ui.ts` or Starlight i18n |
+| Use `[...locale]` rest-param pages for custom pages | Duplicate page files per locale (e.g., `zh-cn/posts/`) |
+| Use `translations` on sidebar items in `astro.config.mjs` | Create separate sidebar translation files for 2 locales |
+| Use BCP-47 tags (`zh-CN`) in Starlight config/i18n files | Use URL slugs (`zh-cn`) in Starlight i18n JSON filenames |
+| Use URL slugs (`zh-cn`) in directory paths and page routes | Use BCP-47 tags in directory/route paths |
 
 ### Adding a UI string (non-landing pages)
 
@@ -122,19 +221,75 @@ website/
 2. Add the translation under the target locale section.
 3. Pass as props from the page to the component via `getLandingPageCopy(locale)`.
 
+### Adding a Starlight UI string override
+
+1. Add the translated string to `src/content/i18n/zh-CN.json` (or the target locale file).
+2. If the key is custom (not a built-in Starlight key), define it in the Zod extension inside `content.config.ts` via `i18nSchema({ extend: z.object({ 'your.key': z.string().optional() }) })`.
+3. Reference: [Starlight i18n docs](https://starlight.astro.build/guides/i18n/).
+
 ### Adding a new locale
 
-1. Add the locale key to `languages` in `ui.ts`.
-2. Add a full entry in the `ui` dictionary (copy `en` and translate).
-3. Add content in `landing-page.ts` if needed.
-4. Create page directories under `src/pages/<locale>/` and `src/content/docs/<locale>/`.
-5. Update `astro.config.mjs` `locales` object.
+1. **Starlight zone**: Add the locale to `astro.config.mjs` `locales`. Create `src/content/docs/<locale>/docs/` with translated docs. Create `src/content/i18n/<BCP-47>.json` for UI overrides.
+2. **Custom page zone**: Add the locale key to `languages` in `ui.ts`. Add translations in `ui.ts` and `landing-page.ts`. The `[...locale]` pages auto-generate routes via `getStaticPaths()`.
+3. **Blog zone**: Create `src/content/posts/<locale>/` with translated posts.
 
 ### URL scheme
 
-- English (default): **no prefix** — `/`, `/posts/`, etc.
-- Chinese: `/zh-cn/`, `/zh-cn/posts/`, etc.
-- Starlight docs always have a locale prefix: `/en/getting-started/`, `/zh-cn/getting-started/`.
+- English (default): **no prefix** — `/`, `/posts/`, `/docs/getting-started/`, etc.
+- Chinese: `/zh-cn/`, `/zh-cn/posts/`, `/zh-cn/docs/getting-started/`, etc.
+- Starlight docs have a `/docs/` prefix via the `docs/` content subdirectory.
+- Custom pages (landing, blog) use `[...locale]` rest-param routing — one page file generates both `/` and `/zh-cn/` variants.
+
+### Locale key conventions
+
+| Context | Key format | Example |
+|---------|-----------|---------|
+| URL paths & directory names | lowercase slug | `zh-cn` |
+| `astro.config.mjs` locale keys | lowercase slug | `'zh-cn': { ... }` |
+| `astro.config.mjs` sidebar `translations` keys | BCP-47 | `'zh-CN': '快速开始'` |
+| `src/content/i18n/` filenames | BCP-47 | `zh-CN.json` |
+| HTML `lang` attribute | BCP-47 | `zh-CN` |
+| `src/i18n/ui.ts` locale keys | lowercase slug | `'zh-cn': { ... }` |
+
+### Adding a new page
+
+**Custom page** (landing/blog style):
+1. Create `src/pages/[...locale]/<path>.astro` with `getStaticPaths()` generating all locales.
+2. Import and wrap with the appropriate layout (BaseLayout, PostLayout, etc.).
+3. Extract text into `ui.ts` (Zone 2) with appropriate flat keys.
+4. Run `pnpm build` to verify.
+
+**Starlight doc page**:
+1. Create the English file in `src/content/docs/docs/<section>/<slug>.md`.
+2. Create the Chinese translation in `src/content/docs/zh-cn/docs/<section>/<slug>.md`.
+3. Sidebar item is auto-generated if the parent group uses `autogenerate`. Otherwise add to `sidebar` in `astro.config.mjs` with `translations`.
+4. Run `pnpm build` to verify.
+
+### Adding a new component
+
+1. Create in `src/components/`.
+2. **No hardcoded text defaults** — components are pure presentation. Accept all text/content via props.
+3. Let the caller pass content via `getLandingPageCopy()` or `t()` from the page level.
+4. Add `data-reveal` if the component should animate on scroll.
+
+### Common mistakes
+
+| Mistake | Fix |
+|---------|-----|
+| Writing `<!doctype html>` in a page | Use BaseLayout |
+| Hardcoding nav/footer props in a page | Use `getNavProps()` |
+| Adding nested objects to `ui.ts` | Use flat `'section.key'` format |
+| Using non-Lucide icon libraries | Use `@lucide/astro` via `Icon.astro` |
+| Adding `dark:text-*` for themed colors | Use semantic tokens (`text-foreground`) that auto-switch |
+| Duplicating scroll-reveal `<script>` | BaseLayout includes it |
+| Putting landing text in `ui.ts` | Use `landing-page.ts` — `ui.ts` is for shared UI only |
+| Hardcoding English in component defaults | Components are pure presentation; all text from i18n |
+| Duplicating a page file per locale | Use `[...locale]` rest-param routing with `getStaticPaths()` |
+| Putting custom page strings in `src/content/i18n/` | Zone 1 only. Custom pages use `src/i18n/` (Zone 2) |
+| Putting Starlight overrides in `src/i18n/ui.ts` | Zone 2 only. Starlight uses `src/content/i18n/` (Zone 1) |
+| Naming i18n JSON with URL slugs (`zh-cn.json`) | Use BCP-47 (`zh-CN.json`) for Starlight i18n files |
+| Using BCP-47 in directory paths (`docs/zh-CN/`) | Use lowercase slugs (`docs/zh-cn/`) for directories |
+| Using `'zh-cn'` in sidebar `translations` keys | Use BCP-47 (`'zh-CN'`) |
 
 ---
 
@@ -221,7 +376,8 @@ BaseLayout.astro          ← HTML shell, <head>, NavBar, Footer, scroll-reveal,
 1. `pnpm build` — must pass with no errors.
 2. Check for hardcoded nav props — use `getNavProps()` from `i18n/utils.ts`.
 3. Check for duplicated HTML shell — compose on `BaseLayout`.
-4. Ensure all user-visible strings use the correct source:
-   - Landing-page copy → `landing-page.ts`
-   - Shared UI strings (nav, footer, 404, posts) → `ui.ts`
-   - Never duplicate text between the two files.
+4. Ensure all user-visible strings use the correct zone:
+   - **Zone 1** (Starlight docs): UI overrides in `src/content/i18n/`, sidebar translations inline in config.
+   - **Zone 2** (Custom pages): Landing copy → `landing-page.ts`, shared UI strings → `ui.ts`.
+   - **Zone 3** (Blog): Post content in `src/content/posts/{locale}/`, UI strings in `ui.ts`.
+   - Never duplicate text across zones.

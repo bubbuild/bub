@@ -58,7 +58,7 @@ const landingPageCopy: Record<LandingLocale, LandingPageCopy> = {
       title: 'Bub is a tiny runtime for agents that live alongside people.',
       description:
         '~200 lines of core code. Hooks reshape every turn stage. Tapes record every decision. Channels adapt to any surface — CLI, Telegram, or your own.',
-      primaryHref: '/en/getting-started/installation/',
+      primaryHref: '/docs/getting-started/installation/',
       primaryLabel: 'Get Started',
       contributorsLabel: 'Developed by contributors worldwide',
     },
@@ -161,7 +161,7 @@ const landingPageCopy: Record<LandingLocale, LandingPageCopy> = {
       title: 'Bub 是一个为与人并行的 agent 设计的轻量运行时。',
       description:
         '~200 行核心代码。Hooks 重塑每个 turn 阶段。Tapes 记录每一个决策。Channels 适配任何表面——CLI、Telegram 或你自己的。',
-      primaryHref: '/zh-cn/getting-started/installation/',
+      primaryHref: '/zh-cn/docs/getting-started/installation/',
       primaryLabel: '开始使用',
       contributorsLabel: '由全球贡献者共同开发',
     },

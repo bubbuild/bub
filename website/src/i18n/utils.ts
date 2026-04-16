@@ -65,11 +65,11 @@ export function getNavProps(locale: Locale, pathname: string): NavProps {
   const t = useTranslations(locale);
   const tp = useTranslatedPath(locale);
 
-  // Starlight docs live under /{locale}/getting-started/
-  const docsPrefix = locale === defaultLang ? '/en' : `/${locale}`;
+  // With root locale, English docs have no prefix; other locales use /{locale}
+  const docsPrefix = locale === defaultLang ? '' : `/${locale}`;
 
   return {
-    docsHref: `${docsPrefix}/getting-started/`,
+    docsHref: `${docsPrefix}/docs/getting-started/`,
     blogHref: tp('/posts/'),
     languageHref: getAlternateLocaleHref(pathname, locale),
     languageLabel: t('lang.switch'),

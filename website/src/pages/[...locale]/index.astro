@@ -2,9 +2,18 @@
 import LandingLayout from '../../layouts/LandingLayout.astro';
 import { useTranslations } from '../../i18n/utils';
 import { getLandingPageCopy } from '../../i18n/landing-page';
+import { languages, defaultLang, type Locale } from '../../i18n/ui';
 
-const t = useTranslations('zh-cn');
-const copy = getLandingPageCopy('zh-cn');
+export function getStaticPaths() {
+  return Object.keys(languages).map((lang) => ({
+    params: { locale: lang === defaultLang ? undefined : lang },
+    props: { locale: lang as Locale },
+  }));
+}
+
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+const copy = getLandingPageCopy(locale);
 ---
 
 <LandingLayout

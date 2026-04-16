@@ -1,0 +1,33 @@
+---
+import PostLayout from '../../../layouts/PostLayout.astro';
+import { getCollection, render } from 'astro:content';
+import { languages, defaultLang, type Locale } from '../../../i18n/ui';
+
+export async function getStaticPaths() {
+  const allPosts = await getCollection('posts');
+  return Object.keys(languages).flatMap((lang) => {
+    const locale = lang as Locale;
+    const localePosts = allPosts.filter((post) => post.data.locale === locale);
+    return localePosts.map((post) => ({
+      params: {
+        locale: locale === defaultLang ? undefined : locale,
+        slug: post.id.replace(new RegExp(`^${locale}/`), ''),
+      },
+      props: { post },
+    }));
+  });
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+---
+
+<PostLayout
+  title={post.data.title}
+  description={post.data.description}
+  date={post.data.date}
+  locale={post.data.locale}
+  tags={post.data.tags ?? []}
+>
+  <Content />
+</PostLayout>

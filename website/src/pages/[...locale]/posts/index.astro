@@ -1,21 +1,33 @@
 ---
-import PostListLayout from '../../layouts/PostListLayout.astro';
-import PostCard from '../../components/PostCard.astro';
+import PostListLayout from '../../../layouts/PostListLayout.astro';
+import PostCard from '../../../components/PostCard.astro';
 import { getCollection } from 'astro:content';
-import { useTranslations } from '../../i18n/utils';
+import { useTranslations } from '../../../i18n/utils';
+import { languages, defaultLang, type Locale } from '../../../i18n/ui';
 
-const t = useTranslations('en');
+export function getStaticPaths() {
+  return Object.keys(languages).map((lang) => ({
+    params: { locale: lang === defaultLang ? undefined : lang },
+    props: { locale: lang as Locale },
+  }));
+}
+
+const { locale } = Astro.props;
+const t = useTranslations(locale);
 
 const allPosts = await getCollection('posts');
 const posts = allPosts
-  .filter((post) => post.data.locale === 'en')
+  .filter((post) => post.data.locale === locale)
   .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+
+const prefix = locale === defaultLang ? '' : `/${locale}`;
+const canonicalUrl = `https://bub.build${prefix}/posts/`;
 ---
 
 <PostListLayout
   title={`${t('posts.title')} | Bub`}
   description={t('posts.description')}
-  canonicalUrl="https://bub.build/posts/"
+  canonicalUrl={canonicalUrl}
 >
   <header class="mb-14" data-reveal>
     <h1 class="mb-3 text-3xl font-bold tracking-tight text-foreground md:text-4xl">{t('posts.title')}</h1>
@@ -24,7 +36,7 @@ const posts = allPosts
 
   <div class="grid gap-px border border-border bg-border sm:grid-cols-2">
     {posts.map((post, i) => {
-      const slug = post.id.replace(/^en\//, '');
+      const slug = post.id.replace(new RegExp(`^${locale}/`), '');
       return (
         <PostCard
           title={post.data.title}
@@ -32,7 +44,7 @@ const posts = allPosts
           date={post.data.date}
           tags={post.data.tags ?? []}
           slug={slug}
-          locale="en"
+          locale={locale}
           index={i + 1}
         />
       );
