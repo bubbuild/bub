@@ -33,6 +33,7 @@ dependencies = [
     "loguru>=0.7.2",
     "rapidfuzz>=3.14.3",
     "aiohttp>=3.13.3",
+    "httpx[socks]>=0.28.1",
 ]
 
 [project.urls]
