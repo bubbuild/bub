@@ -5,13 +5,16 @@ import Features from '../components/Features.astro';
 import HookIntro from '../components/HookIntro.astro';
 import TapeModel from '../components/TapeModel.astro';
 import Testimonials from '../components/Testimonials.astro';
+import { getRepoStats } from '../lib/github';
 
 const { title, description, hero, features = {}, hookIntro = {}, tapeModel = {}, testimonials = {} } = Astro.props;
+
+const { contributors } = await getRepoStats();
 ---
 
 <BaseLayout title={title} description={description} canonicalUrl="https://bub.build">
   <main id="main-content" class="divide-y divide-border">
-    <Hero {...hero} />
+    <Hero {...hero} contributors={contributors} />
     <Features {...features} />
     <HookIntro {...hookIntro} />
     <TapeModel {...tapeModel} />

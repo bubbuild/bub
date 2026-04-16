@@ -2,8 +2,17 @@
 import { Code } from 'astro-expressive-code/components';
 import Icon from './ui/Icon.astro';
 import Contributors from './Contributors.astro';
+import type { GitHubContributor } from '../lib/github';
 
-const { badge, title, description, primaryHref, primaryLabel, contributorsLabel } = Astro.props;
+const { badge, title, description, primaryHref, primaryLabel, contributorsLabel, contributors = [] } = Astro.props as {
+  badge?: string;
+  title?: string;
+  description?: string;
+  primaryHref: string;
+  primaryLabel?: string;
+  contributorsLabel?: string;
+  contributors?: GitHubContributor[];
+};
 
 const exampleCode = `import bub
 
@@ -51,7 +60,7 @@ def run_model(messages, config):
 
         <!-- Contributors -->
         <div class="mt-6">
-          <Contributors label={contributorsLabel} />
+          <Contributors label={contributorsLabel} contributors={contributors} />
         </div>
 
         <!-- CTAs -->

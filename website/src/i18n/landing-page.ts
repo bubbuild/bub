@@ -103,7 +103,7 @@ const landingPageCopy: Record<LandingLocale, LandingPageCopy> = {
           color: 'green',
         },
         {
-          icon: 'wrench',
+          icon: 'puzzle',
           title: 'Plugin System',
           description:
             'Python entry-points under group="bub". Later-registered plugins run first and override earlier ones. No framework privilege.',
@@ -201,7 +201,7 @@ const landingPageCopy: Record<LandingLocale, LandingPageCopy> = {
           color: 'green',
         },
         {
-          icon: 'wrench',
+          icon: 'puzzle',
           title: '插件系统',
           description: '通过 group="bub" 的 Python entry-points 注册。后注册的插件优先运行并覆盖前者。没有框架特权。',
           color: 'blue',

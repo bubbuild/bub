@@ -14,6 +14,7 @@ import NavBar from '../components/NavBar.astro';
 import Footer from '../components/Footer.astro';
 import { getLangFromUrl, getHtmlLang, getNavProps } from '../i18n/utils';
 import { useTranslations } from '../i18n/utils';
+import { getRepoStats } from '../lib/github';
 
 interface Props {
   /** Page <title>. Falls back to site.title from ui.ts. */
@@ -41,6 +42,8 @@ const locale = getLangFromUrl(Astro.url);
 const htmlLang = getHtmlLang(locale);
 const t = useTranslations(locale);
 const navProps = { ...getNavProps(locale, Astro.url.pathname), ...(Astro.props.navOverrides ?? {}) };
+
+const { starsFormatted: stars } = await getRepoStats();
 
 const {
   title = t('site.title'),
@@ -94,7 +97,7 @@ const {
       </a>
     )}
 
-    <NavBar {...navProps} />
+    <NavBar {...navProps} stars={stars} />
 
     <slot />
 

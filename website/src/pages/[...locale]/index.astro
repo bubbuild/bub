@@ -1,19 +1,24 @@
 ---
+export const prerender = false;
+
 import LandingLayout from '../../layouts/LandingLayout.astro';
 import { useTranslations } from '../../i18n/utils';
-import { getLandingPageCopy } from '../../i18n/landing-page';
+import { getLandingPageCopy, type LandingLocale } from '../../i18n/landing-page';
 import { languages, defaultLang, type Locale } from '../../i18n/ui';
 
-export function getStaticPaths() {
-  return Object.keys(languages).map((lang) => ({
-    params: { locale: lang === defaultLang ? undefined : lang },
-    props: { locale: lang as Locale },
-  }));
+// In SSR mode, read locale from the catch-all param.
+// `/`       → locale = undefined → defaultLang ('en')
+// `/zh-cn/` → locale = 'zh-cn'
+const { locale: localeParam } = Astro.params;
+const locale = (localeParam ?? defaultLang) as Locale;
+
+// Guard against catch-all hits from unknown paths (e.g. /foo/).
+if (!(locale in languages)) {
+  return Astro.redirect('/404');
 }
 
-const { locale } = Astro.props;
 const t = useTranslations(locale);
-const copy = getLandingPageCopy(locale);
+const copy = getLandingPageCopy(locale as LandingLocale);
 ---
 
 <LandingLayout

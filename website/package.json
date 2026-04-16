@@ -9,11 +9,12 @@
   },
   "dependencies": {
     "@astrojs/starlight": "^0.38.3",
-    "astro-expressive-code": "^0.41.7",
+    "@astrojs/vercel": "^10.0.4",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@fontsource-variable/outfit": "^5.2.8",
     "@tailwindcss/vite": "^4.1.14",
     "astro": "^6.0.1",
+    "astro-expressive-code": "^0.41.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "motion": "^12.38.0",

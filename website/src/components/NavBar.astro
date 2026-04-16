@@ -13,6 +13,7 @@ const {
   hubLabel = 'Plugins',
   menuLabel = 'Menu',
   closeLabel = 'Close',
+  stars = '—',
 } = Astro.props;
 
 const navItems = [
@@ -20,8 +21,6 @@ const navItems = [
   { href: blogHref, label: blogLabel, icon: 'newspaper' as const },
   { href: 'https://hub.bub.build', label: hubLabel, icon: 'package' as const },
 ];
-
-const stars = '99k';
 ---
 
 <header class="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm" role="banner">

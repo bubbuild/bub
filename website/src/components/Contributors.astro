@@ -1,24 +1,14 @@
 ---
 import Icon from './ui/Icon.astro';
+import type { GitHubContributor } from '../lib/github';
 
 interface Props {
-  contributors?: { initial: string; bg: string; avatar?: string; name?: string }[];
+  contributors?: GitHubContributor[];
   label?: string;
 }
 
 const {
-  contributors = [
-    { initial: 'A', bg: '#3b82f6' },
-    { initial: 'J', bg: '#10b981' },
-    { initial: 'S', bg: '#f59e0b' },
-    { initial: 'M', bg: '#8b5cf6' },
-    { initial: 'K', bg: '#ef4444' },
-    { initial: 'A', bg: '#3b82f6' },
-    { initial: 'J', bg: '#10b981' },
-    { initial: 'S', bg: '#f59e0b' },
-    { initial: 'M', bg: '#8b5cf6' },
-    { initial: 'K', bg: '#ef4444' },
-  ],
+  contributors = [],
   label = 'Developed by contributors worldwide',
 } = Astro.props;
 ---
@@ -32,26 +22,19 @@ const {
           i >= 5 ? 'hidden md:block' : '',
         ]}
       >
-        <div
-          class="absolute inset-0 flex items-center justify-center overflow-hidden rounded-full border-2 border-background text-xs font-bold text-white transition-transform duration-200 ease-out group-hover:-translate-y-2 group-hover:scale-110 group-hover:z-10"
-          style={`background-color: ${c.bg};`}
-          title={c.name}
+        <a
+          href={c.html_url}
+          target="_blank"
+          rel="noreferrer"
+          class="absolute inset-0 flex items-center justify-center overflow-hidden rounded-full border-2 border-background transition-transform duration-200 ease-out group-hover:-translate-y-2 group-hover:scale-110 group-hover:z-10"
+          title={c.login}
         >
-          {c.avatar ? (
-            <img
-              src={c.avatar}
-              alt={c.name ?? c.initial}
-              class="h-full w-full object-cover"
-              onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
-            />
-          ) : null}
-          <span
-            class="absolute inset-0 flex items-center justify-center"
-            style={c.avatar ? 'display:none;' : ''}
-          >
-            {c.initial}
-          </span>
-        </div>
+          <img
+            src={c.avatar_url}
+            alt={c.login}
+            class="h-full w-full object-cover"
+          />
+        </a>
       </div>
     ))}
     <!-- Ellipsis avatar -->
