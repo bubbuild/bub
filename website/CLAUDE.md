@@ -29,28 +29,40 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 </BaseLayout>
 ```
 
-### 2. Use flat-key i18n — no nesting, no hardcoded strings
+### 2. i18n — two files, clear boundaries
 
-All user-visible text goes in `src/i18n/ui.ts` with **flat dot-separated keys**.
+**Shared UI strings** (nav, footer, 404, posts, site meta) → `src/i18n/ui.ts` with **flat dot-separated keys**:
 
 ```ts
-// ✅ Good
+// ✅ Good — in ui.ts
 'nav.docs': 'Docs',
-'hero.cta': 'Get Started',
+'404.title': 'Page not found.',
 
 // ❌ Bad — nested objects
 nav: { docs: 'Docs' }
 ```
 
-Use the `t()` helper in components:
+**Landing-page copy** (hero, features, hook stages, testimonials) → `src/i18n/landing-page.ts`:
+
+```ts
+// ✅ Good — in landing-page.ts, structured data
+const copy = getLandingPageCopy(locale);
+<Hero {...copy.hero} />
+
+// ❌ Bad — duplicating landing text in ui.ts
+'hero.badge': 'Hook-first · Tape-driven'  // dead key, never read by t()
+```
+
+Use `t()` for shared UI, `getLandingPageCopy()` for landing pages:
 
 ```astro
 ---
 import { getLangFromUrl, useTranslations } from '../i18n/utils';
+import { getLandingPageCopy } from '../i18n/landing-page';
 const locale = getLangFromUrl(Astro.url);
-const t = useTranslations(locale);
+const t = useTranslations(locale);        // nav, footer, 404, posts
+const copy = getLandingPageCopy(locale);   // landing page sections
 ---
-<h1>{t('hero.title')}</h1>
 ```
 
 ### 3. Never hardcode nav/footer props
@@ -82,11 +94,13 @@ Add `data-reveal` to any element that should fade-in on scroll. BaseLayout handl
 
 | What | Where |
 |------|-------|
-| Nav labels, button text, 404 copy, meta titles | `src/i18n/ui.ts` (flat keys) |
-| Landing section content (features array, testimonials, hook stages) | `src/i18n/landing-page.ts` |
+| Nav labels, footer, 404 copy, post list, meta titles | `src/i18n/ui.ts` (flat keys, via `t()`) |
+| Landing-page sections (hero, features, hook stages, testimonials) | `src/i18n/landing-page.ts` (structured, via `getLandingPageCopy()`) |
 | Starlight docs UI overrides | `src/content/i18n/zh-CN.json` |
 | Docs content | `src/content/docs/{en,zh-cn}/` |
 | Blog posts | `src/content/posts/{en,zh-cn}/` |
+
+> **Never duplicate** text between `ui.ts` and `landing-page.ts`. Each string has exactly one source of truth.
 
 ### 8. Adding a new page
 
@@ -98,8 +112,8 @@ Add `data-reveal` to any element that should fade-in on scroll. BaseLayout handl
 ### 9. Adding a new component
 
 1. Create in `src/components/`.
-2. Accept content via props with English defaults.
-3. Let the caller pass translated content via `t()` or section copy objects.
+2. **No hardcoded text defaults** — components are pure presentation. Accept all text/content via props.
+3. Let the caller pass content via `getLandingPageCopy()` or `t()` from the page level.
 4. Add `data-reveal` if the component should animate on scroll.
 
 ---
@@ -115,7 +129,9 @@ Add `data-reveal` to any element that should fade-in on scroll. BaseLayout handl
 
 ## File Organization Reminders
 
-- `src/i18n/ui.ts` — **single source of truth** for all UI strings.
+- `src/i18n/ui.ts` — **single source of truth** for shared UI strings (nav, footer, 404, posts).
+- `src/i18n/landing-page.ts` — **single source of truth** for all landing-page copy (both locales).
+- `src/content/i18n/` — Starlight-only UI overrides. Never duplicated into `src/i18n/`.
 - `src/layouts/BaseLayout.astro` — **single source of truth** for the HTML shell.
 - `src/components/ui/Icon.astro` — **single icon component**, all icons go through this.
 - `src/styles/global.css` — **single source of truth** for design tokens and base styles.
@@ -132,3 +148,5 @@ Add `data-reveal` to any element that should fade-in on scroll. BaseLayout handl
 | Using `@heroicons` or other icon libraries | Use `@lucide/astro` via `Icon.astro` |
 | Adding `dark:text-*` for themed colors | Use semantic tokens (`text-foreground`) that auto-switch |
 | Duplicating scroll-reveal `<script>` in layouts | BaseLayout includes it |
+| Putting landing-page text in `ui.ts` | Use `landing-page.ts` — `ui.ts` is only for shared UI strings |
+| Hardcoding English text as component prop defaults | Components are pure presentation; all text comes from i18n files |

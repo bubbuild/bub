@@ -1,0 +1,100 @@
+---
+import Icon from './ui/Icon.astro';
+---
+
+<button
+  class="theme-toggle inline-flex h-9 w-9 cursor-pointer items-center justify-center border border-border text-foreground transition-colors hover:bg-secondary"
+  type="button"
+  aria-label="Toggle color theme"
+  data-theme-toggle
+>
+  <Icon name="moon" size={16} class="dark:hidden" aria-hidden="true" />
+  <Icon name="sun" size={16} class="hidden dark:block" aria-hidden="true" />
+</button>
+
+<style is:global>
+  /* Scoped to .theme-transitioning so Starlight page-navigation transitions are unaffected */
+  .theme-transitioning::view-transition-old(root),
+  .theme-transitioning::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+
+  .theme-transitioning::view-transition-old(root) {
+    z-index: 1;
+  }
+
+  .theme-transitioning::view-transition-new(root) {
+    z-index: 9999;
+    clip-path: circle(0px at 50% 50%);
+  }
+</style>
+
+<script>
+  function initThemeToggle() {
+    document.querySelectorAll<HTMLButtonElement>('[data-theme-toggle]').forEach((btn) => {
+      if (btn.hasAttribute('data-initialized')) return;
+      btn.setAttribute('data-initialized', '');
+      btn.addEventListener('click', () => toggleTheme(btn));
+    });
+  }
+
+  function applyTheme(dark: boolean) {
+    document.documentElement.classList.toggle('dark', dark);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  }
+
+  function toggleTheme(btn: HTMLButtonElement) {
+    const willBeDark = !document.documentElement.classList.contains('dark');
+
+    // Instant switch: reduced motion or no View Transition API support
+    if (
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
+      !document.startViewTransition
+    ) {
+      applyTheme(willBeDark);
+      localStorage.setItem('bub-theme', willBeDark ? 'dark' : 'light');
+      return;
+    }
+
+    const rect = btn.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const maxR = Math.hypot(
+      Math.max(cx, window.innerWidth - cx),
+      Math.max(cy, window.innerHeight - cy),
+    );
+
+    document.documentElement.classList.add('theme-transitioning');
+
+    const transition = document.startViewTransition(() => {
+      applyTheme(willBeDark);
+    });
+    localStorage.setItem('bub-theme', willBeDark ? 'dark' : 'light');
+
+    // GPU-composited clip-path circle reveal — no canvas, no per-frame CPU work
+    transition.ready.then(() => {
+      document.documentElement.animate(
+        {
+          clipPath: [
+            `circle(0px at ${cx}px ${cy}px)`,
+            `circle(${maxR}px at ${cx}px ${cy}px)`,
+          ],
+        },
+        {
+          duration: 420,
+          easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+          pseudoElement: '::view-transition-new(root)',
+          fill: 'forwards',
+        },
+      );
+    });
+
+    transition.finished.finally(() => {
+      document.documentElement.classList.remove('theme-transitioning');
+    });
+  }
+
+  initThemeToggle();
+  document.addEventListener('astro:page-load', initThemeToggle);
+</script>

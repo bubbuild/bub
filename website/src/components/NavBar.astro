@@ -1,5 +1,6 @@
 ---
 import Icon from './ui/Icon.astro';
+import ThemeToggle from './ThemeToggle.astro';
 
 const {
   docsHref = '/en/getting-started/',
@@ -65,15 +66,7 @@ const stars = '99k';
         <Icon name="globe" size={14} class="opacity-50" aria-hidden="true" />
         {languageLabel}
       </a>
-      <button
-        class="theme-toggle inline-flex h-9 w-9 cursor-pointer items-center justify-center border border-border text-foreground transition-colors hover:bg-secondary"
-        type="button"
-        aria-label="Toggle color theme"
-        data-theme-toggle
-      >
-        <Icon name="moon" size={16} class="dark:hidden" aria-hidden="true" />
-        <Icon name="sun" size={16} class="hidden dark:block" aria-hidden="true" />
-      </button>
+      <ThemeToggle />
 
       <!-- Mobile menu -->
       <details class="group md:hidden">
@@ -122,13 +115,3 @@ const stars = '99k';
     }
   }
 </style>
-
-<script is:inline>
-  document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const isDark = document.documentElement.classList.toggle('dark');
-      document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-      localStorage.setItem('bub-theme', isDark ? 'dark' : 'light');
-    });
-  });
-</script>

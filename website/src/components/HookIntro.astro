@@ -6,23 +6,7 @@ interface Props {
   hookStages?: { name: string; note: string }[];
 }
 
-const {
-  eyebrow = 'Architecture',
-  heading = 'Hooks define every turn stage.',
-  description = [
-    'Every stage in a Bub turn is a pluggy hook. The built-in implementation is just another plugin.',
-    'Override any stage by registering your own. Later plugins take priority. No forking, no framework privilege.',
-  ],
-  hookStages = [
-    { name: 'resolve_session', note: 'Route to the right conversation' },
-    { name: 'load_state', note: 'Reconstruct context from tape' },
-    { name: 'build_prompt', note: 'Assemble system + history + tools' },
-    { name: 'run_model', note: 'Call the LLM provider' },
-    { name: 'render_outbound', note: 'Format the reply for the channel' },
-    { name: 'save_state', note: 'Persist to tape' },
-    { name: 'dispatch_outbound', note: 'Send to CLI / Telegram / etc.' },
-  ],
-} = Astro.props;
+const { eyebrow, heading, description = [], hookStages = [] } = Astro.props;
 
 // Bell-curve widths/opacities by distance from active stage
 const WIDTHS   = ['100%', '84%', '66%', '50%', '38%'];

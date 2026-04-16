@@ -2,49 +2,7 @@
 import Icon from './ui/Icon.astro';
 import SectionHeading from './ui/SectionHeading.astro';
 
-const {
-  eyebrow = 'Why Bub',
-  heading = 'Every decision has a reason.',
-  subheading = 'Bub was designed for real multi-agent collaboration from day one — not retrofitted for it.',
-  features = [
-    {
-      icon: 'webhook',
-      title: 'Hook-First',
-      description:
-        '~200-line core. Every turn stage is a pluggy hook. Builtins are just default plugins — override any stage without forking the runtime.',
-    },
-    {
-      icon: 'layers',
-      title: 'Tape Context',
-      description:
-        'Context is reconstructed from append-only tape records, not accumulated in session state. No lossy summaries, no phantom memory.',
-    },
-    {
-      icon: 'radioTower',
-      title: 'Channel-Agnostic',
-      description:
-        'The same process_inbound() pipeline drives CLI, Telegram, and any channel you add. Hooks never know which surface they\'re on.',
-    },
-    {
-      icon: 'fileSearch',
-      title: 'Skills as Docs',
-      description:
-        'Skills are SKILL.md files with validated frontmatter — not code modules with magic registration. Discoverable, overridable, auditable.',
-    },
-    {
-      icon: 'users',
-      title: 'Operator Equivalence',
-      description:
-        'Humans and agents share the same operator model: same boundaries, same evidence trails, same handoff semantics. No special cases.',
-    },
-    {
-      icon: 'wrench',
-      title: 'Plugin System',
-      description:
-        'Python entry-points under group="bub". Later-registered plugins run first and override earlier ones. No framework privilege.',
-    },
-  ],
-} = Astro.props;
+const { eyebrow, heading, subheading, features = [] } = Astro.props;
 
 // Layout: [0]=2cols, [1], [2], CENTER LOGO, [3], [4], [5]=2cols → 3×3 grid
 ---

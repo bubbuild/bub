@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
-// Landing-page content copy — section-level content that's too rich for flat
-// UI strings (arrays, nested objects with icons/colors). Nav, footer, and 404
-// copy now live in i18n/ui.ts.
+// Landing-page content copy — single source of truth for all landing-page text.
+// Structured data (arrays, nested objects with icons/colors/hrefs) lives here.
+// Nav, footer, 404, and post-list copy live in i18n/ui.ts.
 // ---------------------------------------------------------------------------
 
 type HeroCopy = {
@@ -54,7 +54,105 @@ export type LandingLocale = 'en' | 'zh-cn';
 const landingPageCopy: Record<LandingLocale, LandingPageCopy> = {
   en: {
     hero: {
+      badge: 'Hook-first · Tape-driven · Channel-agnostic',
+      title: 'Bub is a tiny runtime for agents that live alongside people.',
+      description:
+        '~200 lines of core code. Hooks reshape every turn stage. Tapes record every decision. Channels adapt to any surface — CLI, Telegram, or your own.',
       primaryHref: '/en/getting-started/installation/',
+      primaryLabel: 'Get Started',
+      contributorsLabel: 'Developed by contributors worldwide',
+    },
+    features: {
+      eyebrow: 'Why Bub',
+      heading: 'Every decision has a reason.',
+      subheading: 'Bub was designed for real multi-agent collaboration from day one — not retrofitted for it.',
+      features: [
+        {
+          icon: 'webhook',
+          title: 'Hook-First',
+          description:
+            '~200-line core. Every turn stage is a pluggy hook. Builtins are just default plugins — override any stage without forking the runtime.',
+          color: 'coral',
+        },
+        {
+          icon: 'layers',
+          title: 'Tape Context',
+          description:
+            'Context is reconstructed from append-only tape records, not accumulated in session state. No lossy summaries, no phantom memory.',
+          color: 'amber',
+        },
+        {
+          icon: 'radioTower',
+          title: 'Channel-Agnostic',
+          description:
+            "The same process_inbound() pipeline drives CLI, Telegram, and any channel you add. Hooks never know which surface they're on.",
+          color: 'teal',
+        },
+        {
+          icon: 'fileSearch',
+          title: 'Skills as Docs',
+          description:
+            'Skills are SKILL.md files with validated frontmatter — not code modules with magic registration. Discoverable, overridable, auditable.',
+          color: 'purple',
+        },
+        {
+          icon: 'users',
+          title: 'Operator Equivalence',
+          description:
+            'Humans and agents share the same operator model: same boundaries, same evidence trails, same handoff semantics. No special cases.',
+          color: 'green',
+        },
+        {
+          icon: 'wrench',
+          title: 'Plugin System',
+          description:
+            'Python entry-points under group="bub". Later-registered plugins run first and override earlier ones. No framework privilege.',
+          color: 'blue',
+        },
+      ],
+    },
+    hookIntro: {
+      eyebrow: 'Architecture',
+      heading: 'Hooks define every turn stage.',
+      description: [
+        'Every stage in a Bub turn is a pluggy hook. The built-in implementation is just another plugin.',
+        'Override any stage by registering your own. Later plugins take priority. No forking, no framework privilege.',
+      ],
+      hookStages: [
+        { name: 'resolve_session', note: 'Route to the right conversation' },
+        { name: 'load_state', note: 'Reconstruct context from tape' },
+        { name: 'build_prompt', note: 'Assemble system + history + tools' },
+        { name: 'run_model', note: 'Call the LLM provider' },
+        { name: 'render_outbound', note: 'Format the reply for the channel' },
+        { name: 'save_state', note: 'Persist to tape' },
+        { name: 'dispatch_outbound', note: 'Send to CLI / Telegram / etc.' },
+      ],
+    },
+    tapeModel: {
+      eyebrow: 'Context model',
+      heading: 'Tape: the only source of truth.',
+      description: [
+        "Context isn't kept in fragile session state. It's reconstructed from an append-only tape — a ledger of immutable records.",
+        'Corrections append new entries. They never overwrite. Every action is auditable, continuable, and safe to replay.',
+      ],
+    },
+    testimonials: {
+      eyebrow: 'Community',
+      heading: 'What people are saying.',
+      testimonials: [
+        { name: 'Alex Chen', handle: '@alexchen_dev', text: 'The hook system is brilliant. I replaced the built-in model runner with my own in under 20 lines. No forking, no framework hacks. Everything else just kept working.' },
+        { name: 'Sam Wright', handle: '@samwright', text: "Finally, an agent framework that doesn't pretend group conversations are a solved problem. Bub's tape model just makes sense for real-world collaboration." },
+        { name: 'Priya Nair', handle: '@priya_builds', text: 'What sets Bub apart: the same pipeline drives CLI and Telegram. I added a Slack channel adapter in a weekend. Zero changes to my hooks.' },
+        { name: 'Jordan Lee', handle: '@jordanlee', text: 'Tape-driven context means I can replay and audit every agent decision. No more mystery about why the agent said what it said.' },
+        { name: 'Maria Gomez', handle: '@maria_ai', text: 'Skills as Markdown files is such a refreshing idea. No magic registration, no hidden state. Just discoverable, version-controlled documents.' },
+        { name: 'Tom Baker', handle: '@tombaker_', text: 'We run Bub in production with 3 different LLM providers. The plugin system handles provider switching with zero downtime.' },
+        { name: 'Yuki Tanaka', handle: '@yuki_dev', text: 'Operator equivalence changed how I think about human-agent collaboration. Humans and agents sharing the same model makes handoffs seamless.' },
+        { name: 'Li Wei', handle: '@liwei_ml', text: '~200 lines of core code. I read the entire framework in one sitting. That kind of simplicity is rare and valuable.' },
+        { name: 'Emma Scott', handle: '@emma_builds', text: "The best part about Bub is what it doesn't do. No opinions about which LLM, no lock-in to a provider, no hidden abstractions." },
+        { name: 'Ryan Park', handle: '@ryanpark', text: "Deployed Bub on Telegram for our team's workspace. The agent handles concurrent conversations without any special configuration." },
+        { name: 'Nina Patel', handle: '@ninapatel', text: 'Corrections in the tape never overwrite. They append. This makes debugging agent behavior trivially easy.' },
+        { name: 'David Kim', handle: '@dkim_eng', text: 'Hook-first means we control every stage. When our compliance team needed audit logs, we added a save_state hook plugin in an afternoon.' },
+      ],
     },
   },
   'zh-cn': {

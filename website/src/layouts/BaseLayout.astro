@@ -2,7 +2,7 @@
 /**
  * BaseLayout.astro — shared HTML shell for every page.
  *
- * Provides: <!doctype>, <head> (meta, OG, favicon, ThemeInit),
+ * Provides: <!doctype>, <head> (meta, OG, favicon, inline theme init),
  * <body> with NavBar, <slot/> for main content, Footer, and
  * the scroll-reveal + back-to-top scripts.
  *
@@ -12,7 +12,6 @@
 import '../styles/global.css';
 import NavBar from '../components/NavBar.astro';
 import Footer from '../components/Footer.astro';
-import ThemeInit from '../components/ThemeInit.astro';
 import { getLangFromUrl, getHtmlLang, getNavProps } from '../i18n/utils';
 import { useTranslations } from '../i18n/utils';
 
@@ -73,7 +72,16 @@ const {
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
-    <ThemeInit />
+    <script is:inline>
+      (() => {
+        const stored = localStorage.getItem('bub-theme');
+        const dark = stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) {
+          document.documentElement.classList.add('dark');
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
     <slot name="head" />
   </head>
   <body class={bodyClass}>

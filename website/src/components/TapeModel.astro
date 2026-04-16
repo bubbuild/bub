@@ -7,14 +7,7 @@ interface Props {
   description?: string[];
 }
 
-const {
-  eyebrow = 'Context model',
-  heading = 'Tape: the only source of truth.',
-  description = [
-    "Context isn't kept in fragile session state. It's reconstructed from an append-only tape — a ledger of immutable records.",
-    'Corrections append new entries. They never overwrite. Every action is auditable, continuable, and safe to replay.',
-  ],
-} = Astro.props;
+const { eyebrow, heading, description = [] } = Astro.props;
 
 type TapeEntry = {
   ts: string;

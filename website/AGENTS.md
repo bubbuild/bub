@@ -66,15 +66,15 @@ website/
 │   │   ├── Testimonials.astro
 │   │   ├── Contributors.astro
 │   │   ├── PostCard.astro
-│   │   └── ThemeInit.astro
+│   │   └── ThemeToggle.astro
 │   ├── content/
 │   │   ├── docs/              # Starlight markdown (en/, zh-cn/)
-│   │   ├── i18n/              # Starlight UI string overrides (zh-CN.json)
+│   │   ├── i18n/              # Starlight UI string overrides (zh-CN.json) — DO NOT duplicate into src/i18n/
 │   │   └── posts/             # Blog posts (en/, zh-cn/)
 │   ├── i18n/
-│   │   ├── ui.ts              # Flat-key UI string dictionary (source of truth)
+│   │   ├── ui.ts              # Flat-key UI strings: nav, footer, 404, posts, site meta
 │   │   ├── utils.ts           # getLangFromUrl, useTranslations, getNavProps, etc.
-│   │   └── landing-page.ts    # Rich landing section content (hero, features, etc.)
+│   │   └── landing-page.ts    # Single source of truth for all landing-page copy (both locales)
 │   ├── layouts/
 │   │   ├── BaseLayout.astro   # Shared HTML shell (head, nav, footer, scripts)
 │   │   ├── LandingLayout.astro
@@ -104,15 +104,23 @@ website/
 
 | File               | Purpose |
 |--------------------|---------|
-| `ui.ts`            | **Flat-key** UI string dictionary. All keys are `'section.key'` format — no nesting. English is source of truth; other locales override selectively. |
+| `ui.ts`            | **Flat-key** UI string dictionary for shared UI: site meta, nav, footer, 404, post list, language switcher. English is source of truth; other locales override selectively. |
 | `utils.ts`         | `getLangFromUrl()`, `useTranslations()`, `useTranslatedPath()`, `getNavProps()`, `getAlternateLocaleHref()` helpers. |
-| `landing-page.ts`  | Rich content (arrays of features, testimonials, hook stages) that doesn't fit flat keys. |
+| `landing-page.ts`  | **Single source of truth for all landing-page copy** — both locales. Structured data (feature arrays with icons/colors, testimonials, hook stages, hero text, CTAs). |
 
-### Adding a UI string
+> **Convention**: Landing-page components (Hero, Features, HookIntro, TapeModel, Testimonials) are **pure presentation** — they receive all text/content via props from `landing-page.ts`. They have no hardcoded text defaults. Non-landing UI strings (nav, footer, 404, posts) go in `ui.ts` and are accessed via `t()`.
+
+### Adding a UI string (non-landing pages)
 
 1. Add the English string to `ui.ts` under the `en` object.
 2. Add the translation under the target locale.
 3. Use `const t = useTranslations(locale); t('your.key')` in any `.astro` file.
+
+### Adding landing-page content
+
+1. Add the English content to `landing-page.ts` under the `en` section.
+2. Add the translation under the target locale section.
+3. Pass as props from the page to the component via `getLandingPageCopy(locale)`.
 
 ### Adding a new locale
 
@@ -153,7 +161,7 @@ The design system uses **oklch** color tokens defined in `src/styles/global.css`
 
 - Light tokens in `:root { }`.
 - Dark tokens in `.dark { }` (toggled via class on `<html>`).
-- Theme toggle logic lives in `ThemeInit.astro` + `NavBar.astro`.
+- Theme toggle logic lives in `ThemeToggle.astro` (in `NavBar.astro`), with an inline init script in `BaseLayout.astro` `<head>` to prevent FOUC.
 - Stored in `localStorage` under key `bub-theme`.
 
 ### Core tokens (selection)
@@ -213,4 +221,7 @@ BaseLayout.astro          ← HTML shell, <head>, NavBar, Footer, scroll-reveal,
 1. `pnpm build` — must pass with no errors.
 2. Check for hardcoded nav props — use `getNavProps()` from `i18n/utils.ts`.
 3. Check for duplicated HTML shell — compose on `BaseLayout`.
-4. Ensure all user-visible strings are in `ui.ts` (not hardcoded in components).
+4. Ensure all user-visible strings use the correct source:
+   - Landing-page copy → `landing-page.ts`
+   - Shared UI strings (nav, footer, 404, posts) → `ui.ts`
+   - Never duplicate text between the two files.

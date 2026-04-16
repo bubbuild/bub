@@ -3,14 +3,7 @@ import { Code } from 'astro-expressive-code/components';
 import Icon from './ui/Icon.astro';
 import Contributors from './Contributors.astro';
 
-const {
-  badge = 'Hook-first · Tape-driven · Channel-agnostic',
-  title = 'Bub is a tiny runtime for agents that live alongside people.',
-  description = '~200 lines of core code. Hooks reshape every turn stage. Tapes record every decision. Channels adapt to any surface — CLI, Telegram, or your own.',
-  primaryHref = '/en/getting-started/installation/',
-  primaryLabel = 'Get Started',
-  contributorsLabel = 'Developed by contributors worldwide',
-} = Astro.props;
+const { badge, title, description, primaryHref, primaryLabel, contributorsLabel } = Astro.props;
 
 const exampleCode = `import bub
 
