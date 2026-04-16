@@ -20,6 +20,7 @@ from republic import (
     LLM,
     AsyncStreamEvents,
     AsyncTapeStore,
+    RepublicError,
     StreamEvent,
     StreamState,
     TapeContext,
@@ -229,7 +230,7 @@ class Agent:
                         },
                     )
                 elif event.kind == "final":
-                    outcome = _resolve_tool_auto_result(event.data)
+                    outcome = _resolve_final_data(event.data, output.error)
 
             state.error = output.error
             state.usage = output.usage
@@ -363,12 +364,13 @@ class _ToolAutoOutcome:
     error: str = ""
 
 
-def _resolve_tool_auto_result(final_data: dict[str, Any]) -> _ToolAutoOutcome:
+def _resolve_final_data(final_data: dict[str, Any], error: RepublicError | None) -> _ToolAutoOutcome:
     if final_data.get("tool_calls") or final_data.get("tool_results"):
         return _ToolAutoOutcome(kind="continue")
     if (text := final_data.get("text")) is not None:
         return _ToolAutoOutcome(kind="text", text=text)
-    return _ToolAutoOutcome(kind="error", error="unknown error")
+    error_message = error.message if error else ""
+    return _ToolAutoOutcome(kind="error", error=error_message or "unknown error")
 
 
 def _build_llm(settings: AgentSettings, tape_store: AsyncTapeStore, tape_context: TapeContext) -> LLM:
