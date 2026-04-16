@@ -9,8 +9,6 @@ const {
   description = '~200 lines of core code. Hooks reshape every turn stage. Tapes record every decision. Channels adapt to any surface — CLI, Telegram, or your own.',
   primaryHref = '/en/getting-started/installation/',
   primaryLabel = 'Get Started',
-  secondaryHref = 'https://github.com/bubbuild/bub',
-  secondaryLabel = 'View on GitHub',
   contributorsLabel = 'Developed by contributors worldwide',
 } = Astro.props;
 
@@ -71,15 +69,6 @@ def run_model(messages, config):
           >
             {primaryLabel}
             <Icon name="arrowUpRight" size={15} aria-hidden="true" />
-          </a>
-          <a
-            class="inline-flex w-full items-center justify-center gap-2 border border-border px-6 py-3 text-sm font-semibold leading-none text-foreground no-underline transition-colors hover:bg-secondary sm:w-auto"
-            href={secondaryHref}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <Icon name="github" size={15} aria-hidden="true" />
-            {secondaryLabel}
           </a>
         </div>
       </div>

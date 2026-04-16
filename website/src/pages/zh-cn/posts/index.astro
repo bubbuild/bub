@@ -2,36 +2,24 @@
 import PostListLayout from '../../../layouts/PostListLayout.astro';
 import PostCard from '../../../components/PostCard.astro';
 import { getCollection } from 'astro:content';
+import { useTranslations } from '../../../i18n/utils';
+
+const t = useTranslations('zh-cn');
 
 const allPosts = await getCollection('posts');
 const posts = allPosts
   .filter((post) => post.data.locale === 'zh-cn')
   .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
-
-const navProps = {
-  docsHref: '/zh-cn/getting-started/',
-  blogHref: '/zh-cn/posts/',
-  languageHref: '/posts/',
-  languageLabel: 'English',
-  homeHref: '/zh-cn/',
-  docsLabel: '文档',
-  blogLabel: '博客',
-  menuLabel: '菜单',
-  closeLabel: '关闭',
-  hubLabel: '插件市场',
-};
 ---
 
 <PostListLayout
-  title="文章 | Bub"
-  description="关于 agent 设计、协作与构建 Bub 的思考。"
+  title={`${t('posts.title')} | Bub`}
+  description={t('posts.description')}
   canonicalUrl="https://bub.build/zh-cn/posts/"
-  lang="zh-CN"
-  navProps={navProps}
 >
   <header class="mb-14" data-reveal>
-    <h1 class="mb-3 text-3xl font-bold tracking-tight text-foreground md:text-4xl">文章</h1>
-    <p class="text-muted-foreground">关于 agent 设计、协作与构建 Bub 的思考。</p>
+    <h1 class="mb-3 text-3xl font-bold tracking-tight text-foreground md:text-4xl">{t('posts.title')}</h1>
+    <p class="text-muted-foreground">{t('posts.description')}</p>
   </header>
 
   <div class="grid gap-px border border-border bg-border sm:grid-cols-2">

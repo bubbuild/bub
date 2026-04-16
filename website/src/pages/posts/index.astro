@@ -2,30 +2,24 @@
 import PostListLayout from '../../layouts/PostListLayout.astro';
 import PostCard from '../../components/PostCard.astro';
 import { getCollection } from 'astro:content';
+import { useTranslations } from '../../i18n/utils';
+
+const t = useTranslations('en');
 
 const allPosts = await getCollection('posts');
 const posts = allPosts
   .filter((post) => post.data.locale === 'en')
   .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
-
-const navProps = {
-  docsHref: '/en/getting-started/',
-  blogHref: '/posts/',
-  languageHref: '/zh-cn/posts/',
-  languageLabel: '中文',
-};
 ---
 
 <PostListLayout
-  title="Posts | Bub"
-  description="Thoughts on agent design, collaboration, and building Bub."
+  title={`${t('posts.title')} | Bub`}
+  description={t('posts.description')}
   canonicalUrl="https://bub.build/posts/"
-  lang="en"
-  navProps={navProps}
 >
   <header class="mb-14" data-reveal>
-    <h1 class="mb-3 text-3xl font-bold tracking-tight text-foreground md:text-4xl">Posts</h1>
-    <p class="text-muted-foreground">Thoughts on agent design, collaboration, and building Bub.</p>
+    <h1 class="mb-3 text-3xl font-bold tracking-tight text-foreground md:text-4xl">{t('posts.title')}</h1>
+    <p class="text-muted-foreground">{t('posts.description')}</p>
   </header>
 
   <div class="grid gap-px border border-border bg-border sm:grid-cols-2">

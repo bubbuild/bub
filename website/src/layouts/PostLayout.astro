@@ -1,8 +1,7 @@
 ---
-import '../styles/global.css';
-import NavBar from '../components/NavBar.astro';
-import Footer from '../components/Footer.astro';
-import ThemeInit from '../components/ThemeInit.astro';
+import BaseLayout from './BaseLayout.astro';
+import { getLangFromUrl, getHtmlLang, useTranslatedPath } from '../i18n/utils';
+import { useTranslations } from '../i18n/utils';
 
 interface Props {
   title: string;
@@ -14,124 +13,58 @@ interface Props {
 
 const { title, description, date, locale, tags } = Astro.props;
 
-const isZh = locale === 'zh-cn';
-const htmlLang = isZh ? 'zh-CN' : 'en';
-const postsHref = isZh ? '/zh-cn/posts/' : '/posts/';
-const backLabel = isZh ? '← 返回文章列表' : '← Back to Posts';
+const lang = (locale === 'zh-cn' ? 'zh-cn' : 'en') as 'en' | 'zh-cn';
+const t = useTranslations(lang);
+const tp = useTranslatedPath(lang);
 
-// Build alternate language URL: swap /zh-cn/posts/ ↔ /posts/
-const pathname = Astro.url.pathname;
-const altHref = isZh
-  ? pathname.replace(/^\/zh-cn\/posts\//, '/posts/')
-  : `/zh-cn${pathname}`;
-
-const formattedDate = date.toLocaleDateString(isZh ? 'zh-CN' : 'en-US', {
+const postsHref = tp('/posts/');
+const formattedDate = date.toLocaleDateString(getHtmlLang(lang), {
   year: 'numeric',
   month: 'long',
   day: 'numeric',
 });
-
-const navProps = isZh
-  ? {
-      docsHref: '/zh-cn/getting-started/',
-      blogHref: '/zh-cn/posts/',
-      languageHref: altHref,
-      languageLabel: 'English',
-      homeHref: '/zh-cn/',
-      docsLabel: '文档',
-      blogLabel: '博客',
-      menuLabel: '菜单',
-      closeLabel: '关闭',
-      hubLabel: '插件市场',
-    }
-  : {
-      docsHref: '/en/getting-started/',
-      blogHref: '/posts/',
-      languageHref: altHref,
-      languageLabel: '中文',
-    };
 ---
 
-<!doctype html>
-<html lang={htmlLang}>
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title} | Bub</title>
-    <meta name="description" content={description} />
-    <link rel="icon" type="image/png" href="/bub-logo.png" />
-    <meta property="og:type" content="article" />
-    <meta property="og:title" content={`${title} | Bub`} />
-    <meta property="og:description" content={description} />
-    <meta property="og:site_name" content="Bub" />
-    <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content={`${title} | Bub`} />
-    <meta name="twitter:description" content={description} />
-    <ThemeInit />
-  </head>
-  <body class="flex min-h-screen flex-col antialiased font-sans">
-    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:text-sm focus:font-semibold">Skip to main content</a>
-    <NavBar {...navProps} />
+<BaseLayout
+  title={`${title} | Bub`}
+  description={description}
+  ogType="article"
+  bodyClass="flex min-h-screen flex-col antialiased font-sans"
+  backToTop={false}
+>
+  <main id="main-content" class="mx-auto w-full max-w-3xl flex-1 px-5 py-12 md:px-8 md:py-20">
+    <a
+      href={postsHref}
+      class="mb-8 inline-block font-mono text-sm text-muted-foreground no-underline transition-colors duration-300 hover:text-foreground"
+    >
+      {t('posts.back')}
+    </a>
 
-    <main id="main-content" class="mx-auto w-full max-w-3xl flex-1 px-5 py-12 md:px-8 md:py-20">
-      <a
-        href={postsHref}
-        class="mb-8 inline-block font-mono text-sm text-muted-foreground no-underline transition-colors duration-300 hover:text-foreground"
-      >
-        {backLabel}
-      </a>
+    <header class="mb-10 border-b border-border pb-8">
+      <h1 class="mb-4 text-3xl font-bold tracking-tight text-foreground md:text-4xl">
+        {title}
+      </h1>
+      <div class="flex flex-wrap items-center gap-3 text-sm">
+        <time class="font-mono text-muted-foreground" datetime={date.toISOString()}>
+          {formattedDate}
+        </time>
+        {tags.length > 0 && (
+          <div class="flex gap-1.5">
+            {tags.map((tag) => (
+              <span class="border border-border px-1.5 py-0.5 font-mono text-[0.65rem] uppercase tracking-wider text-muted-foreground">
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </header>
 
-      <header class="mb-10 border-b border-border pb-8">
-        <h1 class="mb-4 text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-          {title}
-        </h1>
-        <div class="flex flex-wrap items-center gap-3 text-sm">
-          <time class="font-mono text-muted-foreground" datetime={date.toISOString()}>
-            {formattedDate}
-          </time>
-          {tags.length > 0 && (
-            <div class="flex gap-1.5">
-              {tags.map((tag) => (
-                <span class="border border-border px-1.5 py-0.5 font-mono text-[0.65rem] uppercase tracking-wider text-muted-foreground">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      </header>
-
-      <article class="post-content text-foreground">
-        <slot />
-      </article>
-    </main>
-
-    <Footer />
-
-    <script>
-      import { inView, animate } from 'motion';
-
-      function initScrollReveals() {
-        document.querySelectorAll('[data-reveal]').forEach((el) => {
-          const htmlEl = el as HTMLElement;
-          htmlEl.style.opacity = '0';
-          htmlEl.style.transform = 'translateY(24px)';
-
-          inView(htmlEl, () => {
-            animate(htmlEl, { opacity: [0, 1], transform: ['translateY(24px)', 'translateY(0)'] }, { duration: 0.6, easing: [0.25, 0.1, 0.25, 1] });
-          }, { margin: '0px 0px -10% 0px' });
-        });
-      }
-
-      requestAnimationFrame(() => {
-        initScrollReveals();
-      });
-      document.addEventListener('astro:page-load', () => {
-        requestAnimationFrame(initScrollReveals);
-      });
-    </script>
-  </body>
-</html>
+    <article class="post-content text-foreground">
+      <slot />
+    </article>
+  </main>
+</BaseLayout>
 
 <style is:global>
   .post-content {

@@ -1,0 +1,41 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/ui/Icon.astro';
+import { getLangFromUrl, useTranslatedPath } from '../i18n/utils';
+import { useTranslations } from '../i18n/utils';
+import type { Locale } from '../i18n/ui';
+
+const locale = getLangFromUrl(Astro.url);
+const t = useTranslations(locale);
+const tp = useTranslatedPath(locale);
+---
+
+<BaseLayout title={`404 | Bub`} description={t('404.description')} robots="noindex" backToTop={false}>
+  <main id="main-content" class="flex min-h-[calc(100vh-8rem)] items-center px-5 py-20 md:px-8">
+    <div class="mx-auto w-full max-w-6xl">
+      <p class="font-mono text-sm text-muted-foreground">404</p>
+      <h1 class="mt-4 text-4xl font-bold tracking-tight text-foreground md:text-5xl">
+        {t('404.title')}
+      </h1>
+      <p class="mt-4 text-base text-muted-foreground max-w-sm">
+        {t('404.description')}
+      </p>
+      <div class="mt-8 flex flex-col gap-3 sm:flex-row">
+        <a
+          class="inline-flex w-full items-center justify-center gap-2 bg-primary px-6 py-3 text-sm font-semibold leading-none text-primary-foreground no-underline transition-colors hover:bg-primary/90 sm:w-auto"
+          href={tp('/')}
+        >
+          <Icon name="arrowLeft" size={15} aria-hidden="true" />
+          {t('404.home')}
+        </a>
+        <a
+          class="inline-flex w-full items-center justify-center gap-2 border border-border px-6 py-3 text-sm font-semibold leading-none text-foreground no-underline transition-colors hover:bg-secondary sm:w-auto"
+          href={locale === 'en' ? '/en/getting-started/' : `/${locale}/getting-started/`}
+        >
+          <Icon name="book" size={15} aria-hidden="true" />
+          {t('404.docs')}
+        </a>
+      </div>
+    </div>
+  </main>
+</BaseLayout>

@@ -1,0 +1,147 @@
+---
+/**
+ * BaseLayout.astro — shared HTML shell for every page.
+ *
+ * Provides: <!doctype>, <head> (meta, OG, favicon, ThemeInit),
+ * <body> with NavBar, <slot/> for main content, Footer, and
+ * the scroll-reveal + back-to-top scripts.
+ *
+ * All other layouts (LandingLayout, PostLayout, PostListLayout)
+ * and standalone pages (404) should compose on top of this.
+ */
+import '../styles/global.css';
+import NavBar from '../components/NavBar.astro';
+import Footer from '../components/Footer.astro';
+import ThemeInit from '../components/ThemeInit.astro';
+import { getLangFromUrl, getHtmlLang, getNavProps } from '../i18n/utils';
+import { useTranslations } from '../i18n/utils';
+
+interface Props {
+  /** Page <title>. Falls back to site.title from ui.ts. */
+  title?: string;
+  /** Meta description. Falls back to site.description from ui.ts. */
+  description?: string;
+  /** Canonical URL. If not set, omitted from head. */
+  canonicalUrl?: string;
+  /** OG type. Defaults to 'website'. */
+  ogType?: string;
+  /** Extra class on <body>. */
+  bodyClass?: string;
+  /** Whether to render the back-to-top button. Default true. */
+  backToTop?: boolean;
+  /** Whether to render the skip-to-content link. Default true. */
+  skipLink?: boolean;
+  /** Override nav props (rare — only if you need a custom nav). */
+  navOverrides?: Record<string, string>;
+  /** Extra head content via named slot. */
+  /** robots meta. */
+  robots?: string;
+}
+
+const locale = getLangFromUrl(Astro.url);
+const htmlLang = getHtmlLang(locale);
+const t = useTranslations(locale);
+const navProps = { ...getNavProps(locale, Astro.url.pathname), ...(Astro.props.navOverrides ?? {}) };
+
+const {
+  title = t('site.title'),
+  description = t('site.description'),
+  canonicalUrl,
+  ogType = 'website',
+  bodyClass = 'min-h-screen antialiased font-sans',
+  backToTop = true,
+  skipLink = true,
+  robots,
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang={htmlLang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/png" href="/bub-logo.png" />
+    {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
+    {robots && <meta name="robots" content={robots} />}
+    <meta property="og:type" content={ogType} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    {canonicalUrl && <meta property="og:url" content={canonicalUrl} />}
+    <meta property="og:site_name" content="Bub" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <ThemeInit />
+    <slot name="head" />
+  </head>
+  <body class={bodyClass}>
+    {skipLink && (
+      <a
+        href="#main-content"
+        class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:text-sm focus:font-semibold"
+      >
+        Skip to main content
+      </a>
+    )}
+
+    <NavBar {...navProps} />
+
+    <slot />
+
+    <Footer />
+
+    {backToTop && (
+      <button
+        id="back-to-top"
+        class="fixed bottom-6 right-6 z-50 flex h-10 w-10 cursor-pointer items-center justify-center border border-border bg-background/95 text-foreground opacity-0 backdrop-blur-sm transition-all duration-300 hover:bg-secondary pointer-events-none"
+        aria-label="Back to top"
+        type="button"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+      </button>
+    )}
+
+    <script>
+      import { inView, animate } from 'motion';
+
+      function initScrollReveals() {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        document.querySelectorAll('[data-reveal]').forEach((el, index) => {
+          const htmlEl = el as HTMLElement;
+          htmlEl.style.opacity = '0';
+          htmlEl.style.transform = 'translateY(24px)';
+
+          inView(htmlEl, () => {
+            animate(
+              htmlEl,
+              { opacity: [0, 1], transform: ['translateY(24px)', 'translateY(0)'] },
+              { duration: 0.6, delay: index * 0.05, easing: [0.25, 0.1, 0.25, 1] },
+            );
+          }, { margin: '0px 0px -10% 0px' });
+        });
+      }
+
+      function initBackToTop() {
+        const btn = document.getElementById('back-to-top');
+        if (!btn) return;
+
+        const toggle = () => {
+          const show = window.scrollY > 400;
+          btn.style.opacity = show ? '1' : '0';
+          btn.style.pointerEvents = show ? 'auto' : 'none';
+        };
+
+        window.addEventListener('scroll', toggle, { passive: true });
+        toggle();
+        btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+      }
+
+      requestAnimationFrame(() => { initScrollReveals(); initBackToTop(); });
+      document.addEventListener('astro:page-load', () => {
+        requestAnimationFrame(() => { initScrollReveals(); initBackToTop(); });
+      });
+    </script>
+  </body>
+</html>

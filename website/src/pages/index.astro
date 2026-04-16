@@ -1,8 +1,14 @@
 ---
 import LandingLayout from '../layouts/LandingLayout.astro';
+import { useTranslations } from '../i18n/utils';
 import { getLandingPageCopy } from '../i18n/landing-page';
 
+const t = useTranslations('en');
 const copy = getLandingPageCopy('en');
 ---
 
-<LandingLayout {...copy} />
+<LandingLayout
+  title={t('site.title')}
+  description={t('site.description')}
+  hero={copy.hero}
+/>
