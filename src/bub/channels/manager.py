@@ -39,10 +39,16 @@ class ChannelSettings(BaseSettings):
 
 
 class ChannelManager:
-    def __init__(self, framework: BubFramework, enabled_channels: Collection[str] | None = None) -> None:
+    def __init__(
+        self,
+        framework: BubFramework,
+        enabled_channels: Collection[str] | None = None,
+        stream_output: bool | None = None,
+    ) -> None:
         self.framework = framework
         self._channels: dict[str, Channel] = self.framework.get_channels(self.on_receive)
         self._settings = ChannelSettings()
+        self._stream_output = stream_output if stream_output is not None else self._settings.stream_output
         if enabled_channels is not None:
             self._enabled_channels = list(enabled_channels)
         else:
@@ -139,7 +145,7 @@ class ChannelManager:
         try:
             while True:
                 message = await wait_until_stopped(self._messages.get(), stop_event)
-                task = asyncio.create_task(self.framework.process_inbound(message, self._settings.stream_output))
+                task = asyncio.create_task(self.framework.process_inbound(message, self._stream_output))
                 task.add_done_callback(functools.partial(self._on_task_done, message.session_id))
                 self._ongoing_tasks.setdefault(message.session_id, set()).add(task)
         except asyncio.CancelledError:
