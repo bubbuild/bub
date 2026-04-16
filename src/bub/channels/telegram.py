@@ -12,6 +12,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from telegram import Bot, Message, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, filters
 from telegram.ext import MessageHandler as TelegramMessageHandler
+from telegram.request import HTTPXRequest
 
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage, MediaItem, MediaType
@@ -169,7 +170,8 @@ class TelegramChannel(Channel):
             len(self._allow_chats),
             bool(proxy),
         )
-        builder = Application.builder().token(self._settings.token)
+        get_updates_request = HTTPXRequest(read_timeout=30)
+        builder = Application.builder().token(self._settings.token).get_updates_request(get_updates_request)
         if proxy:
             builder = builder.proxy(proxy).get_updates_proxy(proxy)
         self._app = builder.build()
