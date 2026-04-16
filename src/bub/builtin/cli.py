@@ -83,7 +83,7 @@ def chat(
 
     framework = ctx.ensure_object(BubFramework)
 
-    manager = ChannelManager(framework, enabled_channels=["cli"])
+    manager = ChannelManager(framework, enabled_channels=["cli"], stream_output=True)
     channel = manager.get_channel("cli")
     if channel is None:
         typer.echo("CLI channel not found. Please check your hook implementations.")
