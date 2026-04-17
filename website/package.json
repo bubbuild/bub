@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@astrojs/starlight": "^0.38.3",
+    "@astrojs/starlight-tailwind": "^5.0.0",
     "@astrojs/vercel": "^10.0.4",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@fontsource-variable/outfit": "^5.2.8",

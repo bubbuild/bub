@@ -11,8 +11,11 @@
 // bundled into any client-side output.
 // ---------------------------------------------------------------------------
 
-const REPO_OWNER = 'bubbuild';
-const REPO_NAME = 'bub';
+export const REPO_OWNER = 'bubbuild';
+export const REPO_NAME = 'bub';
+export const REPO_SLUG = `${REPO_OWNER}/${REPO_NAME}`;
+export const REPO_URL = `https://github.com/${REPO_SLUG}`;
+export const CONTRIBUTORS_URL = `${REPO_URL}/graphs/contributors`;
 const API_BASE = 'https://api.github.com';
 
 /** How long (ms) to keep cached data before re-fetching. Default: 24 h. */
@@ -121,4 +124,3 @@ export async function getRepoStats(contributorLimit = 15): Promise<RepoStats> {
     return { stars: 0, starsFormatted: undefined, contributors: [] };
   }
 }
-

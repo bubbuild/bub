@@ -1,6 +1,7 @@
 ---
 import Icon from './ui/Icon.astro';
 import ThemeToggle from './ThemeToggle.astro';
+import { REPO_SLUG, REPO_URL } from '../lib/github';
 
 const {
   docsHref = '/docs/getting-started/',
@@ -47,15 +48,17 @@ const navItems = [
 
     <!-- Right side -->
     <div class="flex items-center gap-2">
-      <!-- GitHub star button (desktop) -->
       <a
-        class="hidden items-center gap-1.5 border border-border px-3.5 py-1.5 text-sm text-foreground no-underline transition-colors hover:bg-secondary md:inline-flex"
-        href="https://github.com/bubbuild/bub"
+        class="github-nav-button group hidden items-center gap-1.5 border border-border px-3.5 py-1.5 text-sm text-foreground no-underline transition-colors duration-200 hover:bg-secondary md:inline-flex"
+        href={REPO_URL}
         target="_blank"
         rel="noreferrer"
       >
-        <Icon name="github" size={14} class="opacity-50" aria-hidden="true" />
-        <span>Star</span>
+        <span class="github-nav-button__icon-wrap" aria-hidden="true">
+          <Icon name="github" size={14} class="github-nav-button__github opacity-60" />
+          <Icon name="star" size={14} class="github-nav-button__star" fill="currentColor" />
+        </span>
+        <span>{REPO_SLUG}</span>
         <span class="border-l border-border pl-1.5 text-xs text-muted-foreground">{stars}</span>
       </a>
       <a
@@ -84,9 +87,13 @@ const navItems = [
                 {item.label}
               </a>
             ))}
-            <a class="flex items-center gap-2.5 border-b border-border/50 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href="https://github.com/bubbuild/bub" target="_blank" rel="noreferrer">
-              <Icon name="github" size={15} class="opacity-50" aria-hidden="true" />
-              GitHub ★ {stars}
+            <a class="github-nav-button flex items-center gap-2.5 border-b border-border/50 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href={REPO_URL} target="_blank" rel="noreferrer">
+              <span class="github-nav-button__icon-wrap shrink-0" aria-hidden="true">
+                <Icon name="github" size={15} class="github-nav-button__github opacity-60" />
+                <Icon name="star" size={15} class="github-nav-button__star" fill="currentColor" />
+              </span>
+              {REPO_SLUG}
+              <span class="ml-auto text-xs text-muted-foreground">★ {stars}</span>
             </a>
             <a class="flex items-center gap-2.5 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href={languageHref}>
               <Icon name="globe" size={15} class="opacity-50" aria-hidden="true" />
@@ -100,9 +107,49 @@ const navItems = [
 </header>
 
 <style>
+  .github-nav-button__icon-wrap {
+    position: relative;
+    display: inline-flex;
+    width: 0.875rem;
+    height: 0.875rem;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .github-nav-button__icon-wrap > :global(svg) {
+    position: absolute;
+    inset: 0;
+    transition:
+      opacity 0.2s ease,
+      transform 0.22s ease,
+      color 0.2s ease,
+      filter 0.25s ease;
+  }
+
+  .github-nav-button__star {
+    opacity: 0;
+    transform: scale(0.72) rotate(-10deg);
+    color: oklch(0.72 0.17 78);
+    filter: drop-shadow(0 0 0 rgba(255, 196, 82, 0));
+  }
+
+  .github-nav-button:hover .github-nav-button__github,
+  .mobile-dropdown a:hover .github-nav-button__github {
+    opacity: 0;
+    transform: scale(0.72) rotate(8deg);
+  }
+
+  .github-nav-button:hover .github-nav-button__star,
+  .mobile-dropdown a:hover .github-nav-button__star {
+    opacity: 1;
+    transform: scale(1.05) rotate(0deg);
+    filter: drop-shadow(0 0 8px rgba(255, 196, 82, 0.35));
+  }
+
   .mobile-dropdown {
     animation: mobile-menu-slide-down 0.2s ease-out;
   }
+
   @keyframes mobile-menu-slide-down {
     from {
       opacity: 0;

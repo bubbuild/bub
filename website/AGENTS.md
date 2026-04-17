@@ -22,7 +22,7 @@ Site URL: `https://bub.build`
 |---------------|----------------------------------------|
 | Framework     | **Astro 6** (static output)            |
 | Docs          | **@astrojs/starlight** ≥ 0.38          |
-| Styling       | **Tailwind CSS v4** via `@tailwindcss/vite` |
+| Styling       | **Tailwind CSS v4** via `@tailwindcss/vite` + `@astrojs/starlight-tailwind` |
 | Component lib | shadcn/ui conventions (base-vega style) |
 | Animations    | `motion` (formerly Framer Motion)      |
 | Code blocks   | `astro-expressive-code`                |
@@ -102,7 +102,7 @@ website/
 │   │           ├── index.astro    # Post list (both locales via getStaticPaths)
 │   │           └── [slug].astro   # Single post (both locales via getStaticPaths)
 │   └── styles/
-│       └── global.css         # Tailwind v4 + CSS custom properties
+│       └── global.css         # Tailwind v4 + Starlight bridge + CSS custom properties
 └── DESIGN.md                  # Visual design guide
 ```
 
@@ -290,6 +290,9 @@ Blog posts are a **content collection** (`src/content/posts/{locale}/`). The col
 | Naming i18n JSON with URL slugs (`zh-cn.json`) | Use BCP-47 (`zh-CN.json`) for Starlight i18n files |
 | Using BCP-47 in directory paths (`docs/zh-CN/`) | Use lowercase slugs (`docs/zh-cn/`) for directories |
 | Using `'zh-cn'` in sidebar `translations` keys | Use BCP-47 (`'zh-CN'`) |
+| Adding hue/chroma to Starlight color overrides | Site is monochrome — keep oklch with 0 chroma |
+| Adding new `--sl-color-*` overrides without checking the existing unlayered block | Edit the existing `:root { --sl-color-* }` / `.dark, [data-theme="dark"] { --sl-color-* }` blocks — they override the bridge for correct monochrome contrast |
+| Importing `@import "tailwindcss"` in `global.css` | Use `tailwindcss/theme.css` + `tailwindcss/utilities.css` in proper layers — full import brings Preflight that breaks Starlight/EC |
 
 ---
 
@@ -315,7 +318,7 @@ The design system uses **oklch** color tokens defined in `src/styles/global.css`
 ### Light / Dark
 
 - Light tokens in `:root { }`.
-- Dark tokens in `.dark { }` (toggled via class on `<html>`).
+- Dark tokens in `.dark, [data-theme="dark"] { }` — both selectors are needed to cover landing pages (`.dark` class) and Starlight docs (`[data-theme]` attribute). `ThemeToggle.astro` sets both.
 - Theme toggle logic lives in `ThemeToggle.astro` (in `NavBar.astro`), with an inline init script in `BaseLayout.astro` `<head>` to prevent FOUC.
 - Stored in `localStorage` under key `bub-theme`.
 
@@ -339,6 +342,81 @@ The design system uses **oklch** color tokens defined in `src/styles/global.css`
 |-----------------|--------------------------|----------------------|
 | `--font-sans`   | Outfit Variable          | Body, headings       |
 | `--font-mono`   | JetBrains Mono Variable  | Code, badges, labels |
+
+### Starlight + Tailwind v4 integration
+
+Starlight ships with a blue accent (hue 224/234) and blue-tinted grays. The main site is **monochrome** (all oklch colors have `0` chroma). The bridge is `@astrojs/starlight-tailwind` — it reads `--color-accent-*` and `--color-gray-*` from the `@theme` block and generates `--sl-color-*` variables in `@layer utilities`. However, the bridge's mapping (e.g. `--sl-color-accent` ← `--color-accent-600`) does not produce the right contrast for a monochrome theme, so **manual unlayered `--sl-*` overrides are still required** for precise control. Unlayered CSS always beats `@layer utilities`.
+
+**Reference:** [Starlight CSS + Tailwind guide](https://starlight.astro.build/guides/css-and-tailwind/)
+
+**How `global.css` is structured (follow this order):**
+
+```
+1. Font imports (@import "@fontsource-variable/…")
+2. Cascade layer ordering:  @layer base, starlight, theme, components, utilities;
+3. Starlight bridge:        @import '@astrojs/starlight-tailwind';
+4. Tailwind layers:         @import 'tailwindcss/theme.css' layer(theme);
+                            @import 'tailwindcss/utilities.css' layer(utilities);
+5. Animation utilities:     @import "tw-animate-css";  (unlayered — @utility can't nest)
+6. @theme inline { … }     — fonts, Starlight color scales, site design tokens, radius
+7. :root { … }             — raw light tokens (unlayered)
+8. .dark, [data-theme="dark"] { … } — raw dark tokens (unlayered)
+9. :root { --sl-font/color overrides } — unlayered to beat bridge @layer utilities
+10. .dark, [data-theme="dark"] { --sl-color-* overrides }
+11. @layer base { … }       — Tailwind preflight + site base resets (lowest priority)
+```
+
+**Why this order matters:**
+
+| Layer | Contains | Priority |
+|---|---|---|
+| `@layer base` | Site resets (`* { border-border }`, body bg/text, etc.) | Lowest |
+| `@layer starlight` | Starlight + expressive-code styles | Overrides `base` |
+| `@layer theme` | Tailwind theme variables | Overrides `starlight` |
+| `@layer utilities` | Tailwind utilities | Overrides `theme` |
+| Unlayered CSS | Raw tokens, `--sl-font-*` / `--sl-color-*` overrides, `@media` queries | Highest |
+
+**Key rules:**
+
+- **NEVER use `@import "tailwindcss"`** — it brings in the full Preflight reset that conflicts with Starlight and astro-expressive-code. Only import `tailwindcss/theme.css` and `tailwindcss/utilities.css` in their proper layers.
+- **Define Starlight colors via `@theme` scales** — `--color-accent-50` through `--color-accent-950` and `--color-gray-50` through `--color-gray-950`. The bridge reads these and generates `--sl-color-*` in `@layer utilities`.
+- **Override `--sl-*` colors and fonts manually (unlayered)** — the bridge's auto-mapped values don't produce the right contrast for the monochrome theme. Unlayered `:root` / `.dark, [data-theme="dark"]` blocks with explicit `--sl-color-*` values win over the bridge's `@layer utilities` output.
+- **Import `tailwindcss/preflight.css` in `@layer base`** — restores box-sizing, link resets, and other base styles that the split Tailwind import omits. Because `base` is the lowest layer, EC and Starlight styles still override it.
+- **`tw-animate-css` must be imported unlayered** — it contains `@utility` directives that cannot be nested inside `@layer`.
+- **The `@layer base` `*` reset is safe** — because EC styles live in `@layer starlight.components` (higher priority), they always win.
+
+**Starlight color scales (in `@theme`):**
+
+Both scales use pure neutral oklch values (0 chroma) to match the site's monochrome identity:
+
+| Scale | Example values | Starlight usage |
+|---|---|---|
+| `--color-accent-50` … `--color-accent-950` | oklch(0.985 0 0) → oklch(0.145 0 0) | Links, highlights, active nav items |
+| `--color-gray-50` … `--color-gray-950` | oklch(0.985 0 0) → oklch(0.145 0 0) | Backgrounds, text, borders |
+
+> **Do NOT** add hue or chroma to these scales — the entire site identity is neutral/monochrome. Aside callout colors (orange, green, blue, purple, red) are intentionally left at Starlight defaults for semantic clarity.
+
+**How to customize Starlight appearance going forward:**
+
+1. To change Starlight's gray palette → update `--color-gray-*` values in `@theme inline`.
+2. To change Starlight's accent color → update `--color-accent-*` values in `@theme inline`.
+3. To change fonts → update `--font-sans` / `--font-mono` in `@theme inline` AND `--sl-font` / `--sl-font-mono` in the unlayered `:root` block.
+4. To add site-specific overrides that should beat Starlight → put them **unlayered** (outside any `@layer`).
+5. To add base resets that Starlight/EC can override → put them in `@layer base`.
+
+**Overriding expressive-code on custom pages (e.g., Hero):**
+
+When using `<Code />` from `astro-expressive-code` outside Starlight docs, override EC's CSS custom properties in the component's scoped `<style>` block:
+
+```css
+.hero-terminal :global(.expressive-code) {
+    --ec-codeBg: var(--card);
+    --ec-frm-edTabBarBg: var(--secondary);
+    /* … etc. — see Hero.astro for the full list */
+}
+```
+
+Scoped Astro styles are unlayered, so they beat both `@layer base` and `@layer starlight`.
 
 ### Radius
 

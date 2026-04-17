@@ -1,5 +1,6 @@
 ---
 import Icon from './ui/Icon.astro';
+import { CONTRIBUTORS_URL } from '../lib/github';
 import type { GitHubContributor } from '../lib/github';
 
 interface Props {
@@ -13,13 +14,13 @@ const {
 } = Astro.props;
 ---
 
-<div class="flex items-center gap-3">
+<div class="flex flex-col gap-2.5">
   <div class="flex -space-x-3">
     {contributors.map((c, i) => (
       <div
         class:list={[
           'group relative h-7 w-7 md:h-8 md:w-8',
-          i >= 5 ? 'hidden md:block' : '',
+          // i >= 9 ? 'hidden lg:block' : '',
         ]}
       >
         <a
@@ -37,15 +38,16 @@ const {
         </a>
       </div>
     ))}
-    <!-- Ellipsis avatar -->
-    <div
-      class="flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-secondary text-muted-foreground md:h-8 md:w-8"
-      title="and many more"
-      aria-label="and many more contributors"
+    <a
+      href={CONTRIBUTORS_URL}
+      target="_blank"
+      rel="noreferrer"
+      class="flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-secondary text-muted-foreground transition-transform duration-200 ease-out hover:-translate-y-1 hover:scale-105 hover:text-foreground md:h-8 md:w-8"
+      title="View all contributors on GitHub"
+      aria-label="View all contributors on GitHub"
     >
       <Icon name="ellipsis" size={14} aria-hidden="true" />
-    </div>
+    </a>
   </div>
-  <span class="text-xs text-muted-foreground">{label}</span>
+  <span class="text-xs leading-relaxed text-muted-foreground">{label}</span>
 </div>
-

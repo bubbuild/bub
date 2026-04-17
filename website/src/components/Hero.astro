@@ -38,9 +38,9 @@ def run_model(messages, config):
 
 <section class="pb-20 pt-14 md:pb-28 md:pt-20" aria-label="Hero">
   <div class="mx-auto max-w-6xl px-5 md:px-8">
-    <div class="grid items-center gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:gap-10">
+    <div class="grid items-center gap-12 lg:grid-cols-2 lg:gap-14">
       <!-- Left: text -->
-      <div class="max-w-2xl">
+      <div>
         <!-- Badge -->
         <div class="inline-flex items-center gap-2 border border-border bg-secondary/40 px-3 py-1.5 font-mono text-[0.7rem] uppercase leading-none tracking-widest text-muted-foreground">
           <Icon name="cpu" size={11} class="opacity-60" aria-hidden="true" />
@@ -76,7 +76,7 @@ def run_model(messages, config):
       </div>
 
       <!-- Right: code editor -->
-      <div class="hero-terminal overflow-hidden overflow-x-auto border border-border" role="img" aria-label="Example Python code showing Bub hook implementations">
+      <div class="hero-terminal overflow-hidden overflow-x-auto border border-border shadow-[0_8px_30px_rgba(0,0,0,0.06),0_2px_8px_rgba(0,0,0,0.04)]" role="img" aria-label="Example Python code showing Bub hook implementations">
         <Code code={exampleCode} lang="python" frame="code" title="hooks.py" />
       </div>
     </div>
@@ -86,11 +86,29 @@ def run_model(messages, config):
 <style>
   .hero-terminal :global(.expressive-code) {
     margin: 0;
+    border: none;
+    border-radius: 0;
+    /* Decouple frame colors from Starlight --sl-* variables;
+       use the site's own design tokens so the editor matches
+       the landing page in both light and dark mode. */
+    --ec-brdWd: 0px;
+    --ec-codeBg: var(--card);
+    --ec-frm-edTabBarBg: var(--secondary);
+    --ec-frm-edActTabBg: var(--card);
+    --ec-frm-edActTabFg: var(--muted-foreground);
+    --ec-frm-edBg: var(--card);
+    --ec-frm-edTabBarBrdCol: var(--border);
+    --ec-frm-edTabBarBrdBtmCol: var(--border);
+    --ec-frm-edActTabIndTopCol: transparent;
+    --ec-frm-edActTabIndBtmCol: transparent;
   }
   .hero-terminal :global(.expressive-code .frame) {
     border: none;
     border-radius: 0;
     box-shadow: none;
+  }
+  .hero-terminal :global(.expressive-code .copy) {
+    display: none;
   }
   .hero-terminal :global(.expressive-code pre) {
     font-family: 'JetBrains Mono Variable', ui-monospace, monospace;

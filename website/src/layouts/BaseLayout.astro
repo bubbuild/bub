@@ -77,7 +77,7 @@ const {
     <meta name="twitter:description" content={description} />
     <script is:inline>
       (() => {
-        const stored = localStorage.getItem('bub-theme');
+        const stored = localStorage.getItem('starlight-theme');
         const dark = stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
         if (dark) {
           document.documentElement.classList.add('dark');
@@ -106,7 +106,7 @@ const {
     {backToTop && (
       <button
         id="back-to-top"
-        class="fixed bottom-6 right-6 z-50 flex h-10 w-10 cursor-pointer items-center justify-center border border-border bg-background/95 text-foreground opacity-0 backdrop-blur-sm transition-all duration-300 hover:bg-secondary pointer-events-none"
+        class="fixed right-4 bottom-[max(5rem,env(safe-area-inset-bottom))] z-50 flex h-9 w-9 cursor-pointer items-center justify-center border border-border bg-background/95 text-foreground opacity-0 backdrop-blur-sm transition-all duration-300 hover:bg-secondary pointer-events-none sm:bottom-6 sm:right-6 sm:h-10 sm:w-10"
         aria-label="Back to top"
         type="button"
       >

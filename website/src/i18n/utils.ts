@@ -40,7 +40,8 @@ export function getAlternateLocaleHref(pathname: string, currentLocale: Locale):
     return `/${otherLocale}${pathname}`;
   }
   // zh-cn: /zh-cn/posts/foo/ → /posts/foo/
-  return pathname.replace(new RegExp(`^/${currentLocale}`), '');
+  const stripped = pathname.replace(new RegExp(`^/${currentLocale}`), '');
+  return stripped || '/';
 }
 
 // ---------------------------------------------------------------------------

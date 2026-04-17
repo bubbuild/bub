@@ -53,7 +53,7 @@ import Icon from './ui/Icon.astro';
       !document.startViewTransition
     ) {
       applyTheme(willBeDark);
-      localStorage.setItem('bub-theme', willBeDark ? 'dark' : 'light');
+      localStorage.setItem('starlight-theme', willBeDark ? 'dark' : 'light');
       return;
     }
 
@@ -70,7 +70,7 @@ import Icon from './ui/Icon.astro';
     const transition = document.startViewTransition(() => {
       applyTheme(willBeDark);
     });
-    localStorage.setItem('bub-theme', willBeDark ? 'dark' : 'light');
+    localStorage.setItem('starlight-theme', willBeDark ? 'dark' : 'light');
 
     // GPU-composited clip-path circle reveal — no canvas, no per-frame CPU work
     transition.ready.then(() => {

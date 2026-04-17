@@ -1,15 +1,100 @@
+/*
+ * global.css — Shared stylesheet for landing, blog, AND Starlight docs.
+ *
+ * Loaded via:
+ *   • Starlight `customCss` (docs pages)
+ *   • BaseLayout `import` (landing & blog pages)
+ *
+ * Structure follows the official Starlight + Tailwind v4 pattern:
+ *   https://starlight.astro.build/guides/css-and-tailwind/
+ *
+ * Key rules:
+ *   1. Define cascade layer order FIRST so Starlight/EC styles always
+ *      beat the base reset but yield to theme/utilities.
+ *   2. Import @astrojs/starlight-tailwind INSTEAD of bare `tailwindcss`.
+ *      It configures the dark variant, provides a partial Preflight that
+ *      doesn't conflict with Starlight/EC, and maps --color-accent-* /
+ *      --color-gray-* into --sl-color-* tokens automatically.
+ *   3. Import only `tailwindcss/theme.css` and `tailwindcss/utilities.css`
+ *      in their respective layers — NOT the full `@import "tailwindcss"`
+ *      which brings in the complete Preflight reset that breaks EC.
+ *   4. Keep site-specific resets in @layer base (lowest priority).
+ *   5. Leave Starlight overrides (--sl-font-*) unlayered so they beat
+ *      @layer starlight defaults.
+ */
+
+/* ═══ Font imports ═══ */
 @import "@fontsource-variable/outfit";
 @import "@fontsource-variable/jetbrains-mono";
-@import "tailwindcss";
+
+/* ═══ Cascade layer ordering (Starlight + Tailwind v4) ═══
+ *
+ * Precedence (lowest → highest):
+ *   base → starlight → theme → components → utilities → (unlayered)
+ *
+ * Starlight & expressive-code styles live in `starlight`, so they
+ * always override `base` resets. Unlayered CSS has the highest
+ * precedence of all.
+ */
+@layer base, starlight, theme, components, utilities;
+
+/* Starlight ↔ Tailwind v4 bridge */
+@import '@astrojs/starlight-tailwind';
+
+/* Tailwind layers — preflight provides the full CSS reset (link resets,
+   box-sizing, etc.) that landing page components rely on. It lives in
+   @layer base so Starlight/EC styles in higher layers always win. */
+@import 'tailwindcss/preflight.css' layer(base);
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* Animation utilities — imported unlayered because tw-animate-css
+   uses @utility directives that cannot be nested inside @layer. */
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
 
+/* ═══ Tailwind theme tokens ═══ */
 @theme inline {
+    /* ─ Typography ─ */
     --font-sans: "Outfit Variable", system-ui, sans-serif;
     --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
     --font-heading: var(--font-sans);
 
+    /*
+     * ─ Starlight color scales ─
+     *
+     * @astrojs/starlight-tailwind reads these numbered scales and
+     * generates the corresponding --sl-color-* variables. This
+     * replaces the manual --sl-color-gray-*, --sl-color-accent-*,
+     * --sl-color-white/black overrides that were previously needed.
+     *
+     * Pure neutral (0 chroma) to match the site's oklch palette.
+     */
+    --color-accent-50: oklch(0.985 0 0);
+    --color-accent-100: oklch(0.97 0 0);
+    --color-accent-200: oklch(0.922 0 0);
+    --color-accent-300: oklch(0.87 0 0);
+    --color-accent-400: oklch(0.708 0 0);
+    --color-accent-500: oklch(0.556 0 0);
+    --color-accent-600: oklch(0.47 0 0);
+    --color-accent-700: oklch(0.35 0 0);
+    --color-accent-800: oklch(0.269 0 0);
+    --color-accent-900: oklch(0.205 0 0);
+    --color-accent-950: oklch(0.145 0 0);
+
+    --color-gray-50: oklch(0.985 0 0);
+    --color-gray-100: oklch(0.97 0 0);
+    --color-gray-200: oklch(0.922 0 0);
+    --color-gray-300: oklch(0.87 0 0);
+    --color-gray-400: oklch(0.708 0 0);
+    --color-gray-500: oklch(0.556 0 0);
+    --color-gray-600: oklch(0.47 0 0);
+    --color-gray-700: oklch(0.35 0 0);
+    --color-gray-800: oklch(0.269 0 0);
+    --color-gray-900: oklch(0.205 0 0);
+    --color-gray-950: oklch(0.145 0 0);
+
+    /* ─ Site design tokens (shadcn/ui conventions) ─ */
     --color-background: var(--background);
     --color-foreground: var(--foreground);
     --color-card: var(--card);
@@ -41,6 +126,8 @@
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
+
+    /* ─ Radius tokens ─ */
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -50,6 +137,8 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+
+/* ═══ Raw design tokens — light (default) ═══ */
 :root {
     --radius: 0.625rem;
     --background: oklch(1 0 0);
@@ -84,7 +173,11 @@
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.708 0 0);
 }
-.dark {
+
+/* Dark tokens — both selectors to cover landing pages (.dark class) and
+   Starlight docs ([data-theme="dark"]). ThemeToggle.astro sets both. */
+.dark,
+[data-theme="dark"] {
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
@@ -117,6 +210,63 @@
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
 }
+
+/*
+ * Starlight theme overrides — unlayered so they beat @layer starlight
+ * AND the bridge's @layer utilities mapping.
+ *
+ * @astrojs/starlight-tailwind auto-maps --color-accent-* or --color-gray-*
+ * into --sl-color-*, but the mapping does not produce the right visual
+ * result for a monochrome theme (e.g. accent-600 → oklch(0.47) is too
+ * dark for link text). These manual overrides give precise control.
+ *
+ * Reference: https://starlight.astro.build/guides/css-and-tailwind/
+ */
+
+/* Starlight dark mode (default) */
+:root {
+    --sl-font: "Outfit Variable", system-ui, sans-serif;
+    --sl-font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+    --sl-color-white: hsl(0, 0%, 100%);
+    --sl-color-gray-1: hsl(0, 0%, 96%);
+    --sl-color-gray-2: hsl(0, 0%, 64%);
+    --sl-color-gray-3: hsl(0, 0%, 47%);
+    --sl-color-gray-4: hsl(0, 0%, 35%);
+    --sl-color-gray-5: hsl(0, 0%, 25%);
+    --sl-color-gray-6: hsl(0, 0%, 18%);
+    --sl-color-black: hsl(0, 0%, 11%);
+
+    --sl-color-accent-low: hsl(0, 0%, 25%);
+    --sl-color-accent: hsl(0, 0%, 64%);
+    --sl-color-accent-high: hsl(0, 0%, 96%);
+}
+
+/* Starlight light mode */
+:root[data-theme="light"],
+[data-theme="light"] ::backdrop {
+    --sl-color-white: hsl(0, 0%, 11%);
+    --sl-color-gray-1: hsl(0, 0%, 18%);
+    --sl-color-gray-2: hsl(0, 0%, 25%);
+    --sl-color-gray-3: hsl(0, 0%, 35%);
+    --sl-color-gray-4: hsl(0, 0%, 47%);
+    --sl-color-gray-5: hsl(0, 0%, 80%);
+    --sl-color-gray-6: hsl(0, 0%, 93%);
+    --sl-color-gray-7: hsl(0, 0%, 98%);
+    --sl-color-black: hsl(0, 0%, 100%);
+
+    --sl-color-accent-high: hsl(0, 0%, 11%);
+    --sl-color-accent: hsl(0, 0%, 18%);
+    --sl-color-accent-low: hsl(0, 0%, 93%);
+}
+
+
+/* ═══ Base reset layer ═══
+ *
+ * Lives in `@layer base` — the LOWEST priority layer. Starlight and
+ * expressive-code styles in the `starlight` layer (or unlayered)
+ * will always override these declarations.
+ */
 @layer base {
     * {
         @apply border-border outline-ring/50;
