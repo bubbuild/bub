@@ -130,10 +130,10 @@ const landingPageCopy: Record<LandingLocale, LandingPageCopy> = {
     },
     tapeModel: {
       eyebrow: 'Context model',
-      heading: 'Tape: the only source of truth.',
+      heading: 'Tape: a unified fact model.',
       description: [
-        "Context isn't kept in fragile session state. It's reconstructed from an append-only tape — a ledger of immutable records.",
-        'Corrections append new entries. They never overwrite. Every action is auditable, continuable, and safe to replay.',
+        "Context isn't accumulated in session state. It's reconstructed from an append-only tape — a sequence of immutable facts. Entries record what happened; anchors mark phase boundaries and carry structured state.",
+        'Corrections append new facts that supersede old ones — never overwrite. Views are assembled from anchors forward, not inherited wholesale. Every decision is auditable, replayable, and forkable.',
       ],
     },
     testimonials: {
@@ -227,10 +227,10 @@ const landingPageCopy: Record<LandingLocale, LandingPageCopy> = {
     },
     tapeModel: {
       eyebrow: '上下文模型',
-      heading: 'Tape：唯一的事实来源。',
+      heading: 'Tape：统一的事实模型。',
       description: [
-        '上下文不保存在脆弱的 session 状态中，而是从追加式 tape——一个不可变记录的账本——中重建。',
-        '修正会追加新条目，而非覆盖旧条目。每个操作都可审计、可续接、可安全重放。',
+        '上下文不积累在 session 状态中，而是从追加式 tape——不可变事实的序列——中重建。Entry 记录发生了什么；Anchor 标记阶段边界并携带结构化状态。',
+        '修正追加新事实来取代旧事实——从不覆盖。View 从 anchor 往后组装，而非整体继承。每一个决策都可审计、可重放、可 fork。',
       ],
     },
     testimonials: {

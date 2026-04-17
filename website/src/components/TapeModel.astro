@@ -19,131 +19,141 @@ type TapeEntry = {
 };
 
 const tapeEntries: TapeEntry[] = [
-  { ts: '14:32:01', kind: 'event',  op: 'user_msg',     key: 'e_101', value: '"explain hooks"' },
-  { ts: '14:32:02', kind: 'event',  op: 'build_prompt',  key: 'e_102', value: 'system + 12 msgs' },
-  { ts: '14:32:04', kind: 'event',  op: 'model_reply',   key: 'e_103', value: '"Hooks are pluggy…"' },
-  { ts: '14:32:04', kind: 'event',  op: 'tool_call',     key: 'e_104', value: 'read_docs("hooks")' },
-  { ts: '14:32:05', kind: 'event',  op: 'tool_result',   key: 'e_105', value: '{ok: true, lines: 47}' },
-  { ts: '14:32:06', kind: 'anchor', op: 'handoff',       key: 'a_001', value: 'phase: "correction", owner: "agent"' },
-  { ts: '14:32:06', kind: 'event',  op: 'correction',    key: 'e_106', value: 'supersedes e_103', corrects: 'e_103' },
-  { ts: '14:32:07', kind: 'event',  op: 'model_reply',   key: 'e_107', value: '"Updated: Hooks use pluggy…"' },
-  { ts: '14:32:08', kind: 'event',  op: 'save_state',    key: 'e_108', value: 'tape flushed ✓' },
+  { ts: '14:32:01', kind: 'event',  op: 'user_msg',    key: 'e_101', value: '"explain hooks"' },
+  { ts: '14:32:02', kind: 'event',  op: 'build_prompt', key: 'e_102', value: 'system + 12 msgs' },
+  { ts: '14:32:04', kind: 'event',  op: 'model_reply',  key: 'e_103', value: '"Hooks are pluggy…"' },
+  { ts: '14:32:04', kind: 'event',  op: 'tool_call',    key: 'e_104', value: 'read_docs("hooks")' },
+  { ts: '14:32:05', kind: 'event',  op: 'tool_result',  key: 'e_105', value: '{ok: true, lines: 47}' },
+  { ts: '14:32:06', kind: 'anchor', op: 'handoff',      key: 'a_001', value: 'phase → correction, owner: agent' },
+  { ts: '14:32:06', kind: 'event',  op: 'correction',   key: 'e_106', value: 'supersedes e_103', corrects: 'e_103' },
+  { ts: '14:32:07', kind: 'event',  op: 'model_reply',  key: 'e_107', value: '"Updated: Hooks use pluggy…"' },
+  { ts: '14:32:08', kind: 'event',  op: 'save_state',   key: 'e_108', value: 'tape flushed ✓' },
 ];
 
 const entryCount = tapeEntries.filter(e => e.kind === 'event').length;
 const anchorCount = tapeEntries.filter(e => e.kind === 'anchor').length;
+const COL_COUNT = 5;
 ---
 
 <section class="relative py-20 md:py-28" data-reveal aria-label="Tape context model">
   <div class="mx-auto max-w-6xl px-5 md:px-8">
     <div class="grid items-start gap-10 lg:grid-cols-2 lg:gap-16">
 
-      <!-- Tape visualization -->
+      <!-- ── Tape visualization ── -->
       <div class="relative order-2 lg:order-1" data-tape-viz>
         <div class="overflow-hidden border border-border bg-card">
+
           <!-- Title bar -->
           <div class="flex items-center justify-between border-b border-border px-4 py-2.5 sm:px-5 sm:py-3">
-            <div class="flex items-center gap-2">
-              <span class="tape-rec-dot inline-block h-2 w-2 bg-primary" aria-hidden="true"></span>
-              <span class="font-mono text-[0.65rem] text-muted-foreground/60">~/.bub/tapes/session_a1b2</span>
+            <span class="font-mono text-[0.65rem] text-muted-foreground/60">~/.bub/tapes/session_a1b2</span>
+            <div class="flex items-center gap-1.5">
+              <span class="tape-live-dot" aria-hidden="true"></span>
+              <span class="font-mono text-[0.55rem] uppercase tracking-wider text-emerald-500/80">live</span>
             </div>
-            <span class="font-mono text-[0.55rem] uppercase tracking-wider text-muted-foreground/40">live</span>
           </div>
 
-          <!-- Timeline entries -->
-          <div class="tape-entries relative px-4 py-3 sm:px-5 sm:py-4">
+          <!-- Tape log table -->
+          <div class="tape-scroll relative overflow-x-auto">
+            <div class="tape-scan" data-tape-scan aria-hidden="true"></div>
 
-            {tapeEntries.map((entry, i) => (
-              <div
-                class="tape-entry"
-                data-tape-entry={i}
-                data-kind={entry.kind}
-                data-corrects={entry.corrects ?? ''}
-                data-key={entry.key}
-              >
-                {/* Anchor: full-width separator */}
-                {entry.kind === 'anchor' ? (
-                  <div class="tape-anchor relative my-3 flex items-center gap-3 first:mt-0">
-                    <div class="h-px flex-1 bg-primary/30"></div>
-                    <div class="flex items-center gap-2 border border-primary/40 bg-primary/8 px-3 py-1.5">
-                      <Icon name="anchor" size={11} class="text-primary" aria-hidden="true" />
-                      <span class="font-mono text-[0.62rem] font-semibold uppercase tracking-wider text-primary">
-                        {entry.op}
-                      </span>
-                      <span class="hidden font-mono text-[0.58rem] text-primary/60 sm:inline">
-                        {entry.value}
-                      </span>
-                    </div>
-                    <div class="h-px flex-1 bg-primary/30"></div>
-                  </div>
-                ) : (
-                  <div class:list={[
-                    'tape-event group relative flex items-start gap-3 py-1.5 sm:gap-4',
-                    entry.corrects ? 'tape-correction' : '',
-                  ]}>
-                    {/* Timeline spine */}
-                    <div class="relative flex flex-col items-center">
-                      <div class:list={[
-                        'tape-dot z-10 mt-1.5 h-2 w-2 shrink-0 border',
-                        entry.corrects
-                          ? 'border-primary bg-primary'
-                          : 'border-muted-foreground/40 bg-background',
-                      ]}></div>
-                      {i < tapeEntries.length - 1 && (
-                        <div class="tape-spine absolute top-3.5 h-[calc(100%+0.25rem)] w-px bg-border"></div>
-                      )}
-                    </div>
-
-                    {/* Content */}
-                    <div class="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden sm:gap-3">
-                      <span class="hidden shrink-0 font-mono text-[0.58rem] tabular-nums text-muted-foreground/40 sm:inline">{entry.ts}</span>
-                      <span class:list={[
-                        'shrink-0 font-mono text-[0.65rem] font-medium',
-                        entry.corrects ? 'text-primary' : 'text-foreground',
-                      ]}>
-                        {entry.op}
-                      </span>
-                      <span class="tape-key shrink-0 font-mono text-[0.58rem] text-muted-foreground/50">
-                        {entry.key}
-                      </span>
-                      <span class="truncate font-mono text-[0.6rem] text-muted-foreground">
-                        {entry.corrects && (
-                          <span class="tape-correction-link mr-1 border-b border-dashed border-primary/40 font-mono text-[0.58rem] text-primary/70">
-                            ← {entry.corrects}
+            <table class="tape-table w-full" role="log" aria-label="Tape entries">
+              <colgroup>
+                <col class="tape-col-time" />
+                <col class="tape-col-dot" />
+                <col class="tape-col-op" />
+                <col class="tape-col-key" />
+                <col />
+              </colgroup>
+              <thead>
+                <tr data-tape-header>
+                  <th scope="col" class="tape-th tape-th--time">time</th>
+                  <th scope="col" class="tape-th tape-th--dot" aria-label="kind"></th>
+                  <th scope="col" class="tape-th">op</th>
+                  <th scope="col" class="tape-th">key</th>
+                  <th scope="col" class="tape-th">payload</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tapeEntries.map((entry, i) => (
+                  entry.kind === 'anchor' ? (
+                    <tr
+                      class="tape-row tape-anchor-row"
+                      data-tape-row={i}
+                      data-kind="anchor"
+                    >
+                      <td colspan={COL_COUNT} class="tape-anchor-cell">
+                        <div class="tape-anchor-inner">
+                          <span class="tape-anchor-line" aria-hidden="true"></span>
+                          <span class="tape-anchor-badge">
+                            <Icon name="anchor" size={10} class="text-primary" aria-hidden="true" />
+                            <span class="tape-anchor-op">{entry.op}</span>
+                            <span class="tape-anchor-val">{entry.value}</span>
                           </span>
+                          <span class="tape-anchor-line" aria-hidden="true"></span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr
+                      class:list={['tape-row', entry.corrects ? 'tape-correction-row' : '']}
+                      data-tape-row={i}
+                      data-kind="event"
+                      data-key={entry.key}
+                      data-corrects={entry.corrects ?? ''}
+                    >
+                      <td class="tape-td tape-td--time">{entry.ts}</td>
+                      <td class="tape-td tape-td--dot">
+                        <span class:list={['tape-dot', entry.corrects && 'tape-dot--correction']} aria-hidden="true" />
+                      </td>
+                      <td class:list={['tape-td tape-td--op', entry.corrects && 'text-primary']}>
+                        {entry.op}
+                      </td>
+                      <td class="tape-td tape-td--key">{entry.key}</td>
+                      <td class="tape-td tape-td--payload">
+                        {entry.corrects && (
+                          <span class="tape-link">← {entry.corrects}</span>
                         )}
-                        {entry.value}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
+                        <span>{entry.value}</span>
+                      </td>
+                    </tr>
+                  )
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-            {/* Live cursor */}
-            <div class="tape-cursor flex items-center gap-3 pt-2" data-tape-cursor>
-              <div class="relative flex flex-col items-center">
-                <div class="tape-cursor-block h-2 w-2 bg-primary"></div>
-              </div>
-              <span class="font-mono text-[0.55rem] text-primary/50">awaiting next entry…</span>
+          <!-- Live cursor -->
+          <div class="tape-cursor" data-tape-cursor>
+            <span class="tape-cursor-line" aria-hidden="true"></span>
+            <span class="tape-cursor-text">awaiting next entry…</span>
+          </div>
+
+          <!-- View assembly indicator -->
+          <div class="tape-view" data-tape-view>
+            <div class="tape-view-left">
+              <Icon name="layers" size={11} class="text-primary/70" aria-hidden="true" />
+              <span class="tape-view-label">view assembled</span>
+            </div>
+            <div class="tape-view-stats">
+              <span>{entryCount} facts</span>
+              <span class="tape-view-sep">·</span>
+              <span>{anchorCount} anchor</span>
+              <span class="tape-view-arrow">→</span>
+              <span class="tape-view-tokens">4.2k tokens</span>
             </div>
           </div>
 
-          {/* Status bar */}
-          <div class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5 sm:gap-3 sm:px-5 sm:py-3">
-            <span class="inline-flex items-center gap-1.5 bg-primary/10 px-2 py-0.5 font-mono text-[0.58rem] font-bold text-primary">
-              {entryCount + anchorCount} entries
-            </span>
-            <span class="inline-flex items-center gap-1.5 font-mono text-[0.58rem] text-muted-foreground/60">
-              {anchorCount} anchor
-            </span>
-            <span class="font-mono text-[0.55rem] text-muted-foreground/40">·</span>
-            <span class="font-mono text-[0.55rem] text-muted-foreground/40">append-only</span>
+          <!-- Status bar -->
+          <div class="tape-status">
+            <span class="tape-status-badge">{entryCount + anchorCount} entries</span>
+            <span class="tape-status-info">{anchorCount} anchor</span>
+            <span class="tape-status-sep">·</span>
+            <span class="tape-status-sep">append-only</span>
           </div>
         </div>
       </div>
 
-      <!-- Text -->
+      <!-- ── Text content ── -->
       <div class="order-1 lg:order-2">
         <p class="mb-4 font-mono text-xs uppercase tracking-widest text-muted-foreground">
           {eyebrow}
@@ -172,46 +182,283 @@ const anchorCount = tapeEntries.filter(e => e.kind === 'anchor').length;
 </section>
 
 <style>
-  /* Initial hidden state for entries — motion will reveal them */
-  .tape-entry {
-    opacity: 0;
-    transform: translateY(8px);
+  /* ── Table layout ── */
+  .tape-table {
+    border-collapse: collapse;
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.62rem;
+    line-height: 1.5;
   }
+  .tape-col-time { width: 66px; }
+  .tape-col-dot  { width: 18px; }
+  .tape-col-op   { width: 104px; }
+  .tape-col-key  { width: 50px; }
+
+  @media (max-width: 639px) {
+    .tape-col-time,
+    .tape-th--time,
+    .tape-td--time { display: none; }
+  }
+
+  /* ── Header ── */
+  .tape-th {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.5rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    text-align: left;
+    white-space: nowrap;
+    color: var(--muted-foreground);
+    opacity: 0.4;
+    border-bottom: 1px solid var(--border);
+  }
+  [data-tape-header] { opacity: 0; }
+
+  /* ── Body cells ── */
+  .tape-td {
+    padding: 0.38rem 0.65rem;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .tape-td--time {
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-foreground);
+    opacity: 0.35;
+  }
+  .tape-td--dot {
+    padding-left: 0;
+    padding-right: 0;
+    text-align: center;
+  }
+  .tape-dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--muted-foreground);
+    opacity: 0.25;
+    vertical-align: middle;
+  }
+  .tape-dot--correction {
+    background: var(--primary);
+    opacity: 1;
+    box-shadow: 0 0 6px oklch(0.7 0.15 250 / 0.4);
+  }
+  .tape-td--op {
+    font-weight: 500;
+    color: var(--foreground);
+  }
+  .tape-td--key {
+    font-size: 0.56rem;
+    color: var(--muted-foreground);
+    opacity: 0.4;
+  }
+  .tape-td--payload {
+    color: var(--muted-foreground);
+    opacity: 0.7;
+    max-width: 170px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tape-link {
+    color: var(--primary);
+    opacity: 0.7;
+    margin-right: 0.25rem;
+    border-bottom: 1px dashed oklch(0.7 0.15 250 / 0.35);
+    padding-bottom: 1px;
+    font-size: 0.56rem;
+  }
+
+  /* ── Anchor row ── */
+  .tape-anchor-cell { padding: 0.55rem 0.65rem; }
+  .tape-anchor-inner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .tape-anchor-line {
+    flex: 1;
+    height: 1px;
+    background: oklch(0.7 0.15 250 / 0.2);
+  }
+  .tape-anchor-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid oklch(0.7 0.15 250 / 0.3);
+    background: oklch(0.7 0.15 250 / 0.06);
+    transition: box-shadow 0.4s ease;
+  }
+  .tape-anchor-op {
+    font-family: ui-monospace, monospace;
+    font-size: 0.58rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--primary);
+  }
+  .tape-anchor-val {
+    font-family: ui-monospace, monospace;
+    font-size: 0.5rem;
+    color: var(--primary);
+    opacity: 0.5;
+  }
+
+  /* ── Scan line ── */
+  .tape-scan {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    top: 0;
+    z-index: 10;
+    pointer-events: none;
+    opacity: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      oklch(0.7 0.15 250 / 0.5) 20%,
+      oklch(0.7 0.15 250) 50%,
+      oklch(0.7 0.15 250 / 0.5) 80%,
+      transparent 100%
+    );
+    box-shadow: 0 0 8px oklch(0.7 0.15 250 / 0.25);
+  }
+
+  /* ── LIVE indicator (green) ── */
+  .tape-live-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: oklch(0.72 0.17 155);
+    box-shadow: 0 0 6px oklch(0.72 0.17 155 / 0.5);
+    animation: live-pulse 2s ease-in-out infinite;
+  }
+  @keyframes live-pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 6px oklch(0.72 0.17 155 / 0.5); }
+    50% { opacity: 0.4; box-shadow: 0 0 2px oklch(0.72 0.17 155 / 0.15); }
+  }
+
+  /* ── Cursor (terminal line style) ── */
   .tape-cursor {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.65rem;
     opacity: 0;
   }
-
-  /* Rec dot pulse */
-  .tape-rec-dot {
-    animation: rec-pulse 2s ease-in-out infinite;
+  .tape-cursor-line {
+    display: inline-block;
+    width: 1.5px;
+    height: 13px;
+    background: var(--primary);
+    animation: cursor-blink 1s ease-in-out infinite;
   }
-  @keyframes rec-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.2; }
-  }
-
-  /* Cursor blink */
-  .tape-cursor-block {
-    animation: cursor-blink 1.2s step-end infinite;
+  .tape-cursor-text {
+    font-family: ui-monospace, monospace;
+    font-size: 0.5rem;
+    color: var(--primary);
+    opacity: 0.4;
   }
   @keyframes cursor-blink {
     0%, 100% { opacity: 1; }
     50% { opacity: 0; }
   }
 
-  /* Anchor glow on entrance */
-  .tape-anchor-glow {
-    box-shadow: 0 0 12px oklch(0.7 0.15 250 / 0.25);
+  /* ── View assembly ── */
+  .tape-view {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-top: 1px dashed oklch(0.7 0.15 250 / 0.15);
+    background: oklch(0.7 0.15 250 / 0.03);
+    font-family: ui-monospace, monospace;
+    font-size: 0.55rem;
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  .tape-view-left {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .tape-view-label {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--primary);
+    opacity: 0.7;
+  }
+  .tape-view-stats {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--muted-foreground);
+    opacity: 0.55;
+  }
+  .tape-view-sep,
+  .tape-view-arrow { opacity: 0.4; }
+  .tape-view-tokens { color: var(--primary); opacity: 0.8; }
+
+  /* ── Status bar ── */
+  .tape-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.75rem;
+    border-top: 1px solid var(--border);
+    font-family: ui-monospace, monospace;
+  }
+  .tape-status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.4rem;
+    background: oklch(0.7 0.15 250 / 0.1);
+    font-size: 0.56rem;
+    font-weight: 700;
+    color: var(--primary);
+  }
+  .tape-status-info {
+    font-size: 0.56rem;
+    color: var(--muted-foreground);
+    opacity: 0.55;
+  }
+  .tape-status-sep {
+    font-size: 0.52rem;
+    color: var(--muted-foreground);
+    opacity: 0.35;
   }
 
-  /* Correction highlight */
-  .tape-correction-highlight {
-    background-color: oklch(0.7 0.15 250 / 0.06);
+  /* ── Row initial hidden state ── */
+  .tape-row {
+    opacity: 0;
+    transform: translateY(8px);
   }
 
-  /* Spine connector for corrections */
-  .tape-correction .tape-dot {
-    box-shadow: 0 0 0 2px oklch(0.7 0.15 250 / 0.2);
+  /* ── Dynamic classes (applied via JS) ── */
+  .tape-row-superseded .tape-td--payload span:last-child {
+    text-decoration: line-through;
+    text-decoration-color: oklch(0.7 0.15 250 / 0.4);
+    opacity: 0.3;
+    transition: opacity 0.4s ease, text-decoration-color 0.4s ease;
+  }
+  .tape-row-superseded .tape-td--op {
+    opacity: 0.3;
+    transition: opacity 0.4s ease;
+  }
+  .tape-anchor-glow .tape-anchor-badge {
+    box-shadow: 0 0 16px oklch(0.7 0.15 250 / 0.25);
+  }
+  .tape-row-highlight {
+    background: oklch(0.7 0.15 250 / 0.06);
+    transition: background 0.4s ease;
   }
 </style>
 
@@ -222,81 +469,130 @@ const anchorCount = tapeEntries.filter(e => e.kind === 'anchor').length;
     const viz = document.querySelector('[data-tape-viz]');
     if (!viz) return;
 
-    const entries = Array.from(
-      viz.querySelectorAll('[data-tape-entry]')
-    ) as HTMLElement[];
+    const header = viz.querySelector('[data-tape-header]') as HTMLElement | null;
+    const rows = Array.from(viz.querySelectorAll('[data-tape-row]')) as HTMLElement[];
+    const scan = viz.querySelector('[data-tape-scan]') as HTMLElement | null;
+    const viewEl = viz.querySelector('[data-tape-view]') as HTMLElement | null;
     const cursor = viz.querySelector('[data-tape-cursor]') as HTMLElement | null;
 
-    if (!entries.length) return;
+    if (!rows.length) return;
 
-    let cleanup: (() => void) | undefined;
+    const GAP = 0.15;
+    const BASE = 0.15;
+    const ENTRANCE_END = BASE + rows.length * GAP + 0.4;
+    const HOLD = 3.5;
+    const FADE = 0.45;
+    const PAUSE = 1;
 
-    inView(viz, () => {
-      // Staggered entrance for all entries
-      animate(
-        entries,
-        { opacity: [0, 1], y: [12, 0] },
-        {
-          delay: stagger(0.18, { start: 0.15 }),
-          duration: 0.45,
-          ease: [0.22, 1, 0.36, 1],
+    let active = false;
+    let timers: number[] = [];
+
+    function sched(fn: () => void, ms: number) {
+      timers.push(window.setTimeout(() => { if (active) fn(); }, ms));
+    }
+
+    function clearTimers() {
+      timers.forEach(clearTimeout);
+      timers = [];
+    }
+
+    function reset() {
+      if (header) header.style.opacity = '0';
+      rows.forEach(r => {
+        r.style.opacity = '0';
+        r.style.transform = 'translateY(8px)';
+        r.classList.remove('tape-row-superseded', 'tape-row-highlight', 'tape-anchor-glow');
+      });
+      if (viewEl) {
+        viewEl.style.opacity = '0';
+        viewEl.style.transform = 'translateY(6px)';
+      }
+      if (cursor) cursor.style.opacity = '0';
+      if (scan) {
+        scan.style.opacity = '0';
+        scan.style.transform = 'translateY(0)';
+      }
+    }
+
+    function cycle() {
+      if (!active) return;
+      clearTimers();
+      reset();
+
+      // ─ Phase 1: header
+      sched(() => {
+        if (header) animate(header, { opacity: [0, 1] }, { duration: 0.3, ease: 'ease-out' });
+      }, 60);
+
+      // ─ Phase 2: staggered rows
+      sched(() => {
+        animate(
+          rows,
+          { opacity: [0, 1], y: [10, 0] },
+          { delay: stagger(GAP, { start: BASE }), duration: 0.4, ease: [0.22, 1, 0.36, 1] }
+        );
+      }, 80);
+
+      // ─ Phase 3: per-row effects
+      rows.forEach((row, i) => {
+        const ms = (BASE + i * GAP) * 1000 + 80;
+
+        if (row.dataset.kind === 'anchor') {
+          sched(() => {
+            const badge = row.querySelector('.tape-anchor-badge') as HTMLElement | null;
+            if (badge) {
+              animate(badge, { scale: [0.85, 1.05, 1] }, { duration: 0.55, ease: [0.22, 1, 0.36, 1] });
+              row.classList.add('tape-anchor-glow');
+              sched(() => row.classList.remove('tape-anchor-glow'), 1500);
+            }
+          }, ms);
         }
-      );
 
-      // Anchor entries get extra scale pop
-      entries.forEach((el, i) => {
-        if (el.getAttribute('data-kind') === 'anchor') {
-          const anchorInner = el.querySelector('.tape-anchor > div:nth-child(2)') as HTMLElement | null;
-          if (anchorInner) {
-            animate(
-              anchorInner,
-              { scale: [0.85, 1.04, 1] },
-              {
-                delay: 0.15 + i * 0.18,
-                duration: 0.55,
-                ease: [0.22, 1, 0.36, 1],
-              }
-            );
-            anchorInner.classList.add('tape-anchor-glow');
-            setTimeout(() => anchorInner.classList.remove('tape-anchor-glow'), 1500 + i * 180);
-          }
-        }
-
-        // Corrections get a brief highlight flash
-        if (el.getAttribute('data-corrects')) {
-          const eventDiv = el.querySelector('.tape-event') as HTMLElement | null;
-          if (eventDiv) {
-            const entryDelay = (0.15 + i * 0.18) * 1000;
-            setTimeout(() => {
-              eventDiv.classList.add('tape-correction-highlight');
-              setTimeout(() => eventDiv.classList.remove('tape-correction-highlight'), 1200);
-            }, entryDelay + 300);
-          }
+        if (row.dataset.corrects) {
+          sched(() => {
+            const key = row.dataset.corrects!;
+            const superseded = viz.querySelector(`[data-key="${key}"]`) as HTMLElement | null;
+            if (superseded) superseded.classList.add('tape-row-superseded');
+            row.classList.add('tape-row-highlight');
+            sched(() => row.classList.remove('tape-row-highlight'), 1400);
+          }, ms + 200);
         }
       });
 
-      // Cursor fades in after all entries
-      if (cursor) {
-        animate(
-          cursor,
-          { opacity: [0, 1] },
-          {
-            delay: 0.15 + entries.length * 0.18 + 0.2,
-            duration: 0.4,
-            ease: 'ease-out',
-          }
-        );
-      }
+      // ─ Phase 4: scan line
+      sched(() => {
+        if (!scan) return;
+        const h = scan.parentElement?.scrollHeight ?? 300;
+        animate(scan, { opacity: [0, 0.7, 0.7, 0], y: [0, 0, h, h] }, { duration: 1.3, ease: [0.4, 0, 0.2, 1] });
+      }, (ENTRANCE_END + 0.15) * 1000);
 
-      // Return cleanup to reset on exit
-      cleanup = () => {
-        entries.forEach((el) => {
-          el.style.opacity = '0';
-          el.style.transform = 'translateY(8px)';
-        });
-        if (cursor) cursor.style.opacity = '0';
+      // ─ Phase 5: cursor
+      sched(() => {
+        if (cursor) animate(cursor, { opacity: [0, 1] }, { duration: 0.4, ease: 'ease-out' });
+      }, (ENTRANCE_END + 0.5) * 1000);
+
+      // ─ Phase 6: view assembly
+      sched(() => {
+        if (viewEl) animate(viewEl, { opacity: [0, 1], y: [6, 0] }, { duration: 0.5, ease: [0.22, 1, 0.36, 1] });
+      }, (ENTRANCE_END + 1.2) * 1000);
+
+      // ─ Phase 7: hold → fade out → loop
+      const fadeAt = (ENTRANCE_END + 1.8 + HOLD) * 1000;
+      sched(() => {
+        const all = [header, ...rows, viewEl, cursor].filter(Boolean) as HTMLElement[];
+        animate(all, { opacity: 0 }, { duration: FADE, ease: 'ease-in' });
+        sched(() => cycle(), (FADE + PAUSE) * 1000);
+      }, fadeAt);
+    }
+
+    inView(viz, () => {
+      active = true;
+      cycle();
+      return () => {
+        active = false;
+        clearTimers();
+        reset();
       };
-      return cleanup;
     }, { margin: '-10% 0px' });
   }
 
