@@ -20,6 +20,7 @@ if (!locale) {
 
 const t = useTranslations(locale);
 const pageData = getLandingPageData(locale);
+const ogImage = locale === 'en' ? '/og/index.png' : `/og/${locale}/index.png`;
 
 // Load testimonial items from the userwall content collection.
 const userwallEntries = await getCollection('userwall');
@@ -35,6 +36,7 @@ const testimonials = {
 <LandingLayout
   title={t('site.title')}
   description={t('site.description')}
+  ogImage={ogImage}
   hero={pageData.hero}
   features={pageData.features}
   hookIntro={pageData.hookIntro}

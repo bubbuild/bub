@@ -5,13 +5,31 @@
  * Images are available at `/og/<route>.png`, e.g. `/og/index.png`
  * or `/og/posts/en/socialized-evaluation.png`.
  */
-import { OGImageRoute } from 'astro-og-canvas';
-import { collectPages, styleLightGradient } from '@/lib/og';
+import type { APIRoute, GetStaticPaths } from 'astro';
+import { collectPages, loadFonts, generateOgImage } from '@/lib/og';
 
 const pages = await collectPages();
 
-export const { getStaticPaths, GET } = await OGImageRoute({
-  param: 'route',
-  pages,
-  getImageOptions: styleLightGradient,
-});
+const allText = Object.values(pages)
+  .map((p) => `${p.title} ${p.description}`)
+  .join('');
+
+const fonts = loadFonts(allText);
+
+export const getStaticPaths: GetStaticPaths = () =>
+  Object.keys(pages).map((route) => ({ params: { route: `${route}.png` } }));
+
+export const GET: APIRoute = async ({ params }) => {
+  const route = params.route!.replace(/\.png$/, '');
+  const page = pages[route];
+
+  if (!page) return new Response('Not found', { status: 404 });
+
+  const png = await generateOgImage(page, fonts);
+  return new Response(png, {
+    headers: {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    },
+  });
+};

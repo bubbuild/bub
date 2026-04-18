@@ -56,7 +56,7 @@ export const ui = {
 
   'zh-cn': {
     // Site meta
-    'site.title': 'Bub | 与人并行的轻量 agent 运行时',
+    'site.title': 'Bub | 与 Human 同在的轻量级 Agent 运行时',
     'site.description': 'Bub 是一个为真实对话打造的轻量、hook 驱动的 agent 运行时。',
 
     // Nav
