@@ -1,4 +1,8 @@
 ---
+import { Image } from 'astro:assets';
+import logoDark from '@/assets/bub-logo-dark.png';
+import logoLight from '@/assets/bub-logo.png';
+
 interface Props {
   alt?: string;
   width: number;
@@ -16,19 +20,21 @@ const {
 } = Astro.props;
 ---
 
-<img
-  src="/bub-logo.png"
+<Image
+  src={logoLight}
   alt={alt}
   width={width}
   height={height}
   loading={loading}
+  densities={[2]}
   class:list={[className, 'dark:hidden']}
 />
-<img
-  src="/bub-logo-dark.png"
+<Image
+  src={logoDark}
   alt={alt}
   width={width}
   height={height}
   loading={loading}
+  densities={[2]}
   class:list={[className, 'hidden dark:block']}
 />

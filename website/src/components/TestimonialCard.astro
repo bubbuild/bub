@@ -21,7 +21,14 @@ const { testimonial, accentClass } = Astro.props;
   <p class="text-[0.84rem] leading-relaxed text-foreground/85">{testimonial.text}</p>
   <div class="mt-3 flex items-center gap-2.5">
     {testimonial.avatar ? (
-      <img src={testimonial.avatar} alt={testimonial.name} class="h-7 w-7 shrink-0 object-cover" loading="lazy" width="28" height="28" />
+      <img
+        src={testimonial.avatar}
+        alt={testimonial.name}
+        width="28"
+        height="28"
+        loading="lazy"
+        class="h-7 w-7 shrink-0 object-cover"
+      />
     ) : (
       <div class="flex h-7 w-7 shrink-0 items-center justify-center bg-secondary font-mono text-[0.6rem] font-bold text-foreground">
         {testimonial.name.charAt(0)}
