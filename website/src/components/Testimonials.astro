@@ -1,6 +1,6 @@
 ---
-import SectionHeading from './ui/SectionHeading.astro';
-import TestimonialCard from './TestimonialCard.astro';
+import TestimonialCard from '@/components/TestimonialCard.astro';
+import SectionHeading from '@/components/ui/SectionHeading.astro';
 
 type TestimonialItem = {
   name: string;
@@ -16,11 +16,13 @@ interface Props {
   testimonials?: TestimonialItem[];
 }
 
-const { eyebrow, heading, testimonials = [] } = Astro.props;
+type ColumnConfig = {
+  className: string;
+  directionClass: string;
+  offset: number;
+};
 
-const col1 = testimonials.filter((_, i) => i % 3 === 0);
-const col2 = testimonials.filter((_, i) => i % 3 === 1);
-const col3 = testimonials.filter((_, i) => i % 3 === 2);
+const { eyebrow, heading, testimonials = [] }: Props = Astro.props;
 
 const colorAccents = [
   'border-l-chart-1',
@@ -31,23 +33,16 @@ const colorAccents = [
   'border-l-chart-1',
 ];
 
-const columns = [
-  {
-    items: col1,
-    className: 'testimonial-col testimonial-col-up min-w-0',
-    offset: 0,
-  },
-  {
-    items: col2,
-    className: 'testimonial-col testimonial-col-down hidden sm:block',
-    offset: 2,
-  },
-  {
-    items: col3,
-    className: 'testimonial-col testimonial-col-up-slow hidden lg:block',
-    offset: 4,
-  },
+const columnConfigs: ColumnConfig[] = [
+  { className: 'testimonial-col min-w-0', directionClass: 'testimonial-col-up', offset: 0 },
+  { className: 'testimonial-col hidden sm:block', directionClass: 'testimonial-col-down', offset: 2 },
+  { className: 'testimonial-col hidden lg:block', directionClass: 'testimonial-col-up-slow', offset: 4 },
 ];
+
+const columns = columnConfigs.map((config, columnIndex) => ({
+  ...config,
+  items: testimonials.filter((_, testimonialIndex) => testimonialIndex % columnConfigs.length === columnIndex),
+}));
 ---
 
 <section class="relative py-20 md:py-28" data-reveal aria-label="Testimonials">
@@ -60,7 +55,7 @@ const columns = [
 
       <div class="testimonials-columns grid h-[320px] gap-3 overflow-hidden sm:h-[380px] sm:grid-cols-2 lg:h-[440px] lg:grid-cols-3">
         {columns.map((column) => (
-          <div class={column.className}>
+          <div class:list={[column.className, column.directionClass]}>
             <div class="flex flex-col gap-3">
               {[...column.items, ...column.items].map((testimonial, i) => (
                 <TestimonialCard
@@ -116,18 +111,37 @@ const columns = [
 <script>
   import { inView } from 'motion';
 
+  type TestimonialsWindow = Window & {
+    __bubTestimonialsCleanup?: () => void;
+    __bubTestimonialsPageLoadBound?: boolean;
+  };
+
   function initTestimonialsViewport() {
+    const testimonialsWindow = window as TestimonialsWindow;
+    testimonialsWindow.__bubTestimonialsCleanup?.();
+    testimonialsWindow.__bubTestimonialsCleanup = undefined;
+
     const wrapper = document.querySelector('[data-testimonials]') as HTMLElement | null;
     if (!wrapper) return;
 
-    inView(wrapper, () => {
+    const stopInView = inView(wrapper, () => {
       wrapper.setAttribute('data-testimonials-playing', '');
       return () => {
         wrapper.removeAttribute('data-testimonials-playing');
       };
     }, { margin: '-5% 0px' });
+
+    testimonialsWindow.__bubTestimonialsCleanup = () => {
+      stopInView();
+      wrapper.removeAttribute('data-testimonials-playing');
+    };
   }
 
+  const testimonialsWindow = window as TestimonialsWindow;
+
   initTestimonialsViewport();
-  document.addEventListener('astro:page-load', initTestimonialsViewport);
+  if (!testimonialsWindow.__bubTestimonialsPageLoadBound) {
+    document.addEventListener('astro:page-load', initTestimonialsViewport);
+    testimonialsWindow.__bubTestimonialsPageLoadBound = true;
+  }
 </script>

@@ -1,4 +1,6 @@
 ---
+import SectionHeading from '@/components/ui/SectionHeading.astro';
+
 interface Props {
   eyebrow?: string;
   heading?: string;
@@ -6,7 +8,7 @@ interface Props {
   hookStages?: { name: string; note: string }[];
 }
 
-const { eyebrow, heading, description = [], hookStages = [] } = Astro.props;
+const { eyebrow, heading, description = [], hookStages = [] }: Props = Astro.props;
 
 /* ── SVG coordinate system ── */
 const SPACING = 62;
@@ -22,8 +24,8 @@ const nodeCoords = hookStages.map((_, i) => ({
 }));
 
 /* Build serpentine SVG path (with hidden leader / trailer for seamless loop) */
-const first = nodeCoords[0];
-const last  = nodeCoords[nodeCoords.length - 1];
+const first = nodeCoords[0] ?? { x: RX, y: FIRST_Y };
+const last = nodeCoords[nodeCoords.length - 1] ?? first;
 const segs: string[] = [
   `M ${first.x} ${-44}`,
   `C ${first.x} ${first.y - 20}, ${first.x} ${first.y - 8}, ${first.x} ${first.y}`,
@@ -49,17 +51,13 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 
       <!-- Left: intro text -->
       <div class="md:w-[42%] md:shrink-0">
-        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-muted-foreground">
-          {eyebrow}
-        </p>
-        <h2 class="text-[clamp(1.8rem,4vw,2.75rem)] font-extrabold leading-[1.1] tracking-tight text-foreground">
-          {heading}
-        </h2>
-        <div class="mt-5 space-y-3">
-          {description.map((p) => (
-            <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{p}</p>
-          ))}
-        </div>
+        <SectionHeading
+          eyebrow={eyebrow}
+          heading={heading}
+          descriptions={description}
+          descriptionsClass="mt-5"
+          class="mb-0 max-w-none"
+        />
       </div>
 
       <!-- Right: serpentine flow diagram -->
@@ -299,6 +297,11 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 <script>
   import { animate, inView } from 'motion';
 
+  type HookFlowWindow = Window & {
+    __bubHookFlowCleanup?: () => void;
+    __bubHookFlowPageLoadBound?: boolean;
+  };
+
   /* Layout constants (mirror Astro frontmatter) */
   const RX = 305;
   const LX = 95;
@@ -319,6 +322,10 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
   }
 
   function initHookFlow() {
+    const hookFlowWindow = window as HookFlowWindow;
+    hookFlowWindow.__bubHookFlowCleanup?.();
+    hookFlowWindow.__bubHookFlowCleanup = undefined;
+
     const root = document.querySelector('[data-hook-flow]') as HTMLElement | null;
     if (!root) return;
 
@@ -414,15 +421,17 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
       };
     }
 
-    mql.addEventListener('change', () => {
+    const handleMediaChange = () => {
       const wasRunning = stopAnim !== null;
       stopAnim?.();
       stopAnim = null;
       currentMobile = null;
       if (wasRunning) setupAnimation(mql.matches);
-    });
+    };
 
-    inView(root, () => {
+    mql.addEventListener('change', handleMediaChange);
+
+    const stopInView = inView(root, () => {
       setupAnimation(mql.matches);
       return () => {
         stopAnim?.();
@@ -430,8 +439,21 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
         currentMobile = null;
       };
     }, { margin: '-8% 0px' });
+
+    hookFlowWindow.__bubHookFlowCleanup = () => {
+      stopInView();
+      mql.removeEventListener('change', handleMediaChange);
+      stopAnim?.();
+      stopAnim = null;
+      currentMobile = null;
+    };
   }
 
+  const hookFlowWindow = window as HookFlowWindow;
+
   initHookFlow();
-  document.addEventListener('astro:page-load', initHookFlow);
+  if (!hookFlowWindow.__bubHookFlowPageLoadBound) {
+    document.addEventListener('astro:page-load', initHookFlow);
+    hookFlowWindow.__bubHookFlowPageLoadBound = true;
+  }
 </script>

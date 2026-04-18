@@ -1,18 +1,20 @@
 ---
-import PostListLayout from '../../../layouts/PostListLayout.astro';
-import PostCard from '../../../components/PostCard.astro';
 import { getCollection } from 'astro:content';
-import { useTranslations } from '../../../i18n/utils';
-import { languages, defaultLang, type Locale } from '../../../i18n/ui';
+import {
+  getPostSlug,
+  getPostsHref,
+  getStaticLocalePaths,
+  useTranslations,
+} from '@/i18n/utils';
+import PostCard from '@/components/PostCard.astro';
+import PostListLayout from '@/layouts/PostListLayout.astro';
+import type { Locale } from '@/i18n/ui';
 
 export function getStaticPaths() {
-  return Object.keys(languages).map((lang) => ({
-    params: { locale: lang === defaultLang ? undefined : lang },
-    props: { locale: lang as Locale },
-  }));
+  return getStaticLocalePaths();
 }
 
-const { locale } = Astro.props;
+const { locale } = Astro.props as { locale: Locale };
 const t = useTranslations(locale);
 
 const allPosts = await getCollection('posts');
@@ -20,8 +22,7 @@ const posts = allPosts
   .filter((post) => post.data.locale === locale)
   .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
 
-const prefix = locale === defaultLang ? '' : `/${locale}`;
-const canonicalUrl = `https://bub.build${prefix}/posts/`;
+const canonicalUrl = `https://bub.build${getPostsHref(locale)}`;
 ---
 
 <PostListLayout
@@ -36,7 +37,7 @@ const canonicalUrl = `https://bub.build${prefix}/posts/`;
 
   <div class="grid gap-px border border-border bg-border sm:grid-cols-2">
     {posts.map((post, i) => {
-      const slug = post.id.replace(new RegExp(`^${locale}/`), '');
+      const slug = getPostSlug(post.id, locale);
       return (
         <PostCard
           title={post.data.title}

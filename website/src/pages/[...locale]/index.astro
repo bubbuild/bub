@@ -2,24 +2,23 @@
 export const prerender = false;
 
 import { getCollection } from 'astro:content';
-import LandingLayout from '../../layouts/LandingLayout.astro';
-import { useTranslations } from '../../i18n/utils';
-import { getLandingPageData, type LandingLocale } from '../../data/landing-page';
-import { languages, defaultLang, type Locale } from '../../i18n/ui';
+import { getLandingPageData } from '@/data/landing-page';
+import { getLocaleFromParam, useTranslations } from '@/i18n/utils';
+import LandingLayout from '@/layouts/LandingLayout.astro';
 
 // In SSR mode, read locale from the catch-all param.
 // `/`       → locale = undefined → defaultLang ('en')
 // `/zh-cn/` → locale = 'zh-cn'
 const { locale: localeParam } = Astro.params;
-const locale = (localeParam ?? defaultLang) as Locale;
+const locale = getLocaleFromParam(localeParam);
 
 // Guard against catch-all hits from unknown paths (e.g. /foo/).
-if (!(locale in languages)) {
+if (!locale) {
   return Astro.redirect('/404');
 }
 
 const t = useTranslations(locale);
-const pageData = getLandingPageData(locale as LandingLocale);
+const pageData = getLandingPageData(locale);
 
 // Load testimonial items from the userwall content collection.
 const userwallEntries = await getCollection('userwall');

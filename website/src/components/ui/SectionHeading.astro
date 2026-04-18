@@ -3,11 +3,23 @@ interface Props {
   eyebrow?: string;
   heading?: string;
   subheading?: string;
+  descriptions?: string[];
   align?: 'left' | 'center';
+  subheadingClass?: string;
+  descriptionsClass?: string;
   class?: string;
 }
 
-const { eyebrow, heading, subheading, align = 'left', class: className } = Astro.props;
+const {
+  eyebrow,
+  heading,
+  subheading,
+  descriptions = [],
+  align = 'left',
+  subheadingClass,
+  descriptionsClass,
+  class: className,
+}: Props = Astro.props;
 ---
 
 <div class:list={[align === 'center' && 'mx-auto text-center', 'mb-12 max-w-2xl', className]}>
@@ -22,8 +34,15 @@ const { eyebrow, heading, subheading, align = 'left', class: className } = Astro
     </h2>
   )}
   {subheading && (
-    <p class="mt-4 text-[0.95rem] leading-relaxed text-muted-foreground">
+    <p class:list={['mt-4 text-[0.95rem] leading-relaxed text-muted-foreground', subheadingClass]}>
       {subheading}
     </p>
+  )}
+  {descriptions.length > 0 && (
+    <div class:list={['mt-4 space-y-3', descriptionsClass]}>
+      {descriptions.map((text) => (
+        <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{text}</p>
+      ))}
+    </div>
   )}
 </div>

@@ -1,5 +1,6 @@
 ---
-import Icon from './ui/Icon.astro';
+import Icon from '@/components/ui/Icon.astro';
+import SectionHeading from '@/components/ui/SectionHeading.astro';
 
 interface Props {
   eyebrow?: string;
@@ -7,7 +8,7 @@ interface Props {
   description?: string[];
 }
 
-const { eyebrow, heading, description = [] } = Astro.props;
+const { eyebrow, heading, description = [] }: Props = Astro.props;
 
 type TapeEntry = {
   ts: string;
@@ -169,17 +170,13 @@ const COL_COUNT = 5;
 
       <!-- ── Text content ── -->
       <div class="order-1 lg:order-2">
-        <p class="mb-4 font-mono text-xs uppercase tracking-widest text-muted-foreground">
-          {eyebrow}
-        </p>
-        <h2 class="text-[clamp(1.8rem,4vw,2.75rem)] font-extrabold leading-[1.1] tracking-tight text-foreground">
-          {heading}
-        </h2>
-        <div class="mt-5 space-y-3">
-          {description.map((p) => (
-            <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{p}</p>
-          ))}
-        </div>
+        <SectionHeading
+          eyebrow={eyebrow}
+          heading={heading}
+          descriptions={description}
+          descriptionsClass="mt-5"
+          class="mb-0 max-w-none"
+        />
         <a
           href="https://tape.systems/"
           target="_blank"
@@ -246,7 +243,16 @@ const COL_COUNT = 5;
 <script>
   import { animate, stagger, inView } from 'motion';
 
+  type TapeAnimationWindow = Window & {
+    __bubTapeAnimationCleanup?: () => void;
+    __bubTapeAnimationPageLoadBound?: boolean;
+  };
+
   function initTapeAnimation() {
+    const tapeAnimationWindow = window as TapeAnimationWindow;
+    tapeAnimationWindow.__bubTapeAnimationCleanup?.();
+    tapeAnimationWindow.__bubTapeAnimationCleanup = undefined;
+
     const viz = document.querySelector('[data-tape-viz]');
     if (!viz) return;
 
@@ -366,7 +372,7 @@ const COL_COUNT = 5;
       }, fadeAt);
     }
 
-    inView(viz, () => {
+    const stopInView = inView(viz, () => {
       active = true;
       cycle();
       return () => {
@@ -375,8 +381,20 @@ const COL_COUNT = 5;
         reset();
       };
     }, { margin: '-10% 0px' });
+
+    tapeAnimationWindow.__bubTapeAnimationCleanup = () => {
+      stopInView();
+      active = false;
+      clearTimers();
+      reset();
+    };
   }
 
+  const tapeAnimationWindow = window as TapeAnimationWindow;
+
   initTapeAnimation();
-  document.addEventListener('astro:page-load', initTapeAnimation);
+  if (!tapeAnimationWindow.__bubTapeAnimationPageLoadBound) {
+    document.addEventListener('astro:page-load', initTapeAnimation);
+    tapeAnimationWindow.__bubTapeAnimationPageLoadBound = true;
+  }
 </script>

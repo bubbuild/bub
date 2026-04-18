@@ -1,11 +1,11 @@
 ---
 import { Code } from 'astro-expressive-code/components';
-import Icon from './ui/Icon.astro';
-import Contributors from './Contributors.astro';
-import LinkButton from './ui/LinkButton.astro';
-import type { GitHubContributor } from '../lib/github';
+import Contributors from '@/components/Contributors.astro';
+import Icon from '@/components/ui/Icon.astro';
+import LinkButton from '@/components/ui/LinkButton.astro';
+import type { GitHubContributor } from '@/lib/github';
 
-const { badge, title, description, primaryHref, primaryLabel, contributorsLabel, contributors = [] } = Astro.props as {
+interface Props {
   badge?: string;
   title?: string;
   description?: string;
@@ -13,7 +13,9 @@ const { badge, title, description, primaryHref, primaryLabel, contributorsLabel,
   primaryLabel?: string;
   contributorsLabel?: string;
   contributors?: GitHubContributor[];
-};
+}
+
+const { badge, title, description, primaryHref, primaryLabel, contributorsLabel, contributors = [] }: Props = Astro.props;
 
 const hasContributors = contributors.length > 0;
 

@@ -1,5 +1,5 @@
 ---
-import Icon from './ui/Icon.astro';
+import Icon from '@/components/ui/Icon.astro';
 ---
 
 <button
@@ -31,6 +31,10 @@ import Icon from './ui/Icon.astro';
 </style>
 
 <script>
+  type ThemeToggleWindow = Window & {
+    __bubThemeTogglePageLoadBound?: boolean;
+  };
+
   function initThemeToggle() {
     document.querySelectorAll<HTMLButtonElement>('[data-theme-toggle]').forEach((btn) => {
       if (btn.hasAttribute('data-initialized')) return;
@@ -95,6 +99,11 @@ import Icon from './ui/Icon.astro';
     });
   }
 
+  const themeToggleWindow = window as ThemeToggleWindow;
+
   initThemeToggle();
-  document.addEventListener('astro:page-load', initThemeToggle);
+  if (!themeToggleWindow.__bubThemeTogglePageLoadBound) {
+    document.addEventListener('astro:page-load', initThemeToggle);
+    themeToggleWindow.__bubThemeTogglePageLoadBound = true;
+  }
 </script>

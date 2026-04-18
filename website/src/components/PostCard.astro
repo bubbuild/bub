@@ -1,5 +1,7 @@
 ---
-import Icon from './ui/Icon.astro';
+import Icon from '@/components/ui/Icon.astro';
+import { formatPostDate, getPostHref } from '@/i18n/utils';
+import type { Locale } from '@/i18n/ui';
 
 interface Props {
   title: string;
@@ -7,18 +9,14 @@ interface Props {
   date: Date;
   tags: string[];
   slug: string;
-  locale: string;
+  locale: Locale;
   index?: number;
 }
 
-const { title, description, date, tags, slug, locale, index } = Astro.props;
+const { title, description, date, tags, slug, locale, index }: Props = Astro.props;
 
-const href = locale === 'en' ? `/posts/${slug}/` : `/${locale}/posts/${slug}/`;
-const formattedDate = date.toLocaleDateString(locale === 'zh-cn' ? 'zh-CN' : 'en-US', {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-});
+const href = getPostHref(locale, slug);
+const formattedDate = formatPostDate(date, locale, 'short');
 const indexStr = index !== undefined ? String(index).padStart(2, '0') : undefined;
 ---
 

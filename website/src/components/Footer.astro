@@ -1,10 +1,16 @@
 ---
-import Icon from './ui/Icon.astro';
-import SiteLogo from './ui/SiteLogo.astro';
+import Icon from '@/components/ui/Icon.astro';
+import SiteLogo from '@/components/ui/SiteLogo.astro';
+
+interface Props {
+  copyright?: string;
+  githubLabel?: string;
+}
 
 const {
+  githubLabel = 'GitHub',
   copyright = `© ${new Date().getFullYear()} Bub Contributors`,
-} = Astro.props;
+}: Props = Astro.props;
 ---
 
 <footer class="py-8" role="contentinfo">
@@ -18,7 +24,7 @@ const {
       <div class="flex flex-wrap items-center justify-center gap-5 text-sm text-muted-foreground md:justify-end">
         <a class="flex items-center gap-1.5 no-underline transition-colors hover:text-foreground" href="https://github.com/bubbuild/bub" target="_blank" rel="noreferrer">
           <Icon name="github" size={13} aria-hidden="true" />
-          GitHub
+          {githubLabel}
         </a>
         <a class="flex items-center gap-1.5 no-underline transition-colors hover:text-foreground" href="https://github.com/bubbuild/bub/blob/main/LICENSE" target="_blank" rel="noreferrer">
           <Icon name="scale" size={13} aria-hidden="true" />

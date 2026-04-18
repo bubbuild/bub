@@ -1,11 +1,11 @@
 ---
-import BaseLayout from './BaseLayout.astro';
-import Hero from '../components/Hero.astro';
-import Features from '../components/Features.astro';
-import HookIntro from '../components/HookIntro.astro';
-import TapeModel from '../components/TapeModel.astro';
-import Testimonials from '../components/Testimonials.astro';
-import { getRepoStats } from '../lib/github';
+import Features from '@/components/Features.astro';
+import Hero from '@/components/Hero.astro';
+import HookIntro from '@/components/HookIntro.astro';
+import TapeModel from '@/components/TapeModel.astro';
+import Testimonials from '@/components/Testimonials.astro';
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { getRepoStats } from '@/lib/github';
 
 const { title, description, hero, features = {}, hookIntro = {}, tapeModel = {}, testimonials = {} } = Astro.props;
 

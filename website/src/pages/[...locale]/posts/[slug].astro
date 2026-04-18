@@ -1,17 +1,17 @@
 ---
-import PostLayout from '../../../layouts/PostLayout.astro';
 import { getCollection, render } from 'astro:content';
-import { languages, defaultLang, type Locale } from '../../../i18n/ui';
+import { getLocales, getLocaleRouteParam, getPostSlug } from '@/i18n/utils';
+import PostLayout from '@/layouts/PostLayout.astro';
+import type { Locale } from '@/i18n/ui';
 
 export async function getStaticPaths() {
   const allPosts = await getCollection('posts');
-  return Object.keys(languages).flatMap((lang) => {
-    const locale = lang as Locale;
+  return getLocales().flatMap((locale) => {
     const localePosts = allPosts.filter((post) => post.data.locale === locale);
     return localePosts.map((post) => ({
       params: {
-        locale: locale === defaultLang ? undefined : locale,
-        slug: post.id.replace(new RegExp(`^${locale}/`), ''),
+        locale: getLocaleRouteParam(locale as Locale),
+        slug: getPostSlug(post.id, locale as Locale),
       },
       props: { post },
     }));

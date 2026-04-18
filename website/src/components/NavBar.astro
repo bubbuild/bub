@@ -1,8 +1,23 @@
 ---
-import Icon from './ui/Icon.astro';
-import ThemeToggle from './ThemeToggle.astro';
-import SiteLogo from './ui/SiteLogo.astro';
-import { REPO_SLUG, REPO_URL } from '../lib/github';
+import ThemeToggle from '@/components/ThemeToggle.astro';
+import Icon from '@/components/ui/Icon.astro';
+import SiteLogo from '@/components/ui/SiteLogo.astro';
+import { REPO_SLUG, REPO_URL } from '@/lib/github';
+
+interface Props {
+  docsHref?: string;
+  blogHref?: string;
+  languageHref?: string;
+  languageLabel?: string;
+  homeHref?: string;
+  docsLabel?: string;
+  blogLabel?: string;
+  hubLabel?: string;
+  githubLabel?: string;
+  menuLabel?: string;
+  closeLabel?: string;
+  stars?: string;
+}
 
 const {
   docsHref = '/docs/getting-started/',
@@ -13,10 +28,11 @@ const {
   docsLabel = 'Docs',
   blogLabel = 'Blog',
   hubLabel = 'Plugins',
+  githubLabel = 'GitHub',
   menuLabel = 'Menu',
   closeLabel = 'Close',
   stars,
-} = Astro.props;
+}: Props = Astro.props;
 
 const hasStars = Boolean(stars);
 
@@ -55,6 +71,8 @@ const navItems = [
         href={REPO_URL}
         target="_blank"
         rel="noreferrer"
+        aria-label={`${githubLabel}: ${REPO_SLUG}`}
+        title={githubLabel}
       >
         <span class="github-nav-button__icon-wrap" aria-hidden="true">
           <Icon name="github" size={14} class="github-nav-button__github opacity-60" />
@@ -74,9 +92,11 @@ const navItems = [
 
       <!-- Mobile menu -->
       <details class="group md:hidden">
-        <summary class="inline-flex h-9 w-9 list-none items-center justify-center border border-border text-foreground marker:content-none" aria-label="Toggle navigation menu">
+        <summary class="inline-flex h-9 w-9 list-none items-center justify-center border border-border text-foreground marker:content-none">
           <Icon name="menu" size={18} class="group-open:hidden" aria-hidden="true" />
           <Icon name="x" size={18} class="hidden group-open:block" aria-hidden="true" />
+          <span class="sr-only group-open:hidden">{menuLabel}</span>
+          <span class="sr-only hidden group-open:inline">{closeLabel}</span>
         </summary>
         <nav class="mobile-dropdown absolute left-0 right-0 top-full border-b border-border bg-background/95 backdrop-blur-sm p-5" role="navigation" aria-label="Mobile navigation">
           <div class="grid gap-0 text-sm">
@@ -89,7 +109,7 @@ const navItems = [
                 {item.label}
               </a>
             ))}
-            <a class="github-nav-button flex items-center gap-2.5 border-b border-border/50 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href={REPO_URL} target="_blank" rel="noreferrer">
+            <a class="github-nav-button flex items-center gap-2.5 border-b border-border/50 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href={REPO_URL} target="_blank" rel="noreferrer" aria-label={`${githubLabel}: ${REPO_SLUG}`} title={githubLabel}>
               <span class="github-nav-button__icon-wrap shrink-0" aria-hidden="true">
                 <Icon name="github" size={15} class="github-nav-button__github opacity-60" />
                 <Icon name="star" size={15} class="github-nav-button__star" fill="currentColor" />

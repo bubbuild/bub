@@ -14,7 +14,7 @@ export type HeroData = {
   contributorsLabel?: string;
 };
 
-export type FeatureItem = { icon: string; title: string; description: string; color?: string };
+export type FeatureItem = { icon: string; title: string; description: string };
 
 export type FeaturesData = {
   eyebrow?: string;
@@ -74,42 +74,36 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
           title: 'Hook-First',
           description:
             '~200-line core. Every turn stage is a pluggy hook. Builtins are just default plugins — override any stage without forking the runtime.',
-          color: 'coral',
         },
         {
           icon: 'layers',
           title: 'Tape Context',
           description:
             'Context is reconstructed from append-only tape records, not accumulated in session state. No lossy summaries, no phantom memory.',
-          color: 'amber',
         },
         {
           icon: 'radioTower',
           title: 'Channel-Agnostic',
           description:
             "The same process_inbound() pipeline drives CLI, Telegram, and any channel you add. Hooks never know which surface they're on.",
-          color: 'teal',
         },
         {
           icon: 'fileSearch',
           title: 'Skills as Docs',
           description:
             'Skills are SKILL.md files with validated frontmatter — not code modules with magic registration. Discoverable, overridable, auditable.',
-          color: 'purple',
         },
         {
           icon: 'users',
           title: 'Operator Equivalence',
           description:
             'Humans and agents share the same operator model: same boundaries, same evidence trails, same handoff semantics. No special cases.',
-          color: 'green',
         },
         {
           icon: 'puzzle',
           title: 'Plugin System',
           description:
             'Python entry-points under group="bub". Later-registered plugins run first and override earlier ones. No framework privilege.',
-          color: 'blue',
         },
       ],
     },
@@ -162,37 +156,31 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
           icon: 'webhook',
           title: 'Hook-First',
           description: '约 200 行核心代码。每个 turn 阶段都是一个 pluggy hook。内置实现只是默认插件——可随时替换任意阶段。',
-          color: 'coral',
         },
         {
           icon: 'layers',
           title: 'Tape 上下文',
           description: '上下文从追加式 tape 记录中重建，而非积累在 session 状态中。没有有损摘要，没有幻影记忆。',
-          color: 'amber',
         },
         {
           icon: 'radioTower',
           title: 'Channel 无关',
           description: '同一条 process_inbound() 管道驱动 CLI、Telegram 及你添加的任何 channel。Hooks 从不感知运行在哪个界面。',
-          color: 'teal',
         },
         {
           icon: 'fileSearch',
           title: 'Skills as Docs',
           description: 'Skills 是带验证 frontmatter 的 SKILL.md 文件——不是带魔法注册的代码模块。可发现、可覆盖、可审计。',
-          color: 'purple',
         },
         {
           icon: 'users',
           title: '操作者对等',
           description: '人类与 agent 共享同一操作者模型：相同的边界、证据链和交接语义。没有特殊情况。',
-          color: 'green',
         },
         {
           icon: 'puzzle',
           title: '插件系统',
           description: '通过 group="bub" 的 Python entry-points 注册。后注册的插件优先运行并覆盖前者。没有框架特权。',
-          color: 'blue',
         },
       ],
     },

@@ -1,29 +1,22 @@
 ---
-import BaseLayout from './BaseLayout.astro';
-import Icon from '../components/ui/Icon.astro';
-import { getLangFromUrl, getHtmlLang, useTranslatedPath } from '../i18n/utils';
-import { useTranslations } from '../i18n/utils';
+import Icon from '@/components/ui/Icon.astro';
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import { formatPostDate, getPostsHref, useTranslations } from '@/i18n/utils';
+import type { Locale } from '@/i18n/ui';
 
 interface Props {
   title: string;
   description: string;
   date: Date;
-  locale: string;
+  locale: Locale;
   tags: string[];
 }
 
-const { title, description, date, locale, tags } = Astro.props;
+const { title, description, date, locale, tags }: Props = Astro.props;
 
-const lang = (locale === 'zh-cn' ? 'zh-cn' : 'en') as 'en' | 'zh-cn';
-const t = useTranslations(lang);
-const tp = useTranslatedPath(lang);
-
-const postsHref = tp('/posts/');
-const formattedDate = date.toLocaleDateString(getHtmlLang(lang), {
-  year: 'numeric',
-  month: 'long',
-  day: 'numeric',
-});
+const t = useTranslations(locale);
+const postsHref = getPostsHref(locale);
+const formattedDate = formatPostDate(date, locale);
 ---
 
 <BaseLayout

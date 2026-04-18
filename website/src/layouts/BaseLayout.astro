@@ -9,13 +9,12 @@
  * All other layouts (LandingLayout, PostLayout, PostListLayout)
  * and standalone pages (404) should compose on top of this.
  */
-import '../styles/global.css';
-import NavBar from '../components/NavBar.astro';
-import Footer from '../components/Footer.astro';
-import Icon from '../components/ui/Icon.astro';
-import { getLangFromUrl, getHtmlLang, getNavProps } from '../i18n/utils';
-import { useTranslations } from '../i18n/utils';
-import { getRepoStats } from '../lib/github';
+import '@/styles/global.css';
+import Footer from '@/components/Footer.astro';
+import NavBar from '@/components/NavBar.astro';
+import Icon from '@/components/ui/Icon.astro';
+import { getLangFromUrl, getHtmlLang, getNavProps, useTranslations } from '@/i18n/utils';
+import { getRepoStats } from '@/lib/github';
 
 interface Props {
   /** Page <title>. Falls back to site.title from ui.ts. */
@@ -104,7 +103,7 @@ const {
 
     <slot />
 
-    <Footer />
+    <Footer copyright={t('footer.copyright')} githubLabel={navProps.githubLabel} />
 
     {backToTop && (
       <button
@@ -120,14 +119,32 @@ const {
     <script>
       import { inView, animate } from 'motion';
 
+      type BaseLayoutWindow = Window & {
+        __bubBaseLayoutPageLoadBound?: boolean;
+        __bubBackToTopCleanup?: () => void;
+        __bubRevealCleanups?: Array<() => void>;
+      };
+
       function initScrollReveals() {
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-        document.querySelectorAll('[data-reveal]').forEach((el) => {
+        const baseLayoutWindow = window as BaseLayoutWindow;
+        baseLayoutWindow.__bubRevealCleanups?.forEach((cleanup) => cleanup());
+        baseLayoutWindow.__bubRevealCleanups = [];
+
+        const revealElements = Array.from(document.querySelectorAll<HTMLElement>('[data-reveal]'));
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          revealElements.forEach((htmlEl) => {
+            htmlEl.style.opacity = '';
+            htmlEl.style.transform = '';
+          });
+          return;
+        }
+
+        revealElements.forEach((el) => {
           const htmlEl = el as HTMLElement;
           htmlEl.style.opacity = '0';
           htmlEl.style.transform = 'translateY(24px)';
 
-          inView(htmlEl, () => {
+          const stopInView = inView(htmlEl, () => {
             const controls = animate(
               htmlEl,
               { opacity: [0, 1], transform: ['translateY(24px)', 'translateY(0)'] },
@@ -139,11 +156,21 @@ const {
               htmlEl.style.transform = 'translateY(24px)';
             };
           }, { margin: '0px 0px -10% 0px' });
+
+          baseLayoutWindow.__bubRevealCleanups?.push(() => {
+            stopInView();
+            htmlEl.style.opacity = '';
+            htmlEl.style.transform = '';
+          });
         });
       }
 
       function initBackToTop() {
-        const btn = document.getElementById('back-to-top');
+        const baseLayoutWindow = window as BaseLayoutWindow;
+        baseLayoutWindow.__bubBackToTopCleanup?.();
+        baseLayoutWindow.__bubBackToTopCleanup = undefined;
+
+        const btn = document.getElementById('back-to-top') as HTMLButtonElement | null;
         if (!btn) return;
 
         const toggle = () => {
@@ -152,15 +179,29 @@ const {
           btn.style.pointerEvents = show ? 'auto' : 'none';
         };
 
+        const handleClick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+
         window.addEventListener('scroll', toggle, { passive: true });
         toggle();
-        btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+        btn.addEventListener('click', handleClick);
+
+        baseLayoutWindow.__bubBackToTopCleanup = () => {
+          window.removeEventListener('scroll', toggle);
+          btn.removeEventListener('click', handleClick);
+        };
       }
 
-      requestAnimationFrame(() => { initScrollReveals(); initBackToTop(); });
-      document.addEventListener('astro:page-load', () => {
+      function initBaseLayoutUi() {
         requestAnimationFrame(() => { initScrollReveals(); initBackToTop(); });
-      });
+      }
+
+      const baseLayoutWindow = window as BaseLayoutWindow;
+
+      initBaseLayoutUi();
+      if (!baseLayoutWindow.__bubBaseLayoutPageLoadBound) {
+        document.addEventListener('astro:page-load', initBaseLayoutUi);
+        baseLayoutWindow.__bubBaseLayoutPageLoadBound = true;
+      }
     </script>
   </body>
 </html>
