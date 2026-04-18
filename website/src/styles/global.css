@@ -333,6 +333,7 @@
         overflow-x: hidden;
     }
     html {
+        @apply bg-background;
         scroll-behavior: smooth;
         overflow-x: hidden;
     }

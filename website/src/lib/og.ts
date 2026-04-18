@@ -180,17 +180,6 @@ function cardMarkup(title: string, description: string, logoSrc: string, fontFam
           type: 'div',
           props: {
             style: {
-              width: 12,
-              height: '100%',
-              backgroundColor: 'rgb(92,130,210)',
-              flexShrink: 0,
-            },
-          },
-        },
-        {
-          type: 'div',
-          props: {
-            style: {
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',

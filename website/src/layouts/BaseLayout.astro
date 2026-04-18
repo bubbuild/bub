@@ -75,6 +75,7 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? SITE_URL).href;
     <link rel="icon" href="/favicon.ico" sizes="any" />
     {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
     {robots && <meta name="robots" content={robots} />}
+    <meta property="og:locale" content={htmlLang} />
     <meta property="og:type" content={ogType} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
