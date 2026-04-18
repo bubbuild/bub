@@ -68,11 +68,7 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
           class="hook-flow-inner relative mx-auto"
           style={`aspect-ratio: ${VB_W} / ${VB_H}; max-width: 420px;`}
         >
-          <!-- Decorative dot grid (inline styles to bypass Astro scoping) -->
-          <div
-            aria-hidden="true"
-            style="position:absolute;inset:0;pointer-events:none;border-radius:12px;background-image:radial-gradient(circle, #999 1px, transparent 1px);background-size:18px 18px;opacity:0.18;"
-          ></div>
+          <div class="hook-grid" aria-hidden="true"></div>
 
           <!-- SVG path layer -->
           <svg
@@ -201,6 +197,16 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
     );
   }
 
+  .hook-grid {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: calc(var(--radius) * 1.2);
+    background-image: radial-gradient(circle, var(--site-grid-dot) 1px, transparent 1px);
+    background-size: 18px 18px;
+    opacity: 0.18;
+  }
+
   /* ── Trail (hidden until JS activates) ── */
   .hook-trail {
     opacity: 0;
@@ -222,13 +228,10 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
     flex-direction: column;
     gap: 1px;
     padding: 7px 14px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
     background: var(--card);
     white-space: nowrap;
-    box-shadow:
-      0 1px 2px rgba(0,0,0,0.04),
-      0 2px 8px rgba(0,0,0,0.03);
+    box-shadow: var(--site-shadow-card);
+    text-align: center;
     transition:
       border-color 0.4s ease,
       box-shadow   0.4s ease;
@@ -268,27 +271,27 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
   @keyframes ring-ping {
     0% {
       box-shadow:
-        0 0 0 0 oklch(0.55 0.06 260 / 0),
-        0 0 0px oklch(0.55 0.06 260 / 0),
-        0 2px 8px rgba(0,0,0,0.03);
+        0 0 0 0 var(--site-hook-ping-ring-idle),
+        0 0 0px var(--site-hook-ping-glow-idle),
+        var(--site-shadow-card);
     }
     15% {
       box-shadow:
-        0 0 0 3px oklch(0.55 0.06 260 / 0.2),
-        0 0 10px oklch(0.55 0.06 260 / 0.15),
-        0 2px 10px rgba(0,0,0,0.04);
+        0 0 0 3px var(--site-hook-ping-ring),
+        0 0 10px var(--site-hook-ping-glow),
+        var(--site-shadow-card-strong);
     }
     45% {
       box-shadow:
-        0 0 0 7px oklch(0.55 0.06 260 / 0.06),
-        0 0 6px oklch(0.55 0.06 260 / 0.06),
-        0 2px 10px rgba(0,0,0,0.04);
+        0 0 0 7px var(--site-hook-ping-ring-soft),
+        0 0 6px var(--site-hook-ping-glow-soft),
+        var(--site-shadow-card-strong);
     }
     100% {
       box-shadow:
-        0 0 0 0 oklch(0.55 0.06 260 / 0),
-        0 0 0px oklch(0.55 0.06 260 / 0),
-        0 2px 8px rgba(0,0,0,0.03);
+        0 0 0 0 var(--site-hook-ping-ring-idle),
+        0 0 0px var(--site-hook-ping-glow-idle),
+        var(--site-shadow-card);
     }
   }
 </style>

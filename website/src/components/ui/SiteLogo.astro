@@ -1,0 +1,34 @@
+---
+interface Props {
+  alt?: string;
+  width: number;
+  height: number;
+  class?: string;
+  loading?: 'eager' | 'lazy';
+}
+
+const {
+  alt = 'Bub',
+  width,
+  height,
+  class: className,
+  loading = 'eager',
+} = Astro.props;
+---
+
+<img
+  src="/bub-logo.png"
+  alt={alt}
+  width={width}
+  height={height}
+  loading={loading}
+  class:list={[className, 'dark:hidden']}
+/>
+<img
+  src="/bub-logo-dark.png"
+  alt={alt}
+  width={width}
+  height={height}
+  loading={loading}
+  class:list={[className, 'hidden dark:block']}
+/>

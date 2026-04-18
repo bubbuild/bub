@@ -1,6 +1,7 @@
 ---
-import Icon from './ui/Icon.astro';
 import SectionHeading from './ui/SectionHeading.astro';
+import FeatureCard from './FeatureCard.astro';
+import SiteLogo from './ui/SiteLogo.astro';
 
 const { eyebrow, heading, subheading, features = [] } = Astro.props;
 
@@ -13,69 +14,26 @@ const { eyebrow, heading, subheading, features = [] } = Astro.props;
 
     <div class="grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
       {/* Row 1: feature[0] col-span-2 + feature[1] */}
-      <div class="feature-card group relative col-span-1 overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 lg:col-span-2 hover:bg-secondary/40">
-        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3 max-w-[40%]" aria-hidden="true">
-          <Icon name={features[0].icon} size={120} />
-        </div>
-        <div class="relative">
-          <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{features[0].title}</h3>
-          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[0].description}</p>
-        </div>
-      </div>
-      <div class="feature-card group relative overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 hover:bg-secondary/40">
-        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
-          <Icon name={features[1].icon} size={96} />
-        </div>
-        <div class="relative">
-          <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{features[1].title}</h3>
-          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[1].description}</p>
-        </div>
-      </div>
+      <FeatureCard feature={features[0]} wide iconSize={120} />
+      <FeatureCard feature={features[1]} />
 
       {/* Row 2: feature[2] + LOGO CENTER + feature[3] */}
-      <div class="feature-card group relative overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 hover:bg-secondary/40">
-        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
-          <Icon name={features[2].icon} size={96} />
-        </div>
-        <div class="relative">
-          <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{features[2].title}</h3>
-          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[2].description}</p>
-        </div>
-      </div>
+      <FeatureCard feature={features[2]} />
       {/* Center: Bub logo — hidden below lg where there's no 3-col grid */}
       <div class="hidden items-center justify-center bg-background p-8 lg:flex">
-        <img src="/bub-logo.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110 dark:hidden" loading="lazy" width="240" height="240" />
-        <img src="/bub-logo-dark.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110 hidden dark:block" loading="lazy" width="240" height="240" />
+        <SiteLogo
+          alt="Bub"
+          width={240}
+          height={240}
+          loading="lazy"
+          class="aspect-square h-60 w-60 opacity-80 transition-transform duration-500 hover:scale-110"
+        />
       </div>
-      <div class="feature-card group relative overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 hover:bg-secondary/40">
-        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
-          <Icon name={features[3].icon} size={96} />
-        </div>
-        <div class="relative">
-          <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{features[3].title}</h3>
-          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[3].description}</p>
-        </div>
-      </div>
+      <FeatureCard feature={features[3]} />
 
       {/* Row 3: feature[4] + feature[5] col-span-2 */}
-      <div class="feature-card group relative overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 hover:bg-secondary/40">
-        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
-          <Icon name={features[4].icon} size={96} />
-        </div>
-        <div class="relative">
-          <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{features[4].title}</h3>
-          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[4].description}</p>
-        </div>
-      </div>
-      <div class="feature-card group relative col-span-1 overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 lg:col-span-2 hover:bg-secondary/40">
-        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3 max-w-[40%]" aria-hidden="true">
-          <Icon name={features[5].icon} size={120} />
-        </div>
-        <div class="relative">
-          <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{features[5].title}</h3>
-          <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{features[5].description}</p>
-        </div>
-      </div>
+      <FeatureCard feature={features[4]} />
+      <FeatureCard feature={features[5]} wide iconSize={120} />
     </div>
   </div>
 </section>

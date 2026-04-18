@@ -48,10 +48,10 @@ const COL_COUNT = 5;
             <span class="font-mono text-[0.65rem] text-muted-foreground/60">~/.bub/tapes/session_a1b2</span>
             <div class="flex items-center gap-1.5">
               <span
-                class="tape-live-dot inline-block w-[6px] h-[6px] rounded-full bg-[oklch(0.72_0.17_155)] shadow-[0_0_6px_oklch(0.72_0.17_155_/_0.5)]"
+                class="tape-live-dot inline-block h-[6px] w-[6px] rounded-full bg-[var(--site-accent-live)] shadow-[0_0_6px_var(--site-accent-live-shadow)]"
                 aria-hidden="true"
               ></span>
-              <span class="font-mono text-[0.55rem] uppercase tracking-wider text-emerald-500/80">live</span>
+              <span class="tape-live-label font-mono text-[0.55rem] uppercase tracking-wider">live</span>
             </div>
           </div>
 
@@ -86,13 +86,13 @@ const COL_COUNT = 5;
                     <tr class="opacity-0 translate-y-2" data-tape-row={i} data-kind="anchor">
                       <td colspan={COL_COUNT} class="px-[0.65rem] py-[0.55rem]">
                         <div class="flex items-center gap-2">
-                          <span class="flex-1 h-px bg-[oklch(0.7_0.15_250_/_0.2)]" aria-hidden="true"></span>
-                          <span class="tape-anchor-badge inline-flex items-center gap-[0.35rem] px-[0.6rem] py-[0.2rem] border border-[oklch(0.7_0.15_250_/_0.3)] bg-[oklch(0.7_0.15_250_/_0.06)] transition-shadow duration-[400ms]">
+                          <span class="h-px flex-1 bg-[var(--site-accent-signal-rule)]" aria-hidden="true"></span>
+                          <span class="tape-anchor-badge inline-flex items-center gap-[0.35rem] border border-[var(--site-accent-signal-border)] bg-[var(--site-accent-signal-bg)] px-[0.6rem] py-[0.2rem] transition-shadow duration-[400ms]">
                             <Icon name="anchor" size={10} class="text-primary" aria-hidden="true" />
                             <span class="font-mono text-[0.58rem] font-semibold uppercase tracking-[0.05em] text-primary">{entry.op}</span>
                             <span class="font-mono text-[0.5rem] text-primary/50 max-sm:hidden">{entry.value}</span>
                           </span>
-                          <span class="flex-1 h-px bg-[oklch(0.7_0.15_250_/_0.2)]" aria-hidden="true"></span>
+                          <span class="h-px flex-1 bg-[var(--site-accent-signal-rule)]" aria-hidden="true"></span>
                         </div>
                       </td>
                     </tr>
@@ -110,7 +110,7 @@ const COL_COUNT = 5;
                           class:list={[
                             'inline-block w-[5px] h-[5px] rounded-full align-middle',
                             entry.corrects
-                              ? 'bg-primary shadow-[0_0_6px_oklch(0.7_0.15_250_/_0.4)]'
+                              ? 'bg-primary shadow-[0_0_6px_var(--site-accent-signal-emphasis)]'
                               : 'bg-muted-foreground opacity-25',
                           ]}
                           aria-hidden="true"
@@ -122,7 +122,7 @@ const COL_COUNT = 5;
                       <td class="px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle text-[0.56rem] text-muted-foreground opacity-40 max-sm:hidden">{entry.key}</td>
                       <td class="tape-td--payload px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle text-muted-foreground opacity-70 max-w-[170px] overflow-hidden text-ellipsis max-sm:max-w-[120px]">
                         {entry.corrects && (
-                          <span class="text-primary/70 mr-1 border-b border-dashed border-[oklch(0.7_0.15_250_/_0.35)] pb-px text-[0.56rem]">← {entry.corrects}</span>
+                          <span class="mr-1 border-b border-dashed border-[var(--site-accent-signal-dashed)] pb-px text-[0.56rem] text-primary/70">← {entry.corrects}</span>
                         )}
                         <span>{entry.value}</span>
                       </td>
@@ -141,7 +141,7 @@ const COL_COUNT = 5;
 
           <!-- View assembly indicator -->
           <div
-            class="flex items-center justify-between flex-wrap gap-2 px-3 py-2 border-t border-dashed border-[oklch(0.7_0.15_250_/_0.15)] bg-[oklch(0.7_0.15_250_/_0.03)] font-mono text-[0.55rem] opacity-0"
+            class="flex flex-wrap items-center justify-between gap-2 border-t border-dashed border-[var(--site-accent-signal-dashed-border)] bg-[var(--site-accent-signal-bg-subtle)] px-3 py-2 font-mono text-[0.55rem] opacity-0"
             data-tape-view
           >
             <div class="flex items-center gap-[0.35rem]">
@@ -159,7 +159,7 @@ const COL_COUNT = 5;
 
           <!-- Status bar -->
           <div class="flex flex-wrap items-center gap-2 px-3 py-[0.55rem] border-t border-border font-mono">
-            <span class="inline-flex items-center px-[0.4rem] py-[0.1rem] bg-[oklch(0.7_0.15_250_/_0.1)] text-[0.56rem] font-bold text-primary">{entryCount + anchorCount} entries</span>
+            <span class="inline-flex items-center bg-[var(--site-accent-signal-bg-strong)] px-[0.4rem] py-[0.1rem] text-[0.56rem] font-bold text-primary">{entryCount + anchorCount} entries</span>
             <span class="text-[0.56rem] text-muted-foreground opacity-55">{anchorCount} anchor</span>
             <span class="text-[0.52rem] text-muted-foreground opacity-35">·</span>
             <span class="text-[0.52rem] text-muted-foreground opacity-35">append-only</span>
@@ -201,21 +201,22 @@ const COL_COUNT = 5;
     background: linear-gradient(
       90deg,
       transparent 0%,
-      oklch(0.7 0.15 250 / 0.5) 20%,
-      oklch(0.7 0.15 250) 50%,
-      oklch(0.7 0.15 250 / 0.5) 80%,
+      var(--site-accent-signal-soft) 20%,
+      var(--site-accent-signal) 50%,
+      var(--site-accent-signal-soft) 80%,
       transparent 100%
     );
-    box-shadow: 0 0 8px oklch(0.7 0.15 250 / 0.25);
+    box-shadow: 0 0 8px var(--site-accent-signal-shadow);
   }
 
   /* ── Animations ── */
   .tape-live-dot   { animation: live-pulse   2s ease-in-out infinite; }
   .tape-cursor-line { animation: cursor-blink 1s ease-in-out infinite; }
+  .tape-live-label { color: var(--site-accent-live); opacity: 0.8; }
 
   @keyframes live-pulse {
-    0%, 100% { opacity: 1;   box-shadow: 0 0 6px oklch(0.72 0.17 155 / 0.5);  }
-    50%       { opacity: 0.4; box-shadow: 0 0 2px oklch(0.72 0.17 155 / 0.15); }
+    0%, 100% { opacity: 1;   box-shadow: 0 0 6px var(--site-accent-live-shadow);  }
+    50%       { opacity: 0.4; box-shadow: 0 0 2px var(--site-accent-live-shadow-dim); }
   }
   @keyframes cursor-blink {
     0%, 100% { opacity: 1; }
@@ -225,7 +226,7 @@ const COL_COUNT = 5;
   /* ── JS-applied dynamic states ── */
   .tape-row-superseded .tape-td--payload span:last-child {
     text-decoration: line-through;
-    text-decoration-color: oklch(0.7 0.15 250 / 0.4);
+    text-decoration-color: var(--site-accent-signal-emphasis);
     opacity: 0.3;
     transition: opacity 0.4s ease, text-decoration-color 0.4s ease;
   }
@@ -234,10 +235,10 @@ const COL_COUNT = 5;
     transition: opacity 0.4s ease;
   }
   .tape-anchor-glow .tape-anchor-badge {
-    box-shadow: 0 0 16px oklch(0.7 0.15 250 / 0.25);
+    box-shadow: 0 0 16px var(--site-accent-signal-shadow);
   }
   .tape-row-highlight {
-    background: oklch(0.7 0.15 250 / 0.06);
+    background: var(--site-accent-signal-bg);
     transition: background 0.4s ease;
   }
 </style>

@@ -1,0 +1,42 @@
+---
+import Icon from './ui/Icon.astro';
+
+interface Feature {
+  icon: string;
+  title: string;
+  description: string;
+}
+
+interface Props {
+  feature: Feature;
+  wide?: boolean;
+  iconSize?: number;
+}
+
+const {
+  feature,
+  wide = false,
+  iconSize = wide ? 120 : 96,
+} = Astro.props;
+---
+
+<div
+  class:list={[
+    'feature-card group relative overflow-hidden bg-background p-5 transition-all duration-300 hover:bg-secondary/40 sm:p-8',
+    wide && 'col-span-1 lg:col-span-2',
+  ]}
+>
+  <div
+    class:list={[
+      'pointer-events-none absolute bottom-3 right-3 text-foreground transition-all duration-500 group-hover:scale-110 group-hover:rotate-3',
+      wide ? 'max-w-[40%] opacity-[0.07] group-hover:opacity-[0.13]' : 'opacity-[0.07] group-hover:opacity-[0.13]',
+    ]}
+    aria-hidden="true"
+  >
+    <Icon name={feature.icon} size={iconSize} />
+  </div>
+  <div class="relative">
+    <h3 class="mb-3 text-xl font-bold tracking-tight text-foreground">{feature.title}</h3>
+    <p class="text-[0.95rem] leading-relaxed text-muted-foreground">{feature.description}</p>
+  </div>
+</div>

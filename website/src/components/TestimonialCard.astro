@@ -1,0 +1,36 @@
+---
+import Icon from './ui/Icon.astro';
+
+type TestimonialItem = {
+  name: string;
+  handle: string;
+  text: string;
+  avatar?: string;
+  platform?: string;
+};
+
+interface Props {
+  testimonial: TestimonialItem;
+  accentClass: string;
+}
+
+const { testimonial, accentClass } = Astro.props;
+---
+
+<div class:list={['border border-border border-l-[3px] bg-card p-4', accentClass]}>
+  <p class="text-[0.84rem] leading-relaxed text-foreground/85">{testimonial.text}</p>
+  <div class="mt-3 flex items-center gap-2.5">
+    {testimonial.avatar ? (
+      <img src={testimonial.avatar} alt={testimonial.name} class="h-7 w-7 shrink-0 object-cover" loading="lazy" width="28" height="28" />
+    ) : (
+      <div class="flex h-7 w-7 shrink-0 items-center justify-center bg-secondary font-mono text-[0.6rem] font-bold text-foreground">
+        {testimonial.name.charAt(0)}
+      </div>
+    )}
+    <div class="min-w-0 flex-1">
+      <p class="truncate text-xs font-bold text-foreground">{testimonial.name}</p>
+      <p class="truncate text-[0.65rem] text-muted-foreground">{testimonial.handle}</p>
+    </div>
+    {testimonial.platform && <Icon name={testimonial.platform} size={12} class="shrink-0 text-muted-foreground/50" aria-hidden="true" />}
+  </div>
+</div>

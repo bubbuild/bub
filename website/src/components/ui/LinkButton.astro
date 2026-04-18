@@ -1,0 +1,35 @@
+---
+interface Props {
+  href: string;
+  variant?: 'primary' | 'secondary';
+  class?: string;
+  target?: string;
+  rel?: string;
+}
+
+const {
+  href,
+  variant = 'primary',
+  class: className,
+  target,
+  rel,
+} = Astro.props;
+
+const variantClasses = {
+  primary: 'bg-primary text-primary-foreground hover:bg-primary/90',
+  secondary: 'border border-border text-foreground hover:bg-secondary',
+};
+---
+
+<a
+  href={href}
+  target={target}
+  rel={rel}
+  class:list={[
+    'inline-flex items-center justify-center gap-2 text-sm font-semibold leading-none no-underline transition-colors',
+    variantClasses[variant],
+    className,
+  ]}
+>
+  <slot />
+</a>

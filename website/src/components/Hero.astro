@@ -2,6 +2,7 @@
 import { Code } from 'astro-expressive-code/components';
 import Icon from './ui/Icon.astro';
 import Contributors from './Contributors.astro';
+import LinkButton from './ui/LinkButton.astro';
 import type { GitHubContributor } from '../lib/github';
 
 const { badge, title, description, primaryHref, primaryLabel, contributorsLabel, contributors = [] } = Astro.props as {
@@ -65,18 +66,15 @@ def run_model(messages, config):
 
         <!-- CTAs -->
         <div class="mt-6 flex flex-col gap-3 sm:flex-row">
-          <a
-            class="inline-flex w-full items-center justify-center gap-2 bg-primary px-6 py-3 text-sm font-semibold leading-none text-primary-foreground no-underline transition-colors hover:bg-primary/90 sm:w-auto"
-            href={primaryHref}
-          >
+          <LinkButton href={primaryHref} class="w-full px-6 py-3 sm:w-auto">
             {primaryLabel}
             <Icon name="arrowUpRight" size={15} aria-hidden="true" />
-          </a>
+          </LinkButton>
         </div>
       </div>
 
       <!-- Right: code editor -->
-      <div class="hero-terminal min-w-0 overflow-hidden border border-border shadow-[0_8px_30px_rgba(0,0,0,0.06),0_2px_8px_rgba(0,0,0,0.04)]" role="img" aria-label="Example Python code showing Bub hook implementations">
+      <div class="hero-terminal min-w-0 overflow-hidden border border-border shadow-[var(--site-shadow-elevated)]" role="img" aria-label="Example Python code showing Bub hook implementations">
         <Code code={exampleCode} lang="python" frame="code" title="hooks.py" />
       </div>
     </div>
