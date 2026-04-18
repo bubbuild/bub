@@ -146,4 +146,4 @@ reference/
 # Local legacy backups created during framework migrations
 backup/
 _version.py
-.gstack/
+!website/src/lib/

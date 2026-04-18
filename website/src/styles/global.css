@@ -201,6 +201,18 @@
     --site-hook-ping-glow: oklch(0.55 0.06 260 / 0.15);
     --site-hook-ping-glow-soft: oklch(0.55 0.06 260 / 0.06);
     --site-hook-ping-glow-idle: oklch(0.55 0.06 260 / 0);
+
+    /* ─ Testimonial border accents (muted to fit monochrome palette) ─ */
+    --site-testimonial-1: oklch(0.62 0.04 40);
+    --site-testimonial-2: oklch(0.58 0.03 185);
+    --site-testimonial-3: oklch(0.48 0.025 227);
+    --site-testimonial-4: oklch(0.70 0.04 84);
+    --site-testimonial-5: oklch(0.66 0.04 70);
+
+    /* ─ Ambient gradient tints ─ */
+    --site-ambient-1: oklch(0.88 0.025 250 / 0.5);
+    --site-ambient-2: oklch(0.90 0.02 78 / 0.4);
+    --site-ambient-3: oklch(0.87 0.018 155 / 0.35);
 }
 
 /* Dark tokens — both selectors to cover landing pages (.dark class) and
@@ -244,6 +256,16 @@
     --site-shadow-card: 0 1px 2px rgb(0 0 0 / 0.25), 0 2px 8px rgb(0 0 0 / 0.18);
     --site-shadow-card-strong: 0 2px 10px rgb(0 0 0 / 0.3);
     --site-grid-dot: #555;
+
+    --site-testimonial-1: oklch(0.55 0.04 40);
+    --site-testimonial-2: oklch(0.52 0.03 185);
+    --site-testimonial-3: oklch(0.42 0.025 227);
+    --site-testimonial-4: oklch(0.60 0.04 84);
+    --site-testimonial-5: oklch(0.58 0.04 70);
+
+    --site-ambient-1: oklch(0.22 0.03 250 / 0.5);
+    --site-ambient-2: oklch(0.25 0.025 78 / 0.4);
+    --site-ambient-3: oklch(0.20 0.02 155 / 0.35);
 }
 
 /*

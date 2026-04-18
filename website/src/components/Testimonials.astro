@@ -1,5 +1,5 @@
 ---
-import TestimonialCard from '@/components/TestimonialCard.astro';
+import TestimonialCard from '@/components/ui/TestimonialCard.astro';
 import SectionHeading from '@/components/ui/SectionHeading.astro';
 
 type TestimonialItem = {
@@ -25,12 +25,12 @@ type ColumnConfig = {
 const { eyebrow, heading, testimonials = [] }: Props = Astro.props;
 
 const colorAccents = [
-  'border-l-chart-1',
-  'border-l-chart-2',
-  'border-l-chart-3',
-  'border-l-chart-4',
-  'border-l-chart-5',
-  'border-l-chart-1',
+  'border-l-[var(--site-testimonial-1)]',
+  'border-l-[var(--site-testimonial-3)]',
+  'border-l-[var(--site-testimonial-5)]',
+  'border-l-[var(--site-testimonial-2)]',
+  'border-l-[var(--site-testimonial-4)]',
+  'border-l-[var(--site-testimonial-3)]',
 ];
 
 const columnConfigs: ColumnConfig[] = [
@@ -50,10 +50,7 @@ const columns = columnConfigs.map((config, columnIndex) => ({
     <SectionHeading eyebrow={eyebrow} heading={heading} align="center" />
 
     <div class="testimonials-wrapper relative" data-testimonials>
-      <div class="pointer-events-none absolute inset-x-0 top-0 z-10 h-20 bg-gradient-to-b from-background to-transparent" aria-hidden="true"></div>
-      <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-20 bg-gradient-to-t from-background to-transparent" aria-hidden="true"></div>
-
-      <div class="testimonials-columns grid h-[320px] gap-3 overflow-hidden sm:h-[380px] sm:grid-cols-2 lg:h-[440px] lg:grid-cols-3">
+      <div class="testimonials-columns testimonials-fade grid h-[320px] gap-3 overflow-hidden sm:h-[380px] sm:grid-cols-2 lg:h-[440px] lg:grid-cols-3">
         {columns.map((column) => (
           <div class:list={[column.className, column.directionClass]}>
             <div class="flex flex-col gap-3">
@@ -72,6 +69,11 @@ const columns = columnConfigs.map((config, columnIndex) => ({
 </section>
 
 <style>
+  .testimonials-fade {
+    mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);
+  }
+
   .testimonial-col {
     overflow: hidden;
   }

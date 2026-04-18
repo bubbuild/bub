@@ -1,5 +1,5 @@
 ---
-import FeatureCard from '@/components/FeatureCard.astro';
+import FeatureCard from '@/components/ui/FeatureCard.astro';
 import SectionHeading from '@/components/ui/SectionHeading.astro';
 import SiteLogo from '@/components/ui/SiteLogo.astro';
 
@@ -37,14 +37,3 @@ const { eyebrow, heading, subheading, features = [] } = Astro.props;
     </div>
   </div>
 </section>
-
-<style>
-  .feature-card {
-    min-height: 140px;
-  }
-  @media (min-width: 640px) {
-    .feature-card {
-      min-height: 180px;
-    }
-  }
-</style>
