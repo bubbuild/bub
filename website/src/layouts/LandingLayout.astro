@@ -6,13 +6,14 @@ import TapeModel from '@/components/TapeModel.astro';
 import Testimonials from '@/components/Testimonials.astro';
 import BaseLayout from '@/layouts/BaseLayout.astro';
 import { getRepoStats } from '@/lib/github';
+import { SITE_URL } from 'astro:env/client';
 
 const { title, description, ogImage, hero, features = {}, hookIntro = {}, tapeModel = {}, testimonials = {} } = Astro.props;
 
 const { contributors } = await getRepoStats();
 ---
 
-<BaseLayout title={title} description={description} ogImage={ogImage} canonicalUrl="https://bub.build" bodyClass="ambient-page min-h-screen antialiased font-sans">
+<BaseLayout title={title} description={description} ogImage={ogImage} canonicalUrl={SITE_URL} bodyClass="ambient-page min-h-screen antialiased font-sans">
   <main id="main-content" class="relative isolate">
     <div class="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
       <svg class="grain-texture absolute inset-0 h-full w-full" xmlns="http://www.w3.org/2000/svg">

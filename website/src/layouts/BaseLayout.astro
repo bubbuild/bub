@@ -15,6 +15,7 @@ import NavBar from '@/components/NavBar.astro';
 import Icon from '@/components/ui/Icon.astro';
 import { getLangFromUrl, getHtmlLang, getNavProps, useTranslations } from '@/i18n/utils';
 import { getRepoStats } from '@/lib/github';
+import { SITE_URL } from 'astro:env/client';
 
 interface Props {
   /** Page <title>. Falls back to site.title from ui.ts. */
@@ -59,7 +60,7 @@ const {
   robots,
 } = Astro.props;
 
-const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://bub.build').href;
+const ogImageUrl = new URL(ogImage, Astro.site ?? SITE_URL).href;
 ---
 
 <!doctype html>

@@ -9,6 +9,7 @@ import {
 import PostCard from '@/components/ui/PostCard.astro';
 import PostListLayout from '@/layouts/PostListLayout.astro';
 import type { Locale } from '@/i18n/ui';
+import { SITE_URL } from 'astro:env/client';
 
 export function getStaticPaths() {
   return getStaticLocalePaths();
@@ -22,7 +23,7 @@ const posts = allPosts
   .filter((post) => post.data.locale === locale)
   .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
 
-const canonicalUrl = `https://bub.build${getPostsHref(locale)}`;
+const canonicalUrl = `${SITE_URL}${getPostsHref(locale)}`;
 ---
 
 <PostListLayout
