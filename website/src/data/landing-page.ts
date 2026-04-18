@@ -65,7 +65,7 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       contributorsLabel: 'Developed by contributors worldwide',
     },
     features: {
-      eyebrow: 'Why Bub',
+      eyebrow: 'Features',
       heading: 'Every decision has a reason.',
       subheading: 'Bub was designed for real multi-agent collaboration from day one — not retrofitted for it.',
       features: [
@@ -139,57 +139,57 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
   },
   'zh-cn': {
     hero: {
-      badge: 'Hook-first · Tape 驱动 · Channel 无关',
-      title: 'Bub 是一个为与人并行的 agent 设计的轻量运行时。',
+      badge: 'Hook 优先 · Tape 驱动 · Channel 任选',
+      title: 'Bub，与 Human 同在的轻量级 Agent 运行时。',
       description:
-        '~200 行核心代码。Hooks 重塑每个 turn 阶段。Tapes 记录每一个决策。Channels 适配任何表面——CLI、Telegram 或你自己的。',
+        '核心代码约 200 行。每个阶段通过 Hook 驱动。由 Tape 模型记录每次决策。 随时接入 CLI、Telegram 或任意你喜欢的 Channel。',
       primaryHref: '/zh-cn/docs/getting-started/installation/',
       primaryLabel: '开始使用',
-      contributorsLabel: '由全球贡献者共同开发',
+      contributorsLabel: '由全球开发者共同打造',
     },
     features: {
-      eyebrow: '核心设计',
-      heading: '每一个决定都有理由。',
-      subheading: 'Bub 从第一天起就为真实的多 agent 协作而设计，而不是事后追加的。',
+      eyebrow: '特性',
+      heading: '每个决定都有理由。',
+      subheading: 'Bub 从第一天起就为真实的多 agent 协作而精心设计，而不是拍脑门决定。',
       features: [
         {
           icon: 'webhook',
-          title: 'Hook-First',
-          description: '约 200 行核心代码。每个 turn 阶段都是一个 pluggy hook。内置实现只是默认插件——可随时替换任意阶段。',
+          title: 'Hook 优先',
+          description: '约 200 行核心代码。每个阶段都是一个可插拔的 hook，灵活的 Hook 设计可以实现任何满足你需要的插件。而内置实现只是默认插件——你可以随时替换任意阶段。',
         },
         {
           icon: 'layers',
           title: 'Tape 上下文',
-          description: '上下文从追加式 tape 记录中重建，而非积累在 session 状态中。没有有损摘要，没有幻影记忆。',
+          description: '所有上下文均可从追加式 tape 记录中重建、Fork，而非堆叠在 session 状态中。无损摘要，避免幻觉记忆。',
         },
         {
           icon: 'radioTower',
-          title: 'Channel 无关',
-          description: '同一条 process_inbound() 管道驱动 CLI、Telegram 及你添加的任何 channel。Hooks 从不感知运行在哪个界面。',
+          title: 'Channel 任选',
+          description: '同一个 Pipeline 上驱动 CLI、Telegram 甚至你添加的任何 channel。Hooks 从不感知运行在哪个地方，可以是任意来源。',
         },
         {
           icon: 'fileSearch',
           title: 'Skills as Docs',
-          description: 'Skills 是带验证 frontmatter 的 SKILL.md 文件——不是带魔法注册的代码模块。可发现、可覆盖、可审计。',
+          description: 'Skills 是带验证 frontmatter 的 SKILL.md 文件——而黑箱代码模块。确保你的 SKILL 都是可被发现、覆盖且审计。',
         },
         {
           icon: 'users',
-          title: '操作者对等',
-          description: '人类与 agent 共享同一操作者模型：相同的边界、证据链和交接语义。没有特殊情况。',
+          title: '操作对等',
+          description: '人类与 Agent 共享同一操作者模型：相同的边界、证据链和 Hand-off 语义。',
         },
         {
           icon: 'puzzle',
           title: '插件系统',
-          description: '通过 group="bub" 的 Python entry-points 注册。后注册的插件优先运行并覆盖前者。没有框架特权。',
+          description: '显式覆盖插件设计：后注册的插件优先运行并覆盖前者，没有任何框架优先限制。',
         },
       ],
     },
     hookIntro: {
       eyebrow: '架构',
-      heading: 'Hooks 串连每次交互。',
+      heading: '处处都是 Hooks。',
       description: [
-        'Bub 中每个阶段都是一个 pluggy hook。内置实现只是另一个插件。',
-        '通过注册你自己的 hook 覆盖任意阶段。后注册的插件优先执行。无需 fork，没有框架特权。',
+        'Bub 中每个阶段都是一个可插拔的 hook。',
+        '通过注册你自己的 hook 覆盖任意阶段。无需 fork。',
       ],
       hookStages: [
         { name: 'resolve_session', note: '路由到正确的会话' },
@@ -203,15 +203,15 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
     },
     tapeModel: {
       eyebrow: '上下文模型',
-      heading: 'Tape：统一的事实模型。',
+      heading: 'Tape，拍板。',
       description: [
-        '上下文不积累在 session 状态中，而是从追加式 tape——不可变事实的序列——中重建。Entry 记录发生了什么；Anchor 标记阶段边界并携带结构化状态。',
-        '修正追加新事实来取代旧事实——从不覆盖。View 从 anchor 往后组装，而非整体继承。每一个决策都可审计、可重放、可 fork。',
+        '上下文不积累在 session 状态中，而是从追加式 tape——不可变事实的序列——中重建：Entry 记录发生了什么、Anchor 标记阶段边界并携带结构化状态。',
+        '通过修正追加新事实来取代旧事实——从不覆盖。视图从 anchor 往后组装，而非整体继承。每次决策都可审计、可重放、可 fork。',
       ],
     },
     testimonials: {
       eyebrow: '社区',
-      heading: '大家怎么说。',
+      heading: '好东西，值得赞。',
     },
   },
 };
