@@ -12,7 +12,7 @@ const { eyebrow, heading, subheading, features = [] } = Astro.props;
   <div class="mx-auto max-w-6xl px-5 md:px-8">
     <SectionHeading eyebrow={eyebrow} heading={heading} subheading={subheading} />
 
-    <div class="grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
+    <div class="grid gap-px border border-border bg-border shadow-[var(--site-shadow-elevated)] sm:grid-cols-2 lg:grid-cols-3">
       {/* Row 1: feature[0] col-span-2 + feature[1] */}
       <FeatureCard feature={features[0]} wide iconSize={120} />
       <FeatureCard feature={features[1]} />

@@ -1,4 +1,6 @@
 ---
+import Icon from './ui/Icon.astro';
+
 interface Props {
   title: string;
   description: string;
@@ -33,7 +35,7 @@ const indexStr = index !== undefined ? String(index).padStart(2, '0') : undefine
       </span>
     )}
     <span class="ml-auto translate-x-0 translate-y-0 text-muted-foreground opacity-0 transition-all duration-200 group-hover:translate-x-1 group-hover:-translate-y-1 group-hover:opacity-100">
-      ↗
+      <Icon name="arrowUpRight" size={16} aria-hidden="true" />
     </span>
   </div>
 

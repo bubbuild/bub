@@ -15,6 +15,8 @@ const { badge, title, description, primaryHref, primaryLabel, contributorsLabel,
   contributors?: GitHubContributor[];
 };
 
+const hasContributors = contributors.length > 0;
+
 const exampleCode = `import bub
 
 @bub.hookimpl
@@ -60,9 +62,11 @@ def run_model(messages, config):
         </p>
 
         <!-- Contributors -->
-        <div class="mt-6">
-          <Contributors label={contributorsLabel} contributors={contributors} />
-        </div>
+        {hasContributors && (
+          <div class="mt-6">
+            <Contributors label={contributorsLabel} contributors={contributors} />
+          </div>
+        )}
 
         <!-- CTAs -->
         <div class="mt-6 flex flex-col gap-3 sm:flex-row">

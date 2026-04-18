@@ -15,8 +15,10 @@ const {
   hubLabel = 'Plugins',
   menuLabel = 'Menu',
   closeLabel = 'Close',
-  stars = '—',
+  stars,
 } = Astro.props;
+
+const hasStars = Boolean(stars);
 
 const navItems = [
   { href: docsHref, label: docsLabel, icon: 'book' as const },
@@ -59,7 +61,7 @@ const navItems = [
           <Icon name="star" size={14} class="github-nav-button__star" fill="currentColor" />
         </span>
         <span>{REPO_SLUG}</span>
-        <span class="border-l border-border pl-1.5 text-xs text-muted-foreground">{stars}</span>
+        {hasStars && <span class="border-l border-border pl-1.5 text-xs text-muted-foreground">{stars}</span>}
       </a>
       <a
         class="hidden items-center gap-1.5 border border-border px-3.5 py-1.5 text-sm text-foreground no-underline transition-colors hover:bg-secondary md:inline-flex"
@@ -93,7 +95,12 @@ const navItems = [
                 <Icon name="star" size={15} class="github-nav-button__star" fill="currentColor" />
               </span>
               {REPO_SLUG}
-              <span class="ml-auto text-xs text-muted-foreground">★ {stars}</span>
+              {hasStars && (
+                <span class="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+                  <Icon name="star" size={12} fill="currentColor" aria-hidden="true" />
+                  {stars}
+                </span>
+              )}
             </a>
             <a class="flex items-center gap-2.5 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href={languageHref}>
               <Icon name="globe" size={15} class="opacity-50" aria-hidden="true" />

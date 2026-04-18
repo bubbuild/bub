@@ -12,44 +12,48 @@ const {
   contributors = [],
   label = 'Developed by contributors worldwide',
 } = Astro.props;
+
+const hasContributors = contributors.length > 0;
 ---
 
-<div class="flex flex-col gap-2.5">
-  <div class="flex -space-x-3">
-    {contributors.map((c, i) => (
-      <div
-        class:list={[
-          'group relative size-8 md:size-9',
-        ]}
-      >
-        <a
-          href={c.html_url}
-          target="_blank"
-          rel="noreferrer"
-          class="absolute inset-0 flex items-center justify-center overflow-hidden rounded-full border-2 border-background transition-transform duration-200 ease-out group-hover:-translate-y-2 group-hover:scale-110 group-hover:z-10"
-          title={c.login}
+{hasContributors && (
+  <div class="flex flex-col gap-2.5">
+    <div class="flex -space-x-3">
+      {contributors.map((c, i) => (
+        <div
+          class:list={[
+            'group relative size-8 md:size-9',
+          ]}
         >
-          <img
-            src={c.avatar_url}
-            alt={c.login}
-            width="40"
-            height="40"
-            loading="lazy"
-            class="h-full w-full object-cover"
-          />
-        </a>
-      </div>
-    ))}
-    <a
-      href={CONTRIBUTORS_URL}
-      target="_blank"
-      rel="noreferrer"
-      class="flex size-8 md:size-9 items-center justify-center rounded-full border-2 border-background bg-secondary text-muted-foreground transition-transform duration-200 ease-out hover:-translate-y-1 hover:scale-105 hover:text-foreground"
-      title="View all contributors on GitHub"
-      aria-label="View all contributors on GitHub"
-    >
-      <Icon name="ellipsis" size={14} aria-hidden="true" />
-    </a>
+          <a
+            href={c.html_url}
+            target="_blank"
+            rel="noreferrer"
+            class="absolute inset-0 flex items-center justify-center overflow-hidden rounded-full border-2 border-background transition-transform duration-200 ease-out group-hover:-translate-y-2 group-hover:scale-110 group-hover:z-10"
+            title={c.login}
+          >
+            <img
+              src={c.avatar_url}
+              alt={c.login}
+              width="40"
+              height="40"
+              loading="lazy"
+              class="h-full w-full object-cover"
+            />
+          </a>
+        </div>
+      ))}
+      <a
+        href={CONTRIBUTORS_URL}
+        target="_blank"
+        rel="noreferrer"
+        class="flex size-8 md:size-9 items-center justify-center rounded-full border-2 border-background bg-secondary text-muted-foreground transition-transform duration-200 ease-out hover:-translate-y-1 hover:scale-105 hover:text-foreground"
+        title="View all contributors on GitHub"
+        aria-label="View all contributors on GitHub"
+      >
+        <Icon name="ellipsis" size={14} aria-hidden="true" />
+      </a>
+    </div>
+    <span class="text-xs leading-relaxed text-muted-foreground">{label}</span>
   </div>
-  <span class="text-xs leading-relaxed text-muted-foreground">{label}</span>
-</div>
+)}

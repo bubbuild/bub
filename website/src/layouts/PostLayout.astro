@@ -1,5 +1,6 @@
 ---
 import BaseLayout from './BaseLayout.astro';
+import Icon from '../components/ui/Icon.astro';
 import { getLangFromUrl, getHtmlLang, useTranslatedPath } from '../i18n/utils';
 import { useTranslations } from '../i18n/utils';
 
@@ -35,8 +36,9 @@ const formattedDate = date.toLocaleDateString(getHtmlLang(lang), {
   <main id="main-content" class="mx-auto w-full max-w-3xl flex-1 px-5 py-12 md:px-8 md:py-20">
     <a
       href={postsHref}
-      class="mb-8 inline-block font-mono text-sm text-muted-foreground no-underline transition-colors duration-300 hover:text-foreground"
+      class="mb-8 inline-flex items-center gap-2 font-mono text-sm text-muted-foreground no-underline transition-colors duration-300 hover:text-foreground"
     >
+      <Icon name="arrowLeft" size={14} aria-hidden="true" />
       {t('posts.back')}
     </a>
 

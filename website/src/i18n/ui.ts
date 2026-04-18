@@ -48,7 +48,7 @@ export const ui = {
     // Post list
     'posts.title': 'Posts',
     'posts.description': 'Thoughts on agent design, collaboration, and building Bub.',
-    'posts.back': '← Back to Posts',
+    'posts.back': 'Back to Posts',
 
     // Language switcher label (shown as the "other" language)
     'lang.switch': '中文',
@@ -79,7 +79,7 @@ export const ui = {
     // Post list
     'posts.title': '文章',
     'posts.description': '关于 agent 设计、协作与构建 Bub 的思考。',
-    'posts.back': '← 返回文章列表',
+    'posts.back': '返回文章列表',
 
     // Language switcher label
     'lang.switch': 'English',
