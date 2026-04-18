@@ -14,7 +14,7 @@ const { eyebrow, heading, subheading, features = [] } = Astro.props;
     <div class="grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
       {/* Row 1: feature[0] col-span-2 + feature[1] */}
       <div class="feature-card group relative col-span-1 overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 lg:col-span-2 hover:bg-secondary/40">
-        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
+        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3 max-w-[40%]" aria-hidden="true">
           <Icon name={features[0].icon} size={120} />
         </div>
         <div class="relative">
@@ -44,8 +44,8 @@ const { eyebrow, heading, subheading, features = [] } = Astro.props;
       </div>
       {/* Center: Bub logo — hidden below lg where there's no 3-col grid */}
       <div class="hidden items-center justify-center bg-background p-8 lg:flex">
-        <img src="/bub-logo.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110 dark:hidden" loading="lazy" />
-        <img src="/bub-logo-dark.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110 hidden dark:block" loading="lazy" />
+        <img src="/bub-logo.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110 dark:hidden" loading="lazy" width="240" height="240" />
+        <img src="/bub-logo-dark.png" alt="Bub" class="h-60 w-60 aspect-square opacity-80 transition-transform duration-500 hover:scale-110 hidden dark:block" loading="lazy" width="240" height="240" />
       </div>
       <div class="feature-card group relative overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 hover:bg-secondary/40">
         <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
@@ -68,7 +68,7 @@ const { eyebrow, heading, subheading, features = [] } = Astro.props;
         </div>
       </div>
       <div class="feature-card group relative col-span-1 overflow-hidden bg-background p-5 sm:p-8 transition-all duration-300 lg:col-span-2 hover:bg-secondary/40">
-        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3" aria-hidden="true">
+        <div class="pointer-events-none absolute bottom-3 right-3 text-foreground opacity-[0.07] transition-all duration-500 group-hover:opacity-[0.13] group-hover:scale-110 group-hover:rotate-3 max-w-[40%]" aria-hidden="true">
           <Icon name={features[5].icon} size={120} />
         </div>
         <div class="relative">

@@ -19,8 +19,7 @@ const {
     {contributors.map((c, i) => (
       <div
         class:list={[
-          'group relative h-7 w-7 md:h-8 md:w-8',
-          // i >= 9 ? 'hidden lg:block' : '',
+          'group relative size-8 md:size-9',
         ]}
       >
         <a
@@ -33,6 +32,9 @@ const {
           <img
             src={c.avatar_url}
             alt={c.login}
+            width="40"
+            height="40"
+            loading="lazy"
             class="h-full w-full object-cover"
           />
         </a>
@@ -42,7 +44,7 @@ const {
       href={CONTRIBUTORS_URL}
       target="_blank"
       rel="noreferrer"
-      class="flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-secondary text-muted-foreground transition-transform duration-200 ease-out hover:-translate-y-1 hover:scale-105 hover:text-foreground md:h-8 md:w-8"
+      class="flex size-8 md:size-9 items-center justify-center rounded-full border-2 border-background bg-secondary text-muted-foreground transition-transform duration-200 ease-out hover:-translate-y-1 hover:scale-105 hover:text-foreground"
       title="View all contributors on GitHub"
       aria-label="View all contributors on GitHub"
     >

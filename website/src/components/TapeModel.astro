@@ -47,71 +47,82 @@ const COL_COUNT = 5;
           <div class="flex items-center justify-between border-b border-border px-4 py-2.5 sm:px-5 sm:py-3">
             <span class="font-mono text-[0.65rem] text-muted-foreground/60">~/.bub/tapes/session_a1b2</span>
             <div class="flex items-center gap-1.5">
-              <span class="tape-live-dot" aria-hidden="true"></span>
+              <span
+                class="tape-live-dot inline-block w-[6px] h-[6px] rounded-full bg-[oklch(0.72_0.17_155)] shadow-[0_0_6px_oklch(0.72_0.17_155_/_0.5)]"
+                aria-hidden="true"
+              ></span>
               <span class="font-mono text-[0.55rem] uppercase tracking-wider text-emerald-500/80">live</span>
             </div>
           </div>
 
           <!-- Tape log table -->
-          <div class="tape-scroll relative overflow-x-auto">
-            <div class="tape-scan" data-tape-scan aria-hidden="true"></div>
+          <div class="relative overflow-x-auto overflow-y-hidden">
+            <div
+              class="tape-scan absolute inset-x-0 top-0 h-px z-10 pointer-events-none opacity-0"
+              data-tape-scan
+              aria-hidden="true"
+            ></div>
 
-            <table class="tape-table w-full" role="log" aria-label="Tape entries">
+            <table class="w-full border-collapse font-mono text-[0.62rem] leading-[1.5]" role="log" aria-label="Tape entries">
               <colgroup>
-                <col class="tape-col-time" />
-                <col class="tape-col-dot" />
-                <col class="tape-col-op" />
-                <col class="tape-col-key" />
+                <col class="w-[66px] max-sm:hidden" />
+                <col class="w-[18px]" />
+                <col class="w-[104px]" />
+                <col class="w-[50px] max-sm:hidden" />
                 <col />
               </colgroup>
               <thead>
-                <tr data-tape-header>
-                  <th scope="col" class="tape-th tape-th--time">time</th>
-                  <th scope="col" class="tape-th tape-th--dot" aria-label="kind"></th>
-                  <th scope="col" class="tape-th">op</th>
-                  <th scope="col" class="tape-th">key</th>
-                  <th scope="col" class="tape-th">payload</th>
+                <tr data-tape-header class="opacity-0">
+                  <th scope="col" class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border max-sm:hidden">time</th>
+                  <th scope="col" class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border" aria-label="kind"></th>
+                  <th scope="col" class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border">op</th>
+                  <th scope="col" class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border max-sm:hidden">key</th>
+                  <th scope="col" class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border">payload</th>
                 </tr>
               </thead>
               <tbody>
                 {tapeEntries.map((entry, i) => (
                   entry.kind === 'anchor' ? (
-                    <tr
-                      class="tape-row tape-anchor-row"
-                      data-tape-row={i}
-                      data-kind="anchor"
-                    >
-                      <td colspan={COL_COUNT} class="tape-anchor-cell">
-                        <div class="tape-anchor-inner">
-                          <span class="tape-anchor-line" aria-hidden="true"></span>
-                          <span class="tape-anchor-badge">
+                    <tr class="opacity-0 translate-y-2" data-tape-row={i} data-kind="anchor">
+                      <td colspan={COL_COUNT} class="px-[0.65rem] py-[0.55rem]">
+                        <div class="flex items-center gap-2">
+                          <span class="flex-1 h-px bg-[oklch(0.7_0.15_250_/_0.2)]" aria-hidden="true"></span>
+                          <span class="tape-anchor-badge inline-flex items-center gap-[0.35rem] px-[0.6rem] py-[0.2rem] border border-[oklch(0.7_0.15_250_/_0.3)] bg-[oklch(0.7_0.15_250_/_0.06)] transition-shadow duration-[400ms]">
                             <Icon name="anchor" size={10} class="text-primary" aria-hidden="true" />
-                            <span class="tape-anchor-op">{entry.op}</span>
-                            <span class="tape-anchor-val">{entry.value}</span>
+                            <span class="font-mono text-[0.58rem] font-semibold uppercase tracking-[0.05em] text-primary">{entry.op}</span>
+                            <span class="font-mono text-[0.5rem] text-primary/50 max-sm:hidden">{entry.value}</span>
                           </span>
-                          <span class="tape-anchor-line" aria-hidden="true"></span>
+                          <span class="flex-1 h-px bg-[oklch(0.7_0.15_250_/_0.2)]" aria-hidden="true"></span>
                         </div>
                       </td>
                     </tr>
                   ) : (
                     <tr
-                      class:list={['tape-row', entry.corrects ? 'tape-correction-row' : '']}
+                      class="opacity-0 translate-y-2"
                       data-tape-row={i}
                       data-kind="event"
                       data-key={entry.key}
                       data-corrects={entry.corrects ?? ''}
                     >
-                      <td class="tape-td tape-td--time">{entry.ts}</td>
-                      <td class="tape-td tape-td--dot">
-                        <span class:list={['tape-dot', entry.corrects && 'tape-dot--correction']} aria-hidden="true" />
+                      <td class="px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle tabular-nums text-muted-foreground opacity-35 max-sm:hidden">{entry.ts}</td>
+                      <td class="py-[0.38rem] px-0 whitespace-nowrap align-middle text-center">
+                        <span
+                          class:list={[
+                            'inline-block w-[5px] h-[5px] rounded-full align-middle',
+                            entry.corrects
+                              ? 'bg-primary shadow-[0_0_6px_oklch(0.7_0.15_250_/_0.4)]'
+                              : 'bg-muted-foreground opacity-25',
+                          ]}
+                          aria-hidden="true"
+                        />
                       </td>
-                      <td class:list={['tape-td tape-td--op', entry.corrects && 'text-primary']}>
+                      <td class:list={['tape-td--op px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle font-medium', entry.corrects ? 'text-primary' : 'text-foreground']}>
                         {entry.op}
                       </td>
-                      <td class="tape-td tape-td--key">{entry.key}</td>
-                      <td class="tape-td tape-td--payload">
+                      <td class="px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle text-[0.56rem] text-muted-foreground opacity-40 max-sm:hidden">{entry.key}</td>
+                      <td class="tape-td--payload px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle text-muted-foreground opacity-70 max-w-[170px] overflow-hidden text-ellipsis max-sm:max-w-[120px]">
                         {entry.corrects && (
-                          <span class="tape-link">← {entry.corrects}</span>
+                          <span class="text-primary/70 mr-1 border-b border-dashed border-[oklch(0.7_0.15_250_/_0.35)] pb-px text-[0.56rem]">← {entry.corrects}</span>
                         )}
                         <span>{entry.value}</span>
                       </td>
@@ -123,32 +134,35 @@ const COL_COUNT = 5;
           </div>
 
           <!-- Live cursor -->
-          <div class="tape-cursor" data-tape-cursor>
-            <span class="tape-cursor-line" aria-hidden="true"></span>
-            <span class="tape-cursor-text">awaiting next entry…</span>
+          <div class="flex items-center gap-2 px-[0.65rem] py-[0.45rem] opacity-0" data-tape-cursor>
+            <span class="tape-cursor-line inline-block w-[1.5px] h-[13px] bg-primary" aria-hidden="true"></span>
+            <span class="font-mono text-[0.5rem] text-primary/40">awaiting next entry…</span>
           </div>
 
           <!-- View assembly indicator -->
-          <div class="tape-view" data-tape-view>
-            <div class="tape-view-left">
+          <div
+            class="flex items-center justify-between flex-wrap gap-2 px-3 py-2 border-t border-dashed border-[oklch(0.7_0.15_250_/_0.15)] bg-[oklch(0.7_0.15_250_/_0.03)] font-mono text-[0.55rem] opacity-0 translate-y-1.5"
+            data-tape-view
+          >
+            <div class="flex items-center gap-[0.35rem]">
               <Icon name="layers" size={11} class="text-primary/70" aria-hidden="true" />
-              <span class="tape-view-label">view assembled</span>
+              <span class="font-semibold uppercase tracking-[0.06em] text-primary/70">view assembled</span>
             </div>
-            <div class="tape-view-stats">
+            <div class="flex items-center gap-[0.35rem] text-muted-foreground opacity-55">
               <span>{entryCount} facts</span>
-              <span class="tape-view-sep">·</span>
+              <span class="opacity-40">·</span>
               <span>{anchorCount} anchor</span>
-              <span class="tape-view-arrow">→</span>
-              <span class="tape-view-tokens">4.2k tokens</span>
+              <span class="opacity-40">→</span>
+              <span class="text-primary opacity-80">4.2k tokens</span>
             </div>
           </div>
 
           <!-- Status bar -->
-          <div class="tape-status">
-            <span class="tape-status-badge">{entryCount + anchorCount} entries</span>
-            <span class="tape-status-info">{anchorCount} anchor</span>
-            <span class="tape-status-sep">·</span>
-            <span class="tape-status-sep">append-only</span>
+          <div class="flex flex-wrap items-center gap-2 px-3 py-[0.55rem] border-t border-border font-mono">
+            <span class="inline-flex items-center px-[0.4rem] py-[0.1rem] bg-[oklch(0.7_0.15_250_/_0.1)] text-[0.56rem] font-bold text-primary">{entryCount + anchorCount} entries</span>
+            <span class="text-[0.56rem] text-muted-foreground opacity-55">{anchorCount} anchor</span>
+            <span class="text-[0.52rem] text-muted-foreground opacity-35">·</span>
+            <span class="text-[0.52rem] text-muted-foreground opacity-35">append-only</span>
           </div>
         </div>
       </div>
@@ -182,140 +196,8 @@ const COL_COUNT = 5;
 </section>
 
 <style>
-  /* ── Table layout ── */
-  .tape-table {
-    border-collapse: collapse;
-    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-    font-size: 0.62rem;
-    line-height: 1.5;
-  }
-  .tape-col-time { width: 66px; }
-  .tape-col-dot  { width: 18px; }
-  .tape-col-op   { width: 104px; }
-  .tape-col-key  { width: 50px; }
-
-  @media (max-width: 639px) {
-    .tape-col-time,
-    .tape-th--time,
-    .tape-td--time { display: none; }
-  }
-
-  /* ── Header ── */
-  .tape-th {
-    padding: 0.5rem 0.65rem;
-    font-size: 0.5rem;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    text-align: left;
-    white-space: nowrap;
-    color: var(--muted-foreground);
-    opacity: 0.4;
-    border-bottom: 1px solid var(--border);
-  }
-  [data-tape-header] { opacity: 0; }
-
-  /* ── Body cells ── */
-  .tape-td {
-    padding: 0.38rem 0.65rem;
-    white-space: nowrap;
-    vertical-align: middle;
-  }
-  .tape-td--time {
-    font-variant-numeric: tabular-nums;
-    color: var(--muted-foreground);
-    opacity: 0.35;
-  }
-  .tape-td--dot {
-    padding-left: 0;
-    padding-right: 0;
-    text-align: center;
-  }
-  .tape-dot {
-    display: inline-block;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--muted-foreground);
-    opacity: 0.25;
-    vertical-align: middle;
-  }
-  .tape-dot--correction {
-    background: var(--primary);
-    opacity: 1;
-    box-shadow: 0 0 6px oklch(0.7 0.15 250 / 0.4);
-  }
-  .tape-td--op {
-    font-weight: 500;
-    color: var(--foreground);
-  }
-  .tape-td--key {
-    font-size: 0.56rem;
-    color: var(--muted-foreground);
-    opacity: 0.4;
-  }
-  .tape-td--payload {
-    color: var(--muted-foreground);
-    opacity: 0.7;
-    max-width: 170px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .tape-link {
-    color: var(--primary);
-    opacity: 0.7;
-    margin-right: 0.25rem;
-    border-bottom: 1px dashed oklch(0.7 0.15 250 / 0.35);
-    padding-bottom: 1px;
-    font-size: 0.56rem;
-  }
-
-  /* ── Anchor row ── */
-  .tape-anchor-cell { padding: 0.55rem 0.65rem; }
-  .tape-anchor-inner {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .tape-anchor-line {
-    flex: 1;
-    height: 1px;
-    background: oklch(0.7 0.15 250 / 0.2);
-  }
-  .tape-anchor-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.2rem 0.6rem;
-    border: 1px solid oklch(0.7 0.15 250 / 0.3);
-    background: oklch(0.7 0.15 250 / 0.06);
-    transition: box-shadow 0.4s ease;
-  }
-  .tape-anchor-op {
-    font-family: ui-monospace, monospace;
-    font-size: 0.58rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--primary);
-  }
-  .tape-anchor-val {
-    font-family: ui-monospace, monospace;
-    font-size: 0.5rem;
-    color: var(--primary);
-    opacity: 0.5;
-  }
-
-  /* ── Scan line ── */
+  /* ── Scan line gradient (complex — kept out of Tailwind arbitrary values) ── */
   .tape-scan {
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 1px;
-    top: 0;
-    z-index: 10;
-    pointer-events: none;
-    opacity: 0;
     background: linear-gradient(
       90deg,
       transparent 0%,
@@ -327,122 +209,20 @@ const COL_COUNT = 5;
     box-shadow: 0 0 8px oklch(0.7 0.15 250 / 0.25);
   }
 
-  /* ── LIVE indicator (green) ── */
-  .tape-live-dot {
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: oklch(0.72 0.17 155);
-    box-shadow: 0 0 6px oklch(0.72 0.17 155 / 0.5);
-    animation: live-pulse 2s ease-in-out infinite;
-  }
-  @keyframes live-pulse {
-    0%, 100% { opacity: 1; box-shadow: 0 0 6px oklch(0.72 0.17 155 / 0.5); }
-    50% { opacity: 0.4; box-shadow: 0 0 2px oklch(0.72 0.17 155 / 0.15); }
-  }
+  /* ── Animations ── */
+  .tape-live-dot   { animation: live-pulse   2s ease-in-out infinite; }
+  .tape-cursor-line { animation: cursor-blink 1s ease-in-out infinite; }
 
-  /* ── Cursor (terminal line style) ── */
-  .tape-cursor {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.45rem 0.65rem;
-    opacity: 0;
-  }
-  .tape-cursor-line {
-    display: inline-block;
-    width: 1.5px;
-    height: 13px;
-    background: var(--primary);
-    animation: cursor-blink 1s ease-in-out infinite;
-  }
-  .tape-cursor-text {
-    font-family: ui-monospace, monospace;
-    font-size: 0.5rem;
-    color: var(--primary);
-    opacity: 0.4;
+  @keyframes live-pulse {
+    0%, 100% { opacity: 1;   box-shadow: 0 0 6px oklch(0.72 0.17 155 / 0.5);  }
+    50%       { opacity: 0.4; box-shadow: 0 0 2px oklch(0.72 0.17 155 / 0.15); }
   }
   @keyframes cursor-blink {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
+    50%       { opacity: 0; }
   }
 
-  /* ── View assembly ── */
-  .tape-view {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border-top: 1px dashed oklch(0.7 0.15 250 / 0.15);
-    background: oklch(0.7 0.15 250 / 0.03);
-    font-family: ui-monospace, monospace;
-    font-size: 0.55rem;
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  .tape-view-left {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-  .tape-view-label {
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--primary);
-    opacity: 0.7;
-  }
-  .tape-view-stats {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    color: var(--muted-foreground);
-    opacity: 0.55;
-  }
-  .tape-view-sep,
-  .tape-view-arrow { opacity: 0.4; }
-  .tape-view-tokens { color: var(--primary); opacity: 0.8; }
-
-  /* ── Status bar ── */
-  .tape-status {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.55rem 0.75rem;
-    border-top: 1px solid var(--border);
-    font-family: ui-monospace, monospace;
-  }
-  .tape-status-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.1rem 0.4rem;
-    background: oklch(0.7 0.15 250 / 0.1);
-    font-size: 0.56rem;
-    font-weight: 700;
-    color: var(--primary);
-  }
-  .tape-status-info {
-    font-size: 0.56rem;
-    color: var(--muted-foreground);
-    opacity: 0.55;
-  }
-  .tape-status-sep {
-    font-size: 0.52rem;
-    color: var(--muted-foreground);
-    opacity: 0.35;
-  }
-
-  /* ── Row initial hidden state ── */
-  .tape-row {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-
-  /* ── Dynamic classes (applied via JS) ── */
+  /* ── JS-applied dynamic states ── */
   .tape-row-superseded .tape-td--payload span:last-child {
     text-decoration: line-through;
     text-decoration-color: oklch(0.7 0.15 250 / 0.4);

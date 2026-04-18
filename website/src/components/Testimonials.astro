@@ -1,10 +1,13 @@
 ---
+import Icon from './ui/Icon.astro';
 import SectionHeading from './ui/SectionHeading.astro';
 
 type TestimonialItem = {
   name: string;
   handle: string;
   text: string;
+  avatar?: string;
+  platform?: string;
 };
 
 interface Props {
@@ -33,25 +36,30 @@ const colorAccents = [
   <div class="relative mx-auto max-w-6xl px-5 md:px-8">
     <SectionHeading eyebrow={eyebrow} heading={heading} align="center" />
 
-    <div class="testimonials-wrapper relative">
+    <div class="testimonials-wrapper relative" data-testimonials>
       <div class="pointer-events-none absolute inset-x-0 top-0 z-10 h-20 bg-gradient-to-b from-background to-transparent" aria-hidden="true"></div>
       <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-20 bg-gradient-to-t from-background to-transparent" aria-hidden="true"></div>
 
       <div class="testimonials-columns grid h-[320px] gap-3 overflow-hidden sm:h-[380px] sm:grid-cols-2 lg:h-[440px] lg:grid-cols-3">
         <!-- Column 1: scroll up -->
-        <div class="testimonial-col testimonial-col-up">
+        <div class="testimonial-col testimonial-col-up min-w-0">
           <div class="flex flex-col gap-3">
             {[...col1, ...col1].map((t, i) => (
               <div class:list={['border border-border border-l-[3px] bg-card p-4', colorAccents[i % colorAccents.length]]}>
                 <p class="text-[0.84rem] leading-relaxed text-foreground/85">{t.text}</p>
                 <div class="mt-3 flex items-center gap-2.5">
-                  <div class="flex h-7 w-7 shrink-0 items-center justify-center bg-secondary font-mono text-[0.6rem] font-bold text-foreground">
-                    {t.name.charAt(0)}
-                  </div>
-                  <div class="min-w-0">
+                  {t.avatar ? (
+                    <img src={t.avatar} alt={t.name} class="h-7 w-7 shrink-0 object-cover" loading="lazy" width="28" height="28" />
+                  ) : (
+                    <div class="flex h-7 w-7 shrink-0 items-center justify-center bg-secondary font-mono text-[0.6rem] font-bold text-foreground">
+                      {t.name.charAt(0)}
+                    </div>
+                  )}
+                  <div class="min-w-0 flex-1">
                     <p class="truncate text-xs font-bold text-foreground">{t.name}</p>
                     <p class="truncate text-[0.65rem] text-muted-foreground">{t.handle}</p>
                   </div>
+                  {t.platform && <Icon name={t.platform} size={12} class="shrink-0 text-muted-foreground/50" aria-hidden="true" />}
                 </div>
               </div>
             ))}
@@ -65,13 +73,18 @@ const colorAccents = [
               <div class:list={['border border-border border-l-[3px] bg-card p-4', colorAccents[(i + 2) % colorAccents.length]]}>
                 <p class="text-[0.84rem] leading-relaxed text-foreground/85">{t.text}</p>
                 <div class="mt-3 flex items-center gap-2.5">
-                  <div class="flex h-7 w-7 shrink-0 items-center justify-center bg-secondary font-mono text-[0.6rem] font-bold text-foreground">
-                    {t.name.charAt(0)}
-                  </div>
-                  <div class="min-w-0">
+                  {t.avatar ? (
+                    <img src={t.avatar} alt={t.name} class="h-7 w-7 shrink-0 object-cover" loading="lazy" width="28" height="28" />
+                  ) : (
+                    <div class="flex h-7 w-7 shrink-0 items-center justify-center bg-secondary font-mono text-[0.6rem] font-bold text-foreground">
+                      {t.name.charAt(0)}
+                    </div>
+                  )}
+                  <div class="min-w-0 flex-1">
                     <p class="truncate text-xs font-bold text-foreground">{t.name}</p>
                     <p class="truncate text-[0.65rem] text-muted-foreground">{t.handle}</p>
                   </div>
+                  {t.platform && <Icon name={t.platform} size={12} class="shrink-0 text-muted-foreground/50" aria-hidden="true" />}
                 </div>
               </div>
             ))}
@@ -85,13 +98,18 @@ const colorAccents = [
               <div class:list={['border border-border border-l-[3px] bg-card p-4', colorAccents[(i + 4) % colorAccents.length]]}>
                 <p class="text-[0.84rem] leading-relaxed text-foreground/85">{t.text}</p>
                 <div class="mt-3 flex items-center gap-2.5">
-                  <div class="flex h-7 w-7 shrink-0 items-center justify-center bg-secondary font-mono text-[0.6rem] font-bold text-foreground">
-                    {t.name.charAt(0)}
-                  </div>
-                  <div class="min-w-0">
+                  {t.avatar ? (
+                    <img src={t.avatar} alt={t.name} class="h-7 w-7 shrink-0 object-cover" loading="lazy" width="28" height="28" />
+                  ) : (
+                    <div class="flex h-7 w-7 shrink-0 items-center justify-center bg-secondary font-mono text-[0.6rem] font-bold text-foreground">
+                      {t.name.charAt(0)}
+                    </div>
+                  )}
+                  <div class="min-w-0 flex-1">
                     <p class="truncate text-xs font-bold text-foreground">{t.name}</p>
                     <p class="truncate text-[0.65rem] text-muted-foreground">{t.handle}</p>
                   </div>
+                  {t.platform && <Icon name={t.platform} size={12} class="shrink-0 text-muted-foreground/50" aria-hidden="true" />}
                 </div>
               </div>
             ))}
@@ -109,6 +127,7 @@ const colorAccents = [
   .testimonial-col > div {
     animation-timing-function: linear;
     animation-iteration-count: infinite;
+    animation-play-state: paused;
   }
   .testimonial-col-up > div {
     animation-name: scroll-up;
@@ -123,8 +142,8 @@ const colorAccents = [
     animation-duration: 55s;
   }
 
-  .testimonials-wrapper:hover .testimonial-col > div {
-    animation-play-state: paused;
+  :global([data-testimonials-playing]) .testimonial-col > div {
+    animation-play-state: running;
   }
 
   @keyframes scroll-up {
@@ -137,3 +156,22 @@ const colorAccents = [
     to { transform: translateY(0); }
   }
 </style>
+
+<script>
+  import { inView } from 'motion';
+
+  function initTestimonialsViewport() {
+    const wrapper = document.querySelector('[data-testimonials]') as HTMLElement | null;
+    if (!wrapper) return;
+
+    inView(wrapper, () => {
+      wrapper.setAttribute('data-testimonials-playing', '');
+      return () => {
+        wrapper.removeAttribute('data-testimonials-playing');
+      };
+    }, { margin: '-5% 0px' });
+  }
+
+  initTestimonialsViewport();
+  document.addEventListener('astro:page-load', initTestimonialsViewport);
+</script>

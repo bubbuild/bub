@@ -1,9 +1,10 @@
 ---
 export const prerender = false;
 
+import { getCollection } from 'astro:content';
 import LandingLayout from '../../layouts/LandingLayout.astro';
 import { useTranslations } from '../../i18n/utils';
-import { getLandingPageCopy, type LandingLocale } from '../../i18n/landing-page';
+import { getLandingPageData, type LandingLocale } from '../../data/landing-page';
 import { languages, defaultLang, type Locale } from '../../i18n/ui';
 
 // In SSR mode, read locale from the catch-all param.
@@ -18,15 +19,22 @@ if (!(locale in languages)) {
 }
 
 const t = useTranslations(locale);
-const copy = getLandingPageCopy(locale as LandingLocale);
+const pageData = getLandingPageData(locale as LandingLocale);
+
+// Load testimonial items from the userwall content collection.
+const userwallEntries = await getCollection('userwall');
+const testimonials = {
+  ...pageData.testimonials,
+  testimonials: userwallEntries.map((entry) => entry.data),
+};
 ---
 
 <LandingLayout
   title={t('site.title')}
   description={t('site.description')}
-  hero={copy.hero}
-  features={copy.features}
-  hookIntro={copy.hookIntro}
-  tapeModel={copy.tapeModel}
-  testimonials={copy.testimonials}
+  hero={pageData.hero}
+  features={pageData.features}
+  hookIntro={pageData.hookIntro}
+  tapeModel={pageData.tapeModel}
+  testimonials={testimonials}
 />

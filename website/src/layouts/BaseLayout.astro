@@ -64,6 +64,8 @@ const {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#252525" media="(prefers-color-scheme: dark)" />
     <link rel="icon" type="image/png" href="/bub-logo.png" />
     {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
     {robots && <meta name="robots" content={robots} />}
@@ -119,17 +121,22 @@ const {
 
       function initScrollReveals() {
         if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-        document.querySelectorAll('[data-reveal]').forEach((el, index) => {
+        document.querySelectorAll('[data-reveal]').forEach((el) => {
           const htmlEl = el as HTMLElement;
           htmlEl.style.opacity = '0';
           htmlEl.style.transform = 'translateY(24px)';
 
           inView(htmlEl, () => {
-            animate(
+            const controls = animate(
               htmlEl,
               { opacity: [0, 1], transform: ['translateY(24px)', 'translateY(0)'] },
-              { duration: 0.6, delay: index * 0.05, easing: [0.25, 0.1, 0.25, 1] },
+              { duration: 0.6, easing: [0.25, 0.1, 0.25, 1] },
             );
+            return () => {
+              controls.stop();
+              htmlEl.style.opacity = '0';
+              htmlEl.style.transform = 'translateY(24px)';
+            };
           }, { margin: '0px 0px -10% 0px' });
         });
       }

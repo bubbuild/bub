@@ -40,9 +40,9 @@ def run_model(messages, config):
   <div class="mx-auto max-w-6xl px-5 md:px-8">
     <div class="grid items-center gap-12 lg:grid-cols-2 lg:gap-14">
       <!-- Left: text -->
-      <div>
+      <div class="min-w-0">
         <!-- Badge -->
-        <div class="inline-flex items-center gap-2 whitespace-nowrap border border-border bg-secondary/40 px-3 py-1.5 font-mono text-[0.7rem] uppercase leading-none tracking-widest text-muted-foreground">
+        <div class="inline-flex items-center gap-2 border border-border bg-secondary/40 px-3 py-1.5 font-mono text-[0.6rem] uppercase leading-none tracking-widest text-muted-foreground md:text-[0.8rem]">
           <Icon name="cpu" size={11} class="opacity-60" aria-hidden="true" />
           {badge}
         </div>
@@ -76,7 +76,7 @@ def run_model(messages, config):
       </div>
 
       <!-- Right: code editor -->
-      <div class="hero-terminal overflow-hidden overflow-x-auto border border-border shadow-[0_8px_30px_rgba(0,0,0,0.06),0_2px_8px_rgba(0,0,0,0.04)]" role="img" aria-label="Example Python code showing Bub hook implementations">
+      <div class="hero-terminal min-w-0 overflow-hidden border border-border shadow-[0_8px_30px_rgba(0,0,0,0.06),0_2px_8px_rgba(0,0,0,0.04)]" role="img" aria-label="Example Python code showing Bub hook implementations">
         <Code code={exampleCode} lang="python" frame="code" title="hooks.py" />
       </div>
     </div>
@@ -114,5 +114,6 @@ def run_model(messages, config):
     font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
     font-size: 0.78rem;
     line-height: 1.7;
+    overflow-x: auto;
   }
 </style>

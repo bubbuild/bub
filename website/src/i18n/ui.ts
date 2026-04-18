@@ -17,7 +17,7 @@ export const showDefaultLang = false;
 
 // ---------------------------------------------------------------------------
 // UI strings — flat keys for nav, footer, 404, posts, and site meta.
-// Landing-page copy (hero, features, etc.) lives in i18n/landing-page.ts.
+// Landing-page structured data (hero, features, etc.) lives in data/landing-page.ts.
 // English is the source of truth. Other locales override selectively;
 // missing keys automatically fall back to English.
 // ---------------------------------------------------------------------------
