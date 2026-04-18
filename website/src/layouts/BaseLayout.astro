@@ -25,6 +25,8 @@ interface Props {
   canonicalUrl?: string;
   /** OG type. Defaults to 'website'. */
   ogType?: string;
+  /** OG image path (relative to site root, e.g. '/og/index.png'). */
+  ogImage?: string;
   /** Extra class on <body>. */
   bodyClass?: string;
   /** Whether to render the back-to-top button. Default true. */
@@ -50,11 +52,14 @@ const {
   description = t('site.description'),
   canonicalUrl,
   ogType = 'website',
+  ogImage = '/og/index.png',
   bodyClass = 'min-h-screen antialiased font-sans',
   backToTop = true,
   skipLink = true,
   robots,
 } = Astro.props;
+
+const ogImageUrl = new URL(ogImage, Astro.site ?? 'https://bub.build').href;
 ---
 
 <!doctype html>
@@ -74,9 +79,13 @@ const {
     <meta property="og:description" content={description} />
     {canonicalUrl && <meta property="og:url" content={canonicalUrl} />}
     <meta property="og:site_name" content="Bub" />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageUrl} />
     <script is:inline>
       (() => {
         const stored = localStorage.getItem('starlight-theme');

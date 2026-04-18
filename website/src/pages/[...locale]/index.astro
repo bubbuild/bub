@@ -4,6 +4,7 @@ export const prerender = false;
 import { getCollection } from 'astro:content';
 import { getLandingPageData } from '@/data/landing-page';
 import { getLocaleFromParam, useTranslations } from '@/i18n/utils';
+import { gitHubAvatarUrl } from '@/lib/github';
 import LandingLayout from '@/layouts/LandingLayout.astro';
 
 // In SSR mode, read locale from the catch-all param.
@@ -24,7 +25,10 @@ const pageData = getLandingPageData(locale);
 const userwallEntries = await getCollection('userwall');
 const testimonials = {
   ...pageData.testimonials,
-  testimonials: userwallEntries.map((entry) => entry.data),
+  testimonials: userwallEntries.map((entry) => ({
+    ...entry.data,
+    avatar: gitHubAvatarUrl(entry.data.github),
+  })),
 };
 ---
 

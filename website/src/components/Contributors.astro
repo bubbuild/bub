@@ -38,8 +38,12 @@ const hasContributors = contributors.length > 0;
               width="40"
               height="40"
               loading="lazy"
-              class="h-full w-full object-cover"
+              class="avatar-img h-full w-full object-cover"
+              onerror="this.hidden=true;this.parentElement.querySelector('.avatar-fallback').hidden=false"
             />
+            <div class="avatar-fallback flex h-full w-full items-center justify-center bg-secondary text-muted-foreground" hidden>
+              <Icon name="circleUserRound" size={18} aria-hidden="true" />
+            </div>
           </a>
         </div>
       ))}

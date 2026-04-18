@@ -124,3 +124,13 @@ export async function getRepoStats(contributorLimit = 15): Promise<RepoStats> {
     return { stars: 0, starsFormatted: undefined, contributors: [] };
   }
 }
+
+/**
+ * Build a GitHub avatar URL for a username.
+ *
+ * Uses GitHub's redirect-based endpoint — no API call, no token, no rate limit.
+ * Returns `undefined` when no username is provided.
+ */
+export function gitHubAvatarUrl(username: string | undefined, size = 80): string | undefined {
+  return username ? `https://github.com/${username}.png?size=${size}` : undefined;
+}

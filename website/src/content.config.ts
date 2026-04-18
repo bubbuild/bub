@@ -20,7 +20,7 @@ const userwall = defineCollection({
     name: z.string(),
     handle: z.string(),
     platform: z.string().optional(),
-    avatar: z.string().optional(),
+    github: z.string().optional(),
     text: z.string(),
     ref: z.string().url().optional(),
   }),

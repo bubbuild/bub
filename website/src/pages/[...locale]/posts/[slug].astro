@@ -28,6 +28,7 @@ const { Content } = await render(post);
   date={post.data.date}
   locale={post.data.locale}
   tags={post.data.tags ?? []}
+  postId={post.id.replace(/\.md$/, '')}
 >
   <Content />
 </PostLayout>

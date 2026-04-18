@@ -10,19 +10,23 @@ interface Props {
   date: Date;
   locale: Locale;
   tags: string[];
+  /** Content collection entry ID, e.g. "en/bootstrap-milestone" */
+  postId: string;
 }
 
-const { title, description, date, locale, tags }: Props = Astro.props;
+const { title, description, date, locale, tags, postId }: Props = Astro.props;
 
 const t = useTranslations(locale);
 const postsHref = getPostsHref(locale);
 const formattedDate = formatPostDate(date, locale);
+const ogImage = `/og/posts/${postId}.png`;
 ---
 
 <BaseLayout
   title={`${title} | Bub`}
   description={description}
   ogType="article"
+  ogImage={ogImage}
   bodyClass="flex min-h-screen flex-col antialiased font-sans"
   backToTop={false}
 >
