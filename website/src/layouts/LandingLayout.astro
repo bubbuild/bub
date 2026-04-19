@@ -44,12 +44,18 @@ const { contributors } = await getRepoStats();
     background-attachment: fixed;
   }
 
-  :global(body.ambient-page > header),
-  :global(body.ambient-page > header .mobile-dropdown) {
+  :global(body.ambient-page > header) {
     background-color: color-mix(in oklch, var(--background) 82%, transparent);
     background-image: var(--ambient-gradient);
     background-attachment: fixed;
     backdrop-filter: blur(12px) saturate(1.2);
+  }
+
+  :global(body.ambient-page > header .mobile-dropdown) {
+    background-color: color-mix(in oklch, var(--background) 96%, transparent);
+    background-image: var(--ambient-gradient);
+    background-attachment: fixed;
+    backdrop-filter: blur(20px) saturate(1.2);
   }
 
   :global(body.ambient-page > footer) {

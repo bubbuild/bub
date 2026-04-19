@@ -43,7 +43,7 @@ const navItems = [
 ];
 ---
 
-<header class="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm w-full" role="banner">
+<header class="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md w-full" role="banner">
   <div class="mx-auto flex max-w-6xl items-center justify-between px-5 py-3 md:px-8">
     <!-- Brand -->
     <a class="flex items-center gap-2.5 text-[0.95rem] font-bold tracking-tight text-foreground no-underline" href={homeHref}>
@@ -85,7 +85,7 @@ const navItems = [
         class="hidden items-center gap-1.5 border border-border px-3.5 py-1.5 text-sm text-foreground no-underline transition-colors hover:bg-secondary md:inline-flex"
         href={languageHref}
       >
-        <Icon name="globe" size={14} class="opacity-50" aria-hidden="true" />
+        <Icon name="languages" size={14} class="opacity-50" aria-hidden="true" />
         {languageLabel}
       </a>
       <ThemeToggle />
@@ -98,7 +98,7 @@ const navItems = [
           <span class="sr-only group-open:hidden">{menuLabel}</span>
           <span class="sr-only hidden group-open:inline">{closeLabel}</span>
         </summary>
-        <nav class="mobile-dropdown absolute left-0 right-0 top-full border-b border-border bg-background/95 backdrop-blur-sm p-5" role="navigation" aria-label="Mobile navigation">
+        <nav class="mobile-dropdown absolute left-0 right-0 top-full border-b border-border/60 bg-background/95 backdrop-blur-md p-5" role="navigation" aria-label="Mobile navigation">
           <div class="grid gap-0 text-sm">
             {navItems.map((item) => (
               <a
@@ -123,7 +123,7 @@ const navItems = [
               )}
             </a>
             <a class="flex items-center gap-2.5 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href={languageHref}>
-              <Icon name="globe" size={15} class="opacity-50" aria-hidden="true" />
+              <Icon name="languages" size={15} class="opacity-50" aria-hidden="true" />
               {languageLabel}
             </a>
           </div>

@@ -330,12 +330,12 @@
     }
     body {
         @apply bg-background text-foreground;
-        overflow-x: hidden;
+        overflow-x: clip;
     }
     html {
         @apply bg-background;
         scroll-behavior: smooth;
-        overflow-x: hidden;
+        overflow-x: clip;
     }
     ::selection {
         background-color: var(--primary);
