@@ -13,11 +13,6 @@ export default defineConfig({
   site: process.env.SITE_URL ?? 'https://bub.build',
   env: {
     schema: {
-      GITHUB_TOKEN: envField.string({
-        context: 'server',
-        access: 'secret',
-        optional: true,
-      }),
       SITE_URL: envField.string({
         context: 'client',
         access: 'public',

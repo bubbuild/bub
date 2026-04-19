@@ -6,7 +6,10 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "generate:github-snapshot": "node ./scripts/generate-github-snapshot.mjs",
+    "predev": "pnpm run generate:github-snapshot",
     "dev": "astro dev",
+    "prebuild": "pnpm run generate:github-snapshot",
     "build": "astro build",
     "preview": "wrangler dev"
   },

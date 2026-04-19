@@ -47,7 +47,7 @@ const t = useTranslations(locale);
 const navProps = { ...getNavProps(locale, Astro.url.pathname), ...(Astro.props.navOverrides ?? {}) };
 const footerCopyright = `© ${new Date().getUTCFullYear()} Bub Contributors`;
 
-const { starsFormatted: stars } = await getRepoStats();
+const { starsFormatted: stars } = getRepoStats();
 
 const {
   title = t('site.title'),

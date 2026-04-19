@@ -20,10 +20,15 @@ Recommended settings:
 - Path: `website`
 - Environment variable: `SITE_URL=https://bub.build`
 - Environment variable: `NODE_VERSION=22.16.0`
+- Build secret: `GITHUB_TOKEN=<GitHub PAT>` (optional, recommended for higher GitHub API limits)
 
 The repo keeps a minimal [wrangler.jsonc](./wrangler.jsonc) and relies on
 Astro/Wrangler's default Cloudflare integration for the generated Worker
 configuration.
+
+GitHub repo stats are snapshotted during `pnpm build` into
+`src/data/github-snapshot.ts`. The Worker does not call the GitHub API at
+runtime, so `GITHUB_TOKEN` only needs to exist as a build secret.
 
 The repo also includes [public/.assetsignore](./public/.assetsignore) for the
 SSR Worker build:

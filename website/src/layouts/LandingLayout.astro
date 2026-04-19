@@ -10,7 +10,7 @@ import { SITE_URL } from 'astro:env/client';
 
 const { title, description, ogImage, hero, features = {}, hookIntro = {}, tapeModel = {}, testimonials = {} } = Astro.props;
 
-const { contributors } = await getRepoStats();
+const { contributors } = getRepoStats();
 ---
 
 <BaseLayout title={title} description={description} ogImage={ogImage} canonicalUrl={SITE_URL} bodyClass="ambient-page min-h-screen antialiased font-sans">

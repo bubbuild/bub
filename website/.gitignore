@@ -21,3 +21,6 @@ pnpm-debug.log*
 .DS_Store
 .vercel/output
 .wrangler/
+
+# generated data
+src/data/github-snapshot.ts
