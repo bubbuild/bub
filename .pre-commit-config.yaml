@@ -10,7 +10,7 @@ repos:
         exclude: ^.devcontainer/devcontainer.json
       - id: pretty-format-json
         exclude: ^.devcontainer/devcontainer.json
-        args: [--autofix, --no-sort-keys]
+        args: [--autofix, --no-sort-keys, --no-ensure-ascii]
       - id: end-of-file-fixer
       - id: trailing-whitespace
 

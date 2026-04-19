@@ -3,12 +3,13 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, envField } from 'astro/config';
 import tailwindcss from '@tailwindcss/vite';
 import starlight from '@astrojs/starlight';
-import vercel from '@astrojs/vercel';
+import cloudflare from '@astrojs/cloudflare';
 
 export default defineConfig({
   // SSG by default; landing pages opt-in to SSR via `export const prerender = false`.
-  // To migrate to Cloudflare Pages: swap the adapter to `@astrojs/cloudflare`.
-  adapter: vercel(),
+  adapter: cloudflare({
+    prerenderEnvironment: 'node',
+  }),
   site: process.env.SITE_URL ?? 'https://bub.build',
   env: {
     schema: {

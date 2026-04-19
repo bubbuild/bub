@@ -8,9 +8,9 @@
     "preview": "astro preview"
   },
   "dependencies": {
+    "@astrojs/cloudflare": "^13.1.9",
     "@astrojs/starlight": "^0.38.3",
     "@astrojs/starlight-tailwind": "^5.0.0",
-    "@astrojs/vercel": "^10.0.4",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@fontsource-variable/outfit": "^5.2.8",
     "@fontsource/noto-sans-sc": "^5.2.9",
@@ -29,7 +29,8 @@
   "devDependencies": {
     "@lucide/astro": "^1.8.0",
     "react-grab": "^0.1.32",
-    "tailwindcss": "^4.1.14"
+    "tailwindcss": "^4.1.14",
+    "wrangler": "^4.13.2"
   },
   "overrides": {
     "vite": "^7.3.2"
