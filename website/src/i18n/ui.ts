@@ -52,6 +52,9 @@ export const ui = {
 
     // Language switcher label (shown as the "other" language)
     'lang.switch': '中文',
+
+    // Tape model section
+    'tapeModel.learnMore': 'Learn more at tape.system',
   },
 
   'zh-cn': {
@@ -83,6 +86,9 @@ export const ui = {
 
     // Language switcher label
     'lang.switch': 'English',
+
+    // Tape model section
+    'tapeModel.learnMore': '前往 tape.system 了解更多',
   },
 } as const;
 

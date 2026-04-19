@@ -1,6 +1,8 @@
 ---
 import Icon from '@/components/ui/Icon.astro';
 import SectionHeading from '@/components/ui/SectionHeading.astro';
+import { useTranslations, getLangFromUrl } from '@/i18n/utils';
+
 
 interface Props {
   eyebrow?: string;
@@ -34,6 +36,7 @@ const tapeEntries: TapeEntry[] = [
 const entryCount = tapeEntries.filter(e => e.kind === 'event').length;
 const anchorCount = tapeEntries.filter(e => e.kind === 'anchor').length;
 const COL_COUNT = 5;
+const t = useTranslations(getLangFromUrl(Astro.url));
 ---
 
 <section class="relative py-20 md:py-28" data-reveal aria-label="Tape context model">
@@ -183,7 +186,7 @@ const COL_COUNT = 5;
           rel="noreferrer"
           class="group mt-6 inline-flex items-center gap-1.5 font-mono text-[0.7rem] text-muted-foreground transition-colors hover:text-primary"
         >
-          Learn more at tape.systems
+          {t('tapeModel.learnMore')}
           <Icon name="arrowUpRight" size={12} class="opacity-50 transition-opacity group-hover:opacity-100" aria-hidden="true" />
         </a>
       </div>

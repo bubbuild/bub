@@ -44,6 +44,6 @@ const { testimonial, accentClass } = Astro.props;
       <p class="truncate text-xs font-bold text-foreground">{testimonial.name}</p>
       <p class="truncate text-[0.65rem] text-muted-foreground">{testimonial.handle}</p>
     </div>
-    {testimonial.platform && <Icon name={testimonial.platform} size={12} class="shrink-0 text-muted-foreground/50" aria-hidden="true" />}
+    {testimonial.platform && <Icon name={testimonial.platform === 'x' ? 'x-twitter' : testimonial.platform} size={12} class="shrink-0 text-muted-foreground/50" aria-hidden="true" />}
   </div>
 </div>
