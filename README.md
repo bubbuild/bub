@@ -3,8 +3,8 @@
 <div align="center">
 
 <picture>
-  <source srcset="https://bub.build/dark.png" media="(prefers-color-scheme: dark)">
-  <img alt="Bub logo" src="https://bub.build/light.png" width="200">
+  <source srcset="https://raw.githubusercontent.com/bubbuild/bub/refs/heads/main/website/src/assets/bub-logo-dark.png" media="(prefers-color-scheme: dark)">
+  <img alt="Bub logo" src="https://raw.githubusercontent.com/bubbuild/bub/refs/heads/main/website/src/assets/bub-logo.png" width="200">
 </picture>
 
 <p><strong>A common shape for agents that live alongside people.</strong></p>
