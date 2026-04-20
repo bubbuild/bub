@@ -97,6 +97,7 @@ const columns = columnConfigs.map((config, columnIndex) => ({
 
   :global([data-testimonials-playing]) .testimonial-col > div {
     animation-play-state: running;
+    will-change: transform;
   }
 
   :global([data-testimonials-playing]:hover) .testimonial-col > div,
@@ -131,16 +132,47 @@ const columns = columnConfigs.map((config, columnIndex) => ({
     const wrapper = document.querySelector('[data-testimonials]') as HTMLElement | null;
     if (!wrapper) return;
 
+    let wrapperInView = false;
+    const reduceMotionMql = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    function setPlaying(playing: boolean) {
+      wrapper.toggleAttribute('data-testimonials-playing', playing);
+    }
+
+    function maybePlay() {
+      setPlaying(
+        wrapperInView &&
+        document.visibilityState !== 'hidden' &&
+        !reduceMotionMql.matches,
+      );
+    }
+
+    const handleMotionPreferenceChange = () => {
+      maybePlay();
+    };
+
+    const handleVisibilityChange = () => {
+      maybePlay();
+    };
+
+    reduceMotionMql.addEventListener('change', handleMotionPreferenceChange);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     const stopInView = inView(wrapper, () => {
-      wrapper.setAttribute('data-testimonials-playing', '');
+      wrapperInView = true;
+      maybePlay();
       return () => {
-        wrapper.removeAttribute('data-testimonials-playing');
+        wrapperInView = false;
+        setPlaying(false);
       };
     }, { margin: '-5% 0px' });
 
     testimonialsWindow.__bubTestimonialsCleanup = () => {
       stopInView();
-      wrapper.removeAttribute('data-testimonials-playing');
+      reduceMotionMql.removeEventListener('change', handleMotionPreferenceChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      wrapperInView = false;
+      setPlaying(false);
     };
   }
 
