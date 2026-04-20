@@ -214,6 +214,9 @@ const t = useTranslations(getLangFromUrl(Astro.url));
   .tape-cursor-line {
     animation-play-state: paused;
   }
+  .tape-live-dot {
+    box-shadow: 0 0 6px var(--site-accent-live-shadow);
+  }
   [data-tape-running] .tape-live-dot {
     animation: live-pulse 2s ease-in-out infinite;
   }
@@ -223,8 +226,8 @@ const t = useTranslations(getLangFromUrl(Astro.url));
   .tape-live-label { color: var(--site-accent-live); opacity: 0.8; }
 
   @keyframes live-pulse {
-    0%, 100% { opacity: 1;   box-shadow: 0 0 6px var(--site-accent-live-shadow);  }
-    50%       { opacity: 0.4; box-shadow: 0 0 2px var(--site-accent-live-shadow-dim); }
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.45; }
   }
   @keyframes cursor-blink {
     0%, 100% { opacity: 1; }
