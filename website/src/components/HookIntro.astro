@@ -295,7 +295,7 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 </style>
 
 <script>
-  import { animate, inView } from 'motion';
+  import { inView } from 'motion';
 
   type HookFlowWindow = Window & {
     __bubHookFlowCleanup?: () => void;
@@ -314,6 +314,8 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
   const FADE_ZONE    = 0.06;
   const NEAR_DIST_SQ = 36 * 36;
   const PATH_SAMPLE_COUNT = 560;
+  const HOOK_FRAME_MS = 1000 / 30;
+  const REPEAT_DELAY_MS = 400;
 
   type PathSample = {
     x: number;
@@ -413,37 +415,48 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
         nodeEls.forEach((el, i) => el.classList.toggle('active', i === idx));
       }
 
-      const controls = animate(0, 1, {
-        duration: CYCLE_DUR,
-        repeat: Infinity,
-        repeatDelay: 0.4,
-        ease: 'linear',
-        onUpdate(v: number) {
-          const sampleIndex = Math.min(PATH_SAMPLE_COUNT, Math.max(0, Math.round(v * PATH_SAMPLE_COUNT)));
-          const sample = samples[sampleIndex];
+      const cycleMs = CYCLE_DUR * 1000;
+      const loopMs = cycleMs + REPEAT_DELAY_MS;
+      const startedAt = performance.now();
 
-          dot!.setAttribute('cx', String(sample.x));
-          dot!.setAttribute('cy', String(sample.y));
-          dot!.setAttribute('opacity', String(sample.opacity));
-          dot!.setAttribute('visibility', 'visible');
+      function updateFrame() {
+        const elapsed = (performance.now() - startedAt) % loopMs;
+        if (elapsed > cycleMs) {
+          dot!.setAttribute('opacity', '0');
+          dotTrail?.setAttribute('opacity', '0');
+          trail!.style.opacity = '0';
+          highlightNode(-1);
+          return;
+        }
 
-          if (dotTrail) {
-            const trailIndex = Math.max(0, sampleIndex - Math.round(TRAIL_LEAD * PATH_SAMPLE_COUNT));
-            const trailSample = samples[trailIndex];
-            dotTrail.setAttribute('cx', String(trailSample.x));
-            dotTrail.setAttribute('cy', String(trailSample.y));
-            dotTrail.setAttribute('opacity', String(sample.opacity * 0.35));
-            dotTrail.setAttribute('visibility', 'visible');
-          }
+        const v = elapsed / cycleMs;
+        const sampleIndex = Math.min(PATH_SAMPLE_COUNT, Math.max(0, Math.round(v * PATH_SAMPLE_COUNT)));
+        const sample = samples[sampleIndex];
 
-          trail!.style.strokeDashoffset = String(0.14 - v);
-          trail!.style.opacity = String(sample.opacity * 0.35);
-          highlightNode(sample.nearest);
-        },
-      });
+        dot!.setAttribute('cx', String(sample.x));
+        dot!.setAttribute('cy', String(sample.y));
+        dot!.setAttribute('opacity', String(sample.opacity));
+        dot!.setAttribute('visibility', 'visible');
+
+        if (dotTrail) {
+          const trailIndex = Math.max(0, sampleIndex - Math.round(TRAIL_LEAD * PATH_SAMPLE_COUNT));
+          const trailSample = samples[trailIndex];
+          dotTrail.setAttribute('cx', String(trailSample.x));
+          dotTrail.setAttribute('cy', String(trailSample.y));
+          dotTrail.setAttribute('opacity', String(sample.opacity * 0.35));
+          dotTrail.setAttribute('visibility', 'visible');
+        }
+
+        trail!.style.strokeDashoffset = String(0.14 - v);
+        trail!.style.opacity = String(sample.opacity * 0.35);
+        highlightNode(sample.nearest);
+      }
+
+      updateFrame();
+      const intervalId = window.setInterval(updateFrame, HOOK_FRAME_MS);
 
       stopAnim = () => {
-        controls.stop();
+        window.clearInterval(intervalId);
         dot!.setAttribute('opacity', '0');
         dot!.setAttribute('visibility', 'hidden');
         dotTrail?.setAttribute('opacity', '0');
