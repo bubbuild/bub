@@ -13,7 +13,7 @@
 
 Bub is a small Python runtime for building agents in shared environments. It started in group chats, where multiple humans and agents had to work in the same conversation without hidden state, hand-wavy memory, or framework-specific magic.
 
-Core Bub stays intentionally small. Every turn stage is a [pluggy](https://pluggy.readthedocs.io/) hook. Builtins are included but replaceable. The same runtime drives CLI, Telegram, and any channel you add.
+Built on [agents.md](https://agents.md/) and [Agent Skills](https://agentskills.io/) , Bub stays intentionally small. Every turn stage is a [pluggy](https://pluggy.readthedocs.io/) hook. Builtins are included but replaceable. The same runtime drives CLI, Telegram, and any channel you add.
 
 [Website](https://bub.build) · [GitHub](https://github.com/bubbuild/bub)
 
@@ -56,8 +56,6 @@ resolve_session → load_state → build_prompt → run_model
 ```
 
 Builtins are registered first. External plugins load after them. At runtime, later plugins take precedence. There are no framework-only shortcuts.
-
-Bub builds on [agents.md](https://agents.md/) and [Agent Skills](https://agentskills.io/) and documents a few recommended authoring patterns for using it well.
 
 Key source files:
 
