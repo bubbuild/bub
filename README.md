@@ -7,13 +7,13 @@
   <img alt="Bub logo" src="https://raw.githubusercontent.com/bubbuild/bub/refs/heads/main/website/src/assets/bub-logo.png" width="200">
 </picture>
 
-<p><strong>A common shape for agents that live alongside people.</strong></p>
+<p><strong>A hook-first runtime for agents that live alongside people.</strong></p>
 
 </div>
 
-Bub started in group chats. Not as a demo or a personal assistant, but as a teammate that had to coexist with real humans and other agents in the same messy conversations — concurrent tasks, incomplete context, and nobody waiting.
+Bub is a small Python runtime for building agents in shared environments. It started in group chats, where multiple humans and agents had to work in the same conversation without hidden state, hand-wavy memory, or framework-specific magic.
 
-It is hook-first, built on [pluggy](https://pluggy.readthedocs.io/), with a small core (~200 lines) and builtins that are just default plugins you can replace. Context comes from [tape](https://tape.systems), not session accumulation. The same pipeline runs across CLI, Telegram, and any channel you add.
+Core Bub stays intentionally small. Every turn stage is a [pluggy](https://pluggy.readthedocs.io/) hook. Builtins are included but replaceable. The same runtime drives CLI, Telegram, and any channel you add.
 
 [Website](https://bub.build) · [GitHub](https://github.com/bubbuild/bub)
 
@@ -37,6 +37,14 @@ uv run bub run "summarize this repo"    # one-shot task
 uv run bub gateway                      # channel listener mode
 ```
 
+## Why Bub
+
+- **Hook-first runtime.** Every turn stage is a hook. Override one stage or replace the whole flow without forking the runtime.
+- **Tape context.** Context is rebuilt from append-only records, not carried around as mutable session state. Easier to inspect, replay, and hand off.
+- **One runtime across surfaces.** The same inbound pipeline runs across CLI, Telegram, and custom channels. Adapters change the surface, not the runtime model.
+- **Batteries included.** CLI, Telegram, tools, skills, and model execution ship with the core runtime. Use the defaults first, replace them later.
+- **Skills as documents.** Skills are plain `SKILL.md` files with validated frontmatter. They stay readable, auditable, and easy to override.
+
 ## How It Works
 
 Every inbound message goes through one turn pipeline. Each stage is a hook.
@@ -47,7 +55,7 @@ resolve_session → load_state → build_prompt → run_model
               dispatch_outbound ← render_outbound ← save_state
 ```
 
-Builtins are plugins registered first. Later plugins override earlier ones. No special cases.
+Builtins are registered first. External plugins load after them. At runtime, later plugins take precedence. There are no framework-only shortcuts.
 
 If `AGENTS.md` exists in the workspace, it is appended to the system prompt automatically.
 
@@ -58,19 +66,11 @@ Key source files:
 - Builtin hooks: [`src/bub/builtin/hook_impl.py`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/hook_impl.py)
 - Skill discovery: [`src/bub/skills.py`](https://github.com/bubbuild/bub/blob/main/src/bub/skills.py)
 
-## What Sets It Apart
-
-Bub grew up in multi-person chats with multiple agents running at the same time. Single-user flows hide structural problems; shared environments expose them fast. That shaped a few things:
-
-- **Context from tape.** History is append-only facts. Anchors mark phase transitions. Context is assembled on demand — not accumulated, not compressed into lossy summaries.
-- **Hooks all the way down.** The turn pipeline *is* hooks. Override `build_prompt`, `run_model`, or `render_outbound` to change behavior. The core does not privilege its own builtins.
-- **One pipeline across channels.** CLI and Telegram share the same `process_inbound()` path. Hooks don't know which channel they're in.
-- **Skills as documents.** Skills are `SKILL.md` files with validated frontmatter, not code modules with magic registration.
-
 ## Extend It
 
 ```python
 from bub import hookimpl
+
 
 class EchoPlugin:
     @hookimpl
@@ -87,7 +87,7 @@ class EchoPlugin:
 echo = "my_package.plugin:EchoPlugin"
 ```
 
-See the [Extending docs](https://bub.build/docs/extending/) for hook semantics and plugin packaging.
+See the [Extending docs](https://bub.build/docs/extending/) for hook guides, packaging, and plugin structure.
 
 ## CLI
 
@@ -119,17 +119,21 @@ Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-sk
 
 ## Background
 
-We care less about whether an agent can finish a demo task, and more about whether it can coexist with real people under real conditions. Context is not baggage to carry forever — it is a working set, constructed when needed and let go when done.
+Bub is shaped by one constraint: real collaboration is messier than a solo demo. In shared environments, operators need visible boundaries, auditable history, and extension points that do not collapse into framework sprawl.
 
-Read more: [Context from Tape](https://tape.systems) · [Socialized Evaluation and Agent Partnership](https://bub.build/posts/2026-03-01-bub-socialized-evaluation-and-agent-partnership/)
+Read more:
+
+- [Why We Rewrote Bub](https://bub.build/posts/2026-04-07-why-we-rewrote-bub/)
+- [Socialized Evaluation and Agent Partnership](https://bub.build/posts/2026-03-01-bub-socialized-evaluation-and-agent-partnership/)
+- [Context from Tape](https://tape.systems)
 
 ## Docs
 
-- [Architecture](https://bub.build/docs/concepts/architecture/) — lifecycle, hook precedence, error handling
-- [Features](https://bub.build/docs/concepts/features/) — what ships today and current boundaries
-- [Channels](https://bub.build/docs/guides/channels/) — CLI, Telegram, and custom adapters
-- [Skills](https://bub.build/docs/guides/skills/) — discovery and authoring
-- [Extending](https://bub.build/docs/extending/) — hooks, tools, plugin packaging
+- [Getting Started](https://bub.build/docs/getting-started/) — install Bub and run the first turn
+- [Architecture](https://bub.build/docs/concepts/architecture/) — the mental model behind the runtime
+- [Channels](https://bub.build/docs/guides/channels/) — run Bub in CLI, Telegram, or your own channel
+- [Skills](https://bub.build/docs/guides/skills/) — discover, inspect, and author `SKILL.md` skills
+- [Extending](https://bub.build/docs/extending/) — write plugins, override hooks, ship tools and skills
 - [Deployment](https://bub.build/docs/guides/deployment/) — Docker, environment, upgrades
 - [Posts](https://bub.build/posts/) — design notes
 
