@@ -123,8 +123,8 @@ Bub is shaped by one constraint: real collaboration is messier than a solo demo.
 
 Read more:
 
-- [Why We Rewrote Bub](https://bub.build/posts/2026-04-07-why-we-rewrote-bub/)
-- [Socialized Evaluation and Agent Partnership](https://bub.build/posts/2026-03-01-bub-socialized-evaluation-and-agent-partnership/)
+- [Why We Rewrote Bub](https://bub.build/posts/why-rewrite-bub/)
+- [Socialized Evaluation and Agent Partnership](https://bub.build/posts/socialized-evaluation/)
 - [Context from Tape](https://tape.systems)
 
 ## Docs

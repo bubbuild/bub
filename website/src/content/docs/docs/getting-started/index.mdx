@@ -1,12 +1,59 @@
 ---
 title: Getting Started
-description: Minimal path to install Bub and understand the main runtime commands.
+description: Learn what Bub is, run it locally, add local rules and skills, and extend it with plugins only when needed.
+sidebar:
+  order: 0
 ---
 
-Bub is designed to stay small at the core, so the first run is quick.
+Bub is a small Python framework for building agents in shared environments. It gives you a clear turn pipeline, a simple workspace layout, and a normal Python packaging story for extensions.
 
-- Install from PyPI or from source.
-- Start an interactive session with `bub chat`.
-- Run a one-shot turn with `bub run "hello"`.
+If you are new to Bub, start here. This section helps you get one working setup first, then add only the pieces you actually need.
 
-Continue with [Installation](/getting-started/installation/).
+## What You Need To Know
+
+1. **A small core**
+   Bub runs each turn through a visible hook pipeline. You can replace one stage without rewriting the whole system.
+2. **A shared workspace**
+   Put workspace instructions in `AGENTS.md` and repeatable local procedures in `.agents/skills`.
+3. **Standard Python extensions**
+   Plugins are normal Python packages discovered through entry points. Skills can ship with plugins through regular build tooling, including PEP 517 build hooks.
+4. **A migration path from other compatible tools**
+   Bub follows [agents.md](https://agents.md/) for workspace instructions and [Agent Skills](https://agentskills.io/) for skills. If you already use those conventions elsewhere, you can usually reuse your `AGENTS.md` file and skill directories.
+
+## Before You Start
+
+Have these ready:
+
+- Python 3.12+
+- `uv`
+- one model access path for the model-backed step:
+  - an API key via `BUB_API_KEY`, or
+  - OAuth login via `uv run bub login openai`
+
+## What You Will Build
+
+By the end of this section, you will have:
+
+- one local Bub workspace
+- one project skill under `.agents/skills`
+- one installed extension from `bub-contrib`
+- one minimal plugin package you can iterate on locally
+
+## Recommended Path
+
+1. [Run Bub Locally](/docs/getting-started/run-bub-locally/)
+   Install Bub, create a workspace, inspect the builtin kernel, and complete the first successful turn.
+2. [Equip Your Bub](/docs/getting-started/equip-your-bub/)
+   Add rules in `AGENTS.md`, add one project skill, and install only the extension you actually need.
+3. [Build Your First Plugin](/docs/getting-started/first-plugin/)
+   Create a minimal plugin package, install it locally, and verify that Bub loads its hook implementations.
+
+## If You Need Something Else First
+
+- Want the runtime model first: go to [Architecture](/docs/concepts/architecture/)
+- Want command details: go to [CLI Reference](/docs/guides/cli/)
+- Want to configure the builtin Telegram channel: go to [Telegram](/docs/guides/telegram/)
+- Want deployment guidance: go to [Deployment](/docs/guides/deployment/)
+- Want the full plugin and hook documentation: go to [Plugins](/docs/extending/plugins/) and [Hooks](/docs/extending/hooks/)
+
+This section is meant to get you started, not cover every option. Deployment details, full Telegram setup, and the complete plugin API stay in the Guides, Concepts, and Extending sections.

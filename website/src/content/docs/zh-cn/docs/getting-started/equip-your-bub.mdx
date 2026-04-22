@@ -1,0 +1,94 @@
+---
+title: 武装你的 Bub
+description: 为 Bub 工作区添加工作区指令、项目技能，以及真正需要的 contrib 插件。
+sidebar:
+  order: 2
+---
+
+如果你已经完成[上手运行 Bub](/zh-cn/docs/getting-started/run-bub-locally/)，这一页会带你把 workspace 补完整。
+
+你会加上三样东西：
+
+1. `AGENTS.md` 中长期稳定的本地规则
+2. `.agents/skills` 中可复用的项目流程
+3. 按需安装的运行时扩展插件
+
+## 1. 添加工作区规则
+
+先把 `AGENTS.md` 调整成这类仓库真正需要的工作约束：
+
+```markdown
+You are the Bub agent for this workspace.
+Read code before proposing changes.
+Prefer small, reviewable patches.
+Report verification steps explicitly.
+```
+
+Bub 每次 turn 都会读取这个文件，所以这些规则会一直生效。
+
+因为 Bub 遵循 [agents.md](https://agents.md/)，如果你已经在其他兼容工具里维护了 `AGENTS.md`，这里通常可以直接复用。
+
+## 2. 添加一个项目 skill
+
+在 `.agents/skills` 下添加一个项目级 skill：
+
+```bash
+mkdir -p .agents/skills/repo-map
+cat > .agents/skills/repo-map/SKILL.md <<'EOF'
+---
+name: repo-map
+description: Read the local repository layout before changing code.
+---
+
+1. Start with `rg --files` to see the repository shape.
+2. Open the smallest set of files that explains the task.
+3. Summarize the modules you touched before editing code.
+EOF
+```
+
+验证 Bub 能否发现它：
+
+```bash
+uv run bub run ",skill name=repo-map"
+```
+
+加载器会优先读取 `.agents/skills` 下的项目级 skill，所以本地流程默认优先。
+
+Bub 遵循 [Agent Skills](https://agentskills.io/) 的技能格式。如果你已经在其他兼容工具中维护了一批 skills，通常可以直接把这些目录迁移过来。
+
+## 3. 安装一个你真正需要的扩展
+
+Tape store、channel 这类额外能力，通常用插件来加。需要什么，就装什么。
+
+如果你想先看看已经有哪些现成的东西，可以先去 [hub.bub.build](https://hub.bub.build/) 看看。那里收集了 Bub 的一些插件和 skills，可以先复用，再决定要不要自己写。
+
+通过 `bub install` 按需添加能力：
+
+```bash
+uv run bub install bub-tapestore-sqlite@main
+uv run bub install bub-wechat@main
+```
+
+这里有三个稳定行为：
+
+- Bub 会把插件依赖记录在 `~/.bub/bub-project` 这个托管 uv 项目里
+- `name@ref` 会从 `bub-contrib` 的 `packages/<name>` 解析
+- 当前激活环境会得到对应 entry point，因此下一次 Bub 启动就能加载它们
+
+安装后，用下面的命令检查当前 hook 映射：
+
+```bash
+uv run bub hooks
+```
+
+如果某个插件通过 `provide_channels()` 提供 channel，那么执行 `uv run bub gateway` 时，它会和其他已启用的非 `cli` channel 一起启动。
+
+## 结果
+
+现在你的工作区已经有三层结构：
+
+- `AGENTS.md` 提供长期稳定的本地规则
+- `.agents/skills` 提供可复用的本地流程
+- contrib 插件按需提供 tape store、channel 等运行时能力
+
+下一步，如果内置能力和现有插件仍然不够，请继续阅读[制作第一个插件](/zh-cn/docs/getting-started/first-plugin/)。

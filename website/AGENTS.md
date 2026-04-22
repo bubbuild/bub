@@ -137,8 +137,8 @@ The site has **three distinct i18n zones**. Each zone has its own translation me
 Follows the **exact pattern** from [`withastro/starlight/docs`](https://github.com/withastro/starlight/tree/main/docs).
 
 **Locale configuration** — `astro.config.mjs`:
-- English is the **`root` locale** — content files live under `src/content/docs/docs/` (e.g., `docs/getting-started/installation.md`).
-- Other locales get **subdirectories**: `src/content/docs/zh-cn/docs/getting-started/installation.md`.
+- English is the **`root` locale** — content files live under `src/content/docs/docs/` (e.g., `docs/getting-started/run-bub-locally.mdx`).
+- Other locales get **subdirectories**: `src/content/docs/zh-cn/docs/getting-started/run-bub-locally.mdx`.
 - The inner `docs/` directory creates the `/docs/` URL prefix — Starlight 0.38 has no `routePrefix` option, so this nesting is the standard way to namespace docs routes.
 - This keeps the URL scheme consistent: `/docs/…` for docs, `/posts/…` for blog.
 

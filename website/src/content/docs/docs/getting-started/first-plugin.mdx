@@ -1,0 +1,111 @@
+---
+title: Build Your First Plugin
+description: Create a minimal Bub plugin, install it locally, and verify that it overrides the builtin runtime.
+sidebar:
+  order: 3
+---
+
+Use this page only after the builtins, your workspace files, and existing plugins are no longer enough.
+
+This tutorial builds a tiny local plugin that overrides Bub's model stage and echoes the incoming text. It is intentionally simple, so you can verify plugin loading without needing model credentials.
+
+## 1. Create the package skeleton
+
+```bash
+mkdir bub-echo-plugin
+cd bub-echo-plugin
+mkdir -p src/bub_echo_plugin
+touch src/bub_echo_plugin/__init__.py
+```
+
+Create `pyproject.toml`:
+
+```toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bub-echo-plugin"
+version = "0.1.0"
+dependencies = ["bub"]
+
+[project.entry-points."bub"]
+echo = "bub_echo_plugin.plugin:echo_plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bub_echo_plugin"]
+```
+
+## 2. Implement the plugin
+
+Create `src/bub_echo_plugin/plugin.py`:
+
+```python
+from __future__ import annotations
+
+from bub import hookimpl
+
+
+class EchoPlugin:
+    @hookimpl
+    def build_prompt(self, message, session_id, state):
+        if hasattr(message, "content"):
+            return str(message.content)
+        if isinstance(message, dict):
+            return str(message.get("content", ""))
+        return str(message)
+
+    @hookimpl
+    def run_model(self, prompt, session_id, state):
+        text = prompt if isinstance(prompt, str) else str(prompt)
+        return f"[echo:{session_id}] {text}"
+
+
+echo_plugin = EchoPlugin()
+```
+
+This plugin does two things:
+
+- `build_prompt()` keeps the prompt equal to the original inbound text
+- `run_model()` replaces the builtin model call with a deterministic echo response
+
+## 3. Install it into the active environment
+
+From the plugin directory:
+
+```bash
+uv pip install -e .
+```
+
+Bub loads entry points from the active Python environment, so an editable install is enough for local development.
+
+## 4. Verify that Bub loads it
+
+Check the hook report:
+
+```bash
+uv run bub hooks
+```
+
+You should see `echo` listed on both `build_prompt` and `run_model`.
+
+Now run one turn:
+
+```bash
+uv run bub run "hello from plugin tutorial"
+```
+
+The rendered outbound should include:
+
+`[echo:cli:local] hello from plugin tutorial`
+
+## Result
+
+You now have:
+
+- a package entry point under the `bub` group
+- two hook implementations that override builtin behavior
+- a local editable install workflow for quick iteration
+
+From here, continue with [Plugins](/docs/extending/plugins/) and [Hooks](/docs/extending/hooks/) for the full plugin and hook reference.

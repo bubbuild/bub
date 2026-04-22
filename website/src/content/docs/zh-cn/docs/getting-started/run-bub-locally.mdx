@@ -1,0 +1,97 @@
+---
+title: 上手运行 Bub
+description: 安装 Bub、创建工作区、检查内置内核，并完成第一次成功的 turn。
+sidebar:
+  order: 1
+---
+
+如果你现在只想先把 Bub 在本地跑起来，而不想立刻进入 skills、插件或部署，这一页就是起点。
+
+这一页默认你只有一个 Python 环境。完成后，你会有一个可工作的 workspace、一份 `AGENTS.md`，以及一次成功的 turn。
+
+## 1. 安装 Bub
+
+任选一种方式：
+
+```bash
+pip install bub
+```
+
+或者从源码运行：
+
+```bash
+git clone https://github.com/bubbuild/bub.git
+cd bub
+uv sync
+```
+
+下面的命令统一使用 `uv run bub`，这样从源码运行和在已激活虚拟环境中运行都保持一致。
+
+## 2. 创建工作区
+
+给 agent 准备一个目录，并写入一份最小的工作区说明：
+
+```bash
+mkdir hello-bub
+cd hello-bub
+cat > AGENTS.md <<'EOF'
+You are the Bub agent for this workspace.
+Read files before editing them.
+Keep replies short and specific.
+EOF
+```
+
+Bub 每次 turn 都会读取 `AGENTS.md`。
+
+## 3. 看看内置命令能做什么
+
+在添加 provider、skill 或 plugin 之前，先确认 Bub 已经能正常工作：
+
+```bash
+uv run bub hooks
+uv run bub run ",help"
+```
+
+这两个命令分别验证两件事：
+
+- hook 链已经加载
+- 即使还没有模型凭据，命令模式也能工作
+
+## 4. 跑你的第一个模型任务
+
+当你的 provider 环境已经配置好之后，可以启动交互式会话，或者执行一次单轮任务：
+
+```bash
+uv run bub chat
+uv run bub run "Summarize the purpose of this workspace."
+```
+
+如果你想使用 OpenAI Codex OAuth，而不是直接配置 API key，可以先登录：
+
+```bash
+uv run bub login openai
+```
+
+## 可选：试用内置 Telegram channel
+
+Telegram 是内置能力，不需要额外安装插件。
+
+要启用它，先设置 token，再启动 channel listener：
+
+```bash
+export BUB_TELEGRAM_TOKEN=...
+uv run bub gateway --enable-channel telegram
+```
+
+完整的配置和部署方式，请继续阅读 [Telegram](/zh-cn/docs/guides/telegram/)。
+
+## 结果
+
+现在你已经有了：
+
+- 位于 `AGENTS.md` 的本地指令
+- 已加载的内置 hook 链
+- 同时支持交互式和单轮执行的基本路径
+- 一条启用内置 Telegram channel 的可选路径
+
+下一步，请继续阅读[武装你的 Bub](/zh-cn/docs/getting-started/equip-your-bub/)，给这个 workspace 加上本地规则、一个项目 skill，以及真正需要的扩展。

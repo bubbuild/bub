@@ -1,0 +1,111 @@
+---
+title: 制作第一个插件
+description: 创建一个最小 Bub 插件，做本地可编辑安装，并验证它已经覆写了内置运行时。
+sidebar:
+  order: 3
+---
+
+当内置能力、工作区里的本地文件，以及现有插件仍然不够用时，再进入这一页。
+
+本教程会做一个极小的本地插件，它直接覆写 Bub 的模型阶段并返回 echo 结果。这样你不需要模型凭据，也能验证插件是怎样被加载的。
+
+## 1. 创建包骨架
+
+```bash
+mkdir bub-echo-plugin
+cd bub-echo-plugin
+mkdir -p src/bub_echo_plugin
+touch src/bub_echo_plugin/__init__.py
+```
+
+创建 `pyproject.toml`：
+
+```toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bub-echo-plugin"
+version = "0.1.0"
+dependencies = ["bub"]
+
+[project.entry-points."bub"]
+echo = "bub_echo_plugin.plugin:echo_plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bub_echo_plugin"]
+```
+
+## 2. 实现插件
+
+创建 `src/bub_echo_plugin/plugin.py`：
+
+```python
+from __future__ import annotations
+
+from bub import hookimpl
+
+
+class EchoPlugin:
+    @hookimpl
+    def build_prompt(self, message, session_id, state):
+        if hasattr(message, "content"):
+            return str(message.content)
+        if isinstance(message, dict):
+            return str(message.get("content", ""))
+        return str(message)
+
+    @hookimpl
+    def run_model(self, prompt, session_id, state):
+        text = prompt if isinstance(prompt, str) else str(prompt)
+        return f"[echo:{session_id}] {text}"
+
+
+echo_plugin = EchoPlugin()
+```
+
+这个插件只做两件事：
+
+- `build_prompt()` 保证 prompt 就是原始输入文本
+- `run_model()` 用一个确定性的 echo 响应替换内置模型调用
+
+## 3. 安装到当前环境
+
+在插件目录中执行：
+
+```bash
+uv pip install -e .
+```
+
+Bub 会从当前 Python 环境加载 entry point，所以本地开发阶段只需要 editable install。
+
+## 4. 验证 Bub 已经加载它
+
+先看 hook 报告：
+
+```bash
+uv run bub hooks
+```
+
+你应该能在 `build_prompt` 和 `run_model` 这两个 hook 上看到 `echo`。
+
+然后跑一次 turn：
+
+```bash
+uv run bub run "hello from plugin tutorial"
+```
+
+输出内容里应该包含：
+
+`[echo:cli:local] hello from plugin tutorial`
+
+## 结果
+
+现在你已经有了：
+
+- 注册到 `bub` entry point group 的包入口
+- 两个覆写内置行为的 hook 实现
+- 一个适合快速迭代的本地 editable install 流程
+
+接下来，请继续阅读 [插件](/zh-cn/docs/extending/plugins/) 和 [Hooks](/zh-cn/docs/extending/hooks/)，查看完整的插件和 hook 参考文档。

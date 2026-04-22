@@ -1,0 +1,97 @@
+---
+title: Run Bub Locally
+description: Install Bub, create a workspace, inspect the builtin kernel, and complete the first successful turn.
+sidebar:
+  order: 1
+---
+
+Use this page if you want to get Bub running before you think about skills, plugins, or deployment.
+
+This page assumes nothing beyond a Python environment. By the end, you will have a workspace, an `AGENTS.md` file, and one successful turn.
+
+## 1. Install Bub
+
+Pick one path:
+
+```bash
+pip install bub
+```
+
+Or run from source:
+
+```bash
+git clone https://github.com/bubbuild/bub.git
+cd bub
+uv sync
+```
+
+The commands below use `uv run bub`, so the same examples work from source and from an activated virtual environment.
+
+## 2. Create a workspace
+
+Create a directory for the agent and give it one instruction file:
+
+```bash
+mkdir hello-bub
+cd hello-bub
+cat > AGENTS.md <<'EOF'
+You are the Bub agent for this workspace.
+Read files before editing them.
+Keep replies short and specific.
+EOF
+```
+
+Bub reads `AGENTS.md` on every turn.
+
+## 3. Check the builtin commands
+
+Before you add providers, skills, or plugins, check what Bub already gives you:
+
+```bash
+uv run bub hooks
+uv run bub run ",help"
+```
+
+These two commands verify two basic things:
+
+- hooks are loaded
+- command mode works even without model credentials
+
+## 4. Run your first model-backed task
+
+Once your provider environment is configured, start an interactive session or run a one-shot task:
+
+```bash
+uv run bub chat
+uv run bub run "Summarize the purpose of this workspace."
+```
+
+If you want to use OpenAI Codex OAuth instead of an API key, log in first:
+
+```bash
+uv run bub login openai
+```
+
+## Optional: try the builtin Telegram channel
+
+Telegram is built in. You do not need a plugin to use it.
+
+To enable it, set the token and start the channel listener:
+
+```bash
+export BUB_TELEGRAM_TOKEN=...
+uv run bub gateway --enable-channel telegram
+```
+
+See the [Telegram guide](/docs/guides/telegram/) for the full setup, allowlists, and deployment options.
+
+## Result
+
+You now have:
+
+- a local instruction file in `AGENTS.md`
+- the builtin hook chain loaded
+- a repeatable path for both interactive and one-shot runs
+- an optional path to enable the builtin Telegram channel
+
+Next, continue with [Equip Your Bub](/docs/getting-started/equip-your-bub/) to add local rules, one project skill, and only the extension you actually need.

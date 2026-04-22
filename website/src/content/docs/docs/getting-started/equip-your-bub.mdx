@@ -1,0 +1,94 @@
+---
+title: Equip Your Bub
+description: Add workspace instructions, project skills, and only the contrib plugins your Bub workspace actually needs.
+sidebar:
+  order: 2
+---
+
+Use this page after [Run Bub Locally](/docs/getting-started/run-bub-locally/). It shows how to make one workspace more useful without changing Bub itself.
+
+You will add three things:
+
+1. durable workspace rules in `AGENTS.md`
+2. reusable project procedures in `.agents/skills`
+3. optional runtime extensions installed as plugins
+
+## 1. Add workspace rules
+
+Update `AGENTS.md` so the agent has a stable operating policy for this repository:
+
+```markdown
+You are the Bub agent for this workspace.
+Read code before proposing changes.
+Prefer small, reviewable patches.
+Report verification steps explicitly.
+```
+
+Bub reads this file on every turn, so the same rules apply every time.
+
+Because Bub follows [agents.md](https://agents.md/), an existing `AGENTS.md` file from another compatible setup is often a good starting point.
+
+## 2. Add a project skill
+
+Create one project-local skill under `.agents/skills`:
+
+```bash
+mkdir -p .agents/skills/repo-map
+cat > .agents/skills/repo-map/SKILL.md <<'EOF'
+---
+name: repo-map
+description: Read the local repository layout before changing code.
+---
+
+1. Start with `rg --files` to see the repository shape.
+2. Open the smallest set of files that explains the task.
+3. Summarize the modules you touched before editing code.
+EOF
+```
+
+Verify that Bub discovers it:
+
+```bash
+uv run bub run ",skill name=repo-map"
+```
+
+Project skills in `.agents/skills` are loaded before user-level or builtin skills, so local procedures win by default.
+
+Bub follows the [Agent Skills](https://agentskills.io/) format. If you already maintain skills for another compatible agent, you can usually reuse those skill directories here.
+
+## 3. Install one extension
+
+Use plugins for extra capabilities such as tape stores and channels.
+
+If you want to see what is already available, check [hub.bub.build](https://hub.bub.build/). It collects Bub plugins and skills that you can reuse before writing your own.
+
+Use `bub install` to add only the capability you want:
+
+```bash
+uv run bub install bub-tapestore-sqlite@main
+uv run bub install bub-wechat@main
+```
+
+The main behavior to know is:
+
+- Bub keeps plugin dependencies in a managed uv project under `~/.bub/bub-project`
+- `name@ref` resolves a package from `bub-contrib` at `packages/<name>`
+- the active environment gets the plugin entry points, so the next Bub run can load them
+
+To inspect the active hook mapping after installation:
+
+```bash
+uv run bub hooks
+```
+
+If a plugin provides channels through `provide_channels()`, `uv run bub gateway` will start them together with any other enabled non-`cli` channels.
+
+## Result
+
+Your workspace now has three layers:
+
+- `AGENTS.md` defines durable local rules
+- `.agents/skills` adds reusable local procedures
+- contrib plugins add optional runtime surfaces such as tape stores or channels
+
+Next, continue with [Build Your First Plugin](/docs/getting-started/first-plugin/) if the builtins and existing plugins are still not enough.

@@ -1,12 +1,57 @@
 ---
 title: 快速开始
-description: 用最短路径安装 Bub，并理解最核心的命令入口。
+description: 先了解 Bub 是什么，再在本地跑通它，按需添加本地规则、skills 和插件。
+sidebar:
+  order: 0
 ---
 
-Bub 的核心非常小，所以第一次跑起来很直接。
+Bub 是一个面向共享环境的轻量 Python 框架。它提供一条清楚的 turn 流程、一套简单的工作区布局，以及一条尽量贴近标准 Python 打包的扩展路径。
 
-- 通过 PyPI 或源码安装。
-- 使用 `bub chat` 启动交互式会话。
-- 使用 `bub run "hello"` 触发单次 turn。
+如果你第一次打开文档，从这里开始就够了。这一节会先带你做出一个可工作的 Bub，再逐步加上真正需要的东西。
 
-继续阅读[安装指南](/zh-cn/getting-started/installation/)。
+## 先知道这几件事
+
+1. **一个足够小的核心**
+   Bub 用一条可见的 hook pipeline 处理每个 turn。你可以只替换其中一段，而不必改整个系统。
+2. **一套共享的工作区布局**
+   工作区说明放在 `AGENTS.md`，可重复的本地流程放在 `.agents/skills`。
+3. **一条自然的 Python 扩展路径**
+   Bub 的插件就是标准 Python 包，通过 entry points 被发现；skills 也可以通过正常构建机制随插件一起分发，包括 PEP 517 build hooks。
+4. **从其他兼容工具平滑迁移**
+   Bub 在工作区说明上遵循 [agents.md](https://agents.md/)，在技能格式上遵循 [Agent Skills](https://agentskills.io/)。如果你已经在其他兼容工具里使用这两套约定，通常可以把现有的 `AGENTS.md` 和 skill 目录迁移过来。
+
+## 开始前需要准备什么
+
+请先准备：
+
+- Python 3.12+
+- `uv`
+- 一种模型访问方式，在进入模型驱动步骤时使用：
+  - 通过 `BUB_API_KEY` 提供 API key，或
+  - 通过 `uv run bub login openai` 使用 OAuth 登录
+
+## 完成这一节后，你会得到
+
+- 一个本地 Bub 工作区
+- 一个位于 `.agents/skills` 的项目 skill
+- 一个从 `bub-contrib` 安装的扩展
+- 一个可以在本地继续迭代的最小插件包
+
+## 推荐起步路径
+
+1. [上手运行 Bub](/zh-cn/docs/getting-started/run-bub-locally/)
+   安装 Bub、创建工作区、检查内置内核，并跑通第一次成功的 turn。
+2. [武装你的 Bub](/zh-cn/docs/getting-started/equip-your-bub/)
+   在 `AGENTS.md` 中加入本地规则，添加一个项目 skill，并按需安装扩展。
+3. [制作第一个插件](/zh-cn/docs/getting-started/first-plugin/)
+   创建一个最小插件包，做本地安装，并验证 Bub 已经加载它的 hook 实现。
+
+## 如果你当前优先要解决别的问题
+
+- 想先理解运行时模型：看[架构](/zh-cn/docs/concepts/architecture/)
+- 想看命令细节：看[CLI 参考](/zh-cn/docs/guides/cli/)
+- 想配置内置的 Telegram channel：看[Telegram](/zh-cn/docs/guides/telegram/)
+- 想看部署方式：看[部署](/zh-cn/docs/guides/deployment/)
+- 想直接看完整的插件和 hook 文档：看[插件](/zh-cn/docs/extending/plugins/)和[Hooks](/zh-cn/docs/extending/hooks/)
+
+这一节的目标是先带你用起来，而不是一次覆盖所有选项。部署、完整的 Telegram 配置以及完整插件 API 仍然分别留在 Guides、Concepts 和 Extending 章节中。
