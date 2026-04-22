@@ -43,9 +43,9 @@ GitHub Actions.
 
 The local developer entrypoints now target the new site:
 
-- `just docs`
-- `just docs-test`
-- `just docs-preview`
+- `make docs`
+- `make docs-test`
+- `make docs-preview`
 
 The CI docs check also builds `website/` instead of MkDocs.
 

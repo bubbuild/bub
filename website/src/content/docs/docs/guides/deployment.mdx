@@ -20,6 +20,8 @@ uv sync
 cp env.example .env
 ```
 
+Use `uv sync` here on purpose: deployment hosts only need the Python runtime. `make install` is the developer bootstrap path when you also need the website/docs toolchain locally.
+
 Minimum `.env` example:
 
 ```bash
@@ -102,7 +104,7 @@ git fetch --all --tags
 git pull
 uv sync
 uv run ruff check .
-uv run mypy
+uv run mypy src
 uv run pytest -q
 ```
 

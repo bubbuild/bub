@@ -20,6 +20,8 @@ uv sync
 cp env.example .env
 ```
 
+这里刻意使用 `uv sync`：部署主机只需要 Python 运行时。如果你还要在本地维护网站或文档，再使用 `make install` 作为开发环境入口。
+
 最小 `.env` 示例：
 
 ```bash
@@ -102,7 +104,7 @@ git fetch --all --tags
 git pull
 uv sync
 uv run ruff check .
-uv run mypy
+uv run mypy src
 uv run pytest -q
 ```
 

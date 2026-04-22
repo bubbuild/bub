@@ -43,6 +43,16 @@ pnpm build            # production build
 pnpm preview          # preview production build
 ```
 
+## Image Handling
+
+- Prefer the standard `Image` component from `astro:assets` for local raster assets used by pages and shared UI.
+- Do not replace local logo or illustration components with raw `<img>` just to work around Cloudflare adapter behavior.
+- The repository intentionally splits image handling in `astro.config.mjs`:
+  - `BUB_ASTRO_IMAGE_MODE=dev`: Cloudflare image service, so `make docs` works under Node without `cloudflare:workers` import failures.
+  - `BUB_ASTRO_IMAGE_MODE=build`: compile-time optimization with passthrough runtime, so `make docs-test`, `make docs-preview`, and production serve stable built asset URLs.
+- `Makefile` is the source of truth for that mode selection. `process.argv` command detection only exists as a fallback for direct `pnpm dev` / `pnpm build` usage inside `website/`.
+- If you change adapter image settings, re-verify all three paths: `make docs`, `make docs-test`, and `make docs-preview`.
+
 ---
 
 ## Directory Structure

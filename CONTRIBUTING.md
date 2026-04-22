@@ -65,11 +65,11 @@ cd bub
 Then, install the Python and website environments with:
 
 ```bash
-just install
+make install
 ```
 
 4. If you only need the Python environment, `uv sync` is still enough. The
-   full `just install` path also installs the new website dependencies and
+   full `make install` path also installs the new website dependencies and
    sets up `prek`.
 
 5. Create a branch for local development:
@@ -85,19 +85,25 @@ Now you can make your changes locally.
 7. When you're done making changes, check that your changes pass the formatting tests.
 
 ```bash
-just check
+make check
 ```
 
 Now, validate that all unit tests are passing:
 
 ```bash
-just test
+make test
 ```
 
 9. If your change touches the website/docs experience, also build the Astro site:
 
 ```bash
-just docs-test
+make docs-test
+```
+
+If you need to inspect the production-style site locally, run:
+
+```bash
+make docs-preview
 ```
 
 10. Before raising a pull request you should also run tox.

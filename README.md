@@ -28,8 +28,10 @@ Or from source:
 ```bash
 git clone https://github.com/bubbuild/bub.git
 cd bub
-uv sync
+uv sync  # enough to run Bub from source
 ```
+
+For local development, use `make install` instead so the website toolchain and `prek` hooks are installed too.
 
 ```bash
 uv run bub chat                         # interactive session
@@ -137,12 +139,11 @@ Read more:
 ## Development
 
 ```bash
-just install
-uv run ruff check .
-uv run mypy src
-uv run pytest -q
-just docs
-just docs-test
+make install
+make check
+make test
+make docs
+make docs-test
 ```
 
 See [CONTRIBUTING.md](https://github.com/bubbuild/bub/blob/main/CONTRIBUTING.md).

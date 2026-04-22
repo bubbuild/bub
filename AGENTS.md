@@ -16,18 +16,18 @@ Tests live in `tests/`. The website and docs runtime lives in `website/`.
 
 ## Build, Test, and Development Commands
 
-- `uv sync`: install or update dependencies.
-- `just install`: sync dependencies and install `prek` hooks.
+- `uv sync`: install or update the Python environment; enough to run Bub from source or for deployment-only hosts.
+- `make install`: full local development bootstrap; sync Python deps, install website deps, and install `prek` hooks.
 - `uv run bub chat`: run the interactive CLI.
 - `uv run bub gateway`: start channel listener mode.
 - `uv run bub run "hello"`: run one inbound message through the full framework pipeline.
 - `uv run bub hooks`: inspect discovered hook bindings.
-- `uv run ruff check .`: lint checks.
-- `uv run mypy src`: static type checks.
-- `uv run pytest -q`: run the main test suite.
-- `just test`: run pytest with doctests enabled.
-- `just check`: lock validation, lint, and typing.
-- `just docs` / `just docs-test`: serve or build the Astro website/docs in `website/`.
+- `uv run ruff check .`: run Ruff directly when you only want lint feedback.
+- `uv run mypy src`: run mypy directly against `src/`.
+- `uv run pytest -q`: run the main test suite without doctests.
+- `make test`: run pytest with doctests enabled.
+- `make check`: lock validation, `prek`, and typing.
+- `make docs` / `make docs-test` / `make docs-preview`: serve, build, or preview the Astro website/docs in `website/`.
 
 ## Coding Style & Naming Conventions
 
