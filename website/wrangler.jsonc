@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "bub",
+  "compatibility_date": "2026-04-22",
   "observability": {
     "enabled": false,
     "head_sampling_rate": 1,

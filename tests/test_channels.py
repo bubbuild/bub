@@ -27,7 +27,7 @@ def _load_channel_config(
 enabled_channels: {enabled_channels}
 stream_output: {str(stream_output).lower()}
 telegram:
-    token: {telegram_value}
+  token: {telegram_value!r}
 """.strip()
     load_config(content)
 
