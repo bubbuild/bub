@@ -48,7 +48,12 @@ class BuiltinImpl:
         from bub.builtin import tools  # noqa: F401
 
         self.framework = framework
-        self.agent = Agent(framework)
+        self._agent: Agent | None = None
+
+    def _get_agent(self) -> Agent:
+        if self._agent is None:
+            self._agent = Agent(self.framework)
+        return self._agent
 
     @hookimpl
     def resolve_session(self, message: ChannelMessage) -> str:
@@ -64,7 +69,7 @@ class BuiltinImpl:
         lifespan = field_of(message, "lifespan")
         if lifespan is not None:
             await lifespan.__aenter__()
-        state = {"session_id": session_id, "_runtime_agent": self.agent}
+        state = {"session_id": session_id, "_runtime_agent": self._get_agent()}
         if context := field_of(message, "context_str"):
             state["context"] = context
         return state
@@ -107,11 +112,11 @@ class BuiltinImpl:
 
     @hookimpl
     async def run_model(self, prompt: str | list[dict], session_id: str, state: State) -> str:
-        return await self.agent.run(session_id=session_id, prompt=prompt, state=state)
+        return await self._get_agent().run(session_id=session_id, prompt=prompt, state=state)
 
     @hookimpl
     async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> AsyncStreamEvents:
-        return await self.agent.run_stream(session_id=session_id, prompt=prompt, state=state)
+        return await self._get_agent().run_stream(session_id=session_id, prompt=prompt, state=state)
 
     @hookimpl
     def register_cli_commands(self, app: typer.Typer) -> None:
@@ -148,7 +153,7 @@ class BuiltinImpl:
 
         return [
             TelegramChannel(on_receive=message_handler),
-            CliChannel(on_receive=message_handler, agent=self.agent),
+            CliChannel(on_receive=message_handler, agent=self._get_agent()),
         ]
 
     @hookimpl
@@ -191,9 +196,10 @@ class BuiltinImpl:
 
     @hookimpl
     def provide_tape_store(self) -> TapeStore:
+        import bub
         from bub.builtin.store import FileTapeStore
 
-        return FileTapeStore(directory=self.agent.settings.home / "tapes")
+        return FileTapeStore(directory=bub.home / "tapes")
 
     @hookimpl
     def build_tape_context(self) -> TapeContext:

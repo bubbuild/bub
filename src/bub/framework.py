@@ -14,6 +14,7 @@ from republic import AsyncTapeStore, RepublicError, TapeContext
 from republic.core.errors import ErrorKind
 from republic.tape import TapeStore
 
+from bub import configure
 from bub.envelope import content_of, field_of, unpack_batch
 from bub.hook_runtime import HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs
@@ -24,6 +25,8 @@ if TYPE_CHECKING:
 
 
 load_dotenv()
+DEFAULT_HOME = Path.home() / ".bub"
+DEFAULT_CONFIG_FILE = (DEFAULT_HOME / "config.yml").resolve()
 
 
 @dataclass(frozen=True)
@@ -35,13 +38,14 @@ class PluginStatus:
 class BubFramework:
     """Minimal framework core. Everything grows from hook skills."""
 
-    def __init__(self) -> None:
+    def __init__(self, config_file: Path = DEFAULT_CONFIG_FILE) -> None:
         self.workspace = Path.cwd().resolve()
         self._plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
         self._plugin_manager.add_hookspecs(BubHookSpecs)
         self._hook_runtime = HookRuntime(self._plugin_manager)
         self._plugin_status: dict[str, PluginStatus] = {}
         self._outbound_router: OutboundChannelRouter | None = None
+        self._config_file = config_file
 
     def _load_builtin_hooks(self) -> None:
         from bub.builtin.hook_impl import BuiltinImpl
@@ -58,18 +62,30 @@ class BubFramework:
     def load_hooks(self) -> None:
         import importlib.metadata
 
+        pending_plugins: list[tuple[str, Any]] = []
+
         self._load_builtin_hooks()
         for entry_point in importlib.metadata.entry_points(group="bub"):
             try:
                 plugin = entry_point.load()
-                if callable(plugin):  # Support entry points that are classes
-                    plugin = plugin(self)
-                self._plugin_manager.register(plugin, name=entry_point.name)
             except Exception as exc:
                 logger.warning(f"Failed to load plugin '{entry_point.name}': {exc}")
                 self._plugin_status[entry_point.name] = PluginStatus(is_success=False, detail=str(exc))
             else:
-                self._plugin_status[entry_point.name] = PluginStatus(is_success=True)
+                pending_plugins.append((entry_point.name, plugin))
+
+        configure.load(self._config_file)
+
+        for plugin_name, plugin in pending_plugins:
+            try:
+                if callable(plugin):  # Support entry points that are classes
+                    plugin = plugin(self)
+                self._plugin_manager.register(plugin, name=plugin_name)
+            except Exception as exc:
+                logger.warning(f"Failed to initialize plugin '{plugin_name}': {exc}")
+                self._plugin_status[plugin_name] = PluginStatus(is_success=False, detail=str(exc))
+            else:
+                self._plugin_status[plugin_name] = PluginStatus(is_success=True)
 
     def create_cli_app(self) -> typer.Typer:
         """Create CLI app by collecting commands from hooks. Can be used for custom CLI entry point."""

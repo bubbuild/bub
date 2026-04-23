@@ -15,6 +15,7 @@ from republic import StreamEvent
 from rich import get_console
 from rich.live import Live
 
+import bub
 from bub.builtin.agent import Agent
 from bub.builtin.tape import TapeInfo
 from bub.channels.base import Channel
@@ -160,7 +161,7 @@ class CliChannel(Channel):
             section, _, name = tool_name.rpartition(".")
             return (section, name)
 
-        history_file = self._history_file(self._agent.settings.home, workspace)
+        history_file = self._history_file(bub.home, workspace)
         history_file.parent.mkdir(parents=True, exist_ok=True)
         history = FileHistory(str(history_file))
         tool_names = sorted((f",{name}" for name in REGISTRY), key=_tool_sort_key)

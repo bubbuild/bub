@@ -106,10 +106,9 @@ def _find_uv() -> str:
 
 @lru_cache(maxsize=1)
 def _default_project() -> Path:
-    from .settings import load_settings
+    import bub
 
-    settings = load_settings()
-    project = settings.home / "bub-project"
+    project = bub.home / "bub-project"
     project.mkdir(exist_ok=True, parents=True)
     return project
 

@@ -56,12 +56,14 @@ class Agent:
 
     @cached_property
     def tapes(self) -> TapeService:
+        import bub
+
         tape_store = self.framework.get_tape_store()
         if tape_store is None:
             tape_store = InMemoryTapeStore()
         tape_store = ForkTapeStore(tape_store)
         llm = _build_llm(self.settings, tape_store, self.framework.build_tape_context())
-        return TapeService(llm, self.settings.home / "tapes", tape_store)
+        return TapeService(llm, bub.home / "tapes", tape_store)
 
     @staticmethod
     def _events_from_iterable(iterable: Iterable) -> AsyncStreamEvents:

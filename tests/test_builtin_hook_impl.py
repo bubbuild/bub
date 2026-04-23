@@ -51,7 +51,7 @@ def _build_impl(tmp_path: Path) -> tuple[BubFramework, BuiltinImpl, FakeAgent]:
     framework = BubFramework()
     impl = BuiltinImpl(framework)
     agent = FakeAgent(tmp_path)
-    impl.agent = agent  # type: ignore[assignment]
+    impl._agent = agent
     return framework, impl, agent
 
 
@@ -73,7 +73,7 @@ def test_resolve_session_falls_back_to_channel_and_chat_id(tmp_path: Path) -> No
 
 @pytest.mark.asyncio
 async def test_load_state_and_save_state_manage_lifespan_and_context(tmp_path: Path) -> None:
-    _, impl, _ = _build_impl(tmp_path)
+    _, impl, agent = _build_impl(tmp_path)
     lifespan = RecordingLifespan()
     message = ChannelMessage(
         session_id="session",
@@ -87,7 +87,7 @@ async def test_load_state_and_save_state_manage_lifespan_and_context(tmp_path: P
 
     assert lifespan.entered is True
     assert state["session_id"] == "resolved-session"
-    assert state["_runtime_agent"] is impl.agent
+    assert state["_runtime_agent"] is agent
     assert state["context"] == message.context_str
 
     try:
@@ -262,8 +262,9 @@ def test_render_outbound_preserves_message_metadata(tmp_path: Path) -> None:
     assert outbound.content == "result"
 
 
-def test_provide_tape_store_uses_agent_home_directory(tmp_path: Path) -> None:
+def test_provide_tape_store_uses_bub_home_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _, impl, _ = _build_impl(tmp_path)
+    monkeypatch.setenv("BUB_HOME", str(tmp_path))
 
     store = impl.provide_tape_store()
 

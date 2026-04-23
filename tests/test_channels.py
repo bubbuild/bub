@@ -16,6 +16,22 @@ from bub.channels.message import ChannelMessage
 from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMessageParser
 
 
+def _load_channel_config(
+    load_config,
+    *,
+    enabled_channels: str = "all",
+    stream_output: bool = False,
+    telegram_value: str = "",
+) -> None:
+    content = f"""
+enabled_channels: {enabled_channels}
+stream_output: {str(stream_output).lower()}
+telegram:
+    token: {telegram_value}
+""".strip()
+    load_config(content)
+
+
 class FakeChannel:
     def __init__(self, name: str, *, needs_debounce: bool = False) -> None:
         self.name = name
@@ -103,7 +119,8 @@ async def test_buffered_handler_passes_commands_through_immediately() -> None:
 
 
 @pytest.mark.asyncio
-async def test_channel_manager_dispatch_uses_output_channel_and_preserves_metadata() -> None:
+async def test_channel_manager_dispatch_uses_output_channel_and_preserves_metadata(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="cli")
     cli_channel = FakeChannel("cli")
     manager = ChannelManager(FakeFramework({"cli": cli_channel}), enabled_channels=["cli"])
 
@@ -127,7 +144,8 @@ async def test_channel_manager_dispatch_uses_output_channel_and_preserves_metada
     assert outbound.context["source"] == "test"
 
 
-def test_channel_manager_enabled_channels_excludes_cli_from_all() -> None:
+def test_channel_manager_enabled_channels_excludes_cli_from_all(load_config) -> None:
+    _load_channel_config(load_config)
     channels = {"cli": FakeChannel("cli"), "telegram": FakeChannel("telegram"), "discord": FakeChannel("discord")}
     manager = ChannelManager(FakeFramework(channels), enabled_channels=["all"])
 
@@ -135,7 +153,10 @@ def test_channel_manager_enabled_channels_excludes_cli_from_all() -> None:
 
 
 @pytest.mark.asyncio
-async def test_channel_manager_on_receive_uses_buffer_for_debounced_channel(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_channel_manager_on_receive_uses_buffer_for_debounced_channel(
+    monkeypatch: pytest.MonkeyPatch, load_config
+) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
     telegram = FakeChannel("telegram", needs_debounce=True)
     manager = ChannelManager(FakeFramework({"telegram": telegram}), enabled_channels=["telegram"])
     calls: list[ChannelMessage] = []
@@ -164,7 +185,8 @@ async def test_channel_manager_on_receive_uses_buffer_for_debounced_channel(monk
 
 
 @pytest.mark.asyncio
-async def test_channel_manager_shutdown_cancels_tasks_and_stops_enabled_channels() -> None:
+async def test_channel_manager_shutdown_cancels_tasks_and_stops_enabled_channels(load_config) -> None:
+    _load_channel_config(load_config)
     telegram = FakeChannel("telegram")
     cli = FakeChannel("cli")
     manager = ChannelManager(FakeFramework({"telegram": telegram, "cli": cli}), enabled_channels=["all"])
@@ -184,20 +206,13 @@ async def test_channel_manager_shutdown_cancels_tasks_and_stops_enabled_channels
 
 @pytest.mark.asyncio
 async def test_channel_manager_listen_and_run_passes_stream_output_setting(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, load_config
 ) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram", stream_output=True)
     framework = FakeFramework({"telegram": FakeChannel("telegram")})
-
-    class StubChannelSettings:
-        enabled_channels = "telegram"
-        debounce_seconds = 1.0
-        max_wait_seconds = 10.0
-        active_time_window = 60.0
-        stream_output = True
 
     import bub.channels.manager as manager_module
 
-    monkeypatch.setattr(manager_module, "ChannelSettings", StubChannelSettings)
     manager = ChannelManager(framework)
     calls = 0
     spawned_coroutines = []
@@ -248,7 +263,8 @@ async def test_channel_manager_listen_and_run_passes_stream_output_setting(
 
 
 @pytest.mark.asyncio
-async def test_channel_manager_quit_cancels_only_matching_session_tasks() -> None:
+async def test_channel_manager_quit_cancels_only_matching_session_tasks(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
     manager = ChannelManager(FakeFramework({"telegram": FakeChannel("telegram")}), enabled_channels=["telegram"])
 
     async def never_finish() -> None:
@@ -358,7 +374,8 @@ def test_bub_message_filter_accepts_group_mention() -> None:
 
 
 @pytest.mark.asyncio
-async def test_telegram_channel_send_extracts_json_message_and_skips_blank() -> None:
+async def test_telegram_channel_send_extracts_json_message_and_skips_blank(load_config) -> None:
+    _load_channel_config(load_config, telegram_value="test-token")
     channel = TelegramChannel(lambda message: None)
     sent: list[tuple[str, str]] = []
 
@@ -374,7 +391,8 @@ async def test_telegram_channel_send_extracts_json_message_and_skips_blank() -> 
 
 
 @pytest.mark.asyncio
-async def test_telegram_channel_build_message_returns_command_directly() -> None:
+async def test_telegram_channel_build_message_returns_command_directly(load_config) -> None:
+    _load_channel_config(load_config, telegram_value="test-token")
     channel = TelegramChannel(lambda message: None)
     channel._parser = SimpleNamespace(parse=_async_return((",help", {"type": "text"})), get_reply=_async_return(None))
 
@@ -390,8 +408,9 @@ async def test_telegram_channel_build_message_returns_command_directly() -> None
 
 @pytest.mark.asyncio
 async def test_telegram_channel_build_message_wraps_payload_and_disables_outbound(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, load_config
 ) -> None:
+    _load_channel_config(load_config, telegram_value="test-token")
     channel = TelegramChannel(lambda message: None)
     parser = SimpleNamespace(
         parse=_async_return(("hello", {"type": "text", "sender_id": "7"})),

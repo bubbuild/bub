@@ -8,19 +8,22 @@ from typing import Any, ClassVar
 
 from loguru import logger
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
 from telegram import Bot, Message, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, filters
 from telegram.ext import MessageHandler as TelegramMessageHandler
 from telegram.request import HTTPXRequest
 
+from bub import config
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage, MediaItem, MediaType
+from bub.configure import Settings, ensure_config
 from bub.types import MessageHandler
 from bub.utils import exclude_none
 
 
-class TelegramSettings(BaseSettings):
+@config(name="telegram")
+class TelegramSettings(Settings):
     model_config = SettingsConfigDict(env_prefix="BUB_TELEGRAM_", extra="ignore", env_file=".env")
 
     token: str = Field(default="", description="Telegram bot token.")
@@ -148,7 +151,7 @@ class TelegramChannel(Channel):
 
     def __init__(self, on_receive: MessageHandler) -> None:
         self._on_receive = on_receive
-        self._settings = TelegramSettings()
+        self._settings = ensure_config(TelegramSettings)
         self._allow_users = {uid.strip() for uid in (self._settings.allow_users or "").split(",") if uid.strip()}
         self._allow_chats = {cid.strip() for cid in (self._settings.allow_chats or "").split(",") if cid.strip()}
         self._parser = TelegramMessageParser(bot_getter=lambda: self._app.bot)

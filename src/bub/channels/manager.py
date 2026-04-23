@@ -5,19 +5,22 @@ from collections.abc import AsyncIterable, Collection
 
 from loguru import logger
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
 from republic import StreamEvent
 
+from bub import config
 from bub.channels.base import Channel
 from bub.channels.handler import BufferedMessageHandler
 from bub.channels.message import ChannelMessage
+from bub.configure import Settings, ensure_config
 from bub.envelope import content_of, field_of
 from bub.framework import BubFramework
 from bub.types import Envelope, MessageHandler
 from bub.utils import wait_until_stopped
 
 
-class ChannelSettings(BaseSettings):
+@config()
+class ChannelSettings(Settings):
     model_config = SettingsConfigDict(env_prefix="BUB_", extra="ignore", env_file=".env")
 
     enabled_channels: str = Field(
@@ -47,7 +50,7 @@ class ChannelManager:
     ) -> None:
         self.framework = framework
         self._channels: dict[str, Channel] = self.framework.get_channels(self.on_receive)
-        self._settings = ChannelSettings()
+        self._settings = ensure_config(ChannelSettings)
         self._stream_output = stream_output if stream_output is not None else self._settings.stream_output
         if enabled_channels is not None:
             self._enabled_channels = list(enabled_channels)

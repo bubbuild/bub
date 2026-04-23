@@ -26,7 +26,7 @@ def test_build_llm_passes_codex_resolver_to_republic(monkeypatch) -> None:
     monkeypatch.setattr(agent_module, "LLM", FakeLLM)
     monkeypatch.setattr(openai_codex, "openai_codex_oauth_resolver", lambda: resolver)
 
-    settings = AgentSettings(
+    settings = AgentSettings.model_construct(
         model="openai:gpt-5-codex",
         api_key=None,
         api_base=None,
@@ -61,7 +61,7 @@ def _make_agent() -> Agent:
     with patch.object(Agent, "__init__", lambda self, fw: None):
         agent = Agent.__new__(Agent)
 
-    agent.settings = AgentSettings(model="test:model", api_key="k", api_base="b")
+    agent.settings = AgentSettings.model_construct(model="test:model", api_key="k", api_base="b")
     agent.framework = framework
     return agent
 

@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import importlib.metadata
+import os
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 import typer
 from republic import AsyncStreamEvents, StreamEvent
 from typer.testing import CliRunner
 
+from bub.builtin.settings import load_settings
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage
+from bub.channels.telegram import TelegramSettings
+from bub.configure import ensure_config
 from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
 
@@ -98,14 +104,15 @@ def test_get_system_prompt_uses_priority_order_and_skips_empty_results() -> None
     assert prompt == "low\n\nhigh"
 
 
-def test_builtin_cli_exposes_login_and_gateway_command() -> None:
-    framework = BubFramework()
-    framework.load_hooks()
-    app = framework.create_cli_app()
-    runner = CliRunner()
+def test_builtin_cli_exposes_login_and_gateway_command(write_config) -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        framework = BubFramework(config_file=write_config())
+        framework.load_hooks()
+        app = framework.create_cli_app()
+        runner = CliRunner()
 
-    help_result = runner.invoke(app, ["--help"])
-    gateway_result = runner.invoke(app, ["gateway", "--help"])
+        help_result = runner.invoke(app, ["--help"])
+        gateway_result = runner.invoke(app, ["gateway", "--help"])
 
     assert help_result.exit_code == 0
     assert "login" in help_result.stdout
@@ -114,6 +121,48 @@ def test_builtin_cli_exposes_login_and_gateway_command() -> None:
     assert gateway_result.exit_code == 0
     assert "bub gateway" in gateway_result.stdout
     assert "Start message listeners" in gateway_result.stdout
+
+
+def test_load_hooks_loads_root_and_named_config_sections(monkeypatch: pytest.MonkeyPatch, write_config) -> None:
+    expected = "test-token"
+    config_file = write_config(
+        f"""
+model: openai:gpt-5
+telegram:
+    token: {expected}
+""".strip()
+    )
+
+    with patch.dict(os.environ, {}, clear=True):
+        monkeypatch.chdir(config_file.parent)
+        framework = BubFramework(config_file=config_file)
+
+        framework.load_hooks()
+
+    assert load_settings().model == "openai:gpt-5"
+    assert ensure_config(TelegramSettings).token == expected
+
+
+def test_load_hooks_initializes_callable_plugins_after_config_load(
+    monkeypatch: pytest.MonkeyPatch, write_config
+) -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        framework = BubFramework(config_file=write_config("model: openai:gpt-5"))
+
+        class SettingsAwarePlugin:
+            def __init__(self, _framework: BubFramework) -> None:
+                self.model = load_settings().model
+
+            @hookimpl
+            def register_cli_commands(self, app: typer.Typer) -> None:
+                return None
+
+        entry_point = SimpleNamespace(name="config-plugin", load=lambda: SettingsAwarePlugin)
+        monkeypatch.setattr(importlib.metadata, "entry_points", lambda group: [entry_point])
+
+        framework.load_hooks()
+
+    assert framework._plugin_status["config-plugin"].is_success is True
 
 
 @pytest.mark.asyncio

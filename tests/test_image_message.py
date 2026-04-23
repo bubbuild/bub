@@ -179,9 +179,14 @@ def _async_return(value):
     return runner
 
 
+async def _receive_message(_message) -> None:
+    return None
+
+
 @pytest.mark.asyncio
-async def test_telegram_build_message_extracts_media_items(monkeypatch: pytest.MonkeyPatch) -> None:
-    channel = TelegramChannel(lambda message: None)  # type: ignore[arg-type]
+async def test_telegram_build_message_extracts_media_items(monkeypatch: pytest.MonkeyPatch, load_config) -> None:
+    load_config("telegram:\n  token: test-token")
+    channel = TelegramChannel(_receive_message)
     photo_metadata = {
         "type": "photo",
         "sender_id": "7",
@@ -206,8 +211,9 @@ async def test_telegram_build_message_extracts_media_items(monkeypatch: pytest.M
 
 
 @pytest.mark.asyncio
-async def test_telegram_build_message_no_media_for_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    channel = TelegramChannel(lambda message: None)  # type: ignore[arg-type]
+async def test_telegram_build_message_no_media_for_text(monkeypatch: pytest.MonkeyPatch, load_config) -> None:
+    load_config("telegram:\n  token: test-token")
+    channel = TelegramChannel(_receive_message)
     channel._parser = SimpleNamespace(  # type: ignore[assignment]
         parse=_async_return(("hello", {"type": "text", "sender_id": "7"})),
         get_reply=_async_return(None),
@@ -233,7 +239,7 @@ class FakeAgent:
 def _build_impl(tmp_path: Path) -> tuple[BubFramework, BuiltinImpl]:
     framework = BubFramework()
     impl = BuiltinImpl(framework)
-    impl.agent = FakeAgent(tmp_path)  # type: ignore[assignment]
+    impl._agent = FakeAgent(tmp_path)
     return framework, impl
 
 
