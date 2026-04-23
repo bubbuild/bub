@@ -1,0 +1,15 @@
+/*
+ * site.css — Tailwind entry for landing and blog pages.
+ *
+ * Starlight docs load `global.css` directly. Per the Starlight docs, full
+ * Tailwind Preflight should be applied from a separate non-Starlight entry
+ * so markdown content styles are not reset on documentation pages.
+ *
+ * Reference:
+ *   https://starlight.astro.build/guides/css-and-tailwind/#use-multiple-tailwind-configurations
+ */
+
+@layer base, starlight, theme, components, utilities;
+
+@import 'tailwindcss/preflight.css' layer(base);
+@import './global.css';

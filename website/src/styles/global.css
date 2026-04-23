@@ -1,9 +1,9 @@
 /*
- * global.css — Shared stylesheet for landing, blog, AND Starlight docs.
+ * global.css — Starlight-safe shared theme stylesheet.
  *
  * Loaded via:
  *   • Starlight `customCss` (docs pages)
- *   • BaseLayout `import` (landing & blog pages)
+ *   • `site.css` import (landing & blog pages)
  *
  * Structure follows the official Starlight + Tailwind v4 pattern:
  *   https://starlight.astro.build/guides/css-and-tailwind/
@@ -16,8 +16,8 @@
  *      doesn't conflict with Starlight/EC, and maps --color-accent-* /
  *      --color-gray-* into --sl-color-* tokens automatically.
  *   3. Import only `tailwindcss/theme.css` and `tailwindcss/utilities.css`
- *      in their respective layers — NOT the full `@import "tailwindcss"`
- *      which brings in the complete Preflight reset that breaks EC.
+ *      here. Full Tailwind Preflight must stay in a separate non-Starlight
+ *      entry file or it will reset markdown content styles like list markers.
  *   4. Keep site-specific resets in @layer base (lowest priority).
  *   5. Leave Starlight overrides (--sl-font-*) unlayered so they beat
  *      @layer starlight defaults.
@@ -41,10 +41,7 @@
 /* Starlight ↔ Tailwind v4 bridge */
 @import '@astrojs/starlight-tailwind';
 
-/* Tailwind layers — preflight provides the full CSS reset (link resets,
-   box-sizing, etc.) that landing page components rely on. It lives in
-   @layer base so Starlight/EC styles in higher layers always win. */
-@import 'tailwindcss/preflight.css' layer(base);
+/* Tailwind layers for the Starlight-compatible entry. */
 @import 'tailwindcss/theme.css' layer(theme);
 @import 'tailwindcss/utilities.css' layer(utilities);
 
