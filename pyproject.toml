@@ -24,7 +24,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "pyyaml>=6.0.0",
     "pluggy>=1.6.0",
-    "questionary>=2.1.0",
+    "inquirer-textual>=0.5.1",
     "typer>=0.9.0",
     "republic>=0.5.4",
     "any-llm-sdk[anthropic]",

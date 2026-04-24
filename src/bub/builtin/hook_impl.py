@@ -3,8 +3,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-import questionary
 import typer
+from inquirer_textual import prompts
+from inquirer_textual.common.Choice import Choice
+from inquirer_textual.common.InquirerResult import InquirerResult
+from inquirer_textual.common.PromptSettings import PromptSettings
+from inquirer_textual.common.Shortcut import Shortcut
 from loguru import logger
 from republic import AsyncStreamEvents, TapeContext
 from republic.tape import TapeStore
@@ -20,6 +24,7 @@ from bub.hookspecs import hookimpl
 from bub.types import Envelope, MessageHandler, State
 
 AGENTS_FILE_NAME = "AGENTS.md"
+CHECKBOX_HINT_SETTINGS = PromptSettings(shortcuts=[Shortcut("space", "toggle", "Space check/uncheck")])
 MODEL_PROVIDER_CHOICES: tuple[str, ...] = (
     "openrouter",
     "openai",
@@ -56,6 +61,15 @@ Excessively long context may cause model call failures. In this case, you MAY us
 """
 
 
+def ask_prompt(question: InquirerResult[Any]) -> Any:
+    if question.command in {"ctrl+c", "quit"}:
+        raise typer.Abort()
+    answer = question.value
+    if answer is None:
+        raise typer.Abort()
+    return answer
+
+
 class BuiltinImpl:
     """Default hook implementations for basic runtime operations."""
 
@@ -69,18 +83,6 @@ class BuiltinImpl:
         if self._agent is None:
             self._agent = Agent(self.framework)
         return self._agent
-
-    @staticmethod
-    def _ask_onboard_value(question: Any) -> Any:
-        answer = question.ask()
-        if answer is None:
-            raise typer.Abort()
-        return answer
-
-    @classmethod
-    def _ask_onboard(cls, question: Any) -> str:
-        answer = cls._ask_onboard_value(question)
-        return str(answer).strip()
 
     @staticmethod
     async def _discard_message(_: ChannelMessage) -> None:
@@ -112,6 +114,31 @@ class BuiltinImpl:
             selected = [name.strip() for name in current_value.split(",") if name.strip() in available_channels]
             return selected
         return available_channels
+
+    @classmethod
+    def _ask_onboard_checkbox(
+        cls,
+        message: str,
+        choices: list[str],
+        enabled: list[str] | None = None,
+        validate: Any = None,
+    ) -> list[str]:
+        while True:
+            answer: list[str | Choice] = ask_prompt(
+                prompts.checkbox(
+                    message,
+                    choices=cast("list[str | Choice]", choices),
+                    enabled=cast("list[str | Choice] | None", enabled),
+                    settings=CHECKBOX_HINT_SETTINGS,
+                )
+            )
+            values = list(cast("list[str]", answer or []))
+            if validate is None:
+                return values
+            validation_result = validate(values)
+            if validation_result is True:
+                return values
+            typer.secho(str(validation_result), err=True, fg="red")
 
     @hookimpl
     def resolve_session(self, message: ChannelMessage) -> str:
@@ -196,31 +223,26 @@ class BuiltinImpl:
         model_default = str(current_model) if isinstance(current_model, str) and current_model else DEFAULT_MODEL
         provider_default, model_name_default = self._split_model_identifier(model_default)
 
-        provider = self._ask_onboard(
-            questionary.autocomplete(
+        provider: str = ask_prompt(
+            prompts.fuzzy(
                 "LLM provider",
-                choices=self._provider_choices(provider_default),
-                match_middle=True,
+                choices=cast("list[str | Choice]", self._provider_choices(provider_default)),
                 default=provider_default,
             )
         )
         if provider == "custom":
-            provider = (
-                self._ask_onboard(questionary.text("Custom provider", default=provider_default)) or provider_default
-            )
+            provider = ask_prompt(prompts.text("Custom provider", default=provider_default)) or provider_default
 
-        model_name = self._ask_onboard(questionary.text("LLM model", default=model_name_default))
+        model_name: str = ask_prompt(prompts.text("LLM model", default=model_name_default))
         if not model_name:
             model_name = model_name_default
         model = f"{provider}:{model_name}"
 
-        current_api_key = current_config.get("api_key")
-        api_key_default = str(current_api_key) if isinstance(current_api_key, str) else ""
-        api_key = self._ask_onboard(questionary.password("API key (optional)", default=api_key_default))
+        api_key: str = ask_prompt(prompts.secret("API key (optional)"))
 
         current_api_base = current_config.get("api_base")
         api_base_default = str(current_api_base) if isinstance(current_api_base, str) else ""
-        api_base = self._ask_onboard(questionary.text("API base (optional)", default=api_base_default))
+        api_base: str = ask_prompt(prompts.text("API base (optional)", default=api_base_default))
 
         current_api_format = current_config.get("api_format")
         api_format_default = (
@@ -228,28 +250,22 @@ class BuiltinImpl:
             if isinstance(current_api_format, str) and current_api_format in API_FORMAT_CHOICES
             else API_FORMAT_CHOICES[0]
         )
-        api_format = self._ask_onboard(
-            questionary.select("API format", choices=list(API_FORMAT_CHOICES), default=api_format_default)
+        api_format: str = ask_prompt(
+            prompts.select("API format", choices=list(API_FORMAT_CHOICES), default=api_format_default)
         )
 
         available_channels = self._channel_choices()
         default_channels = self._default_enabled_channels(current_config.get("enabled_channels"), available_channels)
-        enabled_channels = cast(
-            "list[str]",
-            self._ask_onboard_value(
-                questionary.checkbox(
-                    "Channels",
-                    choices=[questionary.Choice(name, checked=name in default_channels) for name in available_channels],
-                    validate=lambda values: True if values else "Select at least one channel.",
-                )
-            ),
+        enabled_channels = self._ask_onboard_checkbox(
+            "Channels",
+            choices=available_channels,
+            enabled=default_channels,
+            validate=lambda values: True if values else "Select at least one channel.",
         )
 
         stream_output = cast(
             "bool",
-            self._ask_onboard_value(
-                questionary.confirm("Stream output", default=bool(current_config.get("stream_output")))
-            ),
+            ask_prompt(prompts.confirm("Stream output", default=bool(current_config.get("stream_output")))),
         )
         config: dict[str, object] = {
             "model": model,

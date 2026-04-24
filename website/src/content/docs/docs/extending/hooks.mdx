@@ -48,7 +48,7 @@ Other hook consumers:
 - Sync hook calls skip awaitable return values and log a warning.
 - Therefore, keep bootstrap hooks synchronous:
   - `register_cli_commands`
-    - `onboard_config`
+  - `onboard_config`
   - `provide_channels`
   - `provide_tape_store`
   - `build_tape_context`
@@ -70,17 +70,17 @@ from bub import hookimpl
 
 
 class WeatherPlugin:
-        @hookimpl
-        def onboard_config(self, current_config):
-                weather_config = dict(current_config.get("weather", {}))
-                api_key = weather_config.get("api_key", "")
+    @hookimpl
+    def onboard_config(self, current_config):
+        weather_config = dict(current_config.get("weather", {}))
+        api_key = weather_config.get("api_key", "")
 
-                return {
-                        "weather": {
-                                "api_key": api_key or "demo-key",
-                                "enabled": True,
-                        }
-                }
+        return {
+            "weather": {
+                "api_key": api_key or "demo-key",
+                "enabled": True,
+            }
+        }
 ```
 
 Use `current_config` when your prompt or default value depends on answers from Bub itself or higher-priority plugins. For example, a plugin can branch on the selected model provider, pre-fill an API base, or avoid asking for settings that another plugin already supplied.

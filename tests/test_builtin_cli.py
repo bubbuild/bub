@@ -7,6 +7,8 @@ from typing import Any
 from unittest.mock import patch
 
 import typer
+from inquirer_textual.common.InquirerResult import InquirerResult
+from inquirer_textual.common.PromptSettings import PromptSettings
 from typer.testing import CliRunner
 
 import bub.builtin.auth as auth
@@ -17,12 +19,16 @@ from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
 
 
-class _FakeQuestion:
-    def __init__(self, answer: Any) -> None:
-        self._answer = answer
+def _fake_result(answer: Any, command: str | None = "enter") -> InquirerResult[Any]:
+    return InquirerResult(None, answer, command)
 
-    def ask(self) -> Any:
-        return self._answer
+
+def _assert_checkbox_hint(settings: PromptSettings | None) -> None:
+    assert settings is not None
+    assert settings.shortcuts is not None
+    assert [(shortcut.key, shortcut.command, shortcut.description) for shortcut in settings.shortcuts] == [
+        ("space", "toggle", "Space check/uncheck")
+    ]
 
 
 def _create_app() -> typer.Typer:
@@ -68,34 +74,37 @@ def test_onboard_collects_plugin_config_and_writes_file(tmp_path: Path, monkeypa
             lambda message, default=None, hide_input=False, show_default=True: next(answers),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
+            builtin_hook_impl.prompts,
             "text",
-            lambda message, default="": _FakeQuestion(default),
+            lambda message, default="": _fake_result(default),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
-            "autocomplete",
-            lambda message, choices, default="", match_middle=False: _FakeQuestion(default),
+            builtin_hook_impl.prompts,
+            "fuzzy",
+            lambda message, choices, default=None: _fake_result(default),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
+            builtin_hook_impl.prompts,
             "select",
-            lambda message, choices, default="": _FakeQuestion(default),
+            lambda message, choices, default="": _fake_result(default),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
+            builtin_hook_impl.prompts,
             "checkbox",
-            lambda message, choices, validate=None: _FakeQuestion(["telegram"]),
+            lambda message, choices, enabled=None, settings=None: (
+                _assert_checkbox_hint(settings),
+                _fake_result(["telegram"]),
+            )[1],
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
+            builtin_hook_impl.prompts,
             "confirm",
-            lambda message, default=False: _FakeQuestion(default),
+            lambda message, default=False: _fake_result(default),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
-            "password",
-            lambda message, default="": _FakeQuestion(default),
+            builtin_hook_impl.prompts,
+            "secret",
+            lambda message: _fake_result(""),
         )
 
         result = CliRunner().invoke(app, ["onboard"])
@@ -124,9 +133,9 @@ def test_onboard_collects_builtin_runtime_config(tmp_path: Path, monkeypatch) ->
         app = framework.create_cli_app()
 
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
+            builtin_hook_impl.prompts,
             "text",
-            lambda message, default="": _FakeQuestion(
+            lambda message, default="": _fake_result(
                 {
                     "LLM model": "openrouter/free",
                     "API base (optional)": "https://openrouter.ai/api/v1",
@@ -134,29 +143,32 @@ def test_onboard_collects_builtin_runtime_config(tmp_path: Path, monkeypatch) ->
             ),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
-            "autocomplete",
-            lambda message, choices, default="", match_middle=False: _FakeQuestion("openrouter"),
+            builtin_hook_impl.prompts,
+            "fuzzy",
+            lambda message, choices, default=None: _fake_result("openrouter"),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
+            builtin_hook_impl.prompts,
             "select",
-            lambda message, choices, default="": _FakeQuestion("responses"),
+            lambda message, choices, default="": _fake_result("responses"),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
+            builtin_hook_impl.prompts,
             "checkbox",
-            lambda message, choices, validate=None: _FakeQuestion(["telegram", "cli"]),
+            lambda message, choices, enabled=None, settings=None: (
+                _assert_checkbox_hint(settings),
+                _fake_result(["telegram", "cli"]),
+            )[1],
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
+            builtin_hook_impl.prompts,
             "confirm",
-            lambda message, default=False: _FakeQuestion(True),
+            lambda message, default=False: _fake_result(True),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
-            "password",
-            lambda message, default="": _FakeQuestion("sk-test"),
+            builtin_hook_impl.prompts,
+            "secret",
+            lambda message: _fake_result("sk-test"),
         )
 
         result = CliRunner().invoke(app, ["onboard"])
@@ -184,40 +196,44 @@ def test_onboard_aborts_immediately_when_builtin_prompt_is_interrupted(tmp_path:
         framework.load_hooks()
         app = framework.create_cli_app()
 
-        def fake_autocomplete(
-            message: str, choices: list[str], default: str = "", match_middle: bool = False
-        ) -> _FakeQuestion:
+        def fake_fuzzy(message: str, choices: list[str], default: str | None = None) -> InquirerResult[Any]:
             asked_messages.append(message)
-            return _FakeQuestion(default)
+            return _fake_result(default)
 
-        def fake_select(message: str, choices: list[str], default: str = "") -> _FakeQuestion:
+        def fake_select(message: str, choices: list[str], default: str = "") -> InquirerResult[Any]:
             asked_messages.append(message)
-            return _FakeQuestion(default)
+            return _fake_result(default)
 
-        def fake_checkbox(message: str, choices: list[object], validate=None) -> _FakeQuestion:
+        def fake_checkbox(
+            message: str,
+            choices: list[object],
+            enabled=None,
+            settings: PromptSettings | None = None,
+        ) -> InquirerResult[Any]:
             asked_messages.append(message)
-            return _FakeQuestion(["telegram"])
+            _assert_checkbox_hint(settings)
+            return _fake_result(["telegram"])
 
-        def fake_confirm(message: str, default: bool = False) -> _FakeQuestion:
+        def fake_confirm(message: str, default: bool = False) -> InquirerResult[Any]:
             asked_messages.append(message)
-            return _FakeQuestion(default)
+            return _fake_result(default)
 
-        def fake_text(message: str, default: str = "") -> _FakeQuestion:
+        def fake_text(message: str, default: str = "") -> InquirerResult[Any]:
             asked_messages.append(message)
             if message == "API base (optional)":
                 raise AssertionError("Onboarding should stop after interruption")
-            return _FakeQuestion("openrouter:openrouter/free")
+            return _fake_result("openrouter:openrouter/free")
 
-        def fake_password(message: str, default: str = "") -> _FakeQuestion:
-            asked_messages.append(message)
-            return _FakeQuestion(None)
+        def fake_secret(message: str) -> InquirerResult[Any]:
+            asked_messages.append("API key (optional)")
+            return _fake_result(None)
 
-        monkeypatch.setattr(builtin_hook_impl.questionary, "autocomplete", fake_autocomplete)
-        monkeypatch.setattr(builtin_hook_impl.questionary, "select", fake_select)
-        monkeypatch.setattr(builtin_hook_impl.questionary, "checkbox", fake_checkbox)
-        monkeypatch.setattr(builtin_hook_impl.questionary, "confirm", fake_confirm)
-        monkeypatch.setattr(builtin_hook_impl.questionary, "text", fake_text)
-        monkeypatch.setattr(builtin_hook_impl.questionary, "password", fake_password)
+        monkeypatch.setattr(builtin_hook_impl.prompts, "fuzzy", fake_fuzzy)
+        monkeypatch.setattr(builtin_hook_impl.prompts, "select", fake_select)
+        monkeypatch.setattr(builtin_hook_impl.prompts, "checkbox", fake_checkbox)
+        monkeypatch.setattr(builtin_hook_impl.prompts, "confirm", fake_confirm)
+        monkeypatch.setattr(builtin_hook_impl.prompts, "text", fake_text)
+        monkeypatch.setattr(builtin_hook_impl.prompts, "secret", fake_secret)
 
         result = CliRunner().invoke(app, ["onboard"])
 
@@ -241,29 +257,32 @@ def test_onboard_collects_builtin_runtime_config_with_custom_provider(tmp_path: 
         app = framework.create_cli_app()
 
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
-            "autocomplete",
-            lambda message, choices, default="", match_middle=False: _FakeQuestion("custom"),
+            builtin_hook_impl.prompts,
+            "fuzzy",
+            lambda message, choices, default=None: _fake_result("custom"),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
+            builtin_hook_impl.prompts,
             "select",
-            lambda message, choices, default="": _FakeQuestion("messages"),
+            lambda message, choices, default="": _fake_result("messages"),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
+            builtin_hook_impl.prompts,
             "checkbox",
-            lambda message, choices, validate=None: _FakeQuestion(["telegram"]),
+            lambda message, choices, enabled=None, settings=None: (
+                _assert_checkbox_hint(settings),
+                _fake_result(["telegram"]),
+            )[1],
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
+            builtin_hook_impl.prompts,
             "confirm",
-            lambda message, default=False: _FakeQuestion(False),
+            lambda message, default=False: _fake_result(False),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
+            builtin_hook_impl.prompts,
             "text",
-            lambda message, default="": _FakeQuestion(
+            lambda message, default="": _fake_result(
                 {
                     "Custom provider": "acme",
                     "LLM model": "ultra-1",
@@ -271,9 +290,9 @@ def test_onboard_collects_builtin_runtime_config_with_custom_provider(tmp_path: 
             ),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.questionary,
-            "password",
-            lambda message, default="": _FakeQuestion(""),
+            builtin_hook_impl.prompts,
+            "secret",
+            lambda message: _fake_result(""),
         )
 
         result = CliRunner().invoke(app, ["onboard"])
