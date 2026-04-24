@@ -16,10 +16,22 @@ from urllib.request import url2pathname
 
 import typer
 
+from bub import __version__, configure
 from bub.builtin.auth import app as login_app  # noqa: F401
 from bub.channels.message import ChannelMessage
 from bub.envelope import field_of
 from bub.framework import BubFramework
+
+ONBOARD_BANNER = r"""
+ ███████████             █████
+▒▒███▒▒▒▒▒███           ▒▒███
+ ▒███    ▒███ █████ ████ ▒███████
+ ▒██████████ ▒▒███ ▒███  ▒███▒▒███
+ ▒███▒▒▒▒▒███ ▒███ ▒███  ▒███ ▒███
+ ▒███    ▒███ ▒███ ▒███  ▒███ ▒███
+ ███████████  ▒▒████████ ████████
+▒▒▒▒▒▒▒▒▒▒▒    ▒▒▒▒▒▒▒▒ ▒▒▒▒▒▒▒▒  v{version}
+""".strip("\n")
 
 
 def run(
@@ -90,6 +102,25 @@ def chat(
         raise typer.Exit(1)
     channel.set_metadata(chat_id=chat_id, session_id=session_id)  # type: ignore[attr-defined]
     asyncio.run(manager.listen_and_run())
+
+
+def onboard(ctx: typer.Context) -> None:
+    """Interactively collect plugin configuration and write it to Bub's config file."""
+
+    framework = ctx.ensure_object(BubFramework)
+    typer.echo(ONBOARD_BANNER.format(version=__version__))
+    typer.echo("\nWelcome to Bub! Let's get you set up.\n")
+
+    try:
+        config_data = framework.collect_onboard_config()
+        configure.save(framework.config_file, config_data)
+    except (typer.Abort, typer.Exit):
+        raise
+    except Exception as exc:
+        typer.secho(f"Onboarding failed: {exc}", err=True, fg="red")
+        raise typer.Exit(1) from exc
+
+    typer.echo(f"Saved config to {framework.config_file}")
 
 
 @lru_cache(maxsize=1)

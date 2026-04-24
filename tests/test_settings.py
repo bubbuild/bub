@@ -139,12 +139,12 @@ def test_load_settings_returns_loaded_config(load_config) -> None:
     with patch.dict(os.environ, {}, clear=True):
         load_config(
             """
-model: openrouter:qwen/qwen3-coder-next
+model: openrouter:openrouter/free
 api_format: responses
 """.strip(),
         )
 
         settings = load_settings()
 
-    assert settings.model == "openrouter:qwen/qwen3-coder-next"
+    assert settings.model == "openrouter:openrouter/free"
     assert settings.api_format == "responses"

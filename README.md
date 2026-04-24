@@ -106,16 +106,16 @@ Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-sk
 
 ## Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BUB_MODEL` | `openrouter:qwen/qwen3-coder-next` | Model identifier |
-| `BUB_API_KEY` | — | Provider key (optional with `bub login openai`) |
-| `BUB_API_BASE` | — | Custom provider endpoint |
-| `BUB_API_FORMAT` | `completion` | `completion`, `responses`, or `messages` |
-| `BUB_CLIENT_ARGS` | — | JSON object forwarded to the underlying model client |
-| `BUB_MAX_STEPS` | `50` | Max tool-use loop iterations |
-| `BUB_MAX_TOKENS` | `1024` | Max tokens per model call |
-| `BUB_MODEL_TIMEOUT_SECONDS` | — | Model call timeout (seconds) |
+| Variable                    | Default                      | Description                                          |
+| --------------------------- | ---------------------------- | ---------------------------------------------------- |
+| `BUB_MODEL`                 | `openrouter:openrouter/free` | Model identifier                                     |
+| `BUB_API_KEY`               | —                            | Provider key (optional with `bub login openai`)      |
+| `BUB_API_BASE`              | —                            | Custom provider endpoint                             |
+| `BUB_API_FORMAT`            | `completion`                 | `completion`, `responses`, or `messages`             |
+| `BUB_CLIENT_ARGS`           | —                            | JSON object forwarded to the underlying model client |
+| `BUB_MAX_STEPS`             | `50`                         | Max tool-use loop iterations                         |
+| `BUB_MAX_TOKENS`            | `1024`                       | Max tokens per model call                            |
+| `BUB_MODEL_TIMEOUT_SECONDS` | —                            | Model call timeout (seconds)                         |
 
 ## Background
 

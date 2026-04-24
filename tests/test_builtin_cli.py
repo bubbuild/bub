@@ -1,19 +1,293 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
+import typer
 from typer.testing import CliRunner
 
 import bub.builtin.auth as auth
 import bub.builtin.cli as cli
+import bub.builtin.hook_impl as builtin_hook_impl
+import bub.configure as configure
 from bub.framework import BubFramework
+from bub.hookspecs import hookimpl
 
 
-def _create_app() -> object:
+class _FakeQuestion:
+    def __init__(self, answer: Any) -> None:
+        self._answer = answer
+
+    def ask(self) -> Any:
+        return self._answer
+
+
+def _create_app() -> typer.Typer:
     framework = BubFramework()
     framework.load_hooks()
     return framework.create_cli_app()
+
+
+def _rendered_onboard_banner() -> str:
+    return cli.ONBOARD_BANNER.format(version=cli.__version__)
+
+
+def test_onboard_collects_plugin_config_and_writes_file(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / "config.yml"
+
+    with patch.dict(os.environ, {}, clear=True):
+        monkeypatch.chdir(tmp_path)
+        framework = BubFramework(config_file=config_file)
+        framework.load_hooks()
+
+        class OnboardPlugin:
+            @hookimpl
+            def onboard_config(self, current_config):
+                assert current_config == {}
+                return {
+                    "model": cli.typer.prompt("Model", default="openai:gpt-5"),
+                    "telegram": {"token": cli.typer.prompt("Telegram token", hide_input=True)},
+                }
+
+        framework._plugin_manager.register(OnboardPlugin(), name="onboard-plugin")
+        app = framework.create_cli_app()
+
+        answers = iter([
+            "openai:gpt-5",
+            "123:abc",
+            "openai:gpt-5",
+            "",
+            "",
+        ])
+        monkeypatch.setattr(
+            cli.typer,
+            "prompt",
+            lambda message, default=None, hide_input=False, show_default=True: next(answers),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "text",
+            lambda message, default="": _FakeQuestion(default),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "autocomplete",
+            lambda message, choices, default="", match_middle=False: _FakeQuestion(default),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "select",
+            lambda message, choices, default="": _FakeQuestion(default),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "checkbox",
+            lambda message, choices, validate=None: _FakeQuestion(["telegram"]),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "confirm",
+            lambda message, default=False: _FakeQuestion(default),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "password",
+            lambda message, default="": _FakeQuestion(default),
+        )
+
+        result = CliRunner().invoke(app, ["onboard"])
+
+        loaded = configure.load(config_file)
+
+    assert result.exit_code == 0
+    assert _rendered_onboard_banner() in result.stdout
+    assert f"Saved config to {config_file.resolve()}" in result.stdout
+    assert loaded == {
+        "model": "openai:gpt-5",
+        "api_format": "completion",
+        "enabled_channels": "telegram",
+        "stream_output": False,
+        "telegram": {"token": "123:abc"},
+    }
+
+
+def test_onboard_collects_builtin_runtime_config(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / "config.yml"
+
+    with patch.dict(os.environ, {}, clear=True):
+        monkeypatch.chdir(tmp_path)
+        framework = BubFramework(config_file=config_file)
+        framework.load_hooks()
+        app = framework.create_cli_app()
+
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "text",
+            lambda message, default="": _FakeQuestion(
+                {
+                    "LLM model": "openrouter/free",
+                    "API base (optional)": "https://openrouter.ai/api/v1",
+                }.get(message, default)
+            ),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "autocomplete",
+            lambda message, choices, default="", match_middle=False: _FakeQuestion("openrouter"),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "select",
+            lambda message, choices, default="": _FakeQuestion("responses"),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "checkbox",
+            lambda message, choices, validate=None: _FakeQuestion(["telegram", "cli"]),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "confirm",
+            lambda message, default=False: _FakeQuestion(True),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "password",
+            lambda message, default="": _FakeQuestion("sk-test"),
+        )
+
+        result = CliRunner().invoke(app, ["onboard"])
+
+        loaded = configure.load(config_file)
+
+    assert result.exit_code == 0
+    assert loaded == {
+        "model": "openrouter:openrouter/free",
+        "api_format": "responses",
+        "enabled_channels": "telegram,cli",
+        "stream_output": True,
+        "api_key": "sk-test",
+        "api_base": "https://openrouter.ai/api/v1",
+    }
+
+
+def test_onboard_aborts_immediately_when_builtin_prompt_is_interrupted(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / "config.yml"
+    asked_messages: list[str] = []
+
+    with patch.dict(os.environ, {}, clear=True):
+        monkeypatch.chdir(tmp_path)
+        framework = BubFramework(config_file=config_file)
+        framework.load_hooks()
+        app = framework.create_cli_app()
+
+        def fake_autocomplete(
+            message: str, choices: list[str], default: str = "", match_middle: bool = False
+        ) -> _FakeQuestion:
+            asked_messages.append(message)
+            return _FakeQuestion(default)
+
+        def fake_select(message: str, choices: list[str], default: str = "") -> _FakeQuestion:
+            asked_messages.append(message)
+            return _FakeQuestion(default)
+
+        def fake_checkbox(message: str, choices: list[object], validate=None) -> _FakeQuestion:
+            asked_messages.append(message)
+            return _FakeQuestion(["telegram"])
+
+        def fake_confirm(message: str, default: bool = False) -> _FakeQuestion:
+            asked_messages.append(message)
+            return _FakeQuestion(default)
+
+        def fake_text(message: str, default: str = "") -> _FakeQuestion:
+            asked_messages.append(message)
+            if message == "API base (optional)":
+                raise AssertionError("Onboarding should stop after interruption")
+            return _FakeQuestion("openrouter:openrouter/free")
+
+        def fake_password(message: str, default: str = "") -> _FakeQuestion:
+            asked_messages.append(message)
+            return _FakeQuestion(None)
+
+        monkeypatch.setattr(builtin_hook_impl.questionary, "autocomplete", fake_autocomplete)
+        monkeypatch.setattr(builtin_hook_impl.questionary, "select", fake_select)
+        monkeypatch.setattr(builtin_hook_impl.questionary, "checkbox", fake_checkbox)
+        monkeypatch.setattr(builtin_hook_impl.questionary, "confirm", fake_confirm)
+        monkeypatch.setattr(builtin_hook_impl.questionary, "text", fake_text)
+        monkeypatch.setattr(builtin_hook_impl.questionary, "password", fake_password)
+
+        result = CliRunner().invoke(app, ["onboard"])
+
+    assert result.exit_code == 1
+    assert _rendered_onboard_banner() in result.stdout
+    assert asked_messages == [
+        "LLM provider",
+        "LLM model",
+        "API key (optional)",
+    ]
+    assert not config_file.exists()
+
+
+def test_onboard_collects_builtin_runtime_config_with_custom_provider(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / "config.yml"
+
+    with patch.dict(os.environ, {}, clear=True):
+        monkeypatch.chdir(tmp_path)
+        framework = BubFramework(config_file=config_file)
+        framework.load_hooks()
+        app = framework.create_cli_app()
+
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "autocomplete",
+            lambda message, choices, default="", match_middle=False: _FakeQuestion("custom"),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "select",
+            lambda message, choices, default="": _FakeQuestion("messages"),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "checkbox",
+            lambda message, choices, validate=None: _FakeQuestion(["telegram"]),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "confirm",
+            lambda message, default=False: _FakeQuestion(False),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "text",
+            lambda message, default="": _FakeQuestion(
+                {
+                    "Custom provider": "acme",
+                    "LLM model": "ultra-1",
+                }.get(message, default)
+            ),
+        )
+        monkeypatch.setattr(
+            builtin_hook_impl.questionary,
+            "password",
+            lambda message, default="": _FakeQuestion(""),
+        )
+
+        result = CliRunner().invoke(app, ["onboard"])
+
+        loaded = configure.load(config_file)
+
+    assert result.exit_code == 0
+    assert _rendered_onboard_banner() in result.stdout
+    assert loaded == {
+        "model": "acme:ultra-1",
+        "api_format": "messages",
+        "enabled_channels": "telegram",
+        "stream_output": False,
+    }
 
 
 def test_login_openai_runs_oauth_flow_and_prints_usage_hint(

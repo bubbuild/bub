@@ -4,13 +4,15 @@ import importlib.metadata
 import os
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
 import typer
-from republic import AsyncStreamEvents, StreamEvent
+from republic import AsyncStreamEvents, StreamEvent, StreamState
 from typer.testing import CliRunner
 
+from bub import configure
 from bub.builtin.settings import load_settings
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage
@@ -20,16 +22,23 @@ from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
 
 
-class NamedChannel(Channel):
-    def __init__(self, name: str, label: str) -> None:
-        self.name = name
-        self.label = label
+def make_named_channel(name: str, label: str) -> Channel:
+    channel_name = name
+    channel_label = label
 
-    async def start(self, stop_event) -> None:
-        return None
+    class NamedChannelImpl(Channel):
+        name = channel_name
 
-    async def stop(self) -> None:
-        return None
+        def __init__(self) -> None:
+            self.label = channel_label
+
+        async def start(self, stop_event) -> None:
+            return None
+
+        async def stop(self) -> None:
+            return None
+
+    return NamedChannelImpl()
 
 
 def test_create_cli_app_sets_workspace_and_context(tmp_path: Path) -> None:
@@ -56,25 +65,28 @@ def test_create_cli_app_sets_workspace_and_context(tmp_path: Path) -> None:
 def test_get_channels_prefers_high_priority_plugin_for_duplicate_names() -> None:
     framework = BubFramework()
 
+    async def message_handler(message) -> None:
+        return None
+
     class LowPriorityPlugin:
         @hookimpl
         def provide_channels(self, message_handler):
-            return [NamedChannel("shared", "low"), NamedChannel("low-only", "low")]
+            return [make_named_channel("shared", "low"), make_named_channel("low-only", "low")]
 
     class HighPriorityPlugin:
         @hookimpl
         def provide_channels(self, message_handler):
-            return [NamedChannel("shared", "high"), NamedChannel("high-only", "high")]
+            return [make_named_channel("shared", "high"), make_named_channel("high-only", "high")]
 
     framework._plugin_manager.register(LowPriorityPlugin(), name="low")
     framework._plugin_manager.register(HighPriorityPlugin(), name="high")
 
-    channels = framework.get_channels(lambda message: None)
+    channels = framework.get_channels(message_handler)
 
     assert set(channels) == {"shared", "low-only", "high-only"}
-    assert channels["shared"].label == "high"
-    assert channels["low-only"].label == "low"
-    assert channels["high-only"].label == "high"
+    assert cast(Any, channels["shared"]).label == "high"
+    assert cast(Any, channels["low-only"]).label == "low"
+    assert cast(Any, channels["high-only"]).label == "high"
 
 
 def test_get_system_prompt_uses_priority_order_and_skips_empty_results() -> None:
@@ -117,6 +129,7 @@ def test_builtin_cli_exposes_login_and_gateway_command(write_config) -> None:
     assert help_result.exit_code == 0
     assert "login" in help_result.stdout
     assert "gateway" in help_result.stdout
+    assert "onboard" in help_result.stdout
     assert "│ message" not in help_result.stdout
     assert gateway_result.exit_code == 0
     assert "bub gateway" in gateway_result.stdout
@@ -163,6 +176,36 @@ def test_load_hooks_initializes_callable_plugins_after_config_load(
         framework.load_hooks()
 
     assert framework._plugin_status["config-plugin"].is_success is True
+
+
+def test_collect_onboard_config_passes_accumulated_updates_to_later_hooks(write_config) -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        framework = BubFramework(config_file=write_config("model: openai:gpt-5"))
+        observed_configs: list[tuple[str, dict[str, Any]]] = []
+
+        class FirstPlugin:
+            @hookimpl
+            def onboard_config(self, current_config):
+                observed_configs.append(("first", configure.merge({}, current_config)))
+                return {"first": {"enabled": True}}
+
+        class SecondPlugin:
+            @hookimpl
+            def onboard_config(self, current_config):
+                observed_configs.append(("second", configure.merge({}, current_config)))
+                return {"second": {"enabled": True}}
+
+        framework._plugin_manager.register(FirstPlugin(), name="first")
+        framework._plugin_manager.register(SecondPlugin(), name="second")
+
+        result = framework.collect_onboard_config()
+
+    assert observed_configs[0][1] == {}
+    assert observed_configs[1][1] == {observed_configs[0][0]: {"enabled": True}}
+    assert result == {
+        "first": {"enabled": True},
+        "second": {"enabled": True},
+    }
 
 
 @pytest.mark.asyncio
@@ -237,7 +280,7 @@ async def test_process_inbound_streams_when_requested() -> None:  # noqa: C901
                 yield StreamEvent("text", {"delta": "ed"})
                 yield StreamEvent("final", {"text": "streamed", "ok": True})
 
-            return AsyncStreamEvents(iterator(), state=SimpleNamespace(error=None, usage=None))
+            return AsyncStreamEvents(iterator(), state=StreamState())
 
         @hookimpl
         async def save_state(self, session_id, state, message, model_output) -> None:
@@ -259,6 +302,12 @@ async def test_process_inbound_streams_when_requested() -> None:  # noqa: C901
                     yield event
 
             return iterator()
+
+        async def dispatch_output(self, message) -> bool:
+            return True
+
+        async def quit(self, session_id: str) -> None:
+            return None
 
     framework._plugin_manager.register(StreamingPlugin(), name="streaming")
     framework.bind_outbound_router(RecordingRouter())

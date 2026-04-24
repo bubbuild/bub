@@ -16,7 +16,7 @@ from republic.tape import TapeStore
 
 from bub import configure
 from bub.envelope import content_of, field_of, unpack_batch
-from bub.hook_runtime import HookRuntime
+from bub.hook_runtime import _SKIP_VALUE, HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.types import Envelope, MessageHandler, OutboundChannelRouter, TurnResult
 
@@ -40,12 +40,13 @@ class BubFramework:
 
     def __init__(self, config_file: Path = DEFAULT_CONFIG_FILE) -> None:
         self.workspace = Path.cwd().resolve()
+        self.config_file = config_file.resolve()
         self._plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
         self._plugin_manager.add_hookspecs(BubHookSpecs)
         self._hook_runtime = HookRuntime(self._plugin_manager)
         self._plugin_status: dict[str, PluginStatus] = {}
         self._outbound_router: OutboundChannelRouter | None = None
-        configure.load(config_file)
+        configure.load(self.config_file)
 
     def _load_builtin_hooks(self) -> None:
         from bub.builtin.hook_impl import BuiltinImpl
@@ -264,3 +265,22 @@ class BubFramework:
 
     def build_tape_context(self) -> TapeContext:
         return self._hook_runtime.call_first_sync("build_tape_context")
+
+    def collect_onboard_config(self) -> dict[str, Any]:
+        current_config: dict[str, Any] = {}
+
+        for impl in self._hook_runtime._iter_hookimpls("onboard_config"):
+            result = self._hook_runtime._invoke_impl_sync(
+                hook_name="onboard_config",
+                impl=impl,
+                call_kwargs={"current_config": current_config},
+                kwargs={"current_config": current_config},
+            )
+            if result is _SKIP_VALUE:
+                continue
+            if result is None:
+                continue
+            if not isinstance(result, dict):
+                raise TypeError("hook.onboard_config must return dict or None")
+            configure.merge(current_config, result)
+        return configure.validate(current_config)

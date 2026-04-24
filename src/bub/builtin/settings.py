@@ -11,7 +11,7 @@ from pydantic_settings import SettingsConfigDict
 
 from bub import Settings, config, ensure_config
 
-DEFAULT_MODEL = "openrouter:qwen/qwen3-coder-next"
+DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 1024
 
 

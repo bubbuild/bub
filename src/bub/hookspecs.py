@@ -27,11 +27,6 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def load_state(self, message: Envelope, session_id: str) -> State:
-        """Load state snapshot for one session."""
-        raise NotImplementedError
-
-    @hookspec(firstresult=True)
     def build_prompt(self, message: Envelope, session_id: str, state: State) -> str | list[dict]:
         """Build model prompt for this turn.
 
@@ -48,6 +43,11 @@ class BubHookSpecs:
     @hookspec(firstresult=True)
     def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> AsyncStreamEvents:
         """Run model for one turn and return a stream of events. Should not be implemented if `run_model` is implemented."""
+        raise NotImplementedError
+
+    @hookspec
+    def load_state(self, message: Envelope, session_id: str) -> State:
+        """Load state snapshot for one session."""
         raise NotImplementedError
 
     @hookspec
@@ -79,6 +79,10 @@ class BubHookSpecs:
     @hookspec
     def register_cli_commands(self, app: Any) -> None:
         """Register CLI commands onto the root Typer application."""
+
+    @hookspec
+    def onboard_config(self, current_config: dict[str, Any]) -> dict[str, Any] | None:
+        """Collect a plugin config fragment for the interactive onboarding command."""
 
     @hookspec
     def on_error(self, stage: str, error: Exception, message: Envelope | None) -> None:

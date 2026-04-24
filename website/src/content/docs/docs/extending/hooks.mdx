@@ -31,6 +31,7 @@ Compatibility note:
 Other hook consumers:
 
 - `register_cli_commands`: called by `call_many_sync`
+- `onboard_config`: called by `BubFramework.collect_onboard_config()` during `bub onboard`
 - `provide_channels`: called by `call_many_sync` in `BubFramework.get_channels()`
 - `system_prompt`, `provide_tape_store`, `build_tape_context`: consumed by `BubFramework` and the builtin `Agent`
 
@@ -47,9 +48,44 @@ Other hook consumers:
 - Sync hook calls skip awaitable return values and log a warning.
 - Therefore, keep bootstrap hooks synchronous:
   - `register_cli_commands`
+    - `onboard_config`
   - `provide_channels`
   - `provide_tape_store`
   - `build_tape_context`
+
+## Interactive Onboarding
+
+`onboard_config(current_config)` lets a plugin participate in the interactive `bub onboard` flow.
+
+- Bub calls implementations by priority order, the same way it does for other sync bootstrap hooks.
+- Each hook receives the accumulated `current_config` built by earlier hooks.
+- Return a config fragment as `dict[str, Any]` to merge into the onboarding result.
+- Return `None` to skip without changing the accumulated config.
+- Returning any non-dict value raises `TypeError` and aborts onboarding.
+
+This makes `onboard_config` a good fit for provider-specific questions, plugin setup steps, or defaults that depend on answers collected earlier in the same session.
+
+```python
+from bub import hookimpl
+
+
+class WeatherPlugin:
+        @hookimpl
+        def onboard_config(self, current_config):
+                weather_config = dict(current_config.get("weather", {}))
+                api_key = weather_config.get("api_key", "")
+
+                return {
+                        "weather": {
+                                "api_key": api_key or "demo-key",
+                                "enabled": True,
+                        }
+                }
+```
+
+Use `current_config` when your prompt or default value depends on answers from Bub itself or higher-priority plugins. For example, a plugin can branch on the selected model provider, pre-fill an API base, or avoid asking for settings that another plugin already supplied.
+
+To verify the hook, run `uv run bub onboard` and confirm that the saved config file contains the merged fragment from your plugin.
 
 ## Signature Matching
 
