@@ -5,6 +5,7 @@ from datetime import datetime
 from hashlib import md5
 from pathlib import Path
 
+from loguru import logger
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import FormattedText
@@ -43,9 +44,15 @@ class CliChannel(Channel):
         self._mode = "agent"  # or "shell"
         self._main_task: asyncio.Task | None = None
         self._renderer = CliRenderer(get_console())
+        self._log_handler_id = self._install_log_sink()
         self._last_tape_info: TapeInfo | None = None
         self._workspace = self._agent.framework.workspace
         self._prompt = self._build_prompt(self._workspace)
+
+    def _install_log_sink(self) -> int:
+        with contextlib.suppress(ValueError):
+            logger.remove(0)
+        return logger.add(self._renderer.log, colorize=False, format="{level:<8} | {message}")
 
     async def _refresh_tape_info(self) -> None:
         tape = self._agent.tapes.session_tape(self._message_template["session_id"], self._workspace)
@@ -67,6 +74,8 @@ class CliChannel(Channel):
             self._main_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._main_task
+        with contextlib.suppress(ValueError):
+            logger.remove(self._log_handler_id)
 
     async def send(self, message: ChannelMessage) -> None:
         if message.kind != "error":
@@ -140,10 +149,11 @@ class CliChannel(Channel):
                     content = str(event.data.get("delta", ""))
                     if not content.strip() and not text:
                         continue  # skip leading whitespace-only events
-                    if live is None:
-                        live = self._renderer.start_stream(message.kind)
                     text += content
-                    self._renderer.update_stream(live, kind=message.kind, text=text)
+                    if live is None:
+                        live = self._renderer.start_stream(message.kind, text)
+                    else:
+                        self._renderer.update_stream(live, kind=message.kind, text=text)
                 yield event
         finally:
             if live is not None:

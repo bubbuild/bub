@@ -52,16 +52,20 @@ class CliRenderer:
             return
         self.console.print(self.panel("error", text))
 
-    def start_stream(self, kind: MessageKind) -> Live:
+    def log(self, message: object) -> None:
+        text = str(message).rstrip()
+        if text:
+            self.console.print(text)
+
+    def start_stream(self, kind: MessageKind, text: str) -> Live:
         live = Live(
-            self.panel(kind, ""),
+            self.panel(kind, text),
             console=self.console,
             auto_refresh=False,
             transient=False,
             vertical_overflow="visible",
         )
-        live.start()
-        live.refresh()
+        live.start(refresh=True)
         return live
 
     def update_stream(self, live: Live, *, kind: MessageKind, text: str) -> None:
