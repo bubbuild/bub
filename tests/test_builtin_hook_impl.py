@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from republic import AsyncStreamEvents, StreamEvent
 
+from bub.builtin.context import BubTapeFormat
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.builtin.store import FileTapeStore
 from bub.channels.message import ChannelMessage
@@ -270,3 +271,11 @@ def test_provide_tape_store_uses_bub_home_directory(tmp_path: Path, monkeypatch:
 
     assert isinstance(store, FileTapeStore)
     assert store._directory == tmp_path / "tapes"
+
+
+def test_provide_tape_format_uses_bub_default(tmp_path: Path) -> None:
+    _, impl, _ = _build_impl(tmp_path)
+
+    tape_format = impl.provide_tape_format()
+
+    assert isinstance(tape_format, BubTapeFormat)

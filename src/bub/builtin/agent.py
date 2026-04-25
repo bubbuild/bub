@@ -17,6 +17,7 @@ from typing import Any, Literal, overload
 
 from loguru import logger
 from republic import (
+    DEFAULT_TAPE_FORMAT,
     LLM,
     AsyncStreamEvents,
     AsyncTapeStore,
@@ -24,6 +25,7 @@ from republic import (
     StreamEvent,
     StreamState,
     TapeContext,
+    TapeFormat,
     ToolAutoResult,
     ToolContext,
 )
@@ -62,8 +64,14 @@ class Agent:
         if tape_store is None:
             tape_store = InMemoryTapeStore()
         tape_store = ForkTapeStore(tape_store)
-        llm = _build_llm(self.settings, tape_store, self.framework.build_tape_context())
-        return TapeService(llm, bub.home / "tapes", tape_store)
+        tape_format = self.framework.get_tape_format() or DEFAULT_TAPE_FORMAT
+        llm = _build_llm(
+            self.settings,
+            tape_store,
+            self.framework.build_tape_context(),
+            tape_format,
+        )
+        return TapeService(llm, bub.home / "tapes", tape_store, tape_format)
 
     @staticmethod
     def _events_from_iterable(iterable: Iterable) -> AsyncStreamEvents:
@@ -600,7 +608,12 @@ def _resolve_tool_auto_result(output: ToolAutoResult) -> _ToolAutoOutcome:
     return _ToolAutoOutcome(kind="error", error=f"{error_kind}: {output.error.message}")
 
 
-def _build_llm(settings: AgentSettings, tape_store: AsyncTapeStore, tape_context: TapeContext) -> LLM:
+def _build_llm(
+    settings: AgentSettings,
+    tape_store: AsyncTapeStore,
+    tape_context: TapeContext,
+    tape_format: TapeFormat,
+) -> LLM:
     from republic.auth.openai_codex import openai_codex_oauth_resolver
 
     return LLM(
@@ -613,6 +626,7 @@ def _build_llm(settings: AgentSettings, tape_store: AsyncTapeStore, tape_context
         client_args=settings.client_args,
         api_format=settings.api_format,
         context=tape_context,
+        tape_format=tape_format,
         verbose=settings.verbose,
     )
 

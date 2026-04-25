@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
 from pydantic import BaseModel, Field
-from republic import AsyncTapeStore, TapeQuery, ToolContext
+from republic import ToolContext
 
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
@@ -190,12 +190,7 @@ async def tape_info(context: ToolContext) -> str:
 async def tape_search(param: SearchInput, *, context: ToolContext) -> str:
     """Search for entries in the current tape that match the query. Returns a list of matching entries."""
     agent = _get_agent(context)
-    query = (
-        TapeQuery[AsyncTapeStore](tape=context.tape or "", store=agent.tapes._store)
-        .query(param.query)
-        .kinds(*param.kinds)
-        .limit(param.limit)
-    )
+    query = agent.tapes.query(context.tape or "").query(param.query).kinds(*param.kinds).limit(param.limit)
     if param.start or param.end:
         query = query.between_dates(param.start or "", param.end or "")
 

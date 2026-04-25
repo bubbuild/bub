@@ -23,6 +23,23 @@ class _FakeTapes:
     async def search(self, _query: object) -> list[_FakeEntry]:
         return list(self._entries)
 
+    def query(self, _tape_name: str) -> _FakeQuery:
+        return _FakeQuery()
+
+
+class _FakeQuery:
+    def query(self, _value: str) -> _FakeQuery:
+        return self
+
+    def kinds(self, *_kinds: str) -> _FakeQuery:
+        return self
+
+    def limit(self, _value: int) -> _FakeQuery:
+        return self
+
+    def between_dates(self, _start: str, _end: str) -> _FakeQuery:
+        return self
+
 
 class _FakeAgent:
     def __init__(self, entries: list[_FakeEntry]) -> None:

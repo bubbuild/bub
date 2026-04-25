@@ -5,12 +5,12 @@ from typing import cast
 
 import typer
 from loguru import logger
-from republic import AsyncStreamEvents, TapeContext
+from republic import AsyncStreamEvents, TapeContext, TapeFormat
 from republic.tape import TapeStore
 
 from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
-from bub.builtin.context import default_tape_context
+from bub.builtin.context import default_tape_context, default_tape_format
 from bub.builtin.settings import DEFAULT_MODEL
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage, MediaItem
@@ -302,6 +302,10 @@ class BuiltinImpl:
         from bub.builtin.store import FileTapeStore
 
         return FileTapeStore(directory=bub.home / "tapes")
+
+    @hookimpl
+    def provide_tape_format(self) -> TapeFormat:
+        return default_tape_format()
 
     @hookimpl
     def build_tape_context(self) -> TapeContext:

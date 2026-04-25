@@ -34,7 +34,7 @@ def test_build_llm_passes_codex_resolver_to_republic(monkeypatch) -> None:
     )
     tape_store = object()
 
-    agent_module._build_llm(settings, tape_store, "ctx")
+    agent_module._build_llm(settings, tape_store, "ctx", agent_module.DEFAULT_TAPE_FORMAT)
 
     assert captured["args"] == ("openai:gpt-5-codex",)
     assert captured["kwargs"]["api_key"] is None
@@ -45,6 +45,7 @@ def test_build_llm_passes_codex_resolver_to_republic(monkeypatch) -> None:
     assert captured["kwargs"]["api_key_resolver"] is resolver
     assert captured["kwargs"]["tape_store"] is tape_store
     assert captured["kwargs"]["context"] == "ctx"
+    assert captured["kwargs"]["tape_format"] is agent_module.DEFAULT_TAPE_FORMAT
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +57,7 @@ def _make_agent() -> Agent:
     """Build an Agent with a mocked framework, bypassing real LLM/tape init."""
     framework = MagicMock()
     framework.get_tape_store.return_value = None
+    framework.get_tape_format.return_value = None
     framework.get_system_prompt.return_value = ""
 
     with patch.object(Agent, "__init__", lambda self, fw: None):

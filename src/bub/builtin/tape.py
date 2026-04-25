@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from pydantic.dataclasses import dataclass
-from republic import LLM, AsyncTapeStore, Tape, TapeEntry, TapeQuery
+from republic import DEFAULT_TAPE_FORMAT, LLM, AsyncTapeStore, Tape, TapeEntry, TapeFormat, TapeQuery
 
 from bub.builtin.store import ForkTapeStore
 
@@ -34,10 +34,17 @@ class AnchorSummary:
 
 
 class TapeService:
-    def __init__(self, llm: LLM, archive_path: Path, store: ForkTapeStore) -> None:
+    def __init__(
+        self,
+        llm: LLM,
+        archive_path: Path,
+        store: ForkTapeStore,
+        tape_format: TapeFormat = DEFAULT_TAPE_FORMAT,
+    ) -> None:
         self._llm = llm
         self._archive_path = archive_path
         self._store = store
+        self._tape_format = tape_format
 
     async def info(self, tape_name: str) -> TapeInfo:
         tape = self._llm.tape(tape_name)
@@ -113,9 +120,12 @@ class TapeService:
     async def search(self, query: TapeQuery[AsyncTapeStore]) -> list[TapeEntry]:
         return list(await self._store.fetch_all(query))
 
+    def query(self, tape_name: str) -> TapeQuery[AsyncTapeStore]:
+        return self._llm.tape(tape_name).query_async
+
     async def append_event(self, tape_name: str, name: str, payload: dict[str, Any], **meta: Any) -> None:
         tape = self._llm.tape(tape_name)
-        await tape.append_async(TapeEntry.event(name=name, data=payload, **meta))
+        await tape.append_async(self._tape_format.event(name=name, data=payload, **meta))
 
     def session_tape(self, session_id: str, workspace: Path) -> Tape:
         workspace_hash = hashlib.md5(str(workspace.resolve()).encode("utf-8"), usedforsecurity=False).hexdigest()[:16]

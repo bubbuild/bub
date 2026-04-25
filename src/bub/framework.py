@@ -10,7 +10,7 @@ import pluggy
 import typer
 from dotenv import load_dotenv
 from loguru import logger
-from republic import AsyncTapeStore, RepublicError, TapeContext
+from republic import AsyncTapeStore, RepublicError, TapeContext, TapeFormat
 from republic.core.errors import ErrorKind
 from republic.tape import TapeStore
 
@@ -255,6 +255,9 @@ class BubFramework:
 
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         return self._hook_runtime.call_first_sync("provide_tape_store")
+
+    def get_tape_format(self) -> TapeFormat | None:
+        return self._hook_runtime.call_first_sync("provide_tape_format")
 
     def get_system_prompt(self, prompt: str | list[dict], state: dict[str, Any]) -> str:
         return "\n\n".join(

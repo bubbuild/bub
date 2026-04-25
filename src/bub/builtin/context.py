@@ -3,34 +3,65 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+import re
+from collections.abc import Hashable, Iterable
 from typing import Any
 
-from republic import TapeContext, TapeEntry
+from republic import RepublicTapeFormat, TapeContext, TapeEntry
+
+from bub.utils import get_entry_text
+
+_WORD_PATTERN = re.compile(r"[a-z0-9_/-]+")
+_MIN_FUZZY_QUERY_LENGTH = 3
+_MIN_FUZZY_SCORE = 80
+_MAX_FUZZY_CANDIDATES = 128
 
 
 def default_tape_context() -> TapeContext:
     """Return the default context selection for Bub."""
 
-    return TapeContext(select=_select_messages)
+    return TapeContext()
 
 
-def _select_messages(entries: Iterable[TapeEntry], _context: TapeContext) -> list[dict[str, Any]]:
-    messages: list[dict[str, Any]] = []
-    pending_calls: list[dict[str, Any]] = []
+def default_tape_format() -> BubTapeFormat:
+    """Return Bub's default tape format."""
 
-    for entry in entries:
-        match entry.kind:
-            case "anchor":
-                _append_anchor_entry(messages, entry)
-            case "message":
-                _append_message_entry(messages, entry)
-            case "tool_call":
-                pending_calls = _append_tool_call_entry(messages, entry)
-            case "tool_result":
-                _append_tool_result_entry(messages, pending_calls, entry)
-                pending_calls = []
-    return messages
+    return BubTapeFormat()
+
+
+class BubTapeFormat(RepublicTapeFormat):
+    """Bub's default tape format and injection rules."""
+
+    name = "bub"
+    version = "1"
+
+    def select_messages(self, entries: Iterable[TapeEntry], context: object) -> list[dict[str, Any]]:
+        del context
+        messages: list[dict[str, Any]] = []
+        pending_calls: list[dict[str, Any]] = []
+
+        for entry in entries:
+            match entry.kind:
+                case "anchor":
+                    _append_anchor_entry(messages, entry)
+                case "message":
+                    _append_message_entry(messages, entry)
+                case "tool_call":
+                    pending_calls = _append_tool_call_entry(messages, entry)
+                case "tool_result":
+                    _append_tool_result_entry(messages, pending_calls, entry)
+                    pending_calls = []
+        return messages
+
+    def matches(self, entry: TapeEntry, query: str) -> bool:
+        needle = query.strip().casefold()
+        if not needle:
+            return False
+        haystack = get_entry_text(entry).casefold()
+        return needle in haystack or _is_fuzzy_match(needle, haystack)
+
+    def dedup_key(self, entry: TapeEntry) -> Hashable:
+        return get_entry_text(entry).casefold()
 
 
 def _append_anchor_entry(messages: list[dict[str, Any]], entry: TapeEntry) -> None:
@@ -103,3 +134,35 @@ def _render_tool_result(result: object) -> str:
         return json.dumps(result, ensure_ascii=False)
     except TypeError:
         return str(result)
+
+
+def _is_fuzzy_match(needle: str, haystack: str) -> bool:
+    if len(needle) < _MIN_FUZZY_QUERY_LENGTH:
+        return False
+
+    from rapidfuzz import fuzz, process
+
+    query_tokens = _WORD_PATTERN.findall(needle)
+    if not query_tokens:
+        return False
+    source_tokens = _WORD_PATTERN.findall(haystack)
+    if not source_tokens:
+        return False
+
+    candidates = source_tokens[:_MAX_FUZZY_CANDIDATES]
+    window_size = len(query_tokens)
+    if window_size > 1:
+        for idx in range(max(0, len(source_tokens) - window_size + 1)):
+            candidates.append(" ".join(source_tokens[idx : idx + window_size]))
+            if len(candidates) >= _MAX_FUZZY_CANDIDATES:
+                break
+
+    return (
+        process.extractOne(
+            " ".join(query_tokens),
+            candidates,
+            scorer=fuzz.WRatio,
+            score_cutoff=_MIN_FUZZY_SCORE,
+        )
+        is not None
+    )

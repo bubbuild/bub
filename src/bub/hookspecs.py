@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pluggy
-from republic import AsyncStreamEvents, AsyncTapeStore, TapeContext
+from republic import AsyncStreamEvents, AsyncTapeStore, TapeContext, TapeFormat
 from republic.tape import TapeStore
 
 from bub.types import Envelope, MessageHandler, State
@@ -96,6 +96,11 @@ class BubHookSpecs:
     @hookspec(firstresult=True)
     def provide_tape_store(self) -> TapeStore | AsyncTapeStore:
         """Provide a tape store instance for Bub's conversation recording feature."""
+        ...
+
+    @hookspec(firstresult=True)
+    def provide_tape_format(self) -> TapeFormat:
+        """Provide the tape entry format and context injection rules."""
         ...
 
     @hookspec
