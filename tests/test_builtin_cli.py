@@ -13,8 +13,8 @@ from typer.testing import CliRunner
 
 import bub.builtin.auth as auth
 import bub.builtin.cli as cli
-import bub.builtin.hook_impl as builtin_hook_impl
 import bub.configure as configure
+import bub.inquirer as bub_inquirer
 from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
 
@@ -74,37 +74,34 @@ def test_onboard_collects_plugin_config_and_writes_file(tmp_path: Path, monkeypa
             lambda message, default=None, hide_input=False, show_default=True: next(answers),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "text",
-            lambda message, default="": _fake_result(default),
+            bub_inquirer,
+            "ask_text",
+            lambda message, default="": default,
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "fuzzy",
-            lambda message, choices, default=None: _fake_result(default),
+            bub_inquirer,
+            "ask_fuzzy",
+            lambda message, choices, default=None: default,
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "select",
-            lambda message, choices, default="": _fake_result(default),
+            bub_inquirer,
+            "ask_select",
+            lambda message, choices, default="": default,
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "checkbox",
-            lambda message, choices, enabled=None, settings=None: (
-                _assert_checkbox_hint(settings),
-                _fake_result(["telegram"]),
-            )[1],
+            bub_inquirer,
+            "ask_checkbox",
+            lambda message, choices, enabled=None, validate=None: ["telegram"],
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "confirm",
-            lambda message, default=False: _fake_result(default),
+            bub_inquirer,
+            "ask_confirm",
+            lambda message, default=False: default,
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "secret",
-            lambda message: _fake_result(""),
+            bub_inquirer,
+            "ask_secret",
+            lambda message: "",
         )
 
         result = CliRunner().invoke(app, ["onboard"])
@@ -133,42 +130,37 @@ def test_onboard_collects_builtin_runtime_config(tmp_path: Path, monkeypatch) ->
         app = framework.create_cli_app()
 
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "text",
-            lambda message, default="": _fake_result(
-                {
-                    "LLM model": "openrouter/free",
-                    "API base (optional)": "https://openrouter.ai/api/v1",
-                }.get(message, default)
-            ),
+            bub_inquirer,
+            "ask_text",
+            lambda message, default="": {
+                "LLM model": "openrouter/free",
+                "API base (optional)": "https://openrouter.ai/api/v1",
+            }.get(message, default),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "fuzzy",
-            lambda message, choices, default=None: _fake_result("openrouter"),
+            bub_inquirer,
+            "ask_fuzzy",
+            lambda message, choices, default=None: "openrouter",
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "select",
-            lambda message, choices, default="": _fake_result("responses"),
+            bub_inquirer,
+            "ask_select",
+            lambda message, choices, default="": "responses",
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "checkbox",
-            lambda message, choices, enabled=None, settings=None: (
-                _assert_checkbox_hint(settings),
-                _fake_result(["telegram", "cli"]),
-            )[1],
+            bub_inquirer,
+            "ask_checkbox",
+            lambda message, choices, enabled=None, validate=None: ["telegram", "cli"],
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "confirm",
-            lambda message, default=False: _fake_result(True),
+            bub_inquirer,
+            "ask_confirm",
+            lambda message, default=False: True,
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "secret",
-            lambda message: _fake_result("sk-test"),
+            bub_inquirer,
+            "ask_secret",
+            lambda message: "sk-test",
         )
 
         result = CliRunner().invoke(app, ["onboard"])
@@ -196,44 +188,44 @@ def test_onboard_aborts_immediately_when_builtin_prompt_is_interrupted(tmp_path:
         framework.load_hooks()
         app = framework.create_cli_app()
 
-        def fake_fuzzy(message: str, choices: list[str], default: str | None = None) -> InquirerResult[Any]:
+        def fake_fuzzy(message: str, choices: list[str], default: str | None = None) -> str:
             asked_messages.append(message)
-            return _fake_result(default)
+            assert default is not None
+            return default
 
-        def fake_select(message: str, choices: list[str], default: str = "") -> InquirerResult[Any]:
+        def fake_select(message: str, choices: list[str], default: str = "") -> str:
             asked_messages.append(message)
-            return _fake_result(default)
+            return default
 
         def fake_checkbox(
             message: str,
             choices: list[object],
             enabled=None,
-            settings: PromptSettings | None = None,
-        ) -> InquirerResult[Any]:
+            validate=None,
+        ) -> list[str]:
             asked_messages.append(message)
-            _assert_checkbox_hint(settings)
-            return _fake_result(["telegram"])
+            return ["telegram"]
 
-        def fake_confirm(message: str, default: bool = False) -> InquirerResult[Any]:
+        def fake_confirm(message: str, default: bool = False) -> bool:
             asked_messages.append(message)
-            return _fake_result(default)
+            return default
 
-        def fake_text(message: str, default: str = "") -> InquirerResult[Any]:
+        def fake_text(message: str, default: str = "") -> str:
             asked_messages.append(message)
             if message == "API base (optional)":
                 raise AssertionError("Onboarding should stop after interruption")
-            return _fake_result("openrouter:openrouter/free")
+            return "openrouter:openrouter/free"
 
-        def fake_secret(message: str) -> InquirerResult[Any]:
+        def fake_secret(message: str) -> str:
             asked_messages.append("API key (optional)")
-            return _fake_result(None)
+            raise typer.Abort()
 
-        monkeypatch.setattr(builtin_hook_impl.prompts, "fuzzy", fake_fuzzy)
-        monkeypatch.setattr(builtin_hook_impl.prompts, "select", fake_select)
-        monkeypatch.setattr(builtin_hook_impl.prompts, "checkbox", fake_checkbox)
-        monkeypatch.setattr(builtin_hook_impl.prompts, "confirm", fake_confirm)
-        monkeypatch.setattr(builtin_hook_impl.prompts, "text", fake_text)
-        monkeypatch.setattr(builtin_hook_impl.prompts, "secret", fake_secret)
+        monkeypatch.setattr(bub_inquirer, "ask_fuzzy", fake_fuzzy)
+        monkeypatch.setattr(bub_inquirer, "ask_select", fake_select)
+        monkeypatch.setattr(bub_inquirer, "ask_checkbox", fake_checkbox)
+        monkeypatch.setattr(bub_inquirer, "ask_confirm", fake_confirm)
+        monkeypatch.setattr(bub_inquirer, "ask_text", fake_text)
+        monkeypatch.setattr(bub_inquirer, "ask_secret", fake_secret)
 
         result = CliRunner().invoke(app, ["onboard"])
 
@@ -257,42 +249,37 @@ def test_onboard_collects_builtin_runtime_config_with_custom_provider(tmp_path: 
         app = framework.create_cli_app()
 
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "fuzzy",
-            lambda message, choices, default=None: _fake_result("custom"),
+            bub_inquirer,
+            "ask_fuzzy",
+            lambda message, choices, default=None: "custom",
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "select",
-            lambda message, choices, default="": _fake_result("messages"),
+            bub_inquirer,
+            "ask_select",
+            lambda message, choices, default="": "messages",
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "checkbox",
-            lambda message, choices, enabled=None, settings=None: (
-                _assert_checkbox_hint(settings),
-                _fake_result(["telegram"]),
-            )[1],
+            bub_inquirer,
+            "ask_checkbox",
+            lambda message, choices, enabled=None, validate=None: ["telegram"],
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "confirm",
-            lambda message, default=False: _fake_result(False),
+            bub_inquirer,
+            "ask_confirm",
+            lambda message, default=False: False,
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "text",
-            lambda message, default="": _fake_result(
-                {
-                    "Custom provider": "acme",
-                    "LLM model": "ultra-1",
-                }.get(message, default)
-            ),
+            bub_inquirer,
+            "ask_text",
+            lambda message, default="": {
+                "Custom provider": "acme",
+                "LLM model": "ultra-1",
+            }.get(message, default),
         )
         monkeypatch.setattr(
-            builtin_hook_impl.prompts,
-            "secret",
-            lambda message: _fake_result(""),
+            bub_inquirer,
+            "ask_secret",
+            lambda message: "",
         )
 
         result = CliRunner().invoke(app, ["onboard"])

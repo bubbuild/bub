@@ -1,18 +1,14 @@
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import typer
-from inquirer_textual import prompts
-from inquirer_textual.common.Choice import Choice
-from inquirer_textual.common.InquirerResult import InquirerResult
-from inquirer_textual.common.PromptSettings import PromptSettings
-from inquirer_textual.common.Shortcut import Shortcut
 from loguru import logger
 from republic import AsyncStreamEvents, TapeContext
 from republic.tape import TapeStore
 
+from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context
 from bub.builtin.settings import DEFAULT_MODEL
@@ -24,7 +20,6 @@ from bub.hookspecs import hookimpl
 from bub.types import Envelope, MessageHandler, State
 
 AGENTS_FILE_NAME = "AGENTS.md"
-CHECKBOX_HINT_SETTINGS = PromptSettings(shortcuts=[Shortcut("space", "toggle", "Space check/uncheck")])
 MODEL_PROVIDER_CHOICES: tuple[str, ...] = (
     "openrouter",
     "openai",
@@ -59,15 +54,6 @@ When responding to a channel message, you MUST:
 Excessively long context may cause model call failures. In this case, you MAY use tape.info to retrieve the token usage and you SHOULD use tape.handoff tool to shorten the retrieved history.
 </context_contract>
 """
-
-
-def ask_prompt(question: InquirerResult[Any]) -> Any:
-    if question.command in {"ctrl+c", "quit"}:
-        raise typer.Abort()
-    answer = question.value
-    if answer is None:
-        raise typer.Abort()
-    return answer
 
 
 class BuiltinImpl:
@@ -114,31 +100,6 @@ class BuiltinImpl:
             selected = [name.strip() for name in current_value.split(",") if name.strip() in available_channels]
             return selected
         return available_channels
-
-    @classmethod
-    def _ask_onboard_checkbox(
-        cls,
-        message: str,
-        choices: list[str],
-        enabled: list[str] | None = None,
-        validate: Any = None,
-    ) -> list[str]:
-        while True:
-            answer: list[str | Choice] = ask_prompt(
-                prompts.checkbox(
-                    message,
-                    choices=cast("list[str | Choice]", choices),
-                    enabled=cast("list[str | Choice] | None", enabled),
-                    settings=CHECKBOX_HINT_SETTINGS,
-                )
-            )
-            values = list(cast("list[str]", answer or []))
-            if validate is None:
-                return values
-            validation_result = validate(values)
-            if validation_result is True:
-                return values
-            typer.secho(str(validation_result), err=True, fg="red")
 
     @hookimpl
     def resolve_session(self, message: ChannelMessage) -> str:
@@ -223,26 +184,24 @@ class BuiltinImpl:
         model_default = str(current_model) if isinstance(current_model, str) and current_model else DEFAULT_MODEL
         provider_default, model_name_default = self._split_model_identifier(model_default)
 
-        provider: str = ask_prompt(
-            prompts.fuzzy(
-                "LLM provider",
-                choices=cast("list[str | Choice]", self._provider_choices(provider_default)),
-                default=provider_default,
-            )
+        provider = bub_inquirer.ask_fuzzy(
+            "LLM provider",
+            choices=self._provider_choices(provider_default),
+            default=provider_default,
         )
         if provider == "custom":
-            provider = ask_prompt(prompts.text("Custom provider", default=provider_default)) or provider_default
+            provider = bub_inquirer.ask_text("Custom provider", default=provider_default) or provider_default
 
-        model_name: str = ask_prompt(prompts.text("LLM model", default=model_name_default))
+        model_name = bub_inquirer.ask_text("LLM model", default=model_name_default)
         if not model_name:
             model_name = model_name_default
         model = f"{provider}:{model_name}"
 
-        api_key: str = ask_prompt(prompts.secret("API key (optional)"))
+        api_key = bub_inquirer.ask_secret("API key (optional)")
 
         current_api_base = current_config.get("api_base")
         api_base_default = str(current_api_base) if isinstance(current_api_base, str) else ""
-        api_base: str = ask_prompt(prompts.text("API base (optional)", default=api_base_default))
+        api_base = bub_inquirer.ask_text("API base (optional)", default=api_base_default)
 
         current_api_format = current_config.get("api_format")
         api_format_default = (
@@ -250,23 +209,18 @@ class BuiltinImpl:
             if isinstance(current_api_format, str) and current_api_format in API_FORMAT_CHOICES
             else API_FORMAT_CHOICES[0]
         )
-        api_format: str = ask_prompt(
-            prompts.select("API format", choices=list(API_FORMAT_CHOICES), default=api_format_default)
-        )
+        api_format = bub_inquirer.ask_select("API format", choices=list(API_FORMAT_CHOICES), default=api_format_default)
 
         available_channels = self._channel_choices()
         default_channels = self._default_enabled_channels(current_config.get("enabled_channels"), available_channels)
-        enabled_channels = self._ask_onboard_checkbox(
+        enabled_channels = bub_inquirer.ask_checkbox(
             "Channels",
             choices=available_channels,
             enabled=default_channels,
             validate=lambda values: True if values else "Select at least one channel.",
         )
 
-        stream_output = cast(
-            "bool",
-            ask_prompt(prompts.confirm("Stream output", default=bool(current_config.get("stream_output")))),
-        )
+        stream_output = bub_inquirer.ask_confirm("Stream output", default=bool(current_config.get("stream_output")))
         config: dict[str, object] = {
             "model": model,
             "api_format": api_format,
