@@ -128,8 +128,10 @@ def _find_uv() -> str:
     import shutil
     import sysconfig
 
+    default_path = Path.home() / ".local" / "bin"
+
     bin_path = sysconfig.get_path("scripts")
-    uv_path = shutil.which("uv", path=os.pathsep.join([bin_path, os.getenv("PATH", "")]))
+    uv_path = shutil.which("uv", path=os.pathsep.join([bin_path, str(default_path), os.getenv("PATH", "")]))
     if uv_path is None:
         raise FileNotFoundError("uv executable not found in PATH or scripts directory.")
     return uv_path
