@@ -2,22 +2,27 @@
 
 from __future__ import annotations
 
+import sys
+
 import typer
 
 from bub.framework import BubFramework
 
 
 def _instrument_bub() -> None:
+    from loguru import logger
+
     try:
         import logfire
 
         logfire.configure()
     except ImportError:
-        pass
+        logger.remove()
+        logger.add(sys.stderr, colorize=True)
     else:
-        from loguru import logger
-
-        logger.configure(handlers=[logfire.loguru_handler()])
+        logger.remove()
+        logger.add(sys.stderr, colorize=True)
+        logger.add(logfire.loguru_handler())
 
 
 def create_cli_app() -> typer.Typer:
