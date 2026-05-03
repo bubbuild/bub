@@ -62,6 +62,12 @@ jobs:
             --env-file /opt/bub/.env \
             -v /opt/bub/home:/root \
             -v /opt/bub/workspace:/workspace \
+            -v /usr/bin/gh:/usr/bin/gh:ro \
+            -v /home/gezi/.config/gh:/root/.config/gh:ro \
+            -v /usr/bin/node:/usr/local/bin/node22:ro \
+            -v /usr/local/lib/node_modules/@google/gemini-cli:/usr/local/lib/node_modules/@google/gemini-cli:ro \
+            -v /opt/bub/bin/gemini:/usr/local/bin/gemini:ro \
+            -v /home/gezi/.config/gemini:/root/.config/gemini \
             bub:latest
 
       - name: Health check
