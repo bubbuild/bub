@@ -99,7 +99,23 @@ def test_model_tools_rewrites_dotted_names_without_mutating_original() -> None:
     rewritten = model_tools([rename_me])
 
     assert [item.name for item in rewritten] == ["tests_rename_me"]
+    assert [item.description for item in rewritten] == ["rename"]
     assert rename_me.name == tool_name
+
+
+def test_model_tools_fills_empty_descriptions() -> None:
+    tool_name = "tests.no_description"
+    REGISTRY.pop(tool_name, None)
+
+    @tool(name=tool_name)
+    def no_description() -> str:
+        return "ok"
+
+    rewritten = model_tools([no_description])
+
+    assert [item.name for item in rewritten] == ["tests_no_description"]
+    assert [item.description for item in rewritten] == ["tests_no_description"]
+    assert no_description.description == ""
 
 
 def test_render_tools_prompt_renders_available_tools_block() -> None:
