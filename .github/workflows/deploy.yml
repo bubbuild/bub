@@ -60,10 +60,8 @@ jobs:
             --network host \
             --restart unless-stopped \
             --env-file /opt/bub/.env \
-            -v /opt/bub/data:/root/.bub \
+            -v /opt/bub/home:/root \
             -v /opt/bub/workspace:/workspace \
-            -v /opt/bub/cache/pip:/root/.cache/pip \
-            -v /opt/bub/cache/uv:/root/.cache/uv \
             bub:latest
 
       - name: Health check
