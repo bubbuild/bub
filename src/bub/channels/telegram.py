@@ -173,10 +173,10 @@ class TelegramChannel(Channel):
             len(self._allow_chats),
             bool(proxy),
         )
-        get_updates_request = HTTPXRequest(read_timeout=30)
+        get_updates_request = HTTPXRequest(read_timeout=30, proxy=proxy)
         builder = Application.builder().token(self._settings.token).get_updates_request(get_updates_request)
         if proxy:
-            builder = builder.proxy(proxy).get_updates_proxy(proxy)
+            builder = builder.proxy(proxy)
         self._app = builder.build()
         self._app.add_handler(CommandHandler("start", self._on_start))
         self._app.add_handler(CommandHandler("bub", self._on_message, has_args=True, block=False))

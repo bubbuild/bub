@@ -426,6 +426,71 @@ async def test_telegram_channel_send_extracts_json_message_and_skips_blank(load_
 
 
 @pytest.mark.asyncio
+async def test_telegram_channel_start_with_proxy_does_not_call_get_updates_proxy(
+    monkeypatch: pytest.MonkeyPatch, load_config
+) -> None:
+    load_config(
+        """
+telegram:
+  token: "test-token"
+  proxy: "http://127.0.0.1:1087"
+""".strip()
+    )
+
+    class FakeUpdater:
+        async def start_polling(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    class FakeApp:
+        def __init__(self) -> None:
+            self.updater = FakeUpdater()
+            self.handlers: list[object] = []
+
+        def add_handler(self, handler: object) -> None:
+            self.handlers.append(handler)
+
+        async def initialize(self) -> None:
+            return
+
+        async def start(self) -> None:
+            return
+
+    class FakeBuilder:
+        def __init__(self) -> None:
+            self.app = FakeApp()
+            self.request = None
+            self.proxy_value = None
+
+        def token(self, token: str) -> "FakeBuilder":
+            self.token_value = token
+            return self
+
+        def get_updates_request(self, request: object) -> "FakeBuilder":
+            self.request = request
+            return self
+
+        def proxy(self, proxy: str) -> "FakeBuilder":
+            self.proxy_value = proxy
+            return self
+
+        def get_updates_proxy(self, _proxy: str) -> "FakeBuilder":
+            raise AssertionError("get_updates_proxy should not be called when get_updates_request is already set")
+
+        def build(self) -> FakeApp:
+            return self.app
+
+    fake_builder = FakeBuilder()
+    monkeypatch.setattr("bub.channels.telegram.Application.builder", lambda: fake_builder)
+
+    channel = TelegramChannel(lambda message: None)
+    await channel.start(asyncio.Event())
+
+    assert fake_builder.proxy_value == "http://127.0.0.1:1087"
+    assert fake_builder.request is not None
+    assert fake_builder.app.updater.kwargs == {"drop_pending_updates": True, "allowed_updates": ["message"]}
+
+
+@pytest.mark.asyncio
 async def test_telegram_channel_build_message_returns_command_directly(load_config) -> None:
     _load_channel_config(load_config, telegram_value="test-token")
     channel = TelegramChannel(lambda message: None)
