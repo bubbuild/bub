@@ -1,0 +1,84 @@
+---
+title: Install Bub
+description: Install Bub from PyPI or from source, pin it as a framework dependency, and verify the install with the hook report.
+sidebar:
+  order: 1
+---
+
+This page explains how to install Bub for the three supported workflows: running the CLI, contributing to the framework from source, and depending on Bub from another package.
+
+## Before you begin
+
+You should have:
+
+- Python 3.12 or newer
+- [`uv`](https://docs.astral.sh/uv/) — used by every example below
+- a working terminal in the workspace where you want to run Bub
+
+## 1. Install from PyPI
+
+For most operators, install the released package into a virtual environment managed by `uv`:
+
+```bash
+uv tool install bub
+```
+
+Verify the binary is on `PATH`:
+
+```bash
+bub --help
+```
+
+If you prefer `pip`, the equivalent is:
+
+```bash
+pip install bub
+```
+
+## 2. Install from source
+
+Use this path if you want to contribute to the framework or follow `main`:
+
+```bash
+git clone https://github.com/bubbuild/bub.git
+cd bub
+uv sync
+```
+
+`uv sync` creates a project-local virtual environment under `.venv/` with every dev dependency. After sync, every example in these docs that uses `uv run bub` will work from the repo root.
+
+## 3. Pin Bub as a framework dependency
+
+Plugin and distribution authors should depend on Bub as a normal Python package. The plugin's `pyproject.toml` should declare the dependency and register one entry point under the `bub` group:
+
+```toml
+[project]
+name = "bub-my-plugin"
+version = "0.1.0"
+dependencies = ["bub>=0.1"]
+
+[project.entry-points."bub"]
+my-plugin = "bub_my_plugin.plugin:MyPlugin"
+```
+
+Bub discovers plugins through `importlib.metadata.entry_points(group="bub")`, so any package installed in the active environment that registers this entry point is loaded on framework startup.
+
+:::note
+Pin Bub to a compatible release range rather than to `main`. The kernel is small and stable, but plugin contracts may evolve before 1.0.
+:::
+
+## 4. Verify the install
+
+The fastest way to confirm Bub loaded its built-in hooks is the `bub hooks` command:
+
+```bash
+uv run bub hooks
+```
+
+You should see a summary that includes the `builtin` plugin and a list of hook implementations such as `resolve_session`, `build_prompt`, `run_model_stream`, `render_outbound`, and `dispatch_outbound`. If `builtin` is missing or marked failed, re-run `uv sync` and check the error printed by the loader.
+
+## Next steps
+
+- [Run Your First Turn](/docs/getting-started/first-turn/) — send a comma command and a model-backed turn.
+- [Configure Bub](/docs/operate/configure/) — set `BUB_MODEL`, `BUB_API_KEY`, and other runtime settings.
+- [Settings reference](/docs/reference/settings/) — see every supported environment variable.

@@ -48,7 +48,7 @@ The kernel should be stable, easy for agents to understand, and quality-controll
 
 This also solves the problem of optional installation. Users only need to care about the configuration of the plugins they actually install. As for the kernel itself, I still do not trust current coding agents enough to let them design it for me, so I built it the old-fashioned way by hand. This may well be the last time I do that. The priorities were clear abstractions, one-way dependencies, and interfaces that stay minimal without becoming rigid.
 
-In the ideal version of this model, the main project does not receive a huge number of feature contributions. Instead, each user maintains some of their own plugins. In the future, we plan to build a plugin marketplace and curated distributions that package selected plugin sets together. Different users will run different combinations, depending on their own scenarios.
+In the ideal version of this model, the main project does not receive a huge number of feature contributions. Instead, each user maintains some of their own plugins, and the ecosystem is indexed publicly on [hub.bub.build](https://hub.bub.build) (sourced from [bubbuild/buildscape](https://github.com/bubbuild/buildscape)) so others can discover them. Different users will run different combinations, depending on their own scenarios.
 
 Using a [PEP 517 build hook](https://github.com/frostming/pdm-build-skills), I also made it possible to package skill files together with plugins. That is a very common case: if you add Feishu support, you usually also want a Feishu skill.
 
@@ -62,7 +62,7 @@ So what extension points does Bub provide today? Here are a few of the main ones
 4. `provide_tape_store()`: allows plugins to define custom tape storage, whether in a database or in an external service. This makes it a natural extension point for memory-system experimentation. Example: [bub-tapestore-sqlite](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite)
 5. `provide_channels()`: allows plugins to provide one or more channels. These channels are started when the application starts and torn down when it exits. That makes them useful not only for messaging, but also for any long-running service, such as an HTTP server. [Bub's scheduling system](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-schedule), for example, is built on this interface even though it does not sound like a “channel” at first glance.
 
-For the full plugin API, see the [Bub documentation](https://bub.build/docs/extending/hooks/).
+For the full plugin API, see the [Bub documentation](https://bub.build/docs/build/hooks/).
 
 [^4]: A turn is one complete pass of handling a user prompt, including the entire ReAct loop.
 
@@ -70,7 +70,7 @@ For the full plugin API, see the [Bub documentation](https://bub.build/docs/exte
 
 Recently we have built a lot of fun things on top of Bub, including [XiaoAI speakers][xiaoai], [folotoy][folotoy], and [Robo eyes][face]. All of them were implemented through the existing plugin interfaces. To be honest, I have barely read some of that plugin code myself. It is pure vibe in the wild.
 
-If that sounds fun, come vibe some Bub plugins too. And stay tuned for the plugin marketplace.
+If that sounds fun, come vibe some Bub plugins too — and list them on [hub.bub.build](https://hub.bub.build) so others can find them.
 
 [xiaoai]: https://github.com/bubbuild/bub-xiaoai
 [folotoy]: https://github.com/bubbuild/bub-folotoy

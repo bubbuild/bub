@@ -1,0 +1,56 @@
+---
+title: Philosophy
+description: Why Bub uses a strict microkernel with vibe-coded plugins, treats humans and agents as equivalent operators, and evaluates collaboration socially.
+sidebar:
+  order: 1
+---
+
+This page explains the design choices behind Bub: a strict microkernel that ships only the turn pipeline, plugins that can be written loosely or even by an agent, operator equivalence between humans and agents, and socialized evaluation as the test of whether the system holds up in shared environments.
+
+## Microkernel and plugins
+
+Bub splits responsibility into two layers with different maintenance models:
+
+- **Kernel** — small, stable, hand-written, quality-controlled by the maintainers. The kernel ships the turn pipeline ([resolve_session → ... → dispatch_outbound](/docs/concepts/turn-pipeline/)) and the hook contracts that let plugins participate.
+- **Plugins** — discovered through Python entry points (`group="bub"`). They can be written however contributors want, including via a coding agent locally, and they can be installed and removed independently.
+
+The kernel does not ship channel adapters beyond CLI and Telegram, does not lock in a specific tape backend, and does not enforce a global state schema. Anything that varies by deployment lives in a plugin.
+
+This split is what lets one operator run Bub with three plugins and another operator run it with thirty, without either of them paying for capabilities they don't use.
+
+:::note
+The full reasoning is in the [Why we rewrote Bub](/posts/why-rewrite-bub/) post. Read it once if you are about to author a plugin or maintain a distribution.
+:::
+
+## Operator equivalence
+
+Bub treats humans and agents as equivalent operators on the same workspace. The same boundaries apply to both:
+
+- the same instruction surface — `AGENTS.md` and project skills under `.agents/skills/`
+- the same execution evidence — every turn writes to a [tape](/docs/concepts/tape-and-context/)
+- the same handoff semantics — anchors and handoffs work identically whether a human or an agent emits them
+
+This is why the workspace files (`AGENTS.md`, `.agents/skills/`) follow the [agents.md](https://agents.md/) and [Agent Skills](https://agentskills.io/) conventions rather than Bub-specific formats: the operator who reads them might be a human in code review, an agent in a turn, or another tool entirely.
+
+## Socialized evaluation
+
+A capability demo answers "can the model do X?". A real deployment answers "can a team trust this when work gets messy?". Bub treats the second question as the design target.
+
+Concretely:
+
+- Decisions and tool calls are recorded as facts on the tape, not buried in process memory.
+- Anchors and handoffs let any operator continue work from a known checkpoint.
+- The turn pipeline is observable through hooks (`on_error`, `dispatch_outbound`) so reviewers can audit what happened without reading agent internals.
+
+The framing comes from the [Bub: Socialized Evaluation and Agent Partnership](/posts/socialized-evaluation/) post.
+
+## Further reading
+
+- [Why we rewrote Bub](/posts/why-rewrite-bub/) — the maintenance argument for microkernel + plugins.
+- [Bub: Socialized Evaluation and Agent Partnership](/posts/socialized-evaluation/) — the operator-equivalence argument.
+
+## Next steps
+
+- [Turn pipeline](/docs/concepts/turn-pipeline/) — see the kernel contract this page argues for.
+- [Tape and context](/docs/concepts/tape-and-context/) — the evidence model behind socialized evaluation.
+- [Build plugins](/docs/build/plugins/) — the contract for the loose layer.

@@ -1,0 +1,87 @@
+---
+title: Channels
+description: 启用、禁用并调优 Bub 监听的接入面 —— CLI、Telegram 以及插件提供的 channel。
+sidebar:
+  order: 2
+---
+
+本页说明如何运维 channel：哪些处于启用状态、它们如何批处理入站消息、以及会话如何命名。
+
+**Channel** 是一个入站/出站接入面 —— CLI 提示符、聊天平台、HTTP 端点 —— 它通过同一套 turn pipeline 驱动 Bub。概念模型见 [Surfaces](/zh-cn/docs/concepts/surfaces/)。
+
+## 开始之前
+
+- 你已运行 `bub onboard` 或直接编辑了 `~/.bub/config.yml`。参见 [配置](/zh-cn/docs/operate/configure/)。
+- 对于每个非 CLI channel，相应凭据已设置（如 `BUB_TELEGRAM_TOKEN`）。
+
+## 1. 选择启用哪些 channel
+
+`bub gateway` 监听所有已启用、配置可用的 channel。它默认启用 `all`，展开为已注册的全部 channel **不含 `cli`** —— CLI channel 被排除，避免长期运行的网关抢占运维者的终端。
+
+启用单个 channel：
+
+```bash
+uv run bub gateway --enable-channel telegram
+```
+
+启用多个：
+
+```bash
+uv run bub gateway --enable-channel telegram --enable-channel wechat
+```
+
+要在配置中固化默认值，设置 `enabled_channels`（逗号分隔，或 `all`）：
+
+```yaml
+enabled_channels: telegram
+```
+
+或通过环境变量：
+
+```bash
+BUB_ENABLED_CHANNELS=telegram
+```
+
+只有当 channel 的 `enabled` 属性返回 `True` 时才会启动。例如 `BUB_TELEGRAM_TOKEN` 为空时 Telegram channel 返回 `False`，此时被静默跳过而不报错。
+
+## 2. 调优防抖与批处理
+
+非 CLI channel 可以对入站消息做防抖，使一连串短消息合并为一次 turn，而不是触发多次。三个参数控制：
+
+| 变量 | 默认值 | 含义 |
+|---|---|---|
+| `BUB_DEBOUNCE_SECONDS` | `1.0` | 一条 active 消息后必须保持安静的时间，超过则刷新批次。 |
+| `BUB_MAX_WAIT_SECONDS` | `10.0` | 后续消息能延长等待的硬上限。 |
+| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | 非 active 消息仍会被视为活跃对话一部分的时间窗口。 |
+
+Bub 按 session 暂存这些消息，到时合并为一个 `ChannelMessage`。
+
+:::tip
+逗号命令（以 `,` 开头的输入）完全绕过防抖。它们一到达就被分发 —— 适合 `,quit`、`,help`，以及任意工具名。
+:::
+
+## 3. 理解 session id
+
+Bub 用 `session_id` 索引会话状态。默认规则是 `<channel>:<chat_id>`：
+
+- `bub run "..."`（无 `--session-id`）→ `cli:local`
+- Telegram 入站 → `telegram:<chat_id>`
+- `bub chat` REPL → `cli_session`（字面字符串，不遵循 `<channel>:<chat_id>` 模式）
+
+需要让多个接入面共享状态时，用 `bub run` 或 `bub chat` 上的 `--session-id` 覆盖。
+
+## 4. 内置 channel
+
+| Channel | 默认启用？ | 防抖？ | 页面 |
+|---|---|---|---|
+| `cli` | 仅在 `bub chat` 中 | 否 | [CLI](/zh-cn/docs/operate/channels/cli/) |
+| `telegram` | 是（当 `BUB_TELEGRAM_TOKEN` 已设置时） | 是 | [Telegram](/zh-cn/docs/operate/channels/telegram/) |
+
+插件可通过 `provide_channels` hook 注册更多 channel。Discord 与 Slack 不在核心中 —— 如有需要见 [Build → plugins](/zh-cn/docs/build/plugins/)。
+
+## 后续阅读
+
+- [CLI](/zh-cn/docs/operate/channels/cli/) —— REPL 与单次 turn。
+- [Telegram](/zh-cn/docs/operate/channels/telegram/) —— token、白名单、群聊行为。
+- [Surfaces](/zh-cn/docs/concepts/surfaces/) —— 底层概念。
+- [Settings 参考](/zh-cn/docs/reference/settings/) —— 全部 channel 变量。

@@ -1,0 +1,56 @@
+---
+title: 设计哲学
+description: 为什么 Bub 采用严格的微内核加 vibe 化插件、把人和 agent 视为对等 operator，并用社会化评估检验协作。
+sidebar:
+  order: 1
+---
+
+本页解释 Bub 的设计选择：仅承载 turn pipeline 的严格微内核、可宽松甚至由 agent 编写的插件、人与 agent 的 operator 对等，以及把社会化评估当作系统能否在共享环境中立得住的检验标准。
+
+## 微内核与插件
+
+Bub 把职责拆成两层，两者维护模型截然不同：
+
+- **内核** — 小、稳定、手工编写、由维护者把控质量。内核承载 turn pipeline（[resolve_session → ... → dispatch_outbound](/zh-cn/docs/concepts/turn-pipeline/)）以及让插件参与的 hook 契约。
+- **插件** — 通过 Python entry points（`group="bub"`）发现。它们可以以任何方式编写，包括由 coding agent 在本地生成；也可独立安装与卸载。
+
+内核不附带 CLI 与 Telegram 之外的 channel adapter，不绑定具体的 tape backend，也不强制全局 state schema。任何随部署而变化的事物都属于插件。
+
+正是这种切分，让一位运维者可以只跑三个插件、另一位跑三十个，而双方都不用为不需要的能力买单。
+
+:::note
+完整论证见 [Why we rewrote Bub](/zh-cn/posts/why-rewrite-bub/) 一文。如果你即将编写插件或维护发行版，请先读一遍。
+:::
+
+## 操作者对等
+
+Bub 把人与 agent 视作同一 workspace 上的对等 operator。两者面对同样的边界：
+
+- 同样的指令面 — `AGENTS.md` 与 `.agents/skills/` 下的项目 skill
+- 同样的执行证据 — 每次 turn 都写入 [tape](/zh-cn/docs/concepts/tape-and-context/)
+- 同样的 handoff 语义 — 无论由人还是 agent 触发，anchor 与 handoff 行为一致
+
+正因如此，workspace 文件（`AGENTS.md`、`.agents/skills/`）遵循 [agents.md](https://agents.md/) 与 [Agent Skills](https://agentskills.io/) 约定，而非 Bub 私有格式：阅读它们的 operator 可能是 code review 中的人、turn 中的 agent，或别的工具。
+
+## 社会化评估
+
+能力 demo 回答的是“模型能做 X 吗？”。真实部署回答的是“工作变得棘手时，团队还能信任它吗？”。Bub 把后者作为设计目标。
+
+具体落实为：
+
+- 决策与 tool 调用作为事实写入 tape，而非沉没在进程内存。
+- anchor 与 handoff 让任何 operator 都能从已知检查点继续工作。
+- turn pipeline 通过 hook（`on_error`、`dispatch_outbound`）可观测，审阅者无需阅读 agent 内部即可审计发生了什么。
+
+该提法源于 [Bub: Socialized Evaluation and Agent Partnership](/zh-cn/posts/socialized-evaluation/) 一文。
+
+## 延伸阅读
+
+- [Why we rewrote Bub](/zh-cn/posts/why-rewrite-bub/) — 微内核加插件的维护性论据。
+- [Bub: Socialized Evaluation and Agent Partnership](/zh-cn/posts/socialized-evaluation/) — operator 对等的论据。
+
+## 下一步
+
+- [Turn pipeline](/zh-cn/docs/concepts/turn-pipeline/) — 看本页所主张的内核契约具体是什么。
+- [Tape and context](/zh-cn/docs/concepts/tape-and-context/) — 社会化评估背后的证据模型。
+- [Build plugins](/zh-cn/docs/build/plugins/) — 宽松层的契约。

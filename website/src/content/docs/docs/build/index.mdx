@@ -1,0 +1,55 @@
+---
+title: Build with Bub
+description: When to depend on Bub as a Python framework — ship a plugin, embed the framework, or wrap Bub as a product distribution.
+sidebar:
+  order: 0
+---
+
+This section is for developers who want to **depend on Bub as a Python framework**, not only run the `bub` CLI. If your goal is to add behavior, swap a stage, or wrap Bub inside a product, start here.
+
+## Three paths
+
+Pick the path that matches what you ship.
+
+### 1. Ship a plugin (most users)
+
+A plugin is a Python package that registers under the `bub` entry-point group and contributes hook implementations. Bub discovers it at startup, alongside the builtin runtime, and routes the relevant stages through your code.
+
+Use this path when you want to add a tool, swap the model, persist state, register a CLI command, or expose a new channel inside an existing Bub install.
+
+→ [Plugins](/docs/build/plugins/) covers the package layout, entry-point shape, and editable-install workflow.
+
+### 2. Embed `BubFramework` programmatically (advanced)
+
+[`BubFramework`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py) is the runtime kernel. You can instantiate it inside your own process, call `load_hooks()`, and feed it [envelopes](/docs/concepts/turn-pipeline/) directly through `process_inbound()`. There is no requirement to use the Bub CLI.
+
+Use this path when Bub is one component inside a larger Python service, for example an HTTP API or a worker process that needs the same turn pipeline as the CLI.
+
+→ [Distribution](/docs/build/distribution/#programmatic-embedding) shows the minimal async snippet.
+
+### 3. Wrap Bub as a product distribution
+
+A distribution is a Python package that depends on `bub`, ships its own CLI entry point, and bundles a curated set of plugins and skills. End users install your product instead of the bare framework.
+
+Use this path when you want a branded CLI, an opinionated default model, or a fixed combination of plugins for a specific scenario.
+
+→ [Distribution](/docs/build/distribution/) walks through the [`visual-base`](https://github.com/oilbeater/visual-base) case study end-to-end.
+
+## Look in `bub-contrib` first
+
+Before you write a new plugin, check the [`bubbuild/bub-contrib`](https://github.com/bubbuild/bub-contrib) monorepo. It is the reference catalog of community-maintained plugins for tape stores, channels, model backends, scheduling, and search. Many integrations you might need already exist there as installable packages.
+
+## Publish to the ecosystem
+
+Once your plugin, skill pack, or distribution is ready, list it on [hub.bub.build](https://hub.bub.build) — the public directory of plugins, skills, distributions, and friends — by submitting a PR to its source repository, [bubbuild/buildscape](https://github.com/bubbuild/buildscape).
+
+## Stability promise
+
+Bub is split into a small kernel and a wide plugin surface, by design. The [why-rewrite-bub](/posts/why-rewrite-bub/) post describes the model: the kernel is hardened by maintainers, kept minimal, and treated as a stable contract. Plugins are loose — written however you like, vibe-coded, or generated locally — and only need to honor the [hook contract](/docs/reference/hooks/). When you build against the hookspecs and the documented entry-point group, your plugin keeps working across Bub releases inside the same minor line.
+
+## Next steps
+
+- [Plugins](/docs/build/plugins/) — package layout and entry points
+- [Hooks](/docs/build/hooks/) — recipe cookbook for the common patterns
+- [Distribution](/docs/build/distribution/) — wrap Bub as a product
+- [Hook reference](/docs/reference/hooks/) — full signature table

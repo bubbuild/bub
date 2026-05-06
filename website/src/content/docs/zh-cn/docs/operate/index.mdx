@@ -1,0 +1,30 @@
+---
+title: 运维
+description: 配置 Bub、启用 channel，并将其作为长期运行的服务部署。
+sidebar:
+  order: 0
+---
+
+本节介绍如何把 Bub 当作产品运行：选择模型、启用所需的 channel，并保持服务持续在线。
+
+当你完成 [快速开始](/zh-cn/docs/getting-started/) 并需要稳定运行时，请使用本节 —— 例如在小型 VM 上承载工作区的 Telegram 机器人，或容器化网关。
+
+## 开始之前
+
+- Bub 已安装且至少完成了一次模型调用 —— 参见 [运行第一个 turn](/zh-cn/docs/getting-started/first-turn/)。
+- 你拥有可写的 `~/.bub/`（或通过 `BUB_HOME` 指定的路径）。
+- 你有模型提供商密钥。默认是 OpenRouter；任何 `BUB_MODEL` 支持的提供商都可以。
+
+## 本节包含
+
+1. [配置](/zh-cn/docs/operate/configure/) —— 编写 `~/.bub/config.yml`，设置 `BUB_*` 环境变量，指定提供商。
+2. [Channels](/zh-cn/docs/operate/channels/) —— 启用、禁用并调优 Bub 监听的接入面。
+   - [CLI](/zh-cn/docs/operate/channels/cli/) —— `bub chat` 与 `bub run`。
+   - [Telegram](/zh-cn/docs/operate/channels/telegram/) —— token、白名单、防抖。
+3. [部署](/zh-cn/docs/operate/deploy/) —— Docker / docker-compose、持久化状态、安全升级。
+
+## 后续阅读
+
+- 不熟悉运行时模型？先阅读 [Turn pipeline](/zh-cn/docs/concepts/turn-pipeline/)。
+- 需要自定义 channel 或 hook？参见 [Build](/zh-cn/docs/build/)。
+- 需要完整的环境变量表？参见 [Settings 参考](/zh-cn/docs/reference/settings/)。

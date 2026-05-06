@@ -1,0 +1,131 @@
+---
+title: 发行版
+description: 把 Bub 包装为产品 —— 锁定框架、提供自定义 CLI、捆绑插件与技能、并以编程方式嵌入 BubFramework。
+sidebar:
+  order: 5
+---
+
+本页展示如何把 Bub 作为你自己产品的运行时内核进行打包。贯穿全文的案例是 [`visual-base`](https://github.com/oilbeater/visual-base) —— 一个锁定 `bub`、提供自己的 `visual-base` CLI、并捆绑两个插件（`bub_kimi` 与 `bub_eye`）与一个技能包的发行版。
+
+## 开始之前
+
+- 已经准备好一两个待发布的插件（见[插件](/zh-cn/docs/build/plugins/)）。
+- 一个基于 `pyproject.toml` 的构建后端（`hatchling`、`uv_build` 或 `pdm-backend`）。
+
+## 1. 锁定 Bub 内核
+
+发行版首先是一个把 Bub 列入依赖的 Python 包。锁一个紧致的范围，避免 Bub 的次要新版静默改变用户行为：
+
+```toml
+[project]
+name = "visual-base"
+version = "0.2.0"
+dependencies = [
+    "bub>=0.3.6,<0.4",
+    "loguru>=0.7",
+]
+```
+
+Bub 遵循[稳定性承诺](/zh-cn/docs/build/#stability-promise) —— 内核硬化、插件松散。`>=0.3.6,<0.4` 这个范围让你接收 `0.3` 次要线内的补丁修复。
+
+## 2. 提供自定义 CLI
+
+为基于 Bub 的产品做品牌化，最干净的做法是写一个薄 CLI，把活儿交给 Bub 自己的 Typer 应用。visual-base 的 [`cli.py`](https://github.com/oilbeater/visual-base/blob/main/src/visual_base/cli.py) 是参考模式：
+
+```python
+# src/visual_base/cli.py
+from __future__ import annotations
+
+import os
+import sys
+
+from visual_base.settings import VisualBaseSettings
+
+
+def _has_explicit_workspace_flag(argv: list[str]) -> bool:
+    return any(
+        arg == "--workspace" or arg == "-w" or arg.startswith("--workspace=")
+        for arg in argv
+    )
+
+
+def main() -> None:
+    if not _has_explicit_workspace_flag(sys.argv[1:]):
+        workspace = VisualBaseSettings().resolve_workspace()
+        workspace.mkdir(parents=True, exist_ok=True)
+        os.chdir(workspace)
+
+    from bub.__main__ import app
+
+    app()
+```
+
+两点值得指出：
+
+- 产品在导入 Bub 之前先解析出粘性工作区，然后 `chdir` 进去。[`BubFramework`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py) 在构造时把 `Path.cwd()` 快照为工作区，所以 `chdir` 必须先发生。
+- 之后产品把控制权交给 `bub.__main__.app` —— 与裸 `bub` 命令使用的是同一个 Typer 应用。每个贡献 `register_cli_commands` 的插件都会自动接入。
+
+把 CLI 接入脚本入口：
+
+```toml
+[project.scripts]
+visual-base = "visual_base.cli:main"
+```
+
+终端用户运行 `visual-base chat` 而不是 `bub chat`，但拿到的是完整管线。
+
+## 3. 在一个发行版里分发多个插件
+
+并不强制每个包只装一个插件。一个发行版可以在同一个 wheel 下托管多个插件模块，每个通过自己的入口点键注册。来自 visual-base 的 [`pyproject.toml`](https://github.com/oilbeater/visual-base/blob/main/pyproject.toml)：
+
+```toml
+[project.entry-points.bub]
+kimi = "bub_kimi.plugin"
+eye = "bub_eye.plugin:EyeImpl"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/visual_base", "src/bub_kimi", "src/bub_eye", "src/skills"]
+```
+
+`bub_kimi` 是模块形态插件（一个把模型委派给 Kimi CLI 的 `run_model` 钩子）。`bub_eye` 是持有框架引用的可调用类插件（一个录屏的背景通道）。一次 `uv pip install visual-base` 就把两者都注册进 Bub。
+
+## 4. 随发行版分发技能
+
+在 `[tool.hatch.build.targets.wheel] packages` 里列出 `src/skills`，会把技能目录放上 Bub 的内置发现根。完整机制见[技能 → 随包分发技能](/zh-cn/docs/build/skills/#3-ship-skills-with-your-package)。
+
+## 5. 编程方式嵌入
+
+如果你的产品在自己的进程里承载 Bub —— HTTP API、worker、笔记本 —— 跳过 CLI，直接驱动 [`BubFramework`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py)。**信封**是承载一条入站消息穿过管线的字典（或消息对象）。
+
+```python
+import asyncio
+
+from bub import BubFramework
+
+
+async def run_one_turn() -> None:
+    framework = BubFramework()
+    framework.load_hooks()
+    inbound = {
+        "session_id": "embedded:demo",
+        "channel": "embedded",
+        "chat_id": "demo",
+        "content": "hello from a host process",
+    }
+    async with framework.running():
+        result = await framework.process_inbound(inbound)
+    for outbound in result.outbounds:
+        print(outbound["content"])
+
+
+asyncio.run(run_one_turn())
+```
+
+`framework.running()` 是解析[`provide_tape_store`](/zh-cn/docs/build/hooks/#5-provide-a-tape-store)与其他生命周期相关钩子的异步上下文。在长生命周期进程里，请围绕服务的整个生命周期开启它一次，而不是每轮一次。
+
+## 下一步
+
+- [插件](/zh-cn/docs/build/plugins/) —— 你将捆绑的插件的包结构
+- [技能](/zh-cn/docs/build/skills/) —— 把技能打入发行版 wheel
+- [部署](/zh-cn/docs/operate/deploy/) —— 在生产中运行你的发行版
+- [设置参考](/zh-cn/docs/reference/settings/) —— 内核读取的环境变量

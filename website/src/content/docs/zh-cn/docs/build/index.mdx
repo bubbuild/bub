@@ -1,0 +1,55 @@
+---
+title: 基于 Bub 构建
+description: 何时把 Bub 作为 Python 框架依赖 —— 发布插件、嵌入框架，或将 Bub 包装为产品发行版。
+sidebar:
+  order: 0
+---
+
+本节面向想把 **Bub 作为 Python 框架来依赖**、而不仅仅是运行 `bub` CLI 的开发者。如果你的目标是新增行为、替换某个阶段，或把 Bub 嵌入一个产品中，请从这里开始。
+
+## 三条路径
+
+根据你要交付的形态选择路径。
+
+### 1. 发布一个插件（多数用户）
+
+插件是一个注册到 `bub` 入口点组、并贡献钩子实现的 Python 包。Bub 在启动时与内置运行时一起发现它，并将相关阶段路由到你的代码。
+
+当你想在已有的 Bub 安装中新增工具、替换模型、持久化状态、注册 CLI 命令或暴露新通道时，选这条路径。
+
+→ [插件](/zh-cn/docs/build/plugins/)介绍包结构、入口点形态以及可编辑安装流程。
+
+### 2. 以编程方式嵌入 `BubFramework`（进阶）
+
+[`BubFramework`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py) 是运行时内核。你可以在自己的进程内实例化它、调用 `load_hooks()`，并通过 `process_inbound()` 直接喂入[信封](/zh-cn/docs/concepts/turn-pipeline/)。并不强制使用 Bub CLI。
+
+当 Bub 是某个更大 Python 服务（例如 HTTP API 或 worker 进程）中的一个组件、并且你需要与 CLI 同样的轮次管线时，选这条路径。
+
+→ [发行版](/zh-cn/docs/build/distribution/#programmatic-embedding)给出最小异步示例。
+
+### 3. 把 Bub 包装为产品发行版
+
+发行版是一个依赖 `bub`、自带 CLI 入口、并捆绑一组精选插件与技能的 Python 包。终端用户安装的是你的产品，而不是裸框架。
+
+当你需要品牌化的 CLI、固定的默认模型，或针对特定场景的固定插件组合时，选这条路径。
+
+→ [发行版](/zh-cn/docs/build/distribution/)以 [`visual-base`](https://github.com/oilbeater/visual-base) 为案例完整演示。
+
+## 先翻一翻 `bub-contrib`
+
+写新插件之前，先看看 [`bubbuild/bub-contrib`](https://github.com/bubbuild/bub-contrib) 单仓库。它是社区维护的插件参考目录，覆盖磁带库、通道、模型后端、调度和搜索。许多你可能需要的集成已经作为可安装包存在于这里。
+
+## 发布到生态
+
+当你的插件、技能包或发行版准备好之后，把它登记到 [hub.bub.build](https://hub.bub.build) —— 公开的插件、技能、发行版与相关项目目录 —— 方法是向其源仓库 [bubbuild/buildscape](https://github.com/bubbuild/buildscape) 提交 PR。
+
+## 稳定性承诺
+
+Bub 在设计上分成一个小内核与一个宽广的插件面。[why-rewrite-bub](/zh-cn/posts/why-rewrite-bub/) 一文描述了这个模型：内核由维护者强化、保持最小，并被视作稳定契约；插件则保持松散——任意写法、随手 vibe-code、或本地由代理生成均可，只需遵守[钩子契约](/zh-cn/docs/reference/hooks/)。当你针对 hookspecs 与已记录的入口点组进行构建时，你的插件可以在同一次要版本线内的 Bub 多次发布之间保持工作。
+
+## 下一步
+
+- [插件](/zh-cn/docs/build/plugins/) —— 包结构与入口点
+- [钩子](/zh-cn/docs/build/hooks/) —— 常见模式的配方手册
+- [发行版](/zh-cn/docs/build/distribution/) —— 把 Bub 包装为产品
+- [钩子参考](/zh-cn/docs/reference/hooks/) —— 完整签名表
