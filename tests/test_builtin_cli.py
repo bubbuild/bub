@@ -239,6 +239,71 @@ def test_onboard_aborts_immediately_when_builtin_prompt_is_interrupted(tmp_path:
     assert not config_file.exists()
 
 
+def test_run_command_processes_inbound_inside_framework_runtime(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.yml"
+    framework = BubFramework(config_file=config_file)
+    observed: dict[str, Any] = {}
+
+    class RecordingTapeStore:
+        def __init__(self) -> None:
+            self.enter_count = 0
+            self.exit_count = 0
+
+    tape_store = RecordingTapeStore()
+
+    class RunPlugin:
+        @hookimpl
+        def register_cli_commands(self, app: typer.Typer) -> None:
+            app.command("run")(cli.run)
+
+        @hookimpl
+        def provide_tape_store(self):
+            tape_store.enter_count += 1
+            try:
+                yield tape_store
+            finally:
+                tape_store.exit_count += 1
+
+        @hookimpl
+        def build_prompt(self, message, session_id, state) -> str:
+            observed["session_id"] = session_id
+            observed["message_content"] = message.content
+            observed["sender_id"] = message.context["sender_id"]
+            return "prompt"
+
+        @hookimpl
+        async def run_model(self, prompt, session_id, state) -> str:
+            observed["tape_store"] = framework.get_tape_store()
+            return "model output"
+
+        @hookimpl
+        def render_outbound(self, message, session_id, state, model_output):
+            return [{"channel": "stdout", "chat_id": "local", "content": model_output}]
+
+        @hookimpl
+        async def dispatch_outbound(self, message) -> bool:
+            return True
+
+    framework._plugin_manager.register(RunPlugin(), name="run-plugin")
+    app = framework.create_cli_app()
+
+    result = CliRunner().invoke(
+        app,
+        ["run", "hello", "--channel", "cli", "--chat-id", "room", "--sender-id", "frost"],
+    )
+
+    assert result.exit_code == 0
+    assert "[stdout:local]\nmodel output" in result.stdout
+    assert observed == {
+        "session_id": "cli:room",
+        "message_content": "hello",
+        "sender_id": "frost",
+        "tape_store": tape_store,
+    }
+    assert tape_store.enter_count == 1
+    assert tape_store.exit_count == 1
+
+
 def test_onboard_collects_builtin_runtime_config_with_custom_provider(tmp_path: Path, monkeypatch) -> None:
     config_file = tmp_path / "config.yml"
 

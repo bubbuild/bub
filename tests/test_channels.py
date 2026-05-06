@@ -66,10 +66,20 @@ class FakeFramework:
         self._channels = channels
         self.router = None
         self.process_calls: list[tuple[ChannelMessage, bool]] = []
+        self.running_entries = 0
+        self.running_exits = 0
 
     def get_channels(self, message_handler):
         self.message_handler = message_handler
         return self._channels
+
+    @contextlib.asynccontextmanager
+    async def running(self):
+        self.running_entries += 1
+        try:
+            yield
+        finally:
+            self.running_exits += 1
 
     def bind_outbound_router(self, router) -> None:
         self.router = router
@@ -262,6 +272,8 @@ async def test_channel_manager_listen_and_run_passes_stream_output_setting(
     message, stream_output = framework.process_calls[0]
     assert message.content == "hello"
     assert stream_output is True
+    assert framework.running_entries == 1
+    assert framework.running_exits == 1
 
 
 @pytest.mark.asyncio

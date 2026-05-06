@@ -116,6 +116,38 @@ def test_get_system_prompt_uses_priority_order_and_skips_empty_results() -> None
     assert prompt == "low\n\nhigh"
 
 
+@pytest.mark.asyncio
+async def test_running_enters_tape_store_once_and_reuses_it() -> None:
+    framework = BubFramework()
+
+    class RecordingTapeStore:
+        def __init__(self) -> None:
+            self.enter_count = 0
+            self.exit_count = 0
+
+    tape_store = RecordingTapeStore()
+
+    class TapePlugin:
+        @hookimpl
+        def provide_tape_store(self):
+            tape_store.enter_count += 1
+            try:
+                yield tape_store
+            finally:
+                tape_store.exit_count += 1
+
+    framework._plugin_manager.register(TapePlugin(), name="tape")
+
+    async with framework.running():
+        assert framework.get_tape_store() is tape_store
+        assert framework.get_tape_store() is tape_store
+        assert tape_store.enter_count == 1
+        assert tape_store.exit_count == 0
+
+    assert tape_store.enter_count == 1
+    assert tape_store.exit_count == 1
+
+
 def test_builtin_cli_exposes_login_and_gateway_command(write_config) -> None:
     with patch.dict(os.environ, {}, clear=True):
         framework = BubFramework(config_file=write_config())

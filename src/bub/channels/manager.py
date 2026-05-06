@@ -142,24 +142,25 @@ class ChannelManager:
     async def listen_and_run(self) -> None:
         stop_event = asyncio.Event()
         self.framework.bind_outbound_router(self)
-        for channel in self.enabled_channels():
-            await channel.start(stop_event)
-        logger.info("channel.manager started listening")
-        try:
-            while True:
-                message = await wait_until_stopped(self._messages.get(), stop_event)
-                task = asyncio.create_task(self.framework.process_inbound(message, self._stream_output))
-                task.add_done_callback(functools.partial(self._on_task_done, message.session_id))
-                self._ongoing_tasks.setdefault(message.session_id, set()).add(task)
-        except asyncio.CancelledError:
-            logger.info("channel.manager received shutdown signal")
-        except Exception:
-            logger.exception("channel.manager error")
-            raise
-        finally:
-            self.framework.bind_outbound_router(None)
-            await self.shutdown()
-            logger.info("channel.manager stopped")
+        async with self.framework.running():
+            for channel in self.enabled_channels():
+                await channel.start(stop_event)
+            logger.info("channel.manager started listening")
+            try:
+                while True:
+                    message = await wait_until_stopped(self._messages.get(), stop_event)
+                    task = asyncio.create_task(self.framework.process_inbound(message, self._stream_output))
+                    task.add_done_callback(functools.partial(self._on_task_done, message.session_id))
+                    self._ongoing_tasks.setdefault(message.session_id, set()).add(task)
+            except asyncio.CancelledError:
+                logger.info("channel.manager received shutdown signal")
+            except Exception:
+                logger.exception("channel.manager error")
+                raise
+            finally:
+                self.framework.bind_outbound_router(None)
+                await self.shutdown()
+                logger.info("channel.manager stopped")
 
     async def shutdown(self) -> None:
         count = 0

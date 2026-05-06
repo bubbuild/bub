@@ -21,6 +21,7 @@ from bub.builtin.auth import app as login_app  # noqa: F401
 from bub.channels.message import ChannelMessage
 from bub.envelope import field_of
 from bub.framework import BubFramework
+from bub.types import TurnResult
 
 ONBOARD_BANNER = r"""
  ███████████             █████
@@ -53,7 +54,11 @@ def run(
         context={"sender_id": sender_id},
     )
 
-    result = asyncio.run(framework.process_inbound(inbound))
+    async def _run() -> TurnResult:
+        async with framework.running():
+            return await framework.process_inbound(inbound)
+
+    result = asyncio.run(_run())
     for outbound in result.outbounds:
         rendered = str(field_of(outbound, "content", ""))
         target_channel = str(field_of(outbound, "channel", "stdout"))

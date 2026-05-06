@@ -53,6 +53,45 @@ Other hook consumers:
   - `provide_tape_store`
   - `build_tape_context`
 
+## Tape Store Lifecycle
+
+`provide_tape_store` is resolved when `BubFramework.running()` starts, not on every `get_tape_store()` call.
+Builtin CLI entry points open this runtime scope for you:
+
+- `bub run` opens it around one inbound turn.
+- `bub chat` and `bub gateway` keep it open until the listener exits.
+
+Return a plain store when no lifecycle management is needed:
+
+```python
+from republic.tape import InMemoryTapeStore
+
+from bub import hookimpl
+
+
+class MemoryTapePlugin:
+    @hookimpl
+    def provide_tape_store(self):
+        return InMemoryTapeStore()
+```
+
+Return a sync or async iterator when the store needs process-level setup and cleanup.
+The yielded value becomes the active result of `framework.get_tape_store()` until the runtime scope exits.
+
+```python
+from bub import hookimpl
+
+
+class DatabaseTapePlugin:
+    @hookimpl
+    def provide_tape_store(self):
+        store = open_store()
+        try:
+            yield store
+        finally:
+            store.close()
+```
+
 ## Interactive Onboarding
 
 `onboard_config(current_config)` lets a plugin participate in the interactive `bub onboard` flow.
