@@ -12,15 +12,15 @@ Most agent frameworks conflate "talks to a chat platform", "knows how to do a pr
 ## The three surfaces
 
 ```diagram
-            outward I/O                  operator procedures           model-callable actions
-        ╭───────────────────╮          ╭───────────────────╮         ╭───────────────────╮
-        │     Channels      │          │      Skills       │         │       Tools       │
-        ╰─────────┬─────────╯          ╰─────────┬─────────╯         ╰─────────┬─────────╯
-                  │                              │                             │
-                  ▼                              ▼                             ▼
-              Envelope                       Envelope                       State
-        (in & out of the                 (loaded into the              (per-turn dict
-         turn pipeline)                   prompt as text)               with `_runtime_*`)
+          outward I/O              operator procedures        model-callable actions
+    ╭─────────────────────╮      ╭─────────────────────╮      ╭─────────────────────╮
+    │      Channels       │      │       Skills        │      │        Tools        │
+    ╰──────────┬──────────╯      ╰──────────┬──────────╯      ╰──────────┬──────────╯
+               │                            │                            │
+               ▼                            ▼                            ▼
+           Envelope                     Envelope                       State
+       (in & out of the             (loaded into the              (per-turn dict
+        turn pipeline)               prompt as text)            with `_runtime_*`)
 ```
 
 All three surfaces meet on two shared types from [`bub.types`](https://github.com/bubbuild/bub/blob/main/src/bub/types.py):

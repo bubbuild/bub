@@ -12,48 +12,47 @@ sidebar:
 ## 端到端流程
 
 ```diagram
-                            inbound envelope
-                                   │
-                                   ▼
-                          ╭──────────────────╮
-                          │ resolve_session  │  firstresult
-                          │  (fallback:      │
-                          │   channel:chat)  │
-                          ╰────────┬─────────╯
-                                   ▼
-                          ╭──────────────────╮
-                          │ load_state       │  many → reverse → merge
-                          │  (seed _runtime_ │
-                          │   workspace)     │
-                          ╰────────┬─────────╯
-                                   ▼
-                          ╭──────────────────╮
-                          │ build_prompt     │  firstresult
-                          │  (fallback:      │
-                          │   inbound text)  │
-                          ╰────────┬─────────╯
-                                   ▼
-                          ╭──────────────────╮
-                          │ run_model_stream │  firstresult
-                          │   ↕ adapts to    │
-                          │ run_model        │  firstresult
-                          ╰────────┬─────────╯
-                                   ▼  (always)
-                          ╭──────────────────╮
-                          │ save_state       │  many, in finally
-                          ╰────────┬─────────╯
-                                   ▼
-                          ╭──────────────────╮
-                          │ render_outbound  │  many → flatten
-                          │  (fallback:      │
-                          │   one envelope   │
-                          │   from output)   │
-                          ╰────────┬─────────╯
-                                   ▼
-                          ╭──────────────────╮
-                          │ dispatch_        │  many, per outbound
-                          │ outbound         │
-                          ╰──────────────────╯
+   inbound envelope
+           │
+           ▼
+╭─────────────────────╮
+│   resolve_session   │  firstresult
+│      (fallback:     │
+│     channel:chat)   │
+╰──────────┬──────────╯
+           ▼
+╭─────────────────────╮
+│      load_state     │  many → reverse → merge
+│   (seed _runtime_   │
+│      workspace)     │
+╰──────────┬──────────╯
+           ▼
+╭─────────────────────╮
+│     build_prompt    │  firstresult
+│      (fallback:     │
+│     inbound text)   │
+╰──────────┬──────────╯
+           ▼
+╭─────────────────────╮
+│   run_model_stream  │  firstresult
+│     ↕ adapts to     │
+│      run_model      │  firstresult
+╰──────────┬──────────╯
+           ▼  (always)
+╭─────────────────────╮
+│      save_state     │  many, in finally
+╰──────────┬──────────╯
+           ▼
+╭─────────────────────╮
+│   render_outbound   │  many → flatten
+│      (fallback:     │
+│     one envelope    │
+│     from output)    │
+╰──────────┬──────────╯
+           ▼
+╭─────────────────────╮
+│  dispatch_outbound  │  many, per outbound
+╰─────────────────────╯
 ```
 
 ## 各阶段（按源码顺序）
