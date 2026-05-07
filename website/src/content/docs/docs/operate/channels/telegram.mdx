@@ -71,7 +71,7 @@ Inbound handling:
 - `/start` is handled internally; the bot replies with a fixed greeting (or the "not allowed" message in disallowed chats).
 - `/bub <text>` is normalized — the `/bub ` prefix is stripped and the rest becomes the prompt content.
 - In private chats, every non-command message is ingested.
-- In group chats, the bot only ingests messages that mention `@<bot_username>`, contain the keyword `bub`, or reply to one of the bot's own messages. Non-active group messages still join the active conversation if one is open within `BUB_ACTIVE_TIME_WINDOW`.
+- In group chats, every non-command message reaches the Telegram channel. Messages that mention `@<bot_username>`, contain the keyword `bub`, or reply to one of the bot's own messages are marked active. Other group messages are ignored unless an active conversation for the same session is open within `BUB_ACTIVE_TIME_WINDOW`, in which case they join that batch.
 
 ## 6. Debounce
 
@@ -81,9 +81,11 @@ The Telegram channel sets `needs_debounce=True`. Inbound messages are batched pe
 Comma commands (`,help`, `,fs.read ...`) always bypass debounce. They are dispatched the moment they arrive, regardless of any pending batch.
 :::
 
-## 7. Outbound rendering
+## 7. Outbound behavior
 
-The channel sends back to the originating `chat_id` via the bot API. If the outbound content is JSON with a `"message"` field, only that field is sent; otherwise the raw content is sent. Empty payloads are dropped.
+Normal Telegram inbound messages set `output_channel="null"` before they enter the turn pipeline. That prevents a plain model return value from being sent back blindly. The bundled `telegram` skill is the canonical path for replies, progress updates, and edits.
+
+Comma commands are different: they keep `output_channel="telegram"`, so their tool output is sent back to the originating `chat_id`. If content routed to `TelegramChannel.send(...)` is JSON with a `"message"` field, only that field is sent; otherwise the raw content is sent. Empty payloads are dropped.
 
 ## Next steps
 

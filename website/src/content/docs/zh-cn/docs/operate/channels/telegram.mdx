@@ -71,7 +71,7 @@ Telegram channel 使用 `telegram:<chat_id>` 作为 session id。即便同一用
 - `/start` 由内部处理；机器人回复固定欢迎语（不在白名单的聊天则回复"不允许"提示）。
 - `/bub <text>` 会被规范化 —— 去掉 `/bub ` 前缀，剩余作为 prompt 内容。
 - 私聊中，所有非命令消息都会被采集。
-- 群聊中，机器人只采集提到 `@<bot_username>`、含关键字 `bub`、或回复机器人自己消息的内容。如果在 `BUB_ACTIVE_TIME_WINDOW` 内有活跃对话开启，非 active 的群消息仍会并入该对话。
+- 群聊中，每条非命令消息都会到达 Telegram channel。提到 `@<bot_username>`、包含关键字 `bub`、或回复机器人自己消息的内容会被标记为 active。其他群消息会被忽略，除非同一 session 在 `BUB_ACTIVE_TIME_WINDOW` 内已有活跃对话，此时它们会并入该批次。
 
 ## 6. 防抖
 
@@ -81,9 +81,11 @@ Telegram channel 设置 `needs_debounce=True`。入站消息按 session 用 `BUB
 逗号命令（`,help`、`,fs.read ...`）始终绕过防抖。无论是否有待处理批次，它们一到达就被分发。
 :::
 
-## 7. 出站渲染
+## 7. 出站行为
 
-Channel 通过 bot API 把出站消息发回原 `chat_id`。当出站内容是带 `"message"` 字段的 JSON 时，只发送该字段；否则发送原始内容。空载荷被丢弃。
+普通 Telegram 入站消息进入 turn pipeline 前会设置 `output_channel="null"`。这会阻止普通模型返回值被盲目发回 Telegram。内置 `telegram` skill 是回复、进度更新和编辑消息的标准路径。
+
+逗号命令不同：它们保留 `output_channel="telegram"`，因此工具输出会发回原 `chat_id`。当路由到 `TelegramChannel.send(...)` 的内容是带 `"message"` 字段的 JSON 时，只发送该字段；否则发送原始内容。空载荷被丢弃。
 
 ## 后续阅读
 

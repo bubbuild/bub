@@ -7,11 +7,13 @@ sidebar:
 
 本页说明如何配置 Bub：调用哪个模型、经哪个提供商访问、以及启动时加载哪些 channel 凭据。
 
-Bub 按以下优先级（从高到低）从三处读取配置：
+Bub 自己的配置按以下优先级（从高到低）从三处读取：
 
-1. 进程环境（`BUB_*` 变量，以及少量提供商变量如 `OPENROUTER_API_KEY`）。
+1. 进程环境（`BUB_*` 变量）。
 2. 工作目录下的 `.env` 文件。
 3. `~/.bub/config.yml`（由 `bub onboard` 创建）。
+
+当未显式提供 `BUB_API_KEY` 时，下游模型 SDK 仍可能读取自己的提供商变量，例如 `OPENROUTER_API_KEY`。Bub 的 settings 层只映射 `BUB_*` 变量。
 
 ## 开始之前
 

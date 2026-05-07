@@ -7,11 +7,13 @@ sidebar:
 
 This page shows how to configure Bub: which model to call, which provider to call it through, and which channel credentials to load on startup.
 
-Bub reads configuration from three places, in order of precedence (highest first):
+Bub reads its own configuration from three places, in order of precedence (highest first):
 
-1. Process environment (`BUB_*` variables, plus a few provider variables such as `OPENROUTER_API_KEY`).
+1. Process environment (`BUB_*` variables).
 2. The `.env` file in the working directory.
 3. `~/.bub/config.yml` (created by `bub onboard`).
+
+Downstream model SDKs may still read their own provider variables, such as `OPENROUTER_API_KEY`, when no explicit `BUB_API_KEY` is supplied. Bub's settings layer only maps `BUB_*` variables.
 
 ## Before you begin
 
