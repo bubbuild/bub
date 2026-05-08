@@ -26,7 +26,7 @@ def add(a: int, b: int) -> int:
     return a + b
 ```
 
-工具名默认为函数名。可用 `@tool(name="math.add")` 覆写，也可传 `description=` 控制它在模型提示中的呈现。支持异步函数 —— 包装器会 await 它们。
+工具名默认为函数名。可用 `@tool(name="math.add")` 覆写，也可传 `description=` 控制它在模型提示中的呈现。带点的 registry 名会保留给运行时查找和逗号命令使用，但面向模型的工具名会把点替换为下划线（`math.add` 会变成 `math_add`）。支持异步函数 —— 包装器会 await 它们。
 
 ## 工具如何变得可用
 

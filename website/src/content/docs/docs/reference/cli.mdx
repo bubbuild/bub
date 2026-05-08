@@ -121,6 +121,7 @@ Behavior notes:
 
 - Requires `uv` on `PATH` and that Bub itself runs inside a virtualenv (`sys.prefix != sys.base_prefix`); otherwise exits with `1`.
 - Initializes the project on first use via `uv init --bare --name bub-project --app` and adds Bub to it as a dependency (matching the local install: editable, file://, VCS, or PyPI).
+- The default project directory is created automatically. When `--project` is provided explicitly, the directory must already exist.
 - With no specs, runs `uv sync --active --inexact`.
 - With specs, runs `uv add --active <requirements>`.
 

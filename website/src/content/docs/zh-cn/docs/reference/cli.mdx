@@ -121,6 +121,7 @@ bub install [OPTIONS] [SPECS]...
 
 - 需要 `uv` 在 `PATH` 上,且 Bub 自身运行在 virtualenv 内 (`sys.prefix != sys.base_prefix`),否则以退出码 `1` 退出。
 - 首次使用时通过 `uv init --bare --name bub-project --app` 初始化项目,并把 Bub 自身作为依赖添加(根据本地安装方式选择 editable / file:// / VCS / PyPI)。
+- 默认项目目录会自动创建。显式传入 `--project` 时，该目录必须已经存在。
 - 不传 spec 时执行 `uv sync --active --inexact`。
 - 传入 spec 时执行 `uv add --active <requirements>`。
 

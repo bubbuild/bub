@@ -119,7 +119,7 @@ hook 运行时会在两者间互相适配：若插件只实现 `run_model_stream
 - `resolve_session` — 优先使用 envelope 的 `session_id`，否则 `f"{channel}:{chat_id}"`。
 - `load_state` — 打开 inbound 的可选 `lifespan`，初始化 `session_id` 与内部 `_runtime_agent`。
 - `build_prompt` — 处理 comma 命令（`,help`、`,skill` 等），用时间戳与上下文包裹文本，并在附带媒体时输出多模态片段。
-- `run_model_stream` — 委托给 `Agent.run_stream`，即由 [Republic](https://github.com/bubbuild/republic) 支撑、带 tool 使用与 auto-handoff 的循环（见 [Tape and context](/zh-cn/docs/concepts/tape-and-context/)）。
+- `run_model` / `run_model_stream` — 分别委托给 `Agent.run` / `Agent.run_stream`，即由 [Republic](https://github.com/bubbuild/republic) 支撑、带 tool 使用与 auto-handoff 的循环（见 [Tape and context](/zh-cn/docs/concepts/tape-and-context/)）。
 - `save_state` — 用捕获的异常信息关闭 per-message lifespan。
 - `render_outbound` — 将 `model_output` 包装为携带 inbound 路由字段的 `ChannelMessage`。
 - `dispatch_outbound` — 转发到绑定的 `OutboundChannelRouter`。

@@ -22,13 +22,13 @@ Bub 自己的配置按以下优先级（从高到低）从三处读取：
 
 ## 1. 运行交互式初始化
 
-`bub onboard` 引导你完成最小配置 —— 模型、API key、可选的 channel 凭据 —— 并将结果写入 `~/.bub/config.yml`。
+`bub onboard` 引导你完成最小配置 —— 模型、API key、启用的 channel 与流式输出设置 —— 并将结果写入 `~/.bub/config.yml`。插件可通过 `onboard_config` hook 添加自己的交互提示。
 
 ```bash
 uv run bub onboard
 ```
 
-文件默认位于 `~/.bub/config.yml`。设置 `BUB_HOME` 可整体迁移 `~/.bub/` 目录（包括配置、历史、插件项目）。
+文件默认位于 `~/.bub/config.yml`。`BUB_HOME` 控制 `bub.home`，包括 history、tapes 与托管插件项目；它不会移动默认配置文件。嵌入 Bub 且需要不同配置路径时，请使用 `BubFramework(config_file=...)`。
 
 :::note
 `bub onboard` 只收集已加载插件通过 `onboard_config` hook 声明的内容。安装新增设置项的插件后，请重新运行 `onboard`。

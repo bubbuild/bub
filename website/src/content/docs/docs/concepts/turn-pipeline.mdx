@@ -119,7 +119,7 @@ The default observer (`BuiltinImpl.on_error`) sends an error envelope through `d
 - `resolve_session` — uses the envelope's `session_id` if present, otherwise `f"{channel}:{chat_id}"`.
 - `load_state` — opens the inbound's optional `lifespan`, seeds `session_id` and an internal `_runtime_agent`.
 - `build_prompt` — handles comma commands (`,help`, `,skill`, ...), wraps text with timestamp and context, and emits multimodal parts when media is attached.
-- `run_model_stream` — delegates to `Agent.run_stream`, the [Republic](https://github.com/bubbuild/republic)-backed loop with tool use and auto-handoff (see [Tape and context](/docs/concepts/tape-and-context/)).
+- `run_model` / `run_model_stream` — delegate to `Agent.run` / `Agent.run_stream`, the [Republic](https://github.com/bubbuild/republic)-backed loop with tool use and auto-handoff (see [Tape and context](/docs/concepts/tape-and-context/)).
 - `save_state` — closes the per-message lifespan with the captured exception info.
 - `render_outbound` — wraps `model_output` into one `ChannelMessage` carrying the inbound's routing fields.
 - `dispatch_outbound` — forwards through the bound `OutboundChannelRouter`.

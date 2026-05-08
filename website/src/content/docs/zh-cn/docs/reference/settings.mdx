@@ -11,8 +11,9 @@ Bub 按以下顺序解析配置值,优先级从高到低:
 
 1. **CLI 参数**(例如 `--workspace`、`--project`、`--enable-channel`)。
 2. **环境变量**(`BUB_*`)。
-3. **`~/.bub/config.yml`** 中的字段,由 `bub.configure.load` 加载。
-4. **字段默认值**,在 `Settings` 子类中声明。
+3. **当前工作目录中的 `.env`** 字段，仅适用于声明了 `env_file=".env"` 的 settings class。
+4. **`~/.bub/config.yml`** 中的字段,由 `bub.configure.load` 加载。
+5. **字段默认值**,在 `Settings` 子类中声明。
 
 通过 `src/bub/configure.py` 中的 `Settings.settings_customise_sources` 验证:它返回 `(env_settings, dotenv_settings, init_settings, file_secret_settings)` —— env 高于 `.env`,两者均高于 `ensure_config(...)` 调用 `model_validate` 时传入的 YAML dict。
 
@@ -23,13 +24,13 @@ Bub 按以下顺序解析配置值,优先级从高到低:
 | `~/.bub/config.yml` | `src/bub/framework.py` 中的 `DEFAULT_CONFIG_FILE`。 |
 | 通过 `BubFramework(config_file=...)` 覆盖 | 构造函数参数。 |
 
-`~/.bub/` 同时是 `bub.home` 的取值,由 `BUB_HOME` 环境变量控制(`src/bub/__init__.py`)。
+`~/.bub/` 同时是 `bub.home` 的默认取值，由 `BUB_HOME` 环境变量控制（`src/bub/__init__.py`）。`BUB_HOME` 影响 history、tapes 与托管插件项目等 `bub.home` 使用方；默认配置文件路径仍是 `~/.bub/config.yml`，除非嵌入方显式传入 `BubFramework(config_file=...)`。
 
 ## Framework —— 运行时路径
 
 | 环境变量 | 默认值 | YAML 字段 | 读取方 | 描述 |
 | --- | --- | --- | --- | --- |
-| `BUB_HOME` | `~/.bub` | — | `bub.home` (`bub/__init__.py`) | 配置、tape store 与托管插件项目的根目录。 |
+| `BUB_HOME` | `~/.bub` | — | `bub.home` (`bub/__init__.py`) | history、tape store 与托管插件项目的根目录；不会移动默认配置文件。 |
 | `BUB_PROJECT` | `~/.bub/bub-project` | — | `bub install` / `uninstall` / `update` 的 `--project` 选项 | 插件项目目录;首次 `install` 时通过 `uv init` 创建。 |
 
 ## Agent —— `AgentSettings`

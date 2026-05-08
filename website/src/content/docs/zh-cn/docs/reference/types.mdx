@@ -19,7 +19,7 @@ type Envelope = Any
 def field_of(message: Envelope, key: str, default: Any = None) -> Any
 ```
 
-`message` 是 `Mapping` 时返回 `message[key]`,否则返回 `getattr(message, key, default)`。
+`message` 是 `Mapping` 时返回 `message.get(key, default)`，否则返回 `getattr(message, key, default)`。
 
 ### `content_of(message)`
 

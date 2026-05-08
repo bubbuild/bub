@@ -70,21 +70,25 @@ Key source files:
 
 ```python
 from bub import hookimpl
+from bub.envelope import content_of
 
 
 class EchoPlugin:
     @hookimpl
     def build_prompt(self, message, session_id, state):
-        return f"[echo] {message['content']}"
+        return f"[echo] {content_of(message)}"
 
     @hookimpl
     async def run_model(self, prompt, session_id, state):
         return prompt
+
+
+echo_plugin = EchoPlugin()
 ```
 
 ```toml
 [project.entry-points."bub"]
-echo = "my_package.plugin:EchoPlugin"
+echo = "my_package.plugin:echo_plugin"
 ```
 
 See the [Build docs](https://bub.build/docs/build/) for hook guides, packaging, and plugin structure.

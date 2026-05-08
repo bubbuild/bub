@@ -26,7 +26,7 @@ def add(a: int, b: int) -> int:
     return a + b
 ```
 
-The tool's name defaults to the function name. Override it with `@tool(name="math.add")` or pass `description=` to control how it appears in the model prompt. Async functions are supported — the wrapper awaits them.
+The tool's name defaults to the function name. Override it with `@tool(name="math.add")` or pass `description=` to control how it appears in the model prompt. Dotted registry names are preserved for runtime lookup and comma commands, but model-facing tool names replace dots with underscores (`math.add` becomes `math_add`). Async functions are supported — the wrapper awaits them.
 
 ## How tools become available
 

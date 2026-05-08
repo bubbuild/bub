@@ -101,7 +101,7 @@ from bub import hookimpl
 
 class SessionStorePlugin:
     def __init__(self) -> None:
-        self._sessions: dict[str, dict] = {}
+        self._sessions: dict[str, list[dict[str, object]]] = {}
 
     @hookimpl
     def load_state(self, message, session_id):

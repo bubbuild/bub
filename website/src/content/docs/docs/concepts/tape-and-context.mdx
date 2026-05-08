@@ -59,7 +59,7 @@ Before the first turn on a tape, `TapeService.ensure_bootstrap_anchor` checks fo
 - `anchor` → an `assistant` message of the form `[Anchor created: <name>]: <state-as-json>`.
 - `message` → the entry payload, used as a chat message dict.
 - `tool_call` → an `assistant` message with empty content and a `tool_calls` array.
-- `tool_result` → one `tool` role message per result, joined back to the matching `tool_call_id`.
+- `tool_result` → one `tool` role message per result; when a preceding `tool_call` is pending, Bub copies the call's `id` into `tool_call_id` by result position.
 
 The context selector is a hook (`build_tape_context`), so plugins can replace it with a different strategy — compaction, summarization, retrieval — without touching the rest of the pipeline.
 
@@ -73,9 +73,9 @@ The built-in `Agent` loop catches model errors that match `_is_context_length_er
 
 1. Writes a handoff named `auto_handoff/context_overflow` with `state={"reason": "context_length_exceeded", "error": <message>}`.
 2. Logs a `loop.step` event with `status="auto_handoff"`.
-3. Retries the same prompt — the new anchor truncates history, so the rebuilt context fits.
+3. Retries the same prompt — the default `TapeContext` selects entries after the latest anchor, so the retry uses a shorter reconstructed history.
 
-This is one retry per turn; if the second attempt still overflows, the error is raised normally.
+This is one retry per turn. It can still fail if the prompt or retained state remains too large; in that case the error is raised normally.
 
 :::tip
 The same anchor mechanism is available manually through the `,tape.handoff` comma command and the `tape.handoff` tool. Use it when you finish a phase and want the next phase to start from a clean checkpoint.

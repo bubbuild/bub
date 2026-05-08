@@ -19,7 +19,7 @@ type Envelope = Any
 def field_of(message: Envelope, key: str, default: Any = None) -> Any
 ```
 
-Reads `message[key]` if `message` is a `Mapping`, else `getattr(message, key, default)`.
+Reads `message.get(key, default)` if `message` is a `Mapping`, else `getattr(message, key, default)`.
 
 ### `content_of(message)`
 

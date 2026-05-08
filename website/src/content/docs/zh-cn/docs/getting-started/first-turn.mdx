@@ -27,7 +27,7 @@ Bub 把 `Path.cwd()` 当作 workspace，因此该目录中后续每条 `bub` 命
 
 ## 2. 写 AGENTS.md
 
-`AGENTS.md` 是 workspace 级别的指令文件。Bub 在每次 turn 都会读取它并将其拼接到 system prompt。
+`AGENTS.md` 是 workspace 级别的指令文件。Bub 会在 model-backed turn 中读取它，并将其拼接到 system prompt。
 
 ```bash
 cat > AGENTS.md <<'EOF'

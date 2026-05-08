@@ -22,13 +22,13 @@ Downstream model SDKs may still read their own provider variables, such as `OPEN
 
 ## 1. Run the interactive setup
 
-`bub onboard` walks through the minimum config — model, API key, optional channel credentials — and writes the result to `~/.bub/config.yml`.
+`bub onboard` walks through the minimum config — model, API key, enabled channels, and streaming settings — and writes the result to `~/.bub/config.yml`. Plugins may add their own prompts through the `onboard_config` hook.
 
 ```bash
 uv run bub onboard
 ```
 
-The file lives at `~/.bub/config.yml` by default. Set `BUB_HOME` to relocate the whole `~/.bub/` directory (config, history, plugin project).
+The file lives at `~/.bub/config.yml` by default. `BUB_HOME` controls `bub.home`, including history, tapes, and the managed plugin project; it does not move the default config file. Use `BubFramework(config_file=...)` when embedding Bub and you need a different config path.
 
 :::note
 `bub onboard` only collects what the loaded plugins ask for via the `onboard_config` hook. If you install a plugin that adds new settings, run `onboard` again.

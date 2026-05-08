@@ -27,7 +27,7 @@ Bub uses `Path.cwd()` as the workspace, so every subsequent `bub` command in thi
 
 ## 2. Write AGENTS.md
 
-`AGENTS.md` is the per-workspace instruction file. Bub reads it on every turn and prepends it to the system prompt.
+`AGENTS.md` is the per-workspace instruction file. Bub reads it for model-backed turns and appends it to the system prompt.
 
 ```bash
 cat > AGENTS.md <<'EOF'

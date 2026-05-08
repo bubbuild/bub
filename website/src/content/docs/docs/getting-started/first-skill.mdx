@@ -62,10 +62,10 @@ Bub discovers skills from three roots in priority order: project (`.agents/skill
 The agent sees skills in the system prompt as `<available_skills>`. Reference the skill by name from a normal turn:
 
 ```bash
-uv run bub run "Use the repo-map skill, then list the top-level modules you found."
+uv run bub run 'Use the $repo-map skill, then list the top-level modules you found.'
 ```
 
-The model decides when to invoke the skill; the body is loaded into the prompt only when needed.
+The `$repo-map` hint expands that skill's body into the model prompt for this turn.
 
 ## Next steps
 

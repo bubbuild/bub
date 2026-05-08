@@ -11,8 +11,9 @@ Bub resolves a setting value in this order, highest priority first:
 
 1. **CLI flag** (e.g. `--workspace`, `--project`, `--enable-channel`).
 2. **Environment variable** (`BUB_*`).
-3. **`~/.bub/config.yml`** entry, loaded by `bub.configure.load`.
-4. **Field default** declared on the `Settings` subclass.
+3. **`.env`** entry in the current working directory, for settings classes that declare `env_file=".env"`.
+4. **`~/.bub/config.yml`** entry, loaded by `bub.configure.load`.
+5. **Field default** declared on the `Settings` subclass.
 
 Verified via `Settings.settings_customise_sources` in `src/bub/configure.py`, which returns `(env_settings, dotenv_settings, init_settings, file_secret_settings)` — env beats `.env`, and both beat the dict produced from YAML when `ensure_config(...)` calls `model_validate`.
 
@@ -23,13 +24,13 @@ Verified via `Settings.settings_customise_sources` in `src/bub/configure.py`, wh
 | `~/.bub/config.yml` | `DEFAULT_CONFIG_FILE` in `src/bub/framework.py`. |
 | Override via `BubFramework(config_file=...)` | Constructor argument. |
 
-`~/.bub/` is also the value of `bub.home`, controlled by the `BUB_HOME` environment variable (`src/bub/__init__.py`).
+`~/.bub/` is also the default value of `bub.home`, controlled by the `BUB_HOME` environment variable (`src/bub/__init__.py`). `BUB_HOME` affects `bub.home` consumers such as history, tapes, and the managed plugin project; the default config file path remains `~/.bub/config.yml` unless an embedding application passes `BubFramework(config_file=...)`.
 
 ## Framework — runtime paths
 
 | Env var | Default | YAML key | Read by | Description |
 | --- | --- | --- | --- | --- |
-| `BUB_HOME` | `~/.bub` | — | `bub.home` (`bub/__init__.py`) | Root directory for config, tape store, and the managed plugin project. |
+| `BUB_HOME` | `~/.bub` | — | `bub.home` (`bub/__init__.py`) | Root directory for history, tape store, and the managed plugin project. Does not move the default config file. |
 | `BUB_PROJECT` | `~/.bub/bub-project` | — | `--project` option in `bub install` / `uninstall` / `update` | Plugin project directory; created on first `install` via `uv init`. |
 
 ## Agent — `AgentSettings`
