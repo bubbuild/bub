@@ -1,6 +1,6 @@
 ---
 title: 部署
-description: 用 Docker Compose 把 Bub 作为长期服务运行，持久化 ~/.bub 状态，并安全升级。
+description: 用 Docker Compose 把 Bub 作为长期服务运行，持久化 Bub home 状态，并安全升级。
 sidebar:
   order: 3
 ---
@@ -25,7 +25,7 @@ Telegram 网关的最小 `.env`：
 
 ```bash
 BUB_MODEL=openrouter:openrouter/free
-OPENROUTER_API_KEY=sk-or-...
+BUB_API_KEY=sk-or-...
 BUB_TELEGRAM_TOKEN=123456:abcdef...
 BUB_TELEGRAM_ALLOW_USERS=123456789
 ```
@@ -37,19 +37,17 @@ BUB_TELEGRAM_ALLOW_USERS=123456789
 ```yaml
 volumes:
   - ${BUB_WORKSPACE_PATH:-.}:/workspace
-  - ${BUB_HOME:-${HOME}/.bub}:/data
+  - ${BUB_HOME_HOST:-${HOME}/.bub}:/data
   - ${BUB_AGENT_HOME:-${HOME}/.agents}:/root/.agents
 ```
 
 | 挂载 | 用途 |
 |---|---|
 | `/workspace` | Bub 视为工作仓库的目录。默认是你执行 `docker compose` 时的目录。 |
-| `/data` | Bub home 目录的宿主机绑定（配置、历史、插件项目）。 |
+| `/data` | Bub home 目录的宿主机绑定（history、tapes、插件项目）。 |
 | `/root/.agents` | 共享 skill 目录（沿用 `agents.md` 约定）。 |
 
-:::caution
-此 compose 文件中，`BUB_HOME` 是 `/data` 的 **宿主机** 源路径。容器内 Bub 仍然写入 `/root/.bub`（镜像的 `VOLUME` 声明）。**不要** 在同一份 `.env` 中再设置 `BUB_HOME=/data`，否则宿主机绑定源会变成字面字符串 `/data`。如果你希望容器内 home 是 `/data`，请拆分变量：用 `BUB_HOME_HOST` 表示宿主机路径，并仅为容器设置 `BUB_HOME=/data`。
-:::
+Compose 文件会在容器内设置 `BUB_HOME=/data`。如果要把宿主机侧源路径放到 `~/.bub` 以外的位置，请设置 `BUB_HOME_HOST`。此部署的运行时设置应放在 `.env` 中；`BUB_HOME` 不会移动 Bub 默认的 `config.yml` 路径。
 
 ## 3. 构建并启动
 
@@ -65,7 +63,7 @@ docker compose logs -f app
 每次容器启动：
 
 1. 如果 `/workspace/bub-reqs.txt` 存在，把其中列出的包装入镜像 venv。
-2. 无参运行 `bub install` —— 这会同步 `~/.bub/bub-project/` 下的托管插件项目。`pyproject.toml` 中新增的插件在这里被拉起。
+2. 无参运行 `bub install` —— 这会同步 `/data/bub-project/` 下的托管插件项目。`pyproject.toml` 中新增的插件在这里被拉起。
 3. 如果 `/workspace/startup.sh` 存在则 exec 它，否则 exec `bub gateway`。
 
 也就是说工作区可以通过提供自己的 `startup.sh` 覆盖入口 —— 用于在长期工作区上运行 `bub chat`，或自定义 gateway 参数：
@@ -86,7 +84,7 @@ docker compose logs -f app | rg "telegram.start polling"
 
 ## 6. 安全升级
 
-滚动升级会保留 `/data`（宿主机 `~/.bub`）下的插件项目：
+滚动升级会保留 `/data`（宿主机 `BUB_HOME_HOST`，默认 `~/.bub`）下的插件项目：
 
 ```bash
 git fetch --all --tags
@@ -105,7 +103,7 @@ docker compose exec app bub update                        # 全量升级
 docker compose exec app bub update specific-plugin        # 升级指定插件
 ```
 
-二者都作用于 `BUB_PROJECT` 指定的托管项目（默认 `~/.bub/bub-project`），不会触碰系统 Python 环境。
+二者都作用于 `BUB_PROJECT` 指定的托管项目（默认 `bub.home / "bub-project"`，在此 compose 部署中为 `/data/bub-project`），不会触碰系统 Python 环境。
 
 :::note
 `bub install` 与 `bub update` 要求 Bub 自身位于虚拟环境中。容器镜像满足该条件 —— `entrypoint.sh` 会先 activate `/app/.venv` 再 exec。

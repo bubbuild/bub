@@ -6,9 +6,11 @@ services:
     container_name: bub
     env_file:
       - .env
+    environment:
+      BUB_HOME: /data
     volumes:
       - ${BUB_WORKSPACE_PATH:-.}:/workspace
-      - ${BUB_HOME:-${HOME}/.bub}:/data
+      - ${BUB_HOME_HOST:-${HOME}/.bub}:/data
       - ${BUB_AGENT_HOME:-${HOME}/.agents}:/root/.agents
     stdin_open: true
     tty: true
