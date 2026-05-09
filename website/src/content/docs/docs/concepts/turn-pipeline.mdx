@@ -65,11 +65,11 @@ The resolved id is also written back into the envelope's `session_id` slot when 
 
 ### load_state
 
-Broadcast: every implementation contributes a state dict. The kernel seeds state with `_runtime_workspace`, then merges hook results in **reverse** plugin registration order, so high-priority (later-registered) plugins win on key collisions.
+Broadcast: every implementation contributes a state dict. The kernel calls implementations in priority order, collects the results, then reverses those results before merging. Low-priority state is merged first and high-priority state last, so later-registered plugins win on key collisions.
 
 ### build_prompt
 
-`firstresult`: returns either a string or a list of multimodal content parts (OpenAI format). If every implementation returns a falsy value, the kernel falls back to the inbound envelope's plain `content`.
+`firstresult`: returns either a string or a list of multimodal content parts (OpenAI format). `HookRuntime.call_first` stops at the first non-`None` return value. If no implementation returns a non-`None` value, or the selected value is falsy, `process_inbound` falls back to the inbound envelope's plain `content`; a falsy selected value does not cause lower-priority implementations to run.
 
 ### run_model and run_model_stream
 
@@ -78,9 +78,9 @@ Both are `firstresult`. Implementations should provide one or the other, not bot
 - `run_model` returns a final string in one call.
 - `run_model_stream` returns an `AsyncStreamEvents` iterator of chunks (`text`, `error`, ...).
 
-The hook runtime adapts between them: if a plugin only implements `run_model_stream` and the framework was asked for a non-streaming output, the kernel collects every `text` event's `delta` and joins them. If only `run_model` is implemented, it is wrapped as a stream of one text chunk when the caller asked for streaming.
+The hook runtime adapts between them: if a plugin only implements `run_model_stream` and the framework was asked for a non-streaming output, the kernel collects every `text` event's `delta` and joins them. If only `run_model` is implemented, it is wrapped as a stream of one text chunk when the caller asked for streaming. A streaming implementation is expected to return an `AsyncStreamEvents`; returning `None` from `run_model_stream` in the non-streaming adapter path is currently an error rather than a clean fallback.
 
-If neither hook returns output (every implementation returns `None`), the kernel notifies `on_error(stage="run_model", ...)` and falls back to returning the prompt unchanged so `save_state` and the outbound stages still run.
+If neither hook returns output (every implementation returns `None`), the kernel notifies `on_error(stage="run_model", ...)` and falls back so `save_state` and the outbound stages still run. A string prompt is returned unchanged; a multimodal list prompt falls back to the inbound envelope's plain `content`.
 
 While streaming, every `error` event is forwarded through `on_error(stage="run_model", ...)`. A bound `OutboundChannelRouter` may also wrap the stream to push partial chunks to the channel before the turn finishes.
 

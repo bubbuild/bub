@@ -51,7 +51,7 @@ frontmatter 字段是必需的——`name` 必须等于目录名，`description`
 uv run bub run ",skill name=repo-map"
 ```
 
-Bub 会打印渲染后的 skill 正文。如果出现 "skill not found"，请检查 `SKILL.md` 是否在正确路径，以及 frontmatter 是否能被解析为合法 YAML。
+Bub 会打印渲染后的 skill 正文。如果 Bub 报告 `(no such skill)`，请检查 `SKILL.md` 是否在正确路径，以及 frontmatter 是否能被解析为合法 YAML。
 
 :::note
 Bub 按优先级从三个根目录发现 skill：项目（`.agents/skills/`）、用户主目录（`~/.agents/skills/`）和内置。同名时项目级 skill 胜出。

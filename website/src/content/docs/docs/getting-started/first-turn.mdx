@@ -12,7 +12,7 @@ This tutorial walks through one full turn — the framework's name for one inbou
 You should have:
 
 - [Bub installed](/docs/getting-started/install/) and `uv run bub hooks` reporting the `builtin` plugin
-- one model access path: an API key exported as `BUB_API_KEY`, or OAuth login via `uv run bub login openai`
+- one model access path: an API key exported as `BUB_API_KEY` or a provider-specific `BUB_<PROVIDER>_API_KEY`; alternatively, OpenAI Codex OAuth via `uv run bub login openai` with `BUB_MODEL=openai:gpt-5-codex`
 
 ## 1. Create a workspace
 
@@ -72,7 +72,7 @@ With your provider configured, run a one-shot turn:
 uv run bub run "Summarize the purpose of this workspace."
 ```
 
-Bub will resolve the session, load state, build the prompt (including your `AGENTS.md`), call the model, render an outbound message, and dispatch it to the CLI channel.
+Bub will resolve the session, load state, build the user prompt, call the model with a system prompt that includes your `AGENTS.md`, render an outbound message, and print that outbound from the CLI command.
 
 For interactive use, start a chat session instead:
 
@@ -82,13 +82,13 @@ uv run bub chat
 
 ## 5. Optional: log in with OpenAI OAuth
 
-If you do not want to manage an API key, log in with OAuth:
+If you want to use the OpenAI Codex OAuth path instead of an API key, log in with OAuth:
 
 ```bash
 uv run bub login openai
 ```
 
-Bub stores the credential locally and uses it for subsequent model calls when `BUB_API_KEY` is unset.
+Bub stores the credential locally. Use it by setting `BUB_MODEL=openai:gpt-5-codex` and leaving `BUB_API_KEY` unset.
 
 ## Next steps
 

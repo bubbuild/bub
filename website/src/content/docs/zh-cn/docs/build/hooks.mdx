@@ -14,6 +14,8 @@ sidebar:
 
 **钩子**是声明在 `BubHookSpecs` 上的具名扩展点；插件贡献的实现会在轮次中被 Bub 调用。
 
+下面多个 recipe 使用插件类。请通过 `pkg.plugin:MyPlugin` 这样的 callable entry point 注册类，或者创建模块级实例并让 entry point 指向该实例。裸模块目标只会注册模块级 `@hookimpl` 函数。
+
 ## 1. 覆盖提示
 
 替换 Bub 发给模型的文本。`build_prompt` 是 `firstresult`，优先级最高的实现胜出。
@@ -29,7 +31,7 @@ class PrefixPrompt:
         return f"[prefix] {content}"
 ```
 
-用 `uv run bub run "hello"` 验证 —— 模型收到的是 `[prefix] hello`。
+若要直接观察该行为，请配套一个返回 prompt 的 echo `run_model` hook，或在测试中检查 prompt。普通 `uv run bub run "hello"` 打印的是最终 outbound 文本，不是发给模型的原始 prompt。
 
 ## 2. 替换模型
 

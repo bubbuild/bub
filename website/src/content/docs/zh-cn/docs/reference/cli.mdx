@@ -106,7 +106,7 @@ bub onboard [OPTIONS]
 
 ## `bub install`
 
-把插件安装到 Bub 管理的 `uv` 项目(默认 `~/.bub/bub-project`)中;不传任何 spec 时仅同步项目。
+把插件安装到 Bub 管理的 `uv` 项目（`BUB_HOME/bub-project`，未设置 `BUB_HOME` 时为 `~/.bub/bub-project`）中；不传任何 spec 时仅同步项目。
 
 ```text
 bub install [OPTIONS] [SPECS]...
@@ -114,8 +114,8 @@ bub install [OPTIONS] [SPECS]...
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
-| `SPECS` (args) | one or more strings | 空列表 | 包规格:PyPI 名称、`owner/repo[@ref]`、`git+...`,或解析到 `https://github.com/bubbuild/bub-contrib.git` 的 bub-contrib 子包名。 |
-| `--project` | PATH | `~/.bub/bub-project`(env: `BUB_PROJECT`) | Bub 插件项目目录。 |
+| `SPECS` (args) | one or more strings | 空列表 | 包规格:PyPI 名称、`owner/repo[@ref]`、`git+...`,或以 `name@ref` 形式解析到 `https://github.com/bubbuild/bub-contrib.git` 的 bub-contrib 子包。 |
+| `--project` | PATH | `BUB_HOME/bub-project`；未设置 `BUB_HOME` 时为 `~/.bub/bub-project`(env: `BUB_PROJECT`) | Bub 插件项目目录。 |
 
 行为说明:
 
@@ -136,7 +136,7 @@ bub uninstall [OPTIONS] PACKAGES...
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
 | `PACKAGES` (args) | one or more strings | required | 项目 `pyproject.toml` 中记录的包名。 |
-| `--project` | PATH | `~/.bub/bub-project`(env: `BUB_PROJECT`) | 插件项目目录。 |
+| `--project` | PATH | `BUB_HOME/bub-project`；未设置 `BUB_HOME` 时为 `~/.bub/bub-project`(env: `BUB_PROJECT`) | 插件项目目录。 |
 
 在 `--project` 内执行 `uv remove --active <packages>`。
 
@@ -149,7 +149,7 @@ bub update [OPTIONS] [PACKAGES]...
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
 | `PACKAGES` (args) | zero or more strings | 空列表 | 需要升级的包名;留空表示全部。 |
-| `--project` | PATH | `~/.bub/bub-project`(env: `BUB_PROJECT`) | 插件项目目录。 |
+| `--project` | PATH | `BUB_HOME/bub-project`；未设置 `BUB_HOME` 时为 `~/.bub/bub-project`(env: `BUB_PROJECT`) | 插件项目目录。 |
 
 行为说明:
 
@@ -196,4 +196,4 @@ bub login openai [OPTIONS]
 bub hooks
 ```
 
-注册时使用 `hidden=True`,因此不会出现在顶层 `--help` 列表中。输出每行一个钩子:`hook_name: adapter1, adapter2, …`。用于核对每个钩子由哪些插件实现(后注册者优先;详见 [Hooks › How hooks are invoked](/zh-cn/docs/reference/hooks/#how-hooks-are-invoked))。
+注册时使用 `hidden=True`,因此不会出现在顶层 `--help` 列表中。输出每行一个钩子:`hook_name: adapter1, adapter2, …`。它适合确认实现是否被发现；如果要据此推断 firstresult 优先级，请先阅读 [Hooks › How hooks are invoked](/zh-cn/docs/reference/hooks/#how-hooks-are-invoked)。

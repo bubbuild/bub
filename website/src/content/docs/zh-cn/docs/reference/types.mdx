@@ -93,7 +93,7 @@ class TurnResult:
     outbounds: list[Envelope] = field(default_factory=list)
 ```
 
-`BubFramework.process_inbound` 的返回值。`prompt` 是解析后的 prompt(字符串或被强制转为字符串的 list-of-parts);`outbounds` 是所有 `render_outbound` 实现结果的扁平拼接。
+`BubFramework.process_inbound` 的返回值。`prompt` 是解析后的 prompt。源码标注当前仍是 `str`，但 `build_prompt` hook 可以返回多模态内容片段列表，运行时会保留这个 list。`outbounds` 是所有 `render_outbound` 实现结果的扁平拼接。
 
 ## `Channel`
 
@@ -178,7 +178,7 @@ class BubFramework:
 | `get_channels(message_handler)` | 同步收集所有 `provide_channels` 实现产生的 channel,按 `Channel.name` 去重。 |
 | `get_tape_store()` | 返回 `running()` 中启用的 tape store;在作用域之外返回 `None`。 |
 | `get_system_prompt(prompt, state)` | 同步调用 `system_prompt` 实现,反转后用 `\n\n` 拼接非空片段。 |
-| `hook_report()` | 返回 hook 名 → 实现该 hook 的 adapter 列表。`bub hooks` 的数据来源。 |
+| `hook_report()` | 返回 hook 名 → 已发现的 adapter 列表。`bub hooks` 的数据来源；不要只根据该输出顺序推断运行时优先级。 |
 | `running()` | 异步 context manager;一次性解析 `provide_tape_store` 并在作用域内绑定 tape store。 |
 | `bind_outbound_router(router)` | 绑定(或传 `None` 解绑)`OutboundChannelRouter`。`ChannelManager` 在启停时调用。 |
 | `build_tape_context()` | 同步调用 `build_tape_context` 并返回 `TapeContext`。 |

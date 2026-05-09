@@ -93,7 +93,7 @@ class TurnResult:
     outbounds: list[Envelope] = field(default_factory=list)
 ```
 
-Returned by `BubFramework.process_inbound`. `prompt` is the resolved prompt (string or list-of-parts coerced to string); `outbounds` is the flattened result of every `render_outbound` impl.
+Returned by `BubFramework.process_inbound`. `prompt` is the resolved prompt. The source annotation is currently `str`, but a `build_prompt` hook may return multimodal content parts and the runtime preserves that list. `outbounds` is the flattened result of every `render_outbound` impl.
 
 ## `Channel`
 
@@ -178,7 +178,7 @@ class BubFramework:
 | `get_channels(message_handler)` | Sync-collect channels from every `provide_channels` impl, deduped by `Channel.name`. |
 | `get_tape_store()` | Return the tape store entered by `running()`, or `None` outside the scope. |
 | `get_system_prompt(prompt, state)` | Run `system_prompt` impls (sync), reverse, and join non-empty results with `\n\n`. |
-| `hook_report()` | Map hook name → ordered list of adapter names. Backs `bub hooks`. |
+| `hook_report()` | Map hook name → discovered adapter names. Backs `bub hooks`; read the hook reference before treating this order as runtime precedence. |
 | `running()` | Async context manager; resolves `provide_tape_store` once and binds the resulting store for the duration. |
 | `bind_outbound_router(router)` | Attach (or detach with `None`) the `OutboundChannelRouter`. The `ChannelManager` calls this on start/stop. |
 | `build_tape_context()` | Sync-call `build_tape_context` and return the resulting `TapeContext`. |

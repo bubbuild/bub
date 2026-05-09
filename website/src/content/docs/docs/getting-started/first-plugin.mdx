@@ -77,15 +77,17 @@ echo_plugin = EchoPlugin()
 
 `build_prompt` is a `firstresult` hook — the first non-None return value wins. `run_model` is also `firstresult`, so this implementation overrides the built-in agent entirely.
 
-## 3. Install it editable
+## 3. Create the plugin environment
 
-From the plugin directory, install the package into your active environment:
+From the plugin directory, sync the package and its dependencies into the plugin project's `.venv`:
 
 ```bash
-uv pip install -e .
+uv sync
 ```
 
-Bub loads entry points from the active Python environment, so an editable install is enough for iteration.
+`uv sync` installs the plugin package editable by default. The `uv run bub ...` commands below then run Bub from the same environment that contains the plugin entry point.
+
+If you instead want to install the plugin into an existing Bub checkout environment, activate that target virtualenv first, then run `uv pip install -e .`.
 
 ## 4. Verify Bub loaded it
 
@@ -109,7 +111,7 @@ The outbound message should contain:
 [echo:cli:local] hello from plugin tutorial
 ```
 
-If the response came from a real model instead, the plugin did not load — re-run `uv pip install -e .` in the active environment and re-check `bub hooks`.
+If the response came from a real model instead, the plugin did not load — re-run `uv sync` in the plugin project, or ensure you installed it into the virtualenv that runs `bub`, then re-check `bub hooks`.
 
 ## Next steps
 

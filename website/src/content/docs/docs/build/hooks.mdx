@@ -14,6 +14,8 @@ This page collects working recipes for the most common hook patterns. Each recip
 
 A **hook** is a named extension point declared on `BubHookSpecs`; your plugin contributes implementations that Bub calls during a turn.
 
+Several recipes below use plugin classes. Register those classes through a callable entry point such as `pkg.plugin:MyPlugin`, or create a module-level instance and point the entry point at that instance. A bare module target only registers module-level `@hookimpl` functions.
+
 ## 1. Override the prompt
 
 Replace the text Bub sends to the model. `build_prompt` is `firstresult`, so the highest-priority implementation wins.
@@ -29,7 +31,7 @@ class PrefixPrompt:
         return f"[prefix] {content}"
 ```
 
-Verify with `uv run bub run "hello"` — the model receives `[prefix] hello`.
+To observe this directly, pair it with an echo `run_model` hook that returns the prompt, or inspect the prompt in a test. A normal `uv run bub run "hello"` prints the final outbound text, not the raw prompt sent to the model.
 
 ## 2. Replace the model
 

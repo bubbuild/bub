@@ -106,7 +106,7 @@ Exit codes:
 
 ## `bub install`
 
-Install a plugin into Bub's managed `uv` project (`~/.bub/bub-project` by default), or sync the project when no specs are passed.
+Install a plugin into Bub's managed `uv` project (`BUB_HOME/bub-project`, or `~/.bub/bub-project` when `BUB_HOME` is unset), or sync the project when no specs are passed.
 
 ```text
 bub install [OPTIONS] [SPECS]...
@@ -114,8 +114,8 @@ bub install [OPTIONS] [SPECS]...
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `SPECS` (args) | one or more strings | empty list | Package specs: PyPI name, `owner/repo[@ref]`, `git+...`, or bare bub-contrib package name resolved against `https://github.com/bubbuild/bub-contrib.git`. |
-| `--project` | PATH | `~/.bub/bub-project` (env: `BUB_PROJECT`) | Path to the Bub plugin project directory. |
+| `SPECS` (args) | one or more strings | empty list | Package specs: PyPI name, `owner/repo[@ref]`, `git+...`, or a bub-contrib package as `name@ref` resolved against `https://github.com/bubbuild/bub-contrib.git`. |
+| `--project` | PATH | `BUB_HOME/bub-project`, or `~/.bub/bub-project` when `BUB_HOME` is unset (env: `BUB_PROJECT`) | Path to the Bub plugin project directory. |
 
 Behavior notes:
 
@@ -136,7 +136,7 @@ bub uninstall [OPTIONS] PACKAGES...
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `PACKAGES` (args) | one or more strings | required | Package names as recorded in the project's `pyproject.toml`. |
-| `--project` | PATH | `~/.bub/bub-project` (env: `BUB_PROJECT`) | Plugin project directory. |
+| `--project` | PATH | `BUB_HOME/bub-project`, or `~/.bub/bub-project` when `BUB_HOME` is unset (env: `BUB_PROJECT`) | Plugin project directory. |
 
 Calls `uv remove --active <packages>` inside `--project`.
 
@@ -149,7 +149,7 @@ bub update [OPTIONS] [PACKAGES]...
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `PACKAGES` (args) | zero or more strings | empty list | Package names to upgrade; empty means all. |
-| `--project` | PATH | `~/.bub/bub-project` (env: `BUB_PROJECT`) | Plugin project directory. |
+| `--project` | PATH | `BUB_HOME/bub-project`, or `~/.bub/bub-project` when `BUB_HOME` is unset (env: `BUB_PROJECT`) | Plugin project directory. |
 
 Behavior notes:
 
@@ -196,4 +196,4 @@ Hidden diagnostic command that prints the `hook → adapters` map.
 bub hooks
 ```
 
-The command is registered with `hidden=True`, so it does not appear in the top-level `--help` listing. Output is one line per hook: `hook_name: adapter1, adapter2, …`. Used to verify which plugins win each hook (later registration wins; see [Hooks › How hooks are invoked](/docs/reference/hooks/#how-hooks-are-invoked)).
+The command is registered with `hidden=True`, so it does not appear in the top-level `--help` listing. Output is one line per hook: `hook_name: adapter1, adapter2, …`. Use it to verify discovery; see [Hooks › How hooks are invoked](/docs/reference/hooks/#how-hooks-are-invoked) before inferring firstresult precedence from the printed order.

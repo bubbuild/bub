@@ -16,8 +16,8 @@ You should have:
 - Python 3.12 or newer
 - [`uv`](https://docs.astral.sh/uv/) on your `PATH`
 - one model access path for the model-backed step:
-  - an API key exported as `BUB_API_KEY`, or
-  - OAuth login via `uv run bub login openai`
+  - an API key exported as `BUB_API_KEY` or as a provider-specific `BUB_<PROVIDER>_API_KEY`, or
+  - OpenAI Codex OAuth via `uv run bub login openai` with `BUB_MODEL=openai:gpt-5-codex`
 
 If you only want to inspect Bub without running a model turn, the API key is optional — comma commands such as `,help` work without one.
 

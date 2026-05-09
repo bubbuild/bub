@@ -51,7 +51,7 @@ Ask Bub to run the skill via the built-in `,skill` command:
 uv run bub run ",skill name=repo-map"
 ```
 
-Bub will print the rendered skill body. If you see "skill not found", check that `SKILL.md` is at the right path and the frontmatter parses as YAML.
+Bub will print the rendered skill body. If Bub reports `(no such skill)`, check that `SKILL.md` is at the right path and the frontmatter parses as YAML.
 
 :::note
 Bub discovers skills from three roots in priority order: project (`.agents/skills/`), user home (`~/.agents/skills/`), and built-in. Project skills win on name collisions.

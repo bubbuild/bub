@@ -65,11 +65,11 @@ sidebar:
 
 ### load_state
 
-广播：每个实现贡献一份 state dict。内核先用 `_runtime_workspace` 初始化 state，再按插件注册顺序的 **逆序** 合并各 hook 结果，因此高优先级（晚注册）的插件在键冲突时胜出。
+广播：每个实现贡献一份 state dict。内核先用 `_runtime_workspace` 初始化 state，然后按优先级调用实现、收集结果，再反转结果列表后合并。低优先级 state 先合并，高优先级 state 后合并，因此晚注册的插件在键冲突时胜出。
 
 ### build_prompt
 
-`firstresult`：返回字符串或多模态内容片段列表（OpenAI 格式）。如果所有实现都返回 falsy 值，内核 fallback 为 inbound envelope 的纯 `content` 字段。
+`firstresult`：返回字符串或多模态内容片段列表（OpenAI 格式）。`HookRuntime.call_first` 会停在第一个非 `None` 返回值。如果没有实现返回非 `None` 值，或选中的值为 falsy，`process_inbound` 会 fallback 为 inbound envelope 的纯 `content` 字段；已选中的 falsy 值不会触发继续尝试低优先级实现。
 
 ### run_model 与 run_model_stream
 
@@ -78,9 +78,9 @@ sidebar:
 - `run_model` 一次返回最终字符串。
 - `run_model_stream` 返回 `AsyncStreamEvents` 的 chunk 流（`text`、`error` 等）。
 
-hook 运行时会在两者间互相适配：若插件只实现 `run_model_stream` 且框架要求非流式输出，内核会收集每个 `text` 事件的 `delta` 并拼接；若只实现 `run_model` 且调用方要求流式，则被包装为单个 text chunk 的流。
+hook 运行时会在两者间互相适配：若插件只实现 `run_model_stream` 且框架要求非流式输出，内核会收集每个 `text` 事件的 `delta` 并拼接；若只实现 `run_model` 且调用方要求流式，则被包装为单个 text chunk 的流。`run_model_stream` 实现应返回 `AsyncStreamEvents`；当前非流式适配路径中返回 `None` 会成为错误，而不是干净 fallback。
 
-如果两者都没有返回输出（每个实现都返回 `None`），内核会通过 `on_error(stage="run_model", ...)` 通知，并 fallback 为原 prompt，使 `save_state` 与后续 outbound 阶段仍能运行。
+如果两者都没有返回输出（每个实现都返回 `None`），内核会通过 `on_error(stage="run_model", ...)` 通知并 fallback，使 `save_state` 与后续 outbound 阶段仍能运行。字符串 prompt 会原样返回；多模态 list prompt 会 fallback 为 inbound envelope 的纯 `content` 字段。
 
 流式过程中，每个 `error` 事件都会通过 `on_error(stage="run_model", ...)` 转发。绑定的 `OutboundChannelRouter` 也可在 turn 结束前包装该流，将增量 chunk 推送到 channel。
 

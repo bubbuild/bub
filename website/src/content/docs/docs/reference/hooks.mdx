@@ -17,7 +17,7 @@ For the *why* and *how* of each stage see [Turn pipeline](/docs/concepts/turn-pi
 | --- | --- | --- | --- | --- | --- |
 | `resolve_session` | firstresult | `(message: Envelope) -> str` | session id | `BubFramework.process_inbound` | Falls back to `"{channel}:{chat_id}"` when no impl returns a value. |
 | `load_state` | broadcast | `(message: Envelope, session_id: str) -> State` | dict to merge | `BubFramework.process_inbound` | Framework reverses results, then merges in order so high-priority keys overwrite low-priority. |
-| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: State) -> str \| list[dict]` | prompt or content parts | `BubFramework.process_inbound` | Falls back to `content_of(message)` if all impls return `None`. |
+| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: State) -> str \| list[dict]` | prompt or content parts | `BubFramework.process_inbound` | Falls back to `content_of(message)` when no impl returns a non-`None` value, or when the selected firstresult is falsy. A falsy selected value does not cause lower-priority impls to run. |
 | `run_model` | firstresult | `(prompt, session_id, state) -> str` | model text | `HookRuntime.run_model` | Legacy text path. Implement either `run_model` or `run_model_stream`, not both. |
 | `run_model_stream` | firstresult | `(prompt, session_id, state) -> AsyncStreamEvents` | async stream | `HookRuntime.run_model_stream` | Preferred. Falls back to wrapping a `run_model` result in a one-chunk stream when no streaming impl exists. |
 | `save_state` | broadcast | `(session_id, state, message, model_output) -> None` | none | `process_inbound` model-stage finally block | Runs after prompt resolution for model-stage success or failure; failures before prompt/model execution skip it. |
@@ -46,6 +46,8 @@ def _iter_hookimpls(self, hook_name: str) -> list[Any]:
 ```
 
 `pluggy` returns implementations in registration order. `HookRuntime` reverses that list, so **the most recently registered plugin runs first**. Builtin is registered before entry-point plugins, so user plugins always win on `firstresult` hooks.
+
+`bub hooks` is a discovery report. In the current implementation it prints the raw hook implementation order from pluggy, so use this section rather than the printed order alone when reasoning about runtime precedence.
 
 ### `call_first` vs `call_many`
 

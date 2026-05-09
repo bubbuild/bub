@@ -129,13 +129,13 @@ Builtin is registered first; entry-point plugins are registered after. Inside th
 
 ## 4. Iterate with an editable install
 
-From the plugin directory:
+Install the plugin into the same Python environment that runs `bub`. If you have already activated that environment, run this from the plugin directory:
 
 ```bash
 uv pip install -e .
 ```
 
-Bub loads entry points from the active Python environment, so editable installs pick up code changes without reinstalling. The same pattern shown in [First plugin](/docs/getting-started/first-plugin/) applies here.
+Bub loads entry points from the active Python environment, so editable installs pick up code changes without reinstalling. If you are not working inside an already-active Bub virtualenv, run `uv sync` in the plugin project and use `uv run bub ...` from that project instead. The same pattern shown in [First plugin](/docs/getting-started/first-plugin/) applies here.
 
 ## 5. Confirm Bub loaded your plugin
 
@@ -145,7 +145,7 @@ Run the hook diagnostics command:
 uv run bub hooks
 ```
 
-Each registered hook lists the plugins that contribute to it. Expected output for an `EchoPlugin` that overrides `build_prompt` and `run_model`:
+Each registered hook lists the plugins that contribute to it. The command reports discovery order, not the exact firstresult winner; runtime priority is described in [Hook reference](/docs/reference/hooks/#iteration-order). Expected output for an `EchoPlugin` that overrides `build_prompt` and `run_model`:
 
 ```text
 build_prompt: builtin, echo

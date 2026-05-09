@@ -12,7 +12,7 @@ sidebar:
 你需要准备：
 
 - 已 [安装 Bub](/zh-cn/docs/getting-started/install/) 且 `uv run bub hooks` 报告 `builtin` 插件
-- 一种模型访问方式：通过 `BUB_API_KEY` 导出的 API key，或通过 `uv run bub login openai` 完成的 OAuth 登录
+- 一种模型访问方式：通过 `BUB_API_KEY` 或提供商专用 `BUB_<PROVIDER>_API_KEY` 导出的 API key；也可以通过 `uv run bub login openai` 完成 OpenAI Codex OAuth，并设置 `BUB_MODEL=openai:gpt-5-codex`
 
 ## 1. 创建 workspace
 
@@ -72,7 +72,7 @@ Known internal commands:
 uv run bub run "总结该 workspace 的目的。"
 ```
 
-Bub 会解析 session、加载 state、构建 prompt（包含 `AGENTS.md`）、调用模型、渲染 outbound 消息，并将其分派到 CLI channel。
+Bub 会解析 session、加载 state、构建用户 prompt，并用包含 `AGENTS.md` 的 system prompt 调用模型，然后渲染 outbound 消息并由 CLI 命令打印出来。
 
 如需交互式使用，启动 chat 会话：
 
@@ -82,13 +82,13 @@ uv run bub chat
 
 ## 5. 可选：使用 OpenAI OAuth 登录
 
-如果不想管理 API key，使用 OAuth 登录：
+如果想使用 OpenAI Codex OAuth 路径而不是 API key，使用 OAuth 登录：
 
 ```bash
 uv run bub login openai
 ```
 
-Bub 会在本地保存凭据，并在未设置 `BUB_API_KEY` 时用于后续模型调用。
+Bub 会在本地保存凭据。使用该路径时，设置 `BUB_MODEL=openai:gpt-5-codex`，并保持 `BUB_API_KEY` 未设置。
 
 ## 下一步
 

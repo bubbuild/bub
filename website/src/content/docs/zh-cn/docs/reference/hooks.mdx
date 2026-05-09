@@ -17,7 +17,7 @@ description: BubHookSpecs 中每个钩子的类型、签名、返回值与调用
 | --- | --- | --- | --- | --- | --- |
 | `resolve_session` | firstresult | `(message: Envelope) -> str` | session id | `BubFramework.process_inbound` | 没有任何实现返回值时,框架回退为 `"{channel}:{chat_id}"`。 |
 | `load_state` | broadcast | `(message: Envelope, session_id: str) -> State` | dict to merge | `BubFramework.process_inbound` | 框架先反转结果列表再依次合并,使高优先级的键覆盖低优先级。 |
-| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: State) -> str \| list[dict]` | prompt or content parts | `BubFramework.process_inbound` | 全部实现都返回 `None` 时回退到 `content_of(message)`。 |
+| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: State) -> str \| list[dict]` | prompt or content parts | `BubFramework.process_inbound` | 没有实现返回非 `None` 值，或选中的 firstresult 为 falsy 时，回退到 `content_of(message)`。已选中的 falsy 值不会触发继续尝试低优先级实现。 |
 | `run_model` | firstresult | `(prompt, session_id, state) -> str` | model text | `HookRuntime.run_model` | 旧版纯文本路径。`run_model` 与 `run_model_stream` 选其一实现,不要同时实现。 |
 | `run_model_stream` | firstresult | `(prompt, session_id, state) -> AsyncStreamEvents` | async stream | `HookRuntime.run_model_stream` | 推荐路径。无流式实现时框架将 `run_model` 结果包装为单个 chunk 的流。 |
 | `save_state` | broadcast | `(session_id, state, message, model_output) -> None` | none | `process_inbound` model-stage finally block | prompt 解析完成后，在模型阶段成功或失败时执行；若失败发生在 prompt/model 执行前则跳过。 |
@@ -46,6 +46,8 @@ def _iter_hookimpls(self, hook_name: str) -> list[Any]:
 ```
 
 `pluggy` 按注册顺序返回实现。`HookRuntime` 将列表反转,因此 **最近注册的插件最先运行**。Builtin 早于所有 entry-point 插件注册,所以用户插件在 `firstresult` 钩子上始终优先。
+
+`bub hooks` 是发现报告。当前实现打印的是 pluggy 的原始 hook implementation 顺序，因此判断运行时优先级时应以本节说明为准，而不是只看输出顺序。
 
 ### `call_first` vs `call_many`
 

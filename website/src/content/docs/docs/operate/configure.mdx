@@ -7,10 +7,10 @@ sidebar:
 
 This page shows how to configure Bub: which model to call, which provider to call it through, and which channel credentials to load on startup.
 
-Bub reads its own configuration from three places, in order of precedence (highest first):
+Bub reads its own configuration from these places, in order of precedence (highest first):
 
 1. Process environment (`BUB_*` variables).
-2. The `.env` file in the working directory.
+2. `.env` values loaded during CLI startup or by settings classes that explicitly declare `env_file=".env"`.
 3. `~/.bub/config.yml` (created by `bub onboard`).
 
 Downstream model SDKs may still read their own provider variables, such as `OPENROUTER_API_KEY`, when no explicit `BUB_API_KEY` is supplied. Bub's settings layer only maps `BUB_*` variables.
@@ -60,7 +60,7 @@ Every YAML key has a matching environment variable. The pattern is `BUB_<UPPERCA
 | `BUB_API_KEY` | API key for the active provider. |
 | `BUB_API_BASE` | Override the provider's base URL. |
 | `BUB_API_FORMAT` | Request format: `completion` (default), `responses`, or `messages`. |
-| `BUB_HOME` | Bub's data directory (config, history, plugin project). Default `~/.bub`. |
+| `BUB_HOME` | Bub's runtime data directory (history, tapes, managed plugin project). Default `~/.bub`; does not move the default config file. |
 | `BUB_<PROVIDER>_API_KEY` | Per-provider key, e.g. `BUB_OPENROUTER_API_KEY`. |
 | `BUB_<PROVIDER>_API_BASE` | Per-provider base URL. |
 
@@ -81,7 +81,7 @@ For the message-handling and access-control behavior these variables drive, see 
 
 ## 5. Verify
 
-Print the loaded hooks (this also forces config validation):
+Print the loaded hook mapping:
 
 ```bash
 uv run bub hooks
@@ -93,7 +93,7 @@ Then run one turn end-to-end:
 uv run bub run "say hi"
 ```
 
-Expected output is one line per outbound, prefixed with `[<channel>:<chat_id>]`.
+Expected output prints each outbound as a prefix line (`[<channel>:<chat_id>]`) followed by the message content.
 
 ## Next steps
 

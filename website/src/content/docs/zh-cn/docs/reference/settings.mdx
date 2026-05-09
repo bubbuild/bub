@@ -11,7 +11,7 @@ Bub 按以下顺序解析配置值,优先级从高到低:
 
 1. **CLI 参数**(例如 `--workspace`、`--project`、`--enable-channel`)。
 2. **环境变量**(`BUB_*`)。
-3. **当前工作目录中的 `.env`** 字段，仅适用于声明了 `env_file=".env"` 的 settings class。
+3. **`.env`** 值，来自 CLI 启动阶段的加载，或声明了 `env_file=".env"` 的 settings class。
 4. **`~/.bub/config.yml`** 中的字段,由 `bub.configure.load` 加载。
 5. **字段默认值**,在 `Settings` 子类中声明。
 
@@ -31,7 +31,7 @@ Bub 按以下顺序解析配置值,优先级从高到低:
 | 环境变量 | 默认值 | YAML 字段 | 读取方 | 描述 |
 | --- | --- | --- | --- | --- |
 | `BUB_HOME` | `~/.bub` | — | `bub.home` (`bub/__init__.py`) | history、tape store 与托管插件项目的根目录；不会移动默认配置文件。 |
-| `BUB_PROJECT` | `~/.bub/bub-project` | — | `bub install` / `uninstall` / `update` 的 `--project` 选项 | 插件项目目录;首次 `install` 时通过 `uv init` 创建。 |
+| `BUB_PROJECT` | `BUB_HOME/bub-project`；未设置 `BUB_HOME` 时为 `~/.bub/bub-project` | — | `bub install` / `uninstall` / `update` 的 `--project` 选项 | 插件项目目录;首次 `install` 时通过 `uv init` 创建。 |
 
 ## Agent —— `AgentSettings`
 
