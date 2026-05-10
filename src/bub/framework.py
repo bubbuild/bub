@@ -219,9 +219,7 @@ class BubFramework:
         if self._outbound_router is not None:
             await self._outbound_router.cancel(session_id)
 
-    async def admit_message(
-        self, *, session_id: str, message: Envelope, turn: TurnSnapshot
-    ) -> AdmitDecision | None:
+    async def admit_message(self, *, session_id: str, message: Envelope, turn: TurnSnapshot) -> AdmitDecision | None:
         return cast(
             "AdmitDecision | None",
             await self._hook_runtime.call_first(

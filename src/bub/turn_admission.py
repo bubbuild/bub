@@ -161,6 +161,7 @@ class TurnControl:
     def drain_injected(self) -> list[Envelope]:
         return self.buffer.drain_nowait()
 
+
 @dataclass
 class SessionTurnController:
     """Per-session runtime queues used by ``ChannelManager``."""
@@ -204,5 +205,7 @@ class SessionTurnController:
         message = self.pending_queue.popleft()
         self._pending_bytes = max(0, self._pending_bytes - _message_size(message))
         return message
+
+
 def _message_size(message: Envelope) -> int:
     return len(content_of(message).encode("utf-8"))

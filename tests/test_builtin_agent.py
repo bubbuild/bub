@@ -204,6 +204,7 @@ async def test_agent_loop_appends_injected_messages_at_checkpoint() -> None:
         return ToolAutoResult(kind="text", text="done", tool_calls=[], tool_results=[], error=None)
 
     agent._run_once = run_once  # type: ignore[method-assign]
+
     async def append_event(*args: Any, **kwargs: Any) -> None:
         return None
 
@@ -213,6 +214,4 @@ async def test_agent_loop_appends_injected_messages_at_checkpoint() -> None:
     result = await agent._run_tools_with_auto_handoff(tape=tape, prompt="original")
 
     assert result == "done"
-    assert seen_prompts == [
-        "original\n\nNew steering messages received for this running turn:\ncorrected intent"
-    ]
+    assert seen_prompts == ["original\n\nNew steering messages received for this running turn:\ncorrected intent"]
