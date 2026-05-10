@@ -17,6 +17,7 @@ from bub.channels.message import ChannelMessage, MediaItem
 from bub.envelope import content_of, field_of
 from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
+from bub.turn_admission import AdmitAction, AdmitDecision, TurnSnapshot
 from bub.types import Envelope, MessageHandler, State
 
 AGENTS_FILE_NAME = "AGENTS.md"
@@ -259,6 +260,14 @@ class BuiltinImpl:
             TelegramChannel(on_receive=message_handler),
             CliChannel(on_receive=message_handler, agent=self._get_agent()),
         ]
+
+    @hookimpl
+    def admit_message(self, session_id: str, message: Envelope, turn: TurnSnapshot) -> AdmitDecision | None:
+        if not turn.is_running:
+            return None
+        if turn.supports_steering:
+            return AdmitDecision(action=AdmitAction.INJECT, fallback=AdmitAction.WAIT)
+        return AdmitDecision(action=AdmitAction.WAIT)
 
     @hookimpl
     async def on_error(self, stage: str, error: Exception, message: Envelope | None) -> None:
