@@ -263,6 +263,25 @@ async def test_turn_injected_tool_drains_framework_steering_messages() -> None:
     assert drained == [("session", DrainMode.ONE)]
 
 
+@pytest.mark.asyncio
+async def test_turn_cancel_tool_requests_framework_cancel_signal() -> None:
+    import bub.builtin.tools as builtin_tools
+
+    cancelled: list[str] = []
+
+    class FakeFramework:
+        def request_turn_cancel(self, session_id: str) -> None:
+            cancelled.append(session_id)
+
+    agent = SimpleNamespace(framework=FakeFramework())
+    context = ToolContext(tape="tape", run_id="run", state={"_runtime_agent": agent, "session_id": "session"})
+
+    result = await builtin_tools.turn_cancel.handler(context=context)
+
+    assert result == "Turn cancellation requested."
+    assert cancelled == ["session"]
+
+
 def test_render_outbound_preserves_message_metadata(tmp_path: Path) -> None:
     _, impl, _ = _build_impl(tmp_path)
 

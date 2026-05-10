@@ -412,3 +412,12 @@ async def test_drain_steering_messages_supports_modes() -> None:
 
     assert [message.content for message in one] == ["one"]
     assert [message.content for message in rest] == ["two"]
+
+
+def test_turn_cancel_signal_is_scoped_to_session() -> None:
+    framework = BubFramework()
+
+    framework.request_turn_cancel("session-a")
+
+    assert framework.turn_control("session-a").is_cancelled is True
+    assert framework.turn_control("session-b").is_cancelled is False

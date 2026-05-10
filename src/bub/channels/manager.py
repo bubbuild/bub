@@ -140,8 +140,7 @@ class ChannelManager:
 
     async def cancel(self, session_id: str) -> None:
         self.framework.request_turn_cancel(session_id)
-        cancelled = await self._cancel_tasks(session_id)
-        logger.info(f"channel.manager cancel session_id={session_id}, cancelled {cancelled} tasks")
+        logger.info("channel.manager cancel requested session_id={}", session_id)
 
     def enabled_channels(self) -> list[Channel]:
         if "all" in self._enabled_channels:
@@ -275,9 +274,11 @@ class ChannelManager:
             if not controller.active():
                 return True
             controller.add_pending(message)
+            self.framework.request_turn_cancel(message.session_id)
             logger.info(
-                "channel.manager admission cancel_and_process degraded_to=wait session_id={} reason={}",
+                "channel.manager admission cancel_and_process session_id={} pending_count={} reason={}",
                 message.session_id,
+                len(controller.pending_queue),
                 decision.reason,
             )
             return False
@@ -286,6 +287,8 @@ class ChannelManager:
 
     def _schedule_message(self, message: ChannelMessage) -> asyncio.Task:
         controller = self._controller(message.session_id)
+        if not controller.active():
+            self.framework.reset_turn_cancel(message.session_id)
         task = asyncio.create_task(self._run_message(message))
         task.set_name(f"bub:{message.session_id}")
         task.add_done_callback(functools.partial(self._on_task_done, message.session_id))

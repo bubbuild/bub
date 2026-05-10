@@ -115,6 +115,9 @@ class FakeFramework:
     def request_turn_cancel(self, session_id: str) -> None:
         self.turn_control(session_id).cancel()
 
+    def reset_turn_cancel(self, session_id: str) -> None:
+        self.turn_control(session_id).reset_cancel()
+
 
 def _message(
     content: str,
@@ -484,7 +487,7 @@ async def test_channel_manager_admission_inject_falls_back_to_wait_without_steer
 
 
 @pytest.mark.asyncio
-async def test_channel_manager_admission_cancel_and_process_degrades_to_wait(load_config) -> None:
+async def test_channel_manager_admission_cancel_and_process_requests_cancel_and_queues_replacement(load_config) -> None:
     _load_channel_config(load_config, enabled_channels="telegram")
     framework = FakeFramework({"telegram": FakeChannel("telegram")})
     framework.admission_decisions.append(AdmitDecision(AdmitAction.CANCEL_AND_PROCESS, reason="replace"))
@@ -500,6 +503,7 @@ async def test_channel_manager_admission_cancel_and_process_degrades_to_wait(loa
 
     assert admitted is False
     assert active.cancelled() is False
+    assert framework.turn_control("telegram:chat").is_cancelled is True
     assert [message.content for message in manager._session_controllers["telegram:chat"].pending_queue] == [
         "replacement"
     ]
@@ -584,6 +588,7 @@ async def test_channel_manager_schedules_waiting_message_after_active_turn_finis
     await asyncio.sleep(0)
 
     assert [message.content for message, _ in framework.process_calls] == ["next"]
+    assert framework.turn_control("telegram:chat").is_cancelled is False
 
 
 def test_cli_channel_normalize_input_prefixes_shell_commands() -> None:

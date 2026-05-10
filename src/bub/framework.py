@@ -214,11 +214,6 @@ class BubFramework:
         if self._outbound_router is not None:
             await self._outbound_router.quit(session_id)
 
-    async def cancel_via_router(self, session_id: str) -> None:
-        self.request_turn_cancel(session_id)
-        if self._outbound_router is not None:
-            await self._outbound_router.cancel(session_id)
-
     async def admit_message(self, *, session_id: str, message: Envelope, turn: TurnSnapshot) -> AdmitDecision | None:
         return cast(
             "AdmitDecision | None",
@@ -259,6 +254,9 @@ class BubFramework:
 
     def request_turn_cancel(self, session_id: str) -> None:
         self.turn_control(session_id).cancel()
+
+    def reset_turn_cancel(self, session_id: str) -> None:
+        self.turn_control(session_id).reset_cancel()
 
     @staticmethod
     def _default_session_id(message: Envelope) -> str:

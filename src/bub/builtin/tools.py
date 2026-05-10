@@ -325,7 +325,7 @@ async def turn_cancel(*, context: ToolContext) -> str:
     """Cancel the active channel turn for the current session."""
     agent = _get_agent(context)
     session_id = context.state.get("session_id", "temp/unknown")
-    await agent.framework.cancel_via_router(session_id)
+    agent.framework.request_turn_cancel(session_id)
     return "Turn cancellation requested."
 
 

@@ -141,6 +141,9 @@ class TurnControl:
     def cancel(self) -> None:
         self.cancel_event.set()
 
+    def reset_cancel(self) -> None:
+        self.cancel_event.clear()
+
     def inject(self, message: Envelope) -> bool:
         return self.buffer.put_nowait(message)
 
