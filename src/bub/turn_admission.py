@@ -25,6 +25,10 @@ class AdmitAction(StrEnum):
 TurnAdmissionAction = AdmitAction | Literal["process", "wait", "drop", "cancel_and_process", "inject"]
 
 
+class TurnCancelled(Exception):
+    """Raised when a running turn observes a cooperative cancellation signal."""
+
+
 @dataclass(frozen=True)
 class AdmitDecision:
     """Decision returned by ``admit_message`` hooks."""
@@ -171,6 +175,7 @@ class SessionTurnController:
     pending_queue: deque[Envelope] = field(default_factory=deque)
     max_pending: int = 32
     max_pending_bytes: int = 65536
+    closing: bool = False
     _pending_bytes: int = field(default=0, init=False, repr=False)
 
     def active(self) -> set[asyncio.Task]:
@@ -204,6 +209,14 @@ class SessionTurnController:
         message = self.pending_queue.popleft()
         self._pending_bytes = max(0, self._pending_bytes - _message_size(message))
         return message
+
+    def clear_pending(self) -> None:
+        self.pending_queue.clear()
+        self._pending_bytes = 0
+
+    def promote_steering_to_pending(self) -> None:
+        for message in self.steering.drain_injected():
+            self.add_pending(message)
 
 
 def _message_size(message: Envelope) -> int:

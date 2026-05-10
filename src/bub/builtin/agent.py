@@ -36,6 +36,7 @@ from bub.envelope import content_of
 from bub.framework import BubFramework
 from bub.skills import discover_skills, render_skills_prompt
 from bub.tools import REGISTRY, model_tools, render_tools_prompt
+from bub.turn_admission import TurnCancelled
 from bub.types import State
 from bub.utils import workspace_from_state
 
@@ -270,8 +271,7 @@ class Agent:
         next_prompt = prompt
         for step in range(1, self.settings.max_steps + 1):
             next_prompt = self._prompt_with_injected_messages(tape.context.state, next_prompt)
-            if self._turn_cancelled(tape.context.state):
-                raise RuntimeError("turn cancelled")
+            self._raise_if_turn_cancelled(tape.context.state)
             start = time.monotonic()
             logger.info("loop.step step={} tape={} model={}", step, tape.name, display_model)
             await self.tapes.append_event(tape.name, "loop.step.start", {"step": step, "prompt": next_prompt})
@@ -283,6 +283,19 @@ class Agent:
                     allowed_skills=allowed_skills,
                     allowed_tools=allowed_tools,
                 )
+            except TurnCancelled:
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                await self.tapes.append_event(
+                    tape.name,
+                    "loop.step",
+                    {
+                        "step": step,
+                        "elapsed_ms": elapsed_ms,
+                        "status": "cancelled",
+                        "date": datetime.now(UTC).isoformat(),
+                    },
+                )
+                raise
             except Exception as exc:
                 elapsed_ms = int((time.monotonic() - start) * 1000)
                 await self.tapes.append_event(
@@ -386,8 +399,7 @@ class Agent:
         next_prompt = prompt
         for step in range(1, self.settings.max_steps + 1):
             next_prompt = self._prompt_with_injected_messages(tape.context.state, next_prompt)
-            if self._turn_cancelled(tape.context.state):
-                raise RuntimeError("turn cancelled")
+            self._raise_if_turn_cancelled(tape.context.state)
             start = time.monotonic()
             outcome = _ToolAutoOutcome(kind="text", text="", error="")
             logger.info("loop.step step={} tape={} model={}", step, tape.name, display_model)
@@ -506,6 +518,11 @@ class Agent:
     def _turn_cancelled(state: State) -> bool:
         control = state.get("_runtime_turn_control")
         return bool(getattr(control, "is_cancelled", False))
+
+    @staticmethod
+    def _raise_if_turn_cancelled(state: State) -> None:
+        if Agent._turn_cancelled(state):
+            raise TurnCancelled("turn cancelled")
 
     @staticmethod
     def _prompt_with_injected_messages(state: State, prompt: str | list[dict]) -> str | list[dict]:

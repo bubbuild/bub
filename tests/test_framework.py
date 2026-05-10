@@ -421,3 +421,38 @@ def test_turn_cancel_signal_is_scoped_to_session() -> None:
 
     assert framework.turn_control("session-a").is_cancelled is True
     assert framework.turn_control("session-b").is_cancelled is False
+
+
+@pytest.mark.asyncio
+async def test_process_inbound_preserves_resolve_session_error(load_config) -> None:
+    framework = BubFramework()
+
+    class Plugin:
+        @hookimpl
+        def resolve_session(self, message) -> str:
+            raise RuntimeError("bad session")
+
+    framework._plugin_manager.register(Plugin(), name="plugin")
+
+    with pytest.raises(RuntimeError, match="bad session"):
+        await framework.process_inbound(ChannelMessage(session_id="raw", channel="cli", chat_id="room", content="hi"))
+
+
+@pytest.mark.asyncio
+async def test_resolve_session_prefers_runtime_session_id(load_config) -> None:
+    framework = BubFramework()
+
+    class Plugin:
+        @hookimpl
+        def resolve_session(self, message) -> str:
+            return "hook-session"
+
+    framework._plugin_manager.register(Plugin(), name="plugin")
+
+    session_id = await framework.resolve_session({
+        "session_id": "raw",
+        "_runtime_session_id": "runtime-session",
+        "content": "hi",
+    })
+
+    assert session_id == "runtime-session"

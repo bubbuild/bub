@@ -13,7 +13,7 @@ import bub.builtin.agent as agent_module
 from bub.builtin.agent import Agent
 from bub.builtin.settings import AgentSettings
 from bub.channels.message import ChannelMessage
-from bub.turn_admission import SteeringBuffer, TurnControl
+from bub.turn_admission import SteeringBuffer, TurnCancelled, TurnControl
 
 
 def test_build_llm_passes_codex_resolver_to_republic(monkeypatch) -> None:
@@ -215,3 +215,58 @@ async def test_agent_loop_appends_injected_messages_at_checkpoint() -> None:
 
     assert result == "done"
     assert seen_prompts == ["original\n\nNew steering messages received for this running turn:\ncorrected intent"]
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_cancel_does_not_discard_completed_final_text() -> None:
+    agent = _make_agent()
+    control = TurnControl(session_id="session", buffer=SteeringBuffer())
+    tape = MagicMock()
+    tape.name = "test-tape"
+    tape.context = TapeContext(state={"_runtime_turn_control": control})
+
+    async def run_once(**kwargs: Any) -> ToolAutoResult:
+        control.cancel()
+        return ToolAutoResult(kind="text", text="already done", tool_calls=[], tool_results=[], error=None)
+
+    agent._run_once = run_once  # type: ignore[method-assign]
+
+    async def append_event(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    agent.tapes = MagicMock()  # type: ignore[assignment]
+    agent.tapes.append_event = append_event
+
+    result = await agent._run_tools_with_auto_handoff(tape=tape, prompt="original")
+
+    assert result == "already done"
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_cancel_stops_before_next_step() -> None:
+    agent = _make_agent()
+    agent.settings.max_steps = 2
+    control = TurnControl(session_id="session", buffer=SteeringBuffer())
+    tape = MagicMock()
+    tape.name = "test-tape"
+    tape.context = TapeContext(state={"_runtime_turn_control": control})
+    calls = 0
+
+    async def run_once(**kwargs: Any) -> ToolAutoResult:
+        nonlocal calls
+        calls += 1
+        control.cancel()
+        return ToolAutoResult(kind="tools", text=None, tool_calls=[{"name": "tool"}], tool_results=[], error=None)
+
+    agent._run_once = run_once  # type: ignore[method-assign]
+
+    async def append_event(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    agent.tapes = MagicMock()  # type: ignore[assignment]
+    agent.tapes.append_event = append_event
+
+    with pytest.raises(TurnCancelled):
+        await agent._run_tools_with_auto_handoff(tape=tape, prompt="original")
+
+    assert calls == 1

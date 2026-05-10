@@ -118,7 +118,7 @@ class ChannelManager:
         return channel.stream_events(message, stream)
 
     async def quit(self, session_id: str) -> None:
-        cancelled = await self._cancel_tasks(session_id)
+        cancelled = await self._cancel_tasks(session_id, schedule_pending=False)
         logger.info(f"channel.manager quit session_id={session_id}, cancelled {cancelled} tasks")
 
     def enabled_channels(self) -> list[Channel]:
@@ -143,7 +143,7 @@ class ChannelManager:
         controller = self._session_controllers.get(session_id)
         if controller is None:
             return
-        if controller.active() or controller.pending_queue:
+        if controller.active() or controller.pending_queue or controller.steering.has_messages():
             return
         self._session_controllers.pop(session_id, None)
         self.framework.clear_turn_control(session_id)
@@ -155,14 +155,20 @@ class ChannelManager:
         if controller is None:
             return
         controller.active_tasks.discard(task)
+        if not controller.active():
+            controller.promote_steering_to_pending()
         self._schedule_pending(session_id)
         self._drop_empty_controller(session_id)
 
-    async def _cancel_tasks(self, session_id: str) -> int:
+    async def _cancel_tasks(self, session_id: str, *, schedule_pending: bool) -> int:
         controller = self._session_controllers.get(session_id)
         if controller is None:
             self.framework.clear_turn_control(session_id)
             return 0
+        controller.closing = not schedule_pending
+        if not schedule_pending:
+            controller.clear_pending()
+            controller.steering.drain_injected()
         tasks = set(controller.active_tasks)
         self.framework.request_turn_cancel(session_id)
         for task in tasks:
@@ -171,18 +177,24 @@ class ChannelManager:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         controller.active_tasks.difference_update(tasks)
-        if controller.pending_queue:
+        if schedule_pending and controller.pending_queue:
             self._schedule_pending(session_id)
         self._drop_empty_controller(session_id)
         return len(tasks)
 
     async def _admit_message(self, message: ChannelMessage) -> bool:
-        controller = self._controller(message.session_id)
+        try:
+            session_id = await self._resolve_message_session(message)
+        except Exception as exc:
+            logger.exception("channel.manager resolve_session failed")
+            await self.framework._hook_runtime.notify_error(stage="resolve_session", error=exc, message=message)
+            return False
+        controller = self._controller(session_id)
 
         snapshot = controller.snapshot(supports_steering=self.framework.supports_steering())
         try:
             decision = await self.framework.admit_message(
-                session_id=message.session_id,
+                session_id=session_id,
                 message=message,
                 turn=snapshot,
             )
@@ -191,11 +203,11 @@ class ChannelManager:
             await self.framework._hook_runtime.notify_error(stage="admit_message", error=exc, message=message)
             return True
         if decision is None:
-            self._drop_empty_controller(message.session_id)
+            self._drop_empty_controller(session_id)
             return True
         admitted = await self._apply_admission_decision(controller, message, decision)
         if not admitted or not controller.active():
-            self._drop_empty_controller(message.session_id)
+            self._drop_empty_controller(session_id)
         return admitted
 
     async def _apply_admission_decision(
@@ -271,11 +283,21 @@ class ChannelManager:
 
     def _schedule_pending(self, session_id: str) -> None:
         controller = self._session_controllers.get(session_id)
-        if controller is None or controller.active():
+        if controller is None or controller.active() or controller.closing:
             return
         message = controller.pop_pending()
         if message is not None:
             self._schedule_message(message)
+
+    async def _resolve_message_session(self, message: ChannelMessage) -> str:
+        session_id = await self.framework.resolve_session(message)
+        if isinstance(message, dict):
+            message["session_id"] = session_id
+            message["_runtime_session_id"] = session_id
+        else:
+            message.session_id = session_id
+            setattr(message, "_runtime_session_id", session_id)  # noqa: B010
+        return session_id
 
     async def _run_message(self, message: ChannelMessage) -> None:
         if isinstance(message, dict):
@@ -309,8 +331,11 @@ class ChannelManager:
 
     async def shutdown(self) -> None:
         count = 0
-        for controller in self._session_controllers.values():
-            for task in controller.active_tasks:
+        for controller in list(self._session_controllers.values()):
+            controller.closing = True
+            controller.clear_pending()
+            controller.steering.drain_injected()
+            for task in set(controller.active_tasks):
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task

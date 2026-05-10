@@ -18,7 +18,7 @@ from bub import configure
 from bub.envelope import content_of, field_of, unpack_batch
 from bub.hook_runtime import _SKIP_VALUE, HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs
-from bub.turn_admission import AdmitDecision, DrainMode, SteeringBuffer, TurnControl, TurnSnapshot
+from bub.turn_admission import AdmitDecision, DrainMode, SteeringBuffer, TurnCancelled, TurnControl, TurnSnapshot
 from bub.types import Envelope, MessageHandler, OutboundChannelRouter, TurnResult
 
 if TYPE_CHECKING:
@@ -108,10 +108,9 @@ class BubFramework:
         """Run one inbound message through hooks and return turn result."""
 
         session_id = self._default_session_id(inbound)
+        managed_turn = False
         try:
-            session_id = await self._hook_runtime.call_first(
-                "resolve_session", message=inbound
-            ) or self._default_session_id(inbound)
+            session_id = await self.resolve_session(inbound)
             managed_turn = bool(field_of(inbound, "_runtime_managed_turn", False))
             if isinstance(inbound, dict):
                 inbound.setdefault("session_id", session_id)
@@ -140,11 +139,13 @@ class BubFramework:
                     message=inbound,
                     model_output=model_output,
                 )
-
             outbounds = await self._collect_outbounds(inbound, session_id, state, model_output)
             for outbound in outbounds:
                 await self._hook_runtime.call_many("dispatch_outbound", message=outbound)
             return TurnResult(session_id=session_id, prompt=prompt, model_output=model_output, outbounds=outbounds)
+        except TurnCancelled:
+            logger.info("turn cancelled session_id={}", session_id)
+            return TurnResult(session_id=session_id, prompt="", model_output="", outbounds=[])
         except Exception as exc:
             logger.exception("Error processing inbound message")
             await self._hook_runtime.notify_error(stage="turn", error=exc, message=inbound)
@@ -152,6 +153,15 @@ class BubFramework:
         finally:
             if not managed_turn:
                 self.clear_turn_control(session_id)
+
+    async def resolve_session(self, message: Envelope) -> str:
+        """Resolve the canonical session id for a message."""
+
+        runtime_session_id = field_of(message, "_runtime_session_id")
+        if runtime_session_id is not None:
+            return str(runtime_session_id)
+        resolved = await self._hook_runtime.call_first("resolve_session", message=message)
+        return str(resolved or self._default_session_id(message))
 
     async def _run_model(
         self,
