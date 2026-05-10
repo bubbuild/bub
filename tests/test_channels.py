@@ -234,7 +234,7 @@ async def test_channel_manager_shutdown_cancels_tasks_and_stops_enabled_channels
         await asyncio.sleep(10)
 
     task = asyncio.create_task(never_finish())
-    manager._ongoing_tasks["telegram:chat"] = {task}
+    manager._controller("telegram:chat").active_tasks = {task}
 
     await manager.shutdown()
 
@@ -314,15 +314,15 @@ async def test_channel_manager_quit_cancels_only_matching_session_tasks(load_con
 
     target_task = asyncio.create_task(never_finish())
     other_task = asyncio.create_task(never_finish())
-    manager._ongoing_tasks["session:target"] = {target_task}
-    manager._ongoing_tasks["session:other"] = {other_task}
+    manager._controller("session:target").active_tasks = {target_task}
+    manager._controller("session:other").active_tasks = {other_task}
 
     await manager.quit("session:target")
 
     assert target_task.cancelled()
-    assert "session:target" not in manager._ongoing_tasks
+    assert "session:target" not in manager._session_controllers
     assert other_task.cancelled() is False
-    assert manager._ongoing_tasks["session:other"] == {other_task}
+    assert manager._session_controllers["session:other"].active_tasks == {other_task}
 
     other_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
@@ -339,7 +339,7 @@ async def test_channel_manager_admission_default_keeps_concurrent_processing(loa
         await asyncio.sleep(10)
 
     active = asyncio.create_task(never_finish())
-    manager._ongoing_tasks["telegram:chat"] = {active}
+    manager._controller("telegram:chat").active_tasks = {active}
 
     admitted = await manager._admit_message(_message("second"))
 
@@ -399,7 +399,7 @@ async def test_channel_manager_admission_wait_queues_pending_message(load_config
         await asyncio.sleep(10)
 
     active = asyncio.create_task(never_finish())
-    manager._ongoing_tasks["telegram:chat"] = {active}
+    manager._controller("telegram:chat").active_tasks = {active}
 
     admitted = await manager._admit_message(_message("queued"))
 
@@ -423,7 +423,7 @@ async def test_channel_manager_admission_drop_discards_message(load_config) -> N
         await asyncio.sleep(10)
 
     active = asyncio.create_task(never_finish())
-    manager._ongoing_tasks["telegram:chat"] = {active}
+    manager._controller("telegram:chat").active_tasks = {active}
 
     admitted = await manager._admit_message(_message("drop me"))
 
@@ -446,7 +446,7 @@ async def test_channel_manager_admission_inject_adds_to_steering_buffer(load_con
         await asyncio.sleep(10)
 
     active = asyncio.create_task(never_finish())
-    manager._ongoing_tasks["telegram:chat"] = {active}
+    manager._controller("telegram:chat").active_tasks = {active}
 
     admitted = await manager._admit_message(_message("actually do this"))
 
@@ -471,7 +471,7 @@ async def test_channel_manager_admission_inject_falls_back_to_wait_without_steer
         await asyncio.sleep(10)
 
     active = asyncio.create_task(never_finish())
-    manager._ongoing_tasks["telegram:chat"] = {active}
+    manager._controller("telegram:chat").active_tasks = {active}
 
     admitted = await manager._admit_message(_message("queue this"))
 
@@ -497,7 +497,7 @@ async def test_channel_manager_admission_cancel_and_process_requests_cancel_and_
         await asyncio.sleep(10)
 
     active = asyncio.create_task(never_finish())
-    manager._ongoing_tasks["telegram:chat"] = {active}
+    manager._controller("telegram:chat").active_tasks = {active}
 
     admitted = await manager._admit_message(_message("replacement"))
 
@@ -529,7 +529,7 @@ async def test_channel_manager_admission_hook_timeout_falls_back_to_process(load
         await asyncio.sleep(10)
 
     active = asyncio.create_task(never_finish())
-    manager._ongoing_tasks["telegram:chat"] = {active}
+    manager._controller("telegram:chat").active_tasks = {active}
 
     admitted = await manager._admit_message(_message("second"))
 

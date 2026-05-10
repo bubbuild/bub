@@ -86,10 +86,6 @@ class SteeringBuffer:
     def count(self) -> int:
         return self._queue.qsize()
 
-    @property
-    def bytes(self) -> int:
-        return self._bytes
-
     def has_messages(self) -> bool:
         return not self._queue.empty()
 

@@ -1,7 +1,7 @@
 import asyncio
 import contextlib
 import functools
-from collections.abc import AsyncIterable, Collection, Iterator, MutableMapping
+from collections.abc import AsyncIterable, Collection
 
 from loguru import logger
 from pydantic import Field
@@ -65,19 +65,6 @@ class ChannelManager:
         self._session_handlers: dict[str, MessageHandler] = {}
         self._session_controllers: dict[str, SessionTurnController] = {}
 
-    @property
-    def _ongoing_tasks(self) -> MutableMapping[str, set[asyncio.Task]]:
-        """Compatibility view for existing tests and callers."""
-
-        return _OngoingTasksView(self)
-
-    @_ongoing_tasks.setter
-    def _ongoing_tasks(self, value: dict[str, set[asyncio.Task]]) -> None:
-        self._session_controllers = {}
-        for session_id, tasks in value.items():
-            controller = self._controller(session_id)
-            controller.active_tasks = tasks
-
     async def on_receive(self, message: ChannelMessage) -> None:
         channel = message.channel
         session_id = message.session_id
@@ -137,10 +124,6 @@ class ChannelManager:
     async def quit(self, session_id: str) -> None:
         cancelled = await self._cancel_tasks(session_id)
         logger.info(f"channel.manager quit session_id={session_id}, cancelled {cancelled} tasks")
-
-    async def cancel(self, session_id: str) -> None:
-        self.framework.request_turn_cancel(session_id)
-        logger.info("channel.manager cancel requested session_id={}", session_id)
 
     def enabled_channels(self) -> list[Channel]:
         if "all" in self._enabled_channels:
@@ -356,29 +339,3 @@ def _normalize_admit_action(action: AdmitAction | str) -> AdmitAction | str:
         return AdmitAction(action)
     except ValueError:
         return action
-
-
-class _OngoingTasksView(MutableMapping[str, set[asyncio.Task]]):
-    def __init__(self, manager: ChannelManager) -> None:
-        self._manager = manager
-
-    def __getitem__(self, session_id: str) -> set[asyncio.Task]:
-        return self._manager._controller(session_id).active_tasks
-
-    def __setitem__(self, session_id: str, tasks: set[asyncio.Task]) -> None:
-        self._manager._controller(session_id).active_tasks = tasks
-
-    def __contains__(self, session_id: object) -> bool:
-        return session_id in self._manager._session_controllers
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._manager._session_controllers)
-
-    def __len__(self) -> int:
-        return len(self._manager._session_controllers)
-
-    def clear(self) -> None:
-        self._manager._session_controllers.clear()
-
-    def __delitem__(self, session_id: str) -> None:
-        del self._manager._session_controllers[session_id]
