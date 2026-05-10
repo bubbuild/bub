@@ -157,6 +157,13 @@ class ChannelManager:
         if controller is None:
             return
         controller.active_tasks.discard(task)
+        if controller.closing:
+            controller.clear_pending()
+            controller.steering.drain_injected()
+            if not controller.active():
+                self._session_controllers.pop(session_id, None)
+                self.framework.clear_turn_control(session_id)
+            return
         if not controller.active():
             controller.promote_steering_to_pending()
         self._schedule_pending(session_id)
@@ -193,7 +200,12 @@ class ChannelManager:
             logger.exception("channel.manager resolve_session failed")
             await self.framework._hook_runtime.notify_error(stage="resolve_session", error=exc, message=message)
             return False
-        controller = self._controller(session_id)
+        controller = self._session_controllers.get(session_id)
+        if controller is not None and controller.closing:
+            logger.info("channel.manager admission drop closing session_id={}", session_id)
+            return False
+        if controller is None:
+            controller = self._controller(session_id)
 
         snapshot = controller.snapshot(supports_steering=self.framework.supports_steering())
         try:

@@ -446,6 +446,23 @@ async def test_channel_manager_quit_skips_current_task(load_config) -> None:
 
 
 @pytest.mark.asyncio
+async def test_channel_manager_quit_drops_messages_arriving_while_closing(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+
+    current_task = asyncio.current_task()
+    assert current_task is not None
+    manager._controller("telegram:chat").active_tasks = {current_task}
+
+    await manager.quit("telegram:chat")
+    admitted = await manager._admit_message(_message("arrived during quit"))
+
+    assert admitted is False
+    assert framework.admission_calls == []
+
+
+@pytest.mark.asyncio
 async def test_channel_manager_done_callback_handles_cancelled_task(load_config) -> None:
     _load_channel_config(load_config, enabled_channels="telegram")
     manager = ChannelManager(FakeFramework({"telegram": FakeChannel("telegram")}), enabled_channels=["telegram"])
@@ -768,6 +785,27 @@ async def test_channel_manager_promotes_undrained_steering_to_pending_after_turn
 
     assert [message.content for message, _ in framework.process_calls] == ["late correction"]
     assert framework.turn_control("telegram:chat").drain_injected() == []
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_closing_turn_drops_undrained_steering_after_turn_finishes(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+    controller = manager._controller("telegram:chat")
+    controller.closing = True
+    controller.steering.inject(_message("late correction"))
+
+    done = asyncio.create_task(asyncio.sleep(0))
+    controller.active_tasks.add(done)
+    await done
+
+    manager._on_task_done("telegram:chat", done)
+    await asyncio.sleep(0)
+
+    assert framework.process_calls == []
+    assert "telegram:chat" not in manager._session_controllers
+    assert "telegram:chat" not in framework._turn_controls
 
 
 def test_cli_channel_normalize_input_prefixes_shell_commands() -> None:
