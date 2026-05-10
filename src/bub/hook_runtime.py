@@ -191,5 +191,13 @@ class HookRuntime:
                 return AsyncStreamEvents(iterator(), state=StreamState())
         return None
 
+    def supports_steering(self) -> bool:
+        """Return whether the selected model hook declares steering-buffer support."""
+
+        for _, plugin in reversed(self._plugin_manager.list_name_plugin()):
+            if hasattr(plugin, "run_model") or hasattr(plugin, "run_model_stream"):
+                return bool(getattr(plugin, "supports_steering", False))
+        return False
+
 
 _SKIP_VALUE = object()

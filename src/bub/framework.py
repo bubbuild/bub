@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pluggy
 import typer
@@ -18,6 +18,7 @@ from bub import configure
 from bub.envelope import content_of, field_of, unpack_batch
 from bub.hook_runtime import _SKIP_VALUE, HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs
+from bub.turn_admission import AdmitDecision, DrainMode, SteeringBuffer, TurnControl, TurnSnapshot
 from bub.types import Envelope, MessageHandler, OutboundChannelRouter, TurnResult
 
 if TYPE_CHECKING:
@@ -46,6 +47,7 @@ class BubFramework:
         self._hook_runtime = HookRuntime(self._plugin_manager)
         self._plugin_status: dict[str, PluginStatus] = {}
         self._outbound_router: OutboundChannelRouter | None = None
+        self._turn_controls: dict[str, TurnControl] = {}
         configure.load(self.config_file)
 
     def _load_builtin_hooks(self) -> None:
@@ -105,13 +107,18 @@ class BubFramework:
     async def process_inbound(self, inbound: Envelope, stream_output: bool = False) -> TurnResult:
         """Run one inbound message through hooks and return turn result."""
 
+        session_id = self._default_session_id(inbound)
         try:
             session_id = await self._hook_runtime.call_first(
                 "resolve_session", message=inbound
             ) or self._default_session_id(inbound)
+            managed_turn = bool(field_of(inbound, "_runtime_managed_turn", False))
             if isinstance(inbound, dict):
                 inbound.setdefault("session_id", session_id)
-            state = {"_runtime_workspace": str(self.workspace)}
+            turn_control = self.turn_control(session_id)
+            state: dict[str, Any] = {"_runtime_workspace": str(self.workspace)}
+            state["_runtime_turn_control"] = turn_control
+            state["_runtime_steering"] = turn_control
             for hook_state in reversed(
                 await self._hook_runtime.call_many("load_state", message=inbound, session_id=session_id)
             ):
@@ -142,6 +149,9 @@ class BubFramework:
             logger.exception("Error processing inbound message")
             await self._hook_runtime.notify_error(stage="turn", error=exc, message=inbound)
             raise
+        finally:
+            if not managed_turn:
+                self.clear_turn_control(session_id)
 
     async def _run_model(
         self,
@@ -203,6 +213,54 @@ class BubFramework:
     async def quit_via_router(self, session_id: str) -> None:
         if self._outbound_router is not None:
             await self._outbound_router.quit(session_id)
+
+    async def cancel_via_router(self, session_id: str) -> None:
+        self.request_turn_cancel(session_id)
+        if self._outbound_router is not None:
+            await self._outbound_router.cancel(session_id)
+
+    async def admit_message(
+        self, *, session_id: str, message: Envelope, turn: TurnSnapshot
+    ) -> AdmitDecision | None:
+        return cast(
+            "AdmitDecision | None",
+            await self._hook_runtime.call_first(
+                "admit_message",
+                session_id=session_id,
+                message=message,
+                turn=turn,
+            ),
+        )
+
+    def supports_steering(self) -> bool:
+        return self._hook_runtime.supports_steering()
+
+    def turn_control(self, session_id: str) -> TurnControl:
+        control = self._turn_controls.get(session_id)
+        if control is None:
+            control = TurnControl(session_id=session_id, buffer=SteeringBuffer())
+            self._turn_controls[session_id] = control
+        return control
+
+    def clear_turn_control(self, session_id: str) -> None:
+        self._turn_controls.pop(session_id, None)
+
+    def inject_turn_message(self, session_id: str, message: Envelope) -> bool:
+        return self.turn_control(session_id).inject(message)
+
+    async def drain_steering_messages(
+        self,
+        session_id: str,
+        *,
+        mode: DrainMode = DrainMode.ALL,
+    ) -> list[Envelope]:
+        control = self._turn_controls.get(session_id)
+        if control is None:
+            return []
+        return await control.drain(mode=mode)
+
+    def request_turn_cancel(self, session_id: str) -> None:
+        self.turn_control(session_id).cancel()
 
     @staticmethod
     def _default_session_id(message: Envelope) -> str:

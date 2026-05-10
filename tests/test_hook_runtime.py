@@ -139,3 +139,27 @@ async def test_run_model_stream_falls_back_to_plain_hook() -> None:
     assert stream is not None
     events = [event async for event in stream]
     assert [(event.kind, event.data) for event in events] == [("text", {"delta": "plain"})]
+
+
+def test_supports_steering_uses_selected_model_plugin() -> None:
+    class PlainPlugin:
+        supports_steering = True
+
+        @hookimpl
+        async def run_model(self, prompt, session_id, state):
+            return "plain"
+
+    runtime = _runtime_with_plugins(("plain", PlainPlugin()))
+
+    assert runtime.supports_steering() is True
+
+
+def test_supports_steering_defaults_to_false() -> None:
+    class PlainPlugin:
+        @hookimpl
+        async def run_model(self, prompt, session_id, state):
+            return "plain"
+
+    runtime = _runtime_with_plugins(("plain", PlainPlugin()))
+
+    assert runtime.supports_steering() is False

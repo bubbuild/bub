@@ -16,6 +16,7 @@ from bub.channels.handler import BufferedMessageHandler
 from bub.channels.manager import ChannelManager
 from bub.channels.message import ChannelMessage
 from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMessageParser
+from bub.turn_admission import AdmitAction, AdmitDecision, SessionTurnController, SteeringBuffer, TurnControl
 
 
 def _load_channel_config(
@@ -66,6 +67,11 @@ class FakeFramework:
         self._channels = channels
         self.router = None
         self.process_calls: list[tuple[ChannelMessage, bool]] = []
+        self.admission_decisions: list[AdmitDecision | None] = []
+        self.admission_calls: list[tuple[str, ChannelMessage, object]] = []
+        self._turn_controls: dict[str, TurnControl] = {}
+        self._supports_steering = True
+        self._hook_runtime = SimpleNamespace(notify_error=self._notify_error)
 
     def get_channels(self, message_handler):
         self.message_handler = message_handler
@@ -80,6 +86,34 @@ class FakeFramework:
         if stop_event is not None:
             stop_event.set()
         return None
+
+    async def admit_message(self, *, session_id: str, message: ChannelMessage, turn):
+        self.admission_calls.append((session_id, message, turn))
+        if self.admission_decisions:
+            return self.admission_decisions.pop(0)
+        return None
+
+    async def _notify_error(self, *, stage: str, error: Exception, message: ChannelMessage | None) -> None:
+        return None
+
+    def supports_steering(self) -> bool:
+        return self._supports_steering
+
+    def turn_control(self, session_id: str) -> TurnControl:
+        control = self._turn_controls.get(session_id)
+        if control is None:
+            control = TurnControl(session_id=session_id, buffer=SteeringBuffer())
+            self._turn_controls[session_id] = control
+        return control
+
+    def clear_turn_control(self, session_id: str) -> None:
+        self._turn_controls.pop(session_id, None)
+
+    def inject_turn_message(self, session_id: str, message: ChannelMessage) -> bool:
+        return self.turn_control(session_id).inject(message)
+
+    def request_turn_cancel(self, session_id: str) -> None:
+        self.turn_control(session_id).cancel()
 
 
 def _message(
@@ -224,6 +258,9 @@ async def test_channel_manager_listen_and_run_passes_stream_output_setting(
         def add_done_callback(self, callback) -> None:
             return None
 
+        def set_name(self, name: str) -> None:
+            self.name = name
+
         def cancel(self) -> None:
             return None
 
@@ -287,6 +324,266 @@ async def test_channel_manager_quit_cancels_only_matching_session_tasks(load_con
     other_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await other_task
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_admission_default_keeps_concurrent_processing(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+
+    async def never_finish() -> None:
+        await asyncio.sleep(10)
+
+    active = asyncio.create_task(never_finish())
+    manager._ongoing_tasks["telegram:chat"] = {active}
+
+    admitted = await manager._admit_message(_message("second"))
+
+    assert admitted is True
+    assert len(framework.admission_calls) == 1
+    session_id, message, turn = framework.admission_calls[0]
+    assert session_id == "telegram:chat"
+    assert message.content == "second"
+    assert turn.is_running is True
+    assert turn.running_count == 1
+    assert turn.pending_count == 0
+    assert turn.steering_count == 0
+    assert turn.supports_steering is True
+
+    active.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await active
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_admission_hook_sees_idle_turn_snapshot(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+
+    admitted = await manager._admit_message(_message("first"))
+
+    assert admitted is True
+    assert len(framework.admission_calls) == 1
+    _, _, turn = framework.admission_calls[0]
+    assert turn.is_running is False
+    assert turn.running_count == 0
+    assert "telegram:chat" not in manager._session_controllers
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_admission_inject_on_idle_turn_falls_back_to_process(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    framework.admission_decisions.append(AdmitDecision(AdmitAction.INJECT, reason="no running turn"))
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+
+    admitted = await manager._admit_message(_message("first"))
+
+    assert admitted is True
+    assert framework.turn_control("telegram:chat").drain_injected() == []
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_admission_wait_queues_pending_message(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    framework.admission_decisions.append(AdmitDecision(AdmitAction.WAIT, reason="serial"))
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+
+    async def never_finish() -> None:
+        await asyncio.sleep(10)
+
+    active = asyncio.create_task(never_finish())
+    manager._ongoing_tasks["telegram:chat"] = {active}
+
+    admitted = await manager._admit_message(_message("queued"))
+
+    assert admitted is False
+    controller = manager._session_controllers["telegram:chat"]
+    assert [message.content for message in controller.pending_queue] == ["queued"]
+
+    active.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await active
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_admission_drop_discards_message(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    framework.admission_decisions.append(AdmitDecision(AdmitAction.DROP, reason="busy"))
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+
+    async def never_finish() -> None:
+        await asyncio.sleep(10)
+
+    active = asyncio.create_task(never_finish())
+    manager._ongoing_tasks["telegram:chat"] = {active}
+
+    admitted = await manager._admit_message(_message("drop me"))
+
+    assert admitted is False
+    assert not manager._session_controllers["telegram:chat"].pending_queue
+
+    active.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await active
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_admission_inject_adds_to_steering_buffer(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    framework.admission_decisions.append(AdmitDecision(AdmitAction.INJECT, reason="correction"))
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+
+    async def never_finish() -> None:
+        await asyncio.sleep(10)
+
+    active = asyncio.create_task(never_finish())
+    manager._ongoing_tasks["telegram:chat"] = {active}
+
+    admitted = await manager._admit_message(_message("actually do this"))
+
+    assert admitted is False
+    injected = framework.turn_control("telegram:chat").drain_injected()
+    assert [message.content for message in injected] == ["actually do this"]
+
+    active.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await active
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_admission_inject_falls_back_to_wait_without_steering_support(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    framework._supports_steering = False
+    framework.admission_decisions.append(AdmitDecision(AdmitAction.INJECT, reason="correction"))
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+
+    async def never_finish() -> None:
+        await asyncio.sleep(10)
+
+    active = asyncio.create_task(never_finish())
+    manager._ongoing_tasks["telegram:chat"] = {active}
+
+    admitted = await manager._admit_message(_message("queue this"))
+
+    assert admitted is False
+    assert framework.turn_control("telegram:chat").drain_injected() == []
+    assert [message.content for message in manager._session_controllers["telegram:chat"].pending_queue] == [
+        "queue this"
+    ]
+
+    active.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await active
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_admission_cancel_and_process_degrades_to_wait(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    framework.admission_decisions.append(AdmitDecision(AdmitAction.CANCEL_AND_PROCESS, reason="replace"))
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+
+    async def never_finish() -> None:
+        await asyncio.sleep(10)
+
+    active = asyncio.create_task(never_finish())
+    manager._ongoing_tasks["telegram:chat"] = {active}
+
+    admitted = await manager._admit_message(_message("replacement"))
+
+    assert admitted is False
+    assert active.cancelled() is False
+    assert [message.content for message in manager._session_controllers["telegram:chat"].pending_queue] == [
+        "replacement"
+    ]
+
+    active.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await active
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_admission_hook_timeout_falls_back_to_process(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+
+    async def slow_admit_message(*, session_id: str, message: ChannelMessage, turn):
+        await asyncio.sleep(10)
+
+    framework.admit_message = slow_admit_message  # type: ignore[method-assign]
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+    manager._settings.admission_timeout_seconds = 0.01
+
+    async def never_finish() -> None:
+        await asyncio.sleep(10)
+
+    active = asyncio.create_task(never_finish())
+    manager._ongoing_tasks["telegram:chat"] = {active}
+
+    admitted = await manager._admit_message(_message("second"))
+
+    assert admitted is True
+
+    active.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await active
+
+
+def test_steering_buffer_is_bounded_by_count_and_bytes() -> None:
+    buffer = SteeringBuffer(max_size=2, max_bytes=5)
+
+    assert buffer.put_nowait(_message("one")) is True
+    assert buffer.put_nowait(_message("two")) is True
+    assert buffer.put_nowait(_message("sixsix")) is False
+    assert buffer.put_nowait(_message("三")) is True
+
+    assert [message.content for message in buffer.drain_nowait()] == ["三"]
+
+
+def test_session_turn_controller_pending_queue_is_bounded_by_count_and_bytes() -> None:
+    control = TurnControl(session_id="telegram:chat", buffer=SteeringBuffer())
+    controller = SessionTurnController(
+        session_id="telegram:chat",
+        steering=control,
+        max_pending=2,
+        max_pending_bytes=5,
+    )
+
+    assert controller.add_pending(_message("one")) is True
+    assert controller.add_pending(_message("two")) is True
+    assert controller.add_pending(_message("sixsix")) is False
+    assert controller.add_pending(_message("三")) is True
+
+    pending: list[str] = []
+    while message := controller.pop_pending():
+        pending.append(message.content)
+
+    assert pending == ["三"]
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_schedules_waiting_message_after_active_turn_finishes(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+    controller = manager._controller("telegram:chat")
+    controller.add_pending(_message("next"))
+
+    done = asyncio.create_task(asyncio.sleep(0))
+    controller.active_tasks.add(done)
+    await done
+
+    manager._on_task_done("telegram:chat", done)
+    await asyncio.sleep(0)
+
+    assert [message.content for message, _ in framework.process_calls] == ["next"]
 
 
 def test_cli_channel_normalize_input_prefixes_shell_commands() -> None:

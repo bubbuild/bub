@@ -7,11 +7,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import republic.auth.openai_codex as openai_codex
-from republic import AsyncStreamEvents, StreamEvent, TapeContext
+from republic import AsyncStreamEvents, StreamEvent, TapeContext, ToolAutoResult
 
 import bub.builtin.agent as agent_module
 from bub.builtin.agent import Agent
 from bub.builtin.settings import AgentSettings
+from bub.channels.message import ChannelMessage
+from bub.turn_admission import SteeringBuffer, TurnControl
 
 
 def test_build_llm_passes_codex_resolver_to_republic(monkeypatch) -> None:
@@ -184,3 +186,33 @@ async def test_agent_run_model_defaults_to_none() -> None:
     [event async for event in result]
 
     assert fake_tapes.run_tools_model is None
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_appends_injected_messages_at_checkpoint() -> None:
+    agent = _make_agent()
+    agent.settings.max_steps = 2
+    control = TurnControl(session_id="session", buffer=SteeringBuffer())
+    control.inject(ChannelMessage(session_id="session", channel="cli", chat_id="room", content="corrected intent"))
+    tape = MagicMock()
+    tape.name = "test-tape"
+    tape.context = TapeContext(state={"_runtime_turn_control": control})
+    seen_prompts: list[str] = []
+
+    async def run_once(**kwargs: Any) -> ToolAutoResult:
+        seen_prompts.append(kwargs["prompt"])
+        return ToolAutoResult(kind="text", text="done", tool_calls=[], tool_results=[], error=None)
+
+    agent._run_once = run_once  # type: ignore[method-assign]
+    async def append_event(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    agent.tapes = MagicMock()  # type: ignore[assignment]
+    agent.tapes.append_event = append_event
+
+    result = await agent._run_tools_with_auto_handoff(tape=tape, prompt="original")
+
+    assert result == "done"
+    assert seen_prompts == [
+        "original\n\nNew steering messages received for this running turn:\ncorrected intent"
+    ]

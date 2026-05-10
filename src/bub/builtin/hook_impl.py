@@ -59,6 +59,8 @@ Excessively long context may cause model call failures. In this case, you MAY us
 class BuiltinImpl:
     """Default hook implementations for basic runtime operations."""
 
+    supports_steering = True
+
     def __init__(self, framework: BubFramework) -> None:
         from bub.builtin import tools  # noqa: F401
 

@@ -4,12 +4,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from republic import AsyncStreamEvents, StreamEvent
+from republic import AsyncStreamEvents, StreamEvent, ToolContext
 
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.builtin.store import FileTapeStore
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
+from bub.turn_admission import DrainMode
 
 
 class RecordingLifespan:
@@ -240,6 +241,26 @@ async def test_dispatch_outbound_uses_framework_router(tmp_path: Path) -> None:
 
     assert result is True
     assert dispatched == [outbound]
+
+
+@pytest.mark.asyncio
+async def test_turn_injected_tool_drains_framework_steering_messages() -> None:
+    import bub.builtin.tools as builtin_tools
+
+    drained: list[tuple[str, DrainMode]] = []
+
+    class FakeFramework:
+        async def drain_steering_messages(self, session_id: str, *, mode: DrainMode):
+            drained.append((session_id, mode))
+            return [ChannelMessage(session_id=session_id, channel="cli", chat_id="room", content="correction")]
+
+    agent = SimpleNamespace(framework=FakeFramework())
+    context = ToolContext(tape="tape", run_id="run", state={"_runtime_agent": agent, "session_id": "session"})
+
+    result = await builtin_tools.turn_injected.handler(mode=DrainMode.ONE, context=context)
+
+    assert result == "correction"
+    assert drained == [("session", DrainMode.ONE)]
 
 
 def test_render_outbound_preserves_message_metadata(tmp_path: Path) -> None:
