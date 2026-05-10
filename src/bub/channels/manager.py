@@ -338,6 +338,7 @@ class ChannelManager:
 
     async def shutdown(self) -> None:
         count = 0
+        session_ids = list(self._session_controllers)
         for controller in list(self._session_controllers.values()):
             controller.closing = True
             controller.clear_pending()
@@ -348,7 +349,7 @@ class ChannelManager:
                     await task
                 count += 1
         self._session_controllers.clear()
-        for session_id in list(self.framework._turn_controls):
+        for session_id in session_ids:
             self.framework.clear_turn_control(session_id)
         logger.info(f"channel.manager cancelled {count} in-flight tasks")
         for channel in self.enabled_channels():

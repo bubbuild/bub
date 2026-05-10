@@ -183,14 +183,7 @@ def resolve_tool_names(names: Iterable[str] | None = None, *, exclude: Iterable[
 
 def model_tools(tools: Iterable[Tool]) -> list[Tool]:
     """Helper to convert a list of Tool instances into a format accepted by LLMs."""
-    return [
-        replace(
-            tool,
-            name=_to_model_name(tool.name),
-            description=tool.description or _to_model_name(tool.name),
-        )
-        for tool in tools
-    ]
+    return [replace(tool, name=_to_model_name(tool.name)) for tool in tools]
 
 
 def render_tools_prompt(tools: Iterable[Tool]) -> str:
