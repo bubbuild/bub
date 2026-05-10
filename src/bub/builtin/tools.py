@@ -10,10 +10,8 @@ from pydantic import BaseModel, Field
 from republic import AsyncTapeStore, TapeQuery, ToolContext
 
 from bub.builtin.shell_manager import shell_manager
-from bub.envelope import content_of
 from bub.skills import discover_skills
 from bub.tools import resolve_tool_names, tool
-from bub.turn_admission import DrainMode
 
 if TYPE_CHECKING:
     from bub.builtin.agent import Agent
@@ -67,10 +65,6 @@ class SubAgentInput(BaseModel):
         None,
         description="Optional list of allowed skill names for the sub-agent. If not specified, the sub-agent can use any skill available to the main agent.",
     )
-
-
-class SteeringInput(BaseModel):
-    mode: DrainMode = Field(DrainMode.ALL, description="Drain mode: all, one, or latest.")
 
 
 @tool(context=True)
@@ -327,17 +321,6 @@ async def turn_cancel(*, context: ToolContext) -> str:
     session_id = context.state.get("session_id", "temp/unknown")
     agent.framework.request_turn_cancel(session_id)
     return "Turn cancellation requested."
-
-
-@tool(name="turn.injected", context=True, model=SteeringInput)
-async def turn_injected(param: SteeringInput, *, context: ToolContext) -> str:
-    """Read and clear messages injected into this running turn."""
-    agent = _get_agent(context)
-    session_id = context.state.get("session_id", "temp/unknown")
-    messages = await agent.framework.drain_steering_messages(session_id, mode=param.mode)
-    if not messages:
-        return "(no injected messages)"
-    return "\n".join(content_of(message) for message in messages)
 
 
 def _resolve_path(context: ToolContext, raw_path: str) -> Path:
