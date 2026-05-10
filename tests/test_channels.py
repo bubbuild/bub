@@ -437,7 +437,7 @@ async def test_channel_manager_admission_inject_on_idle_turn_falls_back_to_proce
     admitted = await manager._admit_message(_message("first"))
 
     assert admitted is True
-    assert framework.turn_control("telegram:chat").drain_injected() == []
+    assert "telegram:chat" not in framework._turn_controls
 
 
 @pytest.mark.asyncio

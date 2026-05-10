@@ -118,7 +118,7 @@ class ChannelManager:
         return channel.stream_events(message, stream)
 
     async def quit(self, session_id: str) -> None:
-        cancelled = await self._cancel_tasks(session_id, schedule_pending=False)
+        cancelled = await self._cancel_tasks(session_id)
         logger.info(f"channel.manager quit session_id={session_id}, cancelled {cancelled} tasks")
 
     def enabled_channels(self) -> list[Channel]:
@@ -160,15 +160,14 @@ class ChannelManager:
         self._schedule_pending(session_id)
         self._drop_empty_controller(session_id)
 
-    async def _cancel_tasks(self, session_id: str, *, schedule_pending: bool) -> int:
+    async def _cancel_tasks(self, session_id: str) -> int:
         controller = self._session_controllers.get(session_id)
         if controller is None:
             self.framework.clear_turn_control(session_id)
             return 0
-        controller.closing = not schedule_pending
-        if not schedule_pending:
-            controller.clear_pending()
-            controller.steering.drain_injected()
+        controller.closing = True
+        controller.clear_pending()
+        controller.steering.drain_injected()
         tasks = set(controller.active_tasks)
         self.framework.request_turn_cancel(session_id)
         for task in tasks:
@@ -177,8 +176,6 @@ class ChannelManager:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         controller.active_tasks.difference_update(tasks)
-        if schedule_pending and controller.pending_queue:
-            self._schedule_pending(session_id)
         self._drop_empty_controller(session_id)
         return len(tasks)
 
@@ -227,10 +224,7 @@ class ChannelManager:
             )
             return False
         if action == AdmitAction.INJECT:
-            supports_steering = controller.snapshot(
-                supports_steering=self.framework.supports_steering()
-            ).supports_steering
-            if controller.active() and supports_steering and controller.steering.inject(message):
+            if controller.active() and self.framework.supports_steering() and controller.steering.inject(message):
                 logger.info(
                     "channel.manager admission inject session_id={} reason={}",
                     message.session_id,
@@ -291,19 +285,12 @@ class ChannelManager:
 
     async def _resolve_message_session(self, message: ChannelMessage) -> str:
         session_id = await self.framework.resolve_session(message)
-        if isinstance(message, dict):
-            message["session_id"] = session_id
-            message["_runtime_session_id"] = session_id
-        else:
-            message.session_id = session_id
-            setattr(message, "_runtime_session_id", session_id)  # noqa: B010
+        message.session_id = session_id
+        setattr(message, "_runtime_session_id", session_id)  # noqa: B010
         return session_id
 
     async def _run_message(self, message: ChannelMessage) -> None:
-        if isinstance(message, dict):
-            message["_runtime_managed_turn"] = True
-        else:
-            setattr(message, "_runtime_managed_turn", True)  # noqa: B010
+        setattr(message, "_runtime_managed_turn", True)  # noqa: B010
         self.framework.turn_control(message.session_id)
         await self.framework.process_inbound(message, self._stream_output)
 
