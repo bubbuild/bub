@@ -1,0 +1,116 @@
+---
+title: 部署
+description: 用 Docker Compose 把 Bub 作为长期服务运行，持久化 Bub home 状态，并安全升级。
+sidebar:
+  order: 3
+---
+
+本页说明如何把 Bub 作为容器部署：构建镜像、挂载持久化状态、以及在不丢失插件项目的前提下升级。
+
+仓库提供三份关键文件：[`Dockerfile`](https://github.com/bubbuild/bub/blob/main/Dockerfile)、[`docker-compose.yml`](https://github.com/bubbuild/bub/blob/main/docker-compose.yml) 与 [`entrypoint.sh`](https://github.com/bubbuild/bub/blob/main/entrypoint.sh)。
+
+## 开始之前
+
+- 已安装 Docker（或兼容运行时）与 `docker compose`。
+- `.env` 中至少包含 `BUB_MODEL` 以及 `BUB_API_KEY` 或某个提供商专用 key —— 参见 [配置](/zh-cn/docs/operate/configure/)。
+- Telegram 部署还需要 `.env` 中包含 `BUB_TELEGRAM_TOKEN` 与一份白名单 —— 参见 [Telegram](/zh-cn/docs/operate/channels/telegram/)。
+
+## 1. 准备 env 文件
+
+```bash
+cp env.example .env
+```
+
+Telegram 网关的最小 `.env`：
+
+```bash
+BUB_MODEL=openrouter:openrouter/free
+BUB_API_KEY=sk-or-...
+BUB_TELEGRAM_TOKEN=123456:abcdef...
+BUB_TELEGRAM_ALLOW_USERS=123456789
+```
+
+`docker compose` 会自动加载 `.env` —— 见 `docker-compose.yml` 中的 `env_file:` 行。
+
+## 2. 理解卷挂载
+
+```yaml
+volumes:
+  - ${BUB_WORKSPACE_PATH:-.}:/workspace
+  - ${BUB_HOME_HOST:-${HOME}/.bub}:/data
+  - ${BUB_AGENT_HOME:-${HOME}/.agents}:/root/.agents
+```
+
+| 挂载 | 用途 |
+|---|---|
+| `/workspace` | Bub 视为工作仓库的目录。默认是你执行 `docker compose` 时的目录。 |
+| `/data` | Bub home 目录的宿主机绑定（history、tapes、插件项目）。 |
+| `/root/.agents` | 共享 skill 目录（沿用 `agents.md` 约定）。 |
+
+Compose 文件会在容器内设置 `BUB_HOME=/data`。如果要把宿主机侧源路径放到 `~/.bub` 以外的位置，请设置 `BUB_HOME_HOST`。此部署的运行时设置应放在 `.env` 中；`BUB_HOME` 不会移动 Bub 默认的 `config.yml` 路径。
+
+## 3. 构建并启动
+
+```bash
+docker compose up -d --build
+docker compose logs -f app
+```
+
+首次构建需要几分钟 —— 镜像会安装系统工具（git、node、jq 等）并执行 `uv sync --no-dev --no-editable`。
+
+## 4. `entrypoint.sh` 做了什么
+
+每次容器启动：
+
+1. 如果 `/workspace/bub-reqs.txt` 存在，把其中列出的包装入镜像 venv。
+2. 无参运行 `bub install` —— 这会同步 `/data/bub-project/` 下的托管插件项目。`pyproject.toml` 中新增的插件在这里被拉起。
+3. 如果 `/workspace/startup.sh` 存在则 exec 它，否则 exec `bub gateway`。
+
+也就是说工作区可以通过提供自己的 `startup.sh` 覆盖入口 —— 用于在长期工作区上运行 `bub chat`，或自定义 gateway 参数：
+
+```bash
+# /workspace/startup.sh
+exec /app/.venv/bin/bub gateway --enable-channel telegram
+```
+
+## 5. 验证服务在运行
+
+```bash
+docker compose ps
+docker compose logs -f app | rg "telegram.start polling"
+```
+
+健康的 Telegram 部署会输出一次 `telegram.start polling`。如果完全没有 channel 相关日志，检查 `BUB_TELEGRAM_TOKEN` 是否进入了容器（`docker compose exec app env | rg BUB_TELEGRAM`）。
+
+## 6. 安全升级
+
+滚动升级会保留 `/data`（宿主机 `BUB_HOME_HOST`，默认 `~/.bub`）下的插件项目：
+
+```bash
+git fetch --all --tags
+git pull
+docker compose build --pull
+docker compose up -d
+docker compose logs -f app
+```
+
+容器内插件由 `bub install` 与 `bub update` 管理：
+
+```bash
+docker compose exec app bub install                       # 同步项目
+docker compose exec app bub install owner/repo@v1.2.0     # 新增或锁定插件
+docker compose exec app bub update                        # 全量升级
+docker compose exec app bub update specific-plugin        # 升级指定插件
+```
+
+二者都作用于 `BUB_PROJECT` 指定的托管项目（默认 `bub.home / "bub-project"`，在此 compose 部署中为 `/data/bub-project`），不会触碰系统 Python 环境。
+
+:::note
+`bub install` 与 `bub update` 要求 Bub 自身位于虚拟环境中。容器镜像满足该条件 —— `entrypoint.sh` 会先 activate `/app/.venv` 再 exec。
+:::
+
+## 后续阅读
+
+- [配置](/zh-cn/docs/operate/configure/) —— 环境变量优先级与提供商设置。
+- [Telegram](/zh-cn/docs/operate/channels/telegram/) —— bot token 与白名单行为。
+- [CLI 参考](/zh-cn/docs/reference/cli/) —— `bub gateway`、`bub install`、`bub update` 的参数。

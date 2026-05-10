@@ -1,0 +1,103 @@
+---
+title: Configure
+description: Set the model, the API endpoint, and channel credentials through ~/.bub/config.yml and BUB_* environment variables.
+sidebar:
+  order: 1
+---
+
+This page shows how to configure Bub: which model to call, which provider to call it through, and which channel credentials to load on startup.
+
+Bub reads its own configuration from these places, in order of precedence (highest first):
+
+1. Process environment (`BUB_*` variables).
+2. `.env` values loaded during CLI startup or by settings classes that explicitly declare `env_file=".env"`.
+3. `~/.bub/config.yml` (created by `bub onboard`).
+
+Downstream model SDKs may still read their own provider variables, such as `OPENROUTER_API_KEY`, when no explicit `BUB_API_KEY` is supplied. Bub's settings layer only maps `BUB_*` variables.
+
+## Before you begin
+
+- Bub is installed (`uv run bub --help` works).
+- You have one model provider's API key, or you have run `uv run bub login openai` for OAuth.
+
+## 1. Run the interactive setup
+
+`bub onboard` walks through the minimum config — model, API key, enabled channels, and streaming settings — and writes the result to `~/.bub/config.yml`. Plugins may add their own prompts through the `onboard_config` hook.
+
+```bash
+uv run bub onboard
+```
+
+The file lives at `~/.bub/config.yml` by default. `BUB_HOME` controls `bub.home`, including history, tapes, and the managed plugin project; it does not move the default config file. Use `BubFramework(config_file=...)` when embedding Bub and you need a different config path.
+
+:::note
+`bub onboard` only collects what the loaded plugins ask for via the `onboard_config` hook. If you install a plugin that adds new settings, run `onboard` again.
+:::
+
+## 2. Inspect the config file
+
+A minimal config looks like this:
+
+```yaml
+# ~/.bub/config.yml
+model: openrouter:openrouter/free
+api_key: sk-or-v1-...
+api_format: completion
+telegram:
+  token: "123456:abcdef..."
+  allow_users: "123456789,your_username"
+```
+
+Top-level keys map to `AgentSettings` in [src/bub/builtin/settings.py](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/settings.py). Per-channel keys (such as `telegram:`) map to that channel's `Settings` subclass.
+
+## 3. Override at runtime with environment variables
+
+Every YAML key has a matching environment variable. The pattern is `BUB_<UPPERCASE_KEY>`:
+
+| Variable | Purpose |
+|---|---|
+| `BUB_MODEL` | Model identifier, e.g. `openrouter:openrouter/free` or `openai:gpt-5-codex`. |
+| `BUB_API_KEY` | API key for the active provider. |
+| `BUB_API_BASE` | Override the provider's base URL. |
+| `BUB_API_FORMAT` | Request format: `completion` (default), `responses`, or `messages`. |
+| `BUB_HOME` | Bub's runtime data directory (history, tapes, managed plugin project). Default `~/.bub`; does not move the default config file. |
+| `BUB_<PROVIDER>_API_KEY` | Per-provider key, e.g. `BUB_OPENROUTER_API_KEY`. |
+| `BUB_<PROVIDER>_API_BASE` | Per-provider base URL. |
+
+For the full table, including channel debounce knobs and advanced model-client settings, see [Settings reference](/docs/reference/settings/).
+
+## 4. Configure channel credentials
+
+Each channel has its own settings prefix. The builtin Telegram channel reads `BUB_TELEGRAM_*`:
+
+```bash
+BUB_TELEGRAM_TOKEN=123456:abcdef...
+BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
+BUB_TELEGRAM_ALLOW_CHATS=-1001234567890
+BUB_TELEGRAM_PROXY=http://127.0.0.1:7890   # optional
+```
+
+For the message-handling and access-control behavior these variables drive, see [Telegram](/docs/operate/channels/telegram/).
+
+## 5. Verify
+
+Print the loaded hook mapping:
+
+```bash
+uv run bub hooks
+```
+
+Then run one turn end-to-end:
+
+```bash
+uv run bub run "say hi"
+```
+
+Expected output prints each outbound as a prefix line (`[<channel>:<chat_id>]`) followed by the message content.
+
+## Next steps
+
+- [Channels](/docs/operate/channels/) — choose which surfaces Bub listens on.
+- [Telegram](/docs/operate/channels/telegram/) — wire up the bot.
+- [Settings reference](/docs/reference/settings/) — full env-var table.
+- [Deploy](/docs/operate/deploy/) — package this config into a container.

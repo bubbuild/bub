@@ -1,0 +1,30 @@
+---
+title: Operate
+description: Configure Bub, enable channels, and run it as a long-lived service.
+sidebar:
+  order: 0
+---
+
+This section shows how to run Bub as a product: pick a model, enable the channels you want, and keep the service alive.
+
+Use this section when you have already completed [Getting Started](/docs/getting-started/) and now need a stable runtime — for example, a Telegram bot fronting a workspace, or a containerised gateway on a small VM.
+
+## Before you begin
+
+- Bub is installed and one model call has succeeded — see [Run Your First Turn](/docs/getting-started/first-turn/).
+- You have a writable `~/.bub/` (or a path you control via `BUB_HOME`).
+- You have a model provider key. The default is OpenRouter; any provider supported by `BUB_MODEL` works.
+
+## What is in this section
+
+1. [Configure](/docs/operate/configure/) — write `~/.bub/config.yml`, set `BUB_*` env vars, point at a provider.
+2. [Channels](/docs/operate/channels/) — enable, disable, and tune the surfaces Bub listens on.
+   - [CLI](/docs/operate/channels/cli/) — `bub chat` and `bub run`.
+   - [Telegram](/docs/operate/channels/telegram/) — token, allowlists, debounce.
+3. [Deploy](/docs/operate/deploy/) — Docker / docker-compose, persistent state, safe upgrades.
+
+## Next steps
+
+- New to the runtime model? Read [Turn pipeline](/docs/concepts/turn-pipeline/) first.
+- Need to add a custom channel or hook? See [Build](/docs/build/).
+- Need the full env-var table? See [Settings reference](/docs/reference/settings/).

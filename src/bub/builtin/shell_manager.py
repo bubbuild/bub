@@ -13,6 +13,7 @@ class ManagedShell:
     shell_id: str
     cmd: str
     cwd: str | None
+    session_id: str | None
     process: asyncio.subprocess.Process
     output_chunks: list[str] = field(default_factory=list)
     read_tasks: list[asyncio.Task[None]] = field(default_factory=list)
@@ -36,7 +37,7 @@ class ShellManager:
     def __init__(self) -> None:
         self._shells: dict[str, ManagedShell] = {}
 
-    async def start(self, *, cmd: str, cwd: str | None) -> ManagedShell:
+    async def start(self, *, cmd: str, cwd: str | None, session_id: str | None = None) -> ManagedShell:
         process = await asyncio.create_subprocess_shell(
             cmd,
             cwd=cwd,
@@ -44,7 +45,13 @@ class ShellManager:
             stderr=asyncio.subprocess.PIPE,
             executable=self.SHELL,
         )
-        shell = ManagedShell(shell_id=f"bash-{uuid.uuid4().hex[:8]}", cmd=cmd, cwd=cwd, process=process)
+        shell = ManagedShell(
+            shell_id=f"bash-{uuid.uuid4().hex[:8]}",
+            cmd=cmd,
+            cwd=cwd,
+            session_id=session_id,
+            process=process,
+        )
         shell.read_tasks.extend([
             asyncio.create_task(self._drain_stream(shell, process.stdout)),
             asyncio.create_task(self._drain_stream(shell, process.stderr)),
@@ -76,6 +83,13 @@ class ShellManager:
             await shell.process.wait()
         await self._finalize_shell(shell)
         return shell
+
+    async def terminate_session(self, session_id: str) -> int:
+        shell_ids = [shell.shell_id for shell in self._shells.values() if shell.session_id == session_id]
+        for shell_id in shell_ids:
+            with contextlib.suppress(KeyError):
+                await self.terminate(shell_id)
+        return len(shell_ids)
 
     async def wait_closed(self, shell_id: str) -> ManagedShell:
         shell = self.get(shell_id)

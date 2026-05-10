@@ -1,0 +1,74 @@
+---
+title: 编写你的第一个 skill
+description: 在 .agents/skills 下编写一个项目 skill，并验证 Bub 能发现并调用它。
+sidebar:
+  order: 3
+---
+
+本教程引导你编写一个项目级 skill——agent 可按名字调用的可复用流程，并确认 Bub 能发现它。
+
+skill 是包含 `SKILL.md` 文件的目录，文件里有 frontmatter（`name`、`description`）和正文指令。关于 skill、channel 与 tool 的差异，请参见 [Surfaces](/zh-cn/docs/concepts/surfaces/)。
+
+## 在开始之前
+
+你需要准备：
+
+- 一个来自 [运行你的第一次 turn](/zh-cn/docs/getting-started/first-turn/) 的 workspace
+- `uv run bub hooks` 报告 `builtin` 插件
+
+## 1. 创建 skill 目录
+
+项目级 skill 位于 `.agents/skills/<skill-name>/`：
+
+```bash
+mkdir -p .agents/skills/repo-map
+```
+
+目录名必须与 frontmatter 中的 `name` 一致，并采用小写连字符形式（发现逻辑会拒绝不满足 `^[a-z0-9]+(?:-[a-z0-9]+)*$` 的名字）。
+
+## 2. 编写 SKILL.md
+
+创建 `.agents/skills/repo-map/SKILL.md`：
+
+```markdown
+---
+name: repo-map
+description: Read the local repository layout before changing code.
+---
+
+1. Run `rg --files` to see the repository shape.
+2. Open the smallest set of files that explains the task.
+3. Summarize the modules you touched before editing code.
+```
+
+frontmatter 字段是必需的——`name` 必须等于目录名，`description` 会在列出 skill 时展示给模型。
+
+## 3. 验证发现
+
+通过内置的 `,skill` 命令请 Bub 运行该 skill：
+
+```bash
+uv run bub run ",skill name=repo-map"
+```
+
+Bub 会打印渲染后的 skill 正文。如果 Bub 报告 `(no such skill)`，请检查 `SKILL.md` 是否在正确路径，以及 frontmatter 是否能被解析为合法 YAML。
+
+:::note
+Bub 按优先级从三个根目录发现 skill：项目（`.agents/skills/`）、用户主目录（`~/.agents/skills/`）和内置。同名时项目级 skill 胜出。
+:::
+
+## 4. 在一次 model turn 中调用它
+
+agent 在 system prompt 中以 `<available_skills>` 形式看到 skill。在普通 turn 中按名字引用：
+
+```bash
+uv run bub run 'Use the $repo-map skill, then list the top-level modules you found.'
+```
+
+`$repo-map` 提示会把该 skill 的正文展开到本次 turn 的模型 prompt 中。
+
+## 下一步
+
+- [构建你的第一个插件](/zh-cn/docs/getting-started/first-plugin/) — 发布一个包含 hook、tool 或 skill 的插件。
+- [Build skills](/zh-cn/docs/build/skills/) — 完整的 skill 编写指南，包括打包资产。
+- [Surfaces](/zh-cn/docs/concepts/surfaces/) — skill 与 channel、tool 的关系。

@@ -1,0 +1,88 @@
+---
+title: Tape and context
+description: The tape primitives, append-only invariant, anchors and handoffs, and how Bub turns a per-session tape into a model context window.
+sidebar:
+  order: 3
+---
+
+This page explains the context model Bub uses: an append-only tape per session, anchors that mark reconstruction points, handoffs that change phase, and a context selector that turns tape entries into the message list sent to the model.
+
+The deeper model is documented at [tape.systems](https://tape.systems). This page covers Bub's specifics; consult the upstream model when you need the full theory.
+
+## Tape primitives
+
+Bub uses four primitives from the tape model:
+
+- **Tape** — a chronological sequence of facts for one session.
+- **Entry** — one immutable record on a tape (a message, a tool call, a tool result, an event, an anchor).
+- **Anchor** — a checkpoint that carries a structured state payload. Context can be rebuilt from an anchor without rescanning the entire tape.
+- **View** — a task-oriented assembled context window derived from entries.
+
+Three invariants always hold:
+
+1. History is append-only — entries are never overwritten.
+2. Derivatives never replace original facts — summaries are derived views, not edits.
+3. Context is constructed, not inherited wholesale — every turn derives a fresh view.
+
+### Anchors as reconstruction markers
+
+An anchor is **not** a deletion point. The tape preserves everything written before it; the anchor only tells context construction where to start rebuilding. The anchor's state payload supplies the minimum inherited state the next phase needs.
+
+### Handoff as a state-bearing phase transition
+
+A *handoff* is a constrained transition: write a new anchor, attach the minimum inherited state, and shift execution origin past the new anchor. In Bub a handoff is invoked with a name and an optional state dict; the result is a new anchor entry on the same tape.
+
+## Bub specifics
+
+### Per-session tape
+
+Each session gets one tape. Bub computes the tape name from the workspace path and the session id (`TapeService.session_tape`):
+
+```python
+workspace_hash = md5(str(workspace.resolve()).encode()).hexdigest()[:16]
+session_hash   = md5(session_id.encode()).hexdigest()[:16]
+tape_name      = f"{workspace_hash}__{session_hash}"
+```
+
+This means the same `session_id` produces a different tape in a different workspace, so two repos do not share state by accident.
+
+The default `provide_tape_store` returns a `FileTapeStore` rooted at `~/.bub/tapes/`. Plugins replace it by providing their own `provide_tape_store` (for example, a SQLite or HTTP-backed store).
+
+### ensure_bootstrap_anchor
+
+Before the first turn on a tape, `TapeService.ensure_bootstrap_anchor` checks for an anchor entry. If none exists, it writes a `session/start` handoff with `state={"owner": "human"}`. This guarantees that context reconstruction has a starting anchor on every tape.
+
+### default_tape_context: entries → OpenAI messages
+
+`default_tape_context()` builds a `TapeContext` whose `select` function (`_select_messages`) walks tape entries and emits OpenAI-compatible messages. The mapping is:
+
+- `anchor` → an `assistant` message of the form `[Anchor created: <name>]: <state-as-json>`.
+- `message` → the entry payload, used as a chat message dict.
+- `tool_call` → an `assistant` message with empty content and a `tool_calls` array.
+- `tool_result` → one `tool` role message per result; when a preceding `tool_call` is pending, Bub copies the call's `id` into `tool_call_id` by result position.
+
+The context selector is a hook (`build_tape_context`), so plugins can replace it with a different strategy — compaction, summarization, retrieval — without touching the rest of the pipeline.
+
+### fork_tape
+
+`TapeService.fork_tape(tape_name, merge_back=True)` is an async context manager backed by `ForkTapeStore.fork`. Inside the block, writes happen on a forked tape; on exit, they are merged back into the parent tape (or discarded if `merge_back=False`). Use this to run a sub-task without polluting the parent session's history until you decide to keep the result.
+
+### auto_handoff on context overflow
+
+The built-in `Agent` loop catches model errors that match `_is_context_length_error` (patterns like `context length`, `maximum context`, `token limit`, `prompt too long`). When such an error fires and `MAX_AUTO_HANDOFF_RETRIES` (currently `1`) is still available, the loop:
+
+1. Writes a handoff named `auto_handoff/context_overflow` with `state={"reason": "context_length_exceeded", "error": <message>}`.
+2. Logs a `loop.step` event with `status="auto_handoff"`.
+3. Retries the same prompt — the default `TapeContext` selects entries after the latest anchor, so the retry uses a shorter reconstructed history.
+
+This is one retry per turn. It can still fail if the prompt or retained state remains too large; in that case the error is raised normally.
+
+:::tip
+The same anchor mechanism is available manually through the `,tape.handoff` comma command and the `tape.handoff` tool. Use it when you finish a phase and want the next phase to start from a clean checkpoint.
+:::
+
+## Next steps
+
+- [Surfaces](/docs/concepts/surfaces/) — how channels and tools relate to the tape.
+- [Turn pipeline](/docs/concepts/turn-pipeline/) — where context construction sits in the turn.
+- [tape.systems](https://tape.systems) — the deeper model and references.

@@ -1,0 +1,94 @@
+---
+title: Hooks
+description: Every hook in BubHookSpecs with kind, signature, return type, and invocation site.
+---
+
+This page lists every hook declared in `bub/hookspecs.py` (`BubHookSpecs`). Hook **kind** uses three labels:
+
+- **firstresult** — `pluggy` `firstresult=True`; `HookRuntime.call_first` returns the first non-`None` value in priority order.
+- **broadcast** — every implementation runs; results are collected into a list (`call_many`).
+- **sync-only consumer** — invoked through `call_first_sync` or `call_many_sync`; awaitable returns are skipped with a warning.
+
+For the *why* and *how* of each stage see [Turn pipeline](/docs/concepts/turn-pipeline/) and [Build › Hooks](/docs/build/hooks/).
+
+## Hook table
+
+| Hook | Kind | Signature | Returns | Invoked from | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `resolve_session` | firstresult | `(message: Envelope) -> str` | session id | `BubFramework.process_inbound` | Falls back to `"{channel}:{chat_id}"` when no impl returns a value. |
+| `load_state` | broadcast | `(message: Envelope, session_id: str) -> State` | dict to merge | `BubFramework.process_inbound` | Framework reverses results, then merges in order so high-priority keys overwrite low-priority. |
+| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: State) -> str \| list[dict]` | prompt or content parts | `BubFramework.process_inbound` | Falls back to `content_of(message)` when no impl returns a non-`None` value, or when the selected firstresult is falsy. A falsy selected value does not cause lower-priority impls to run. |
+| `run_model` | firstresult | `(prompt, session_id, state) -> str` | model text | `HookRuntime.run_model` | Legacy text path. Implement either `run_model` or `run_model_stream`, not both. |
+| `run_model_stream` | firstresult | `(prompt, session_id, state) -> AsyncStreamEvents` | async stream | `HookRuntime.run_model_stream` | Preferred. Falls back to wrapping a `run_model` result in a one-chunk stream when no streaming impl exists. |
+| `save_state` | broadcast | `(session_id, state, message, model_output) -> None` | none | `process_inbound` model-stage finally block | Runs after prompt resolution for model-stage success or failure; failures before prompt/model execution skip it. |
+| `render_outbound` | broadcast | `(message, session_id, state, model_output) -> list[Envelope]` | outbound batch | `BubFramework._collect_outbounds` | All batches are concatenated via `unpack_batch`. Empty results trigger a default echo envelope. |
+| `dispatch_outbound` | broadcast | `(message: Envelope) -> bool` | sent flag | `process_inbound` per outbound | Each outbound is fanned out to every impl. |
+| `register_cli_commands` | sync-only consumer | `(app: typer.Typer) -> None` | none | `BubFramework.create_cli_app` (`call_many_sync`) | Bootstrap only; async impls log a warning and are skipped. |
+| `onboard_config` | sync-only consumer (custom merge) | `(current_config: dict) -> dict \| None` | config fragment | `BubFramework.collect_onboard_config` | Iterated by priority; each fragment is merged via `configure.merge`. Non-dict returns raise `TypeError`. |
+| `on_error` | observer | `(stage: str, error: Exception, message: Envelope \| None) -> None` | none | `HookRuntime.notify_error` / `notify_error_sync` | Failures inside an `on_error` impl are caught and logged so other observers still run. |
+| `system_prompt` | broadcast (joined) | `(prompt, state) -> str` | prompt fragment | `BubFramework.get_system_prompt` (`call_many_sync`) | Results are reversed and joined with `\n\n`; truthy fragments only. |
+| `provide_tape_store` | firstresult | `() -> TapeStore \| AsyncTapeStore` | tape store | `BubFramework.running()` | Resolved once when the runtime scope opens; sync/async iterators are entered as context managers. |
+| `provide_channels` | sync-only consumer (deduped) | `(message_handler: MessageHandler) -> list[Channel]` | channels | `BubFramework.get_channels` (`call_many_sync`) | Channels are deduplicated by `Channel.name`; the first channel seen in hook priority order wins. |
+| `build_tape_context` | firstresult | `() -> TapeContext` | tape context | `BubFramework.build_tape_context` (`call_first_sync`) | Sync-only; awaitable returns are skipped. |
+
+## How hooks are invoked
+
+`HookRuntime` (in `src/bub/hook_runtime.py`) wraps the `pluggy.PluginManager` with the following semantics.
+
+### Iteration order
+
+```python
+def _iter_hookimpls(self, hook_name: str) -> list[Any]:
+    hook = getattr(self._plugin_manager.hook, hook_name, None)
+    if hook is None or not hasattr(hook, "get_hookimpls"):
+        return []
+    return list(reversed(hook.get_hookimpls()))
+```
+
+`pluggy` returns implementations in registration order. `HookRuntime` reverses that list, so **the most recently registered plugin runs first**. Builtin is registered before entry-point plugins, so user plugins always win on `firstresult` hooks.
+
+`bub hooks` is a discovery report. In the current implementation it prints the raw hook implementation order from pluggy, so use this section rather than the printed order alone when reasoning about runtime precedence.
+
+### `call_first` vs `call_many`
+
+| Method | Behavior |
+| --- | --- |
+| `call_first(name, **kwargs)` | Walk impls in reversed order, return the first non-`None` value. |
+| `call_many(name, **kwargs)` | Walk all impls, collect each non-skipped value into a list. |
+| `call_first_sync` / `call_many_sync` | Same iteration; awaitable returns are dropped with a warning. |
+
+### Sync vs async
+
+Async calls (`call_first`, `call_many`) `await` any awaitable result. Sync calls (`*_sync`) check `inspect.isawaitable(value)` and emit `hook.async_not_supported hook=<name> adapter=<plugin>`, then skip the value.
+
+Bootstrap hooks **must** be synchronous: `register_cli_commands`, `onboard_config`, `provide_channels`, `provide_tape_store`, `build_tape_context`, plus `system_prompt`.
+
+:::caution
+Defining an async coroutine implementation for a sync-only hook registers the hook, but runtime sync dispatch logs `hook.async_not_supported` and skips its return value. `bub hooks` confirms discovery, not that the implementation is usable in sync dispatch.
+:::
+
+### Signature pruning
+
+```python
+@staticmethod
+def _kwargs_for_impl(impl: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    return {name: kwargs[name] for name in impl.argnames if name in kwargs}
+```
+
+Each impl receives only the kwargs it declares. You can omit unused parameters from your function signature without breaking dispatch.
+
+### Tape-store lifecycle
+
+`provide_tape_store` is called **once** per `BubFramework.running()` scope, not per turn:
+
+- `bub run` opens the scope around a single inbound turn, then closes it.
+- `bub chat` and `bub gateway` keep the scope open until the listener exits.
+- Returning a sync or async iterator turns the impl into a `contextmanager`/`asynccontextmanager`; the yielded value is the active store until the scope exits.
+
+`BubFramework.get_tape_store()` returns `None` outside the scope.
+
+### `on_error` observer safety
+
+`notify_error` and `notify_error_sync` wrap each impl in a `try`/`except`; observer failures are logged (`hook.on_error_failed stage=… adapter=…`) but never propagate. This guarantees one broken observer does not block the others, and prevents an `on_error` from masking the original exception.
+
+For the runtime contract behind every signature, read `src/bub/hookspecs.py`. To verify what is registered in your environment, run `bub hooks` (see [CLI › hooks](/docs/reference/cli/#hooks)).

@@ -1,0 +1,116 @@
+---
+title: Deploy
+description: Run Bub as a long-lived service with Docker Compose, persist Bub home state, and apply upgrades safely.
+sidebar:
+  order: 3
+---
+
+This page shows how to deploy Bub as a container: build the image, mount persistent state, and upgrade without losing the plugin project.
+
+The repository ships three files that drive the canonical deployment: [`Dockerfile`](https://github.com/bubbuild/bub/blob/main/Dockerfile), [`docker-compose.yml`](https://github.com/bubbuild/bub/blob/main/docker-compose.yml), and [`entrypoint.sh`](https://github.com/bubbuild/bub/blob/main/entrypoint.sh).
+
+## Before you begin
+
+- Docker (or compatible runtime) and `docker compose` are installed.
+- You have a `.env` with at minimum `BUB_MODEL` and either `BUB_API_KEY` or a provider-specific key — see [Configure](/docs/operate/configure/).
+- For a Telegram deployment, `BUB_TELEGRAM_TOKEN` and an allowlist are in `.env` — see [Telegram](/docs/operate/channels/telegram/).
+
+## 1. Prepare the env file
+
+```bash
+cp env.example .env
+```
+
+A minimum `.env` for a Telegram gateway:
+
+```bash
+BUB_MODEL=openrouter:openrouter/free
+BUB_API_KEY=sk-or-...
+BUB_TELEGRAM_TOKEN=123456:abcdef...
+BUB_TELEGRAM_ALLOW_USERS=123456789
+```
+
+`docker compose` loads `.env` automatically — see the `env_file:` line in `docker-compose.yml`.
+
+## 2. Understand the volumes
+
+```yaml
+volumes:
+  - ${BUB_WORKSPACE_PATH:-.}:/workspace
+  - ${BUB_HOME_HOST:-${HOME}/.bub}:/data
+  - ${BUB_AGENT_HOME:-${HOME}/.agents}:/root/.agents
+```
+
+| Mount | Purpose |
+|---|---|
+| `/workspace` | The directory Bub treats as the working repo. Defaults to the directory you ran `docker compose` from. |
+| `/data` | Host bind for Bub's home directory (history, tapes, plugin project). |
+| `/root/.agents` | Shared skill directory (the `agents.md` convention). |
+
+The compose file sets `BUB_HOME=/data` inside the container. Use `BUB_HOME_HOST` when you want the host-side source path to be somewhere other than `~/.bub`. Runtime settings for this deployment should live in `.env`; `BUB_HOME` does not move Bub's default `config.yml` path.
+
+## 3. Build and start
+
+```bash
+docker compose up -d --build
+docker compose logs -f app
+```
+
+The first run takes a few minutes — the image installs system tools (git, node, jq, etc.) and runs `uv sync --no-dev --no-editable`.
+
+## 4. What `entrypoint.sh` does
+
+On every container start:
+
+1. If `/workspace/bub-reqs.txt` exists, install the listed packages into the image's venv.
+2. Run `bub install` with no arguments — this syncs the managed plugin project under `/data/bub-project/`. New plugin entries in `pyproject.toml` are picked up here.
+3. If `/workspace/startup.sh` exists, exec it. Otherwise exec `bub gateway`.
+
+This means a workspace can override the entrypoint by providing its own `startup.sh` — useful when you want to run `bub chat` against a long-lived workspace, or to customize gateway flags:
+
+```bash
+# /workspace/startup.sh
+exec /app/.venv/bin/bub gateway --enable-channel telegram
+```
+
+## 5. Verify the running service
+
+```bash
+docker compose ps
+docker compose logs -f app | rg "telegram.start polling"
+```
+
+A healthy Telegram deployment logs `telegram.start polling` once. If it logs nothing channel-related, check that `BUB_TELEGRAM_TOKEN` reached the container (`docker compose exec app env | rg BUB_TELEGRAM`).
+
+## 6. Upgrade safely
+
+A rolling upgrade preserves the plugin project under `/data` (host `BUB_HOME_HOST`, default `~/.bub`):
+
+```bash
+git fetch --all --tags
+git pull
+docker compose build --pull
+docker compose up -d
+docker compose logs -f app
+```
+
+Inside the running container, plugins are managed by `bub install` and `bub update`:
+
+```bash
+docker compose exec app bub install                       # sync project
+docker compose exec app bub install owner/repo@v1.2.0     # add or pin a plugin
+docker compose exec app bub update                        # upgrade everything
+docker compose exec app bub update specific-plugin        # upgrade one
+```
+
+Both commands operate on the managed project at `BUB_PROJECT` (default `bub.home / "bub-project"`, `/data/bub-project` in this compose deployment). They never touch the system Python environment.
+
+:::note
+`bub install` and `bub update` require Bub itself to live in a virtual environment. The container image satisfies this — the `entrypoint.sh` activates `/app/.venv` before exec.
+:::
+
+## Next steps
+
+- [Configure](/docs/operate/configure/) — env-var precedence and provider settings.
+- [Telegram](/docs/operate/channels/telegram/) — bot token and allowlist behavior.
+- [CLI reference](/docs/reference/cli/) — flags for `bub gateway`, `bub install`, `bub update`.

@@ -1,0 +1,94 @@
+---
+title: Telegram channel
+description: 配置内置 Telegram 机器人 —— token、白名单、session id、防抖行为，以及如何启动 gateway。
+---
+
+本页说明如何运维内置的 Telegram channel：它读取哪些环境变量、如何命名 session、如何对入站消息做防抖。
+
+Telegram channel 注册名为 `telegram`。它通过 `python-telegram-bot` 使用长轮询，当 `BUB_TELEGRAM_TOKEN` 已设置时在运行时被启用。
+
+## 开始之前
+
+- 已通过 [@BotFather](https://t.me/BotFather) 创建机器人并拿到 token。
+- 群聊使用时，**已在 BotFather 中关闭 Privacy Mode**。否则机器人只能看到命令，入站过滤器无法判断是否要回复。
+- Bub 已配置可用的模型 —— 参见 [配置](/zh-cn/docs/operate/configure/)。
+
+## 1. 设置 token
+
+```bash
+BUB_TELEGRAM_TOKEN=123456:abcdef...
+```
+
+这一个变量就是开关。未设置时 channel 报告 `enabled=False`，`bub gateway` 会跳过它且不报错。
+
+## 2. 限制谁可以使用机器人
+
+白名单使用逗号分隔，对用户名区分大小写：
+
+```bash
+BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
+BUB_TELEGRAM_ALLOW_CHATS=-1001234567890,-1009876543210
+```
+
+行为：
+
+- 设置 `BUB_TELEGRAM_ALLOW_CHATS` 后，其他聊天的消息被静默丢弃。
+- 设置 `BUB_TELEGRAM_ALLOW_USERS` 后，其他用户会收到 `Access denied.`
+- 用户 **数字 id 或用户名** 任一命中即视为通过。
+
+:::caution
+两份白名单都为空意味着任何找到机器人的人都能驱动它。生产部署至少设置一份。
+:::
+
+## 3. 可选：走代理
+
+```bash
+BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
+# 或 socks5://user:pass@host:port
+```
+
+同一代理同时用于轮询连接与出站 API 调用。
+
+## 4. 启动 gateway
+
+```bash
+uv run bub gateway --enable-channel telegram
+```
+
+`--enable-channel telegram` 把监听器固定到一个 channel。不带它时，`bub gateway` 启用 `all` channel（排除 `cli`，并在 token 已设置时包括 Telegram）。启动时应看到：
+
+```text
+telegram.start allow_users_count=2 allow_chats_count=1 proxy_enabled=False
+telegram.start polling
+```
+
+## 5. 入站消息如何被构造
+
+Telegram channel 使用 `telegram:<chat_id>` 作为 session id。即便同一用户既在私聊又在群聊里，二者也保持独立。
+
+入站处理：
+
+- `/start` 由内部处理；机器人回复固定欢迎语（不在白名单的聊天则回复"不允许"提示）。
+- `/bub <text>` 会被规范化 —— 去掉 `/bub ` 前缀，剩余作为 prompt 内容。
+- 私聊中，所有非命令消息都会被采集。
+- 群聊中，每条非命令消息都会到达 Telegram channel。提到 `@<bot_username>`、包含关键字 `bub`、或回复机器人自己消息的内容会被标记为 active。其他群消息会被忽略，除非同一 session 在 `BUB_ACTIVE_TIME_WINDOW` 内已有活跃对话，此时它们会并入该批次。
+
+## 6. 防抖
+
+Telegram channel 设置 `needs_debounce=True`。入站消息按 session 用 `BUB_DEBOUNCE_SECONDS`、`BUB_MAX_WAIT_SECONDS` 与 `BUB_ACTIVE_TIME_WINDOW` 进行批处理。具体值见 [Channels 总览](/zh-cn/docs/operate/channels/)。
+
+:::tip
+逗号命令（`,help`、`,fs.read ...`）始终绕过防抖。无论是否有待处理批次，它们一到达就被分发。
+:::
+
+## 7. 出站行为
+
+普通 Telegram 入站消息进入 turn pipeline 前会设置 `output_channel="null"`。这会阻止普通模型返回值被盲目发回 Telegram。内置 `telegram` skill 是回复、进度更新和编辑消息的标准路径。
+
+逗号命令不同：它们保留 `output_channel="telegram"`，因此工具输出会发回原 `chat_id`。当路由到 `TelegramChannel.send(...)` 的内容是带 `"message"` 字段的 JSON 时，只发送该字段；否则发送原始内容。空载荷被丢弃。
+
+## 后续阅读
+
+- [Channels 总览](/zh-cn/docs/operate/channels/) —— 防抖、`enabled_channels`、session id。
+- [部署](/zh-cn/docs/operate/deploy/) —— 把机器人打入容器并持久化状态。
+- [Settings 参考](/zh-cn/docs/reference/settings/) —— 全部 `BUB_TELEGRAM_*` 变量。

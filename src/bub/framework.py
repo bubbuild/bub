@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -48,6 +50,7 @@ class BubFramework:
         self._plugin_status: dict[str, PluginStatus] = {}
         self._outbound_router: OutboundChannelRouter | None = None
         self._turn_controls: dict[str, TurnControl] = {}
+        self._tape_store: TapeStore | AsyncTapeStore | None = None
         configure.load(self.config_file)
 
     def _load_builtin_hooks(self) -> None:
@@ -317,8 +320,24 @@ class BubFramework:
                     channels[channel.name] = channel
         return channels
 
+    @contextlib.asynccontextmanager
+    async def running(self) -> AsyncGenerator[contextlib.AsyncExitStack, None]:
+        async with contextlib.AsyncExitStack() as stack:
+            tape_store = self._hook_runtime.call_first_sync("provide_tape_store")
+            # Allow plugins to return either TapeStore/AsyncTapeStore instances or context managers for them
+            # This benefits plugins that need to initialize and clean up resources with the tape store.
+            if isinstance(tape_store, AsyncIterator):
+                tape_store = await stack.enter_async_context(contextlib.asynccontextmanager(lambda: tape_store)())
+            elif isinstance(tape_store, Iterator):
+                tape_store = stack.enter_context(contextlib.contextmanager(lambda: tape_store)())
+            self._tape_store = tape_store
+            try:
+                yield stack
+            finally:
+                self._tape_store = None
+
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None:
-        return self._hook_runtime.call_first_sync("provide_tape_store")
+        return self._tape_store
 
     def get_system_prompt(self, prompt: str | list[dict], state: dict[str, Any]) -> str:
         return "\n\n".join(
@@ -333,7 +352,7 @@ class BubFramework:
     def collect_onboard_config(self) -> dict[str, Any]:
         current_config: dict[str, Any] = {}
 
-        for impl in self._hook_runtime._iter_hookimpls("onboard_config"):
+        for impl in reversed(list(self._hook_runtime._iter_hookimpls("onboard_config"))):
             result = self._hook_runtime._invoke_impl_sync(
                 hook_name="onboard_config",
                 impl=impl,

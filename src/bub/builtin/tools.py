@@ -79,12 +79,17 @@ async def bash(
     """Run a shell command. Use background=true to keep it running and fetch output later via bash_output."""
     workspace = context.state.get("_runtime_workspace")
     target_cwd = cwd or workspace
-    shell = await shell_manager.start(cmd=cmd, cwd=target_cwd)
+    raw_session_id = context.state.get("session_id")
+    session_id = str(raw_session_id) if raw_session_id is not None else None
+    shell = await shell_manager.start(cmd=cmd, cwd=target_cwd, session_id=session_id)
     if background:
         return f"started: {shell.shell_id}"
     try:
         async with asyncio.timeout(timeout_seconds):
             shell = await shell_manager.wait_closed(shell.shell_id)
+    except asyncio.CancelledError:
+        await shell_manager.terminate(shell.shell_id)
+        raise
     except TimeoutError:
         await shell_manager.terminate(shell.shell_id)
         return f"command timed out after {timeout_seconds} seconds and was terminated"
@@ -309,7 +314,8 @@ def show_help() -> str:
 async def quit_tool(*, context: ToolContext) -> str:
     """Quit the tasks of the current session."""
     agent = _get_agent(context)
-    session_id = context.state.get("session_id", "temp/unknown")
+    session_id = str(context.state.get("session_id", "temp/unknown"))
+    await shell_manager.terminate_session(session_id)
     await agent.framework.quit_via_router(session_id)
     return "Session tasks stopped."
 

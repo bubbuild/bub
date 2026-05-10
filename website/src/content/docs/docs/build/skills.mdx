@@ -1,0 +1,110 @@
+---
+title: Skills
+description: Author SKILL.md, follow Bub's frontmatter contract, ship skills inside a plugin or distribution, and understand discovery precedence.
+sidebar:
+  order: 4
+---
+
+This guide shows how to author a **skill** — a discoverable directory centered on `SKILL.md` — and how to ship skills inside a Bub plugin or distribution package.
+
+A skill is a unit of model-facing instruction Bub exposes via the `,skill` comma command and through prompt rendering. Bub's loader implements the [Agent Skills](https://agentskills.io/) format; this page focuses on the contract Bub enforces and the packaging patterns that put skills on the discovery path.
+
+## Before you begin
+
+- A plugin or distribution package built with a backend that supports custom file inclusion (Hatch, uv-build, PDM all work).
+- Familiarity with [First skill](/docs/getting-started/first-skill/) for a hand-written skill.
+
+## 1. Minimum SKILL.md contract
+
+Each skill is a directory named after the skill, containing a `SKILL.md` file that begins with YAML frontmatter:
+
+```text
+my-skill/
+└─ SKILL.md
+```
+
+```markdown
+---
+name: my-skill
+description: One sentence the agent reads when listing available skills.
+---
+
+Body content the agent loads when this skill is expanded.
+```
+
+[`bub.skills`](https://github.com/bubbuild/bub/blob/main/src/bub/skills.py) enforces:
+
+- frontmatter must include non-empty `name` and `description`
+- directory name must equal the `name` field
+- `name` must match `^[a-z0-9]+(?:-[a-z0-9]+)*$` (lowercase kebab-case)
+- `name` length ≤ 64; `description` length ≤ 1024
+- if `metadata` is present it must be a flat `string -> string` map
+
+Optional directories from the upstream Agent Skills format — `scripts/`, `references/`, `assets/` — are allowed alongside `SKILL.md`.
+
+## 2. Discovery precedence
+
+Bub scans three roots in this order, and the first occurrence of a skill name wins:
+
+1. **Project**: `<workspace>/.agents/skills/`
+2. **User**: `~/.agents/skills/`
+3. **Builtin**: `<site-packages>/skills/` — every directory on the Python `skills` package's `__path__`
+
+The third root is what makes packaged skills work: any installed Python distribution that ships a top-level `skills/` package contributes to builtin discovery.
+
+:::note
+Workspace and user skills override packaged ones with the same name. Distributions should pick names that do not collide with widely used skills.
+:::
+
+## 3. Ship skills with your package
+
+Add a `skills/` package alongside your plugin code, and tell your build backend to include it in the wheel.
+
+### Layout
+
+```text
+my-distribution/
+├─ pyproject.toml
+└─ src/
+   ├─ my_distribution/
+   │  └─ __init__.py
+   ├─ bub_myplugin/
+   │  ├─ __init__.py
+   │  └─ plugin.py
+   └─ skills/
+      └─ my-skill/
+         └─ SKILL.md
+```
+
+Bub treats `skills` as a [PEP 420 namespace package](https://peps.python.org/pep-0420/), so no `__init__.py` is required — visual-base ships its `src/skills/` directory exactly this way. Add one only if your build backend needs it to detect the package.
+
+### Hatch wheel target
+
+Visual-base ships skills this way (from [`pyproject.toml`](https://github.com/oilbeater/visual-base/blob/main/pyproject.toml)):
+
+```toml
+[tool.hatch.build.targets.wheel]
+packages = ["src/visual_base", "src/bub_kimi", "src/bub_eye", "src/skills"]
+```
+
+Listing `src/skills` as a wheel package makes the `skills/` directory installable into `<site-packages>/skills/`. Bub's builtin root then discovers everything beneath it.
+
+### Other build backends
+
+The same outcome with `uv_build` or `pdm-backend`: include the `src/skills` directory as part of the package. Refer to your backend's documentation for the exact field — the rule Bub cares about is that the installed wheel ends up with a top-level `skills/` package.
+
+## 4. Verify discovery
+
+After installing the package into the active environment, load a specific discovered skill via the builtin command channel:
+
+```bash
+uv run bub run ",skill name=my-skill"
+```
+
+If the skill is on the discovery path, Bub prints its rendered body. If not, the command returns `(no such skill)` — re-check the directory name, the frontmatter `name` field, and that `skills/` made it into the installed package (`uv pip show -f my-distribution | grep skills`).
+
+## Next steps
+
+- [First skill](/docs/getting-started/first-skill/) — write a workspace-local skill
+- [Distribution](/docs/build/distribution/) — bundle skills with a product distribution
+- [Agent Skills format](https://agentskills.io) — upstream specification for `SKILL.md`

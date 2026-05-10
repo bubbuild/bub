@@ -149,7 +149,9 @@ class ChannelManager:
         self.framework.clear_turn_control(session_id)
 
     def _on_task_done(self, session_id: str, task: asyncio.Task) -> None:
-        with contextlib.suppress(asyncio.CancelledError):
+        if task.cancelled():
+            logger.info("channel.manager task cancelled session_id={}", session_id)
+        else:
             task.exception()  # to log any exception
         controller = self._session_controllers.get(session_id)
         if controller is None:
@@ -169,15 +171,20 @@ class ChannelManager:
         controller.clear_pending()
         controller.steering.drain_injected()
         tasks = set(controller.active_tasks)
+        current_task = asyncio.current_task()
         self.framework.request_turn_cancel(session_id)
         for task in tasks:
+            if task is current_task:
+                continue
             task.cancel()
         for task in tasks:
+            if task is current_task:
+                continue
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        controller.active_tasks.difference_update(tasks)
+        controller.active_tasks.difference_update(task for task in tasks if task is not current_task)
         self._drop_empty_controller(session_id)
-        return len(tasks)
+        return len(tasks - {current_task})
 
     async def _admit_message(self, message: ChannelMessage) -> bool:
         try:
@@ -297,24 +304,25 @@ class ChannelManager:
     async def listen_and_run(self) -> None:
         stop_event = asyncio.Event()
         self.framework.bind_outbound_router(self)
-        for channel in self.enabled_channels():
-            await channel.start(stop_event)
-        logger.info("channel.manager started listening")
-        try:
-            while True:
-                message = await wait_until_stopped(self._messages.get(), stop_event)
-                if not await self._admit_message(message):
-                    continue
-                self._schedule_message(message)
-        except asyncio.CancelledError:
-            logger.info("channel.manager received shutdown signal")
-        except Exception:
-            logger.exception("channel.manager error")
-            raise
-        finally:
-            self.framework.bind_outbound_router(None)
-            await self.shutdown()
-            logger.info("channel.manager stopped")
+        async with self.framework.running():
+            for channel in self.enabled_channels():
+                await channel.start(stop_event)
+            logger.info("channel.manager started listening")
+            try:
+                while True:
+                    message = await wait_until_stopped(self._messages.get(), stop_event)
+                    if not await self._admit_message(message):
+                        continue
+                    self._schedule_message(message)
+            except asyncio.CancelledError:
+                logger.info("channel.manager received shutdown signal")
+            except Exception:
+                logger.exception("channel.manager error")
+                raise
+            finally:
+                self.framework.bind_outbound_router(None)
+                await self.shutdown()
+                logger.info("channel.manager stopped")
 
     async def shutdown(self) -> None:
         count = 0

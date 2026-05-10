@@ -1,0 +1,110 @@
+---
+title: 技能
+description: 编写 SKILL.md、遵循 Bub 的 frontmatter 契约、在插件或发行版包中分发技能，并理解发现优先级。
+sidebar:
+  order: 4
+---
+
+本指南展示如何编写一个**技能** —— 以 `SKILL.md` 为核心的可发现目录 —— 并把技能随 Bub 插件或发行版包一起分发。
+
+技能是 Bub 通过 `,skill` 逗号命令以及提示渲染暴露给模型的指令单元。Bub 的加载器实现了 [Agent Skills](https://agentskills.io/) 格式；本页聚焦 Bub 强制的契约以及把技能放上发现路径的打包模式。
+
+## 开始之前
+
+- 一个使用支持自定义文件包含的构建后端的插件或发行版包（Hatch、uv-build、PDM 都可）。
+- 熟悉[首个技能](/zh-cn/docs/getting-started/first-skill/)中手写技能的流程。
+
+## 1. 最小 SKILL.md 契约
+
+每个技能是一个以技能名命名的目录，包含一个以 YAML frontmatter 开头的 `SKILL.md`：
+
+```text
+my-skill/
+└─ SKILL.md
+```
+
+```markdown
+---
+name: my-skill
+description: One sentence the agent reads when listing available skills.
+---
+
+Body content the agent loads when this skill is expanded.
+```
+
+[`bub.skills`](https://github.com/bubbuild/bub/blob/main/src/bub/skills.py) 强制：
+
+- frontmatter 必须包含非空的 `name` 与 `description`
+- 目录名必须等于 `name` 字段
+- `name` 必须匹配 `^[a-z0-9]+(?:-[a-z0-9]+)*$`（小写 kebab-case）
+- `name` 长度 ≤ 64；`description` 长度 ≤ 1024
+- 如果存在 `metadata`，它必须是扁平的 `string -> string` 映射
+
+上游 Agent Skills 格式中的可选目录 —— `scripts/`、`references/`、`assets/` —— 可以与 `SKILL.md` 并列。
+
+## 2. 发现优先级
+
+Bub 按以下顺序扫描三个根，相同名字下首次出现胜出：
+
+1. **项目**：`<workspace>/.agents/skills/`
+2. **用户**：`~/.agents/skills/`
+3. **内置**：`<site-packages>/skills/` —— Python `skills` 包的 `__path__` 上每一个目录
+
+第三个根让打包技能成为可能：任何安装的 Python 发行包，只要附带顶层 `skills/` 包，都会贡献到内置发现。
+
+:::note
+工作区与用户技能会覆盖同名的打包技能。发行版应避免选择与广泛使用的技能重名的名字。
+:::
+
+## 3. 随包分发技能
+
+在插件代码旁加入一个 `skills/` 包，并告诉构建后端把它打入 wheel。
+
+### 目录结构
+
+```text
+my-distribution/
+├─ pyproject.toml
+└─ src/
+   ├─ my_distribution/
+   │  └─ __init__.py
+   ├─ bub_myplugin/
+   │  ├─ __init__.py
+   │  └─ plugin.py
+   └─ skills/
+      └─ my-skill/
+         └─ SKILL.md
+```
+
+Bub 把 `skills` 当作 [PEP 420 命名空间包](https://peps.python.org/pep-0420/) 处理，因此并不需要 `__init__.py` —— visual-base 的 `src/skills/` 就是这样发布的。只有当你的 build backend 必须依赖它来识别包时，才需要添加。
+
+### Hatch wheel 目标
+
+visual-base 就是这样分发技能的（来自 [`pyproject.toml`](https://github.com/oilbeater/visual-base/blob/main/pyproject.toml)）：
+
+```toml
+[tool.hatch.build.targets.wheel]
+packages = ["src/visual_base", "src/bub_kimi", "src/bub_eye", "src/skills"]
+```
+
+把 `src/skills` 列为 wheel package，会让 `skills/` 目录被装到 `<site-packages>/skills/`。Bub 的内置根随后就能发现其下的所有内容。
+
+### 其他构建后端
+
+`uv_build` 或 `pdm-backend` 实现同样效果：把 `src/skills` 目录作为包的一部分包含进来。具体字段请参考你后端的文档 —— Bub 关心的规则是：安装后的 wheel 最终拥有顶层 `skills/` 包。
+
+## 4. 验证发现
+
+把包安装到当前环境后，通过内置命令通道加载一个已发现的指定技能：
+
+```bash
+uv run bub run ",skill name=my-skill"
+```
+
+如果该技能在发现路径上，Bub 会打印它渲染后的正文。否则命令返回 `(no such skill)` —— 重新检查目录名、frontmatter 的 `name` 字段，并确认 `skills/` 进入了已安装的包（`uv pip show -f my-distribution | grep skills`）。
+
+## 下一步
+
+- [首个技能](/zh-cn/docs/getting-started/first-skill/) —— 编写一个工作区本地技能
+- [发行版](/zh-cn/docs/build/distribution/) —— 把技能与产品发行版一起打包
+- [Agent Skills 格式](https://agentskills.io) —— `SKILL.md` 的上游规范

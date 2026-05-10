@@ -1,0 +1,97 @@
+---
+title: 运行你的第一次 turn
+description: 创建 workspace、写 AGENTS.md、运行 comma 命令，并发送你的第一次 model-backed turn。
+sidebar:
+  order: 2
+---
+
+本教程引导你完成一次完整的 turn——框架对一条 inbound 消息端到端处理的称呼。
+
+## 在开始之前
+
+你需要准备：
+
+- 已 [安装 Bub](/zh-cn/docs/getting-started/install/) 且 `uv run bub hooks` 报告 `builtin` 插件
+- 一种模型访问方式：通过 `BUB_API_KEY` 或提供商专用 `BUB_<PROVIDER>_API_KEY` 导出的 API key；也可以通过 `uv run bub login openai` 完成 OpenAI Codex OAuth，并设置 `BUB_MODEL=openai:gpt-5-codex`
+
+## 1. 创建 workspace
+
+workspace 是 Bub 视为项目根的目录。创建并进入：
+
+```bash
+mkdir hello-bub
+cd hello-bub
+```
+
+Bub 把 `Path.cwd()` 当作 workspace，因此该目录中后续每条 `bub` 命令都会共享同一个上下文。
+
+## 2. 写 AGENTS.md
+
+`AGENTS.md` 是 workspace 级别的指令文件。Bub 会在 model-backed turn 中读取它，并将其拼接到 system prompt。
+
+```bash
+cat > AGENTS.md <<'EOF'
+你是该 workspace 的 Bub agent。
+修改文件之前先读它们。
+回复保持简短具体。
+EOF
+```
+
+Bub 遵循 [agents.md](https://agents.md/) 约定，因此为其他兼容 agent 写的 `AGENTS.md` 可以原封不动复用。
+
+## 3. 运行一个 comma 命令
+
+comma 命令是无需调用模型即可触发的运行时工具。先试用内置 help 命令：
+
+```bash
+uv run bub run ",help"
+```
+
+期望输出（节选）：
+
+```text
+Commands use ',' at line start.
+Known internal commands:
+  ,help
+  ,skill name=foo
+  ,tape.info
+  ...
+```
+
+如果你看到该列表，说明内核已完成解析 session、构建 prompt，并将 comma 命令路由到内置工具注册表——全程未联系任何模型。
+
+:::tip
+任何以逗号开头的行起始符号都是 comma 命令。未知命令会通过 `bash` 退化为 shell 调用。
+:::
+
+## 4. 运行一次 model-backed turn
+
+配置好 provider 后，运行一次单次 turn：
+
+```bash
+uv run bub run "总结该 workspace 的目的。"
+```
+
+Bub 会解析 session、加载 state、构建用户 prompt，并用包含 `AGENTS.md` 的 system prompt 调用模型，然后渲染 outbound 消息并由 CLI 命令打印出来。
+
+如需交互式使用，启动 chat 会话：
+
+```bash
+uv run bub chat
+```
+
+## 5. 可选：使用 OpenAI OAuth 登录
+
+如果想使用 OpenAI Codex OAuth 路径而不是 API key，使用 OAuth 登录：
+
+```bash
+uv run bub login openai
+```
+
+Bub 会在本地保存凭据。使用该路径时，设置 `BUB_MODEL=openai:gpt-5-codex`，并保持 `BUB_API_KEY` 未设置。
+
+## 下一步
+
+- [编写你的第一个 skill](/zh-cn/docs/getting-started/first-skill/) — 添加一个 agent 可调用的项目 skill。
+- [Turn pipeline](/zh-cn/docs/concepts/turn-pipeline/) — 查看第 4 步具体跑了哪些 hook。
+- [配置 Bub](/zh-cn/docs/operate/configure/) — 切换 provider、channel 与 tape 存储。

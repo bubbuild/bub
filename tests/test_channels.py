@@ -73,10 +73,20 @@ class FakeFramework:
         self._supports_steering = True
         self._hook_runtime = SimpleNamespace(notify_error=self._notify_error)
         self.resolved_sessions: dict[str, str] = {}
+        self.running_entries = 0
+        self.running_exits = 0
 
     def get_channels(self, message_handler):
         self.message_handler = message_handler
         return self._channels
+
+    @contextlib.asynccontextmanager
+    async def running(self):
+        self.running_entries += 1
+        try:
+            yield
+        finally:
+            self.running_exits += 1
 
     def bind_outbound_router(self, router) -> None:
         self.router = router
@@ -140,6 +150,63 @@ def _message(
         is_active=is_active,
         kind=kind,
     )
+
+
+class _FakeTelegramUpdater:
+    def __init__(self) -> None:
+        self.kwargs: dict[str, object] | None = None
+
+    async def start_polling(self, **kwargs) -> None:
+        self.kwargs = kwargs
+
+
+class _FakeTelegramApp:
+    def __init__(self) -> None:
+        self.updater = _FakeTelegramUpdater()
+        self.handlers: list[object] = []
+
+    def add_handler(self, handler: object) -> None:
+        self.handlers.append(handler)
+
+    async def initialize(self) -> None:
+        return
+
+    async def start(self) -> None:
+        return
+
+
+class _FakeTelegramBuilder:
+    def __init__(self) -> None:
+        self.app = _FakeTelegramApp()
+        self.request: object | None = None
+        self.proxy_value: str | None = None
+        self.token_value: str | None = None
+
+    def token(self, token: str) -> _FakeTelegramBuilder:
+        self.token_value = token
+        return self
+
+    def get_updates_request(self, request: object) -> _FakeTelegramBuilder:
+        self.request = request
+        return self
+
+    def proxy(self, proxy: str) -> _FakeTelegramBuilder:
+        self.proxy_value = proxy
+        return self
+
+    def get_updates_proxy(self, _proxy: str) -> _FakeTelegramBuilder:
+        raise AssertionError("get_updates_proxy should not be called when get_updates_request is already set")
+
+    def build(self) -> _FakeTelegramApp:
+        return self.app
+
+
+def _telegram_proxy_config() -> str:
+    return """
+telegram:
+  token: "test-token"
+  proxy: "http://127.0.0.1:1087"
+""".strip()
 
 
 @pytest.mark.asyncio
@@ -306,6 +373,8 @@ async def test_channel_manager_listen_and_run_passes_stream_output_setting(
     message, stream_output = framework.process_calls[0]
     assert message.content == "hello"
     assert stream_output is True
+    assert framework.running_entries == 1
+    assert framework.running_exits == 1
 
 
 @pytest.mark.asyncio
@@ -353,6 +422,46 @@ async def test_channel_manager_quit_drops_pending_messages(load_config) -> None:
     assert active.cancelled()
     assert framework.process_calls == []
     assert "telegram:chat" not in manager._session_controllers
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_quit_skips_current_task(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    manager = ChannelManager(FakeFramework({"telegram": FakeChannel("telegram")}), enabled_channels=["telegram"])
+
+    async def never_finish() -> None:
+        await asyncio.sleep(10)
+
+    current_task = asyncio.current_task()
+    assert current_task is not None
+    target_task = asyncio.create_task(never_finish())
+    controller = manager._controller("session:target")
+    controller.active_tasks = {current_task, target_task}
+
+    await manager.quit("session:target")
+
+    assert current_task.cancelled() is False
+    assert target_task.cancelled()
+    assert controller.active_tasks == {current_task}
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_done_callback_handles_cancelled_task(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    manager = ChannelManager(FakeFramework({"telegram": FakeChannel("telegram")}), enabled_channels=["telegram"])
+
+    async def never_finish() -> None:
+        await asyncio.sleep(10)
+
+    task = asyncio.create_task(never_finish())
+    manager._controller("session:target").active_tasks = {task}
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+    manager._on_task_done("session:target", task)
+
+    assert "session:target" not in manager._session_controllers
 
 
 @pytest.mark.asyncio
@@ -795,6 +904,22 @@ async def test_telegram_channel_send_extracts_json_message_and_skips_blank(load_
     await channel.send(_message("   ", chat_id="42"))
 
     assert sent == [("42", "hello")]
+
+
+@pytest.mark.asyncio
+async def test_telegram_channel_start_with_proxy_does_not_call_get_updates_proxy(
+    monkeypatch: pytest.MonkeyPatch, load_config
+) -> None:
+    load_config(_telegram_proxy_config())
+    fake_builder = _FakeTelegramBuilder()
+    monkeypatch.setattr("bub.channels.telegram.Application.builder", lambda: fake_builder)
+
+    channel = TelegramChannel(lambda message: None)
+    await channel.start(asyncio.Event())
+
+    assert fake_builder.proxy_value == "http://127.0.0.1:1087"
+    assert fake_builder.request is not None
+    assert fake_builder.app.updater.kwargs == {"drop_pending_updates": True, "allowed_updates": ["message"]}
 
 
 @pytest.mark.asyncio

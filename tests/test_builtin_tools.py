@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import shlex
 import sys
+from types import SimpleNamespace
 
 import pytest
 from republic import ToolContext
@@ -11,11 +13,11 @@ from republic.tools.executor import ToolExecutor
 
 import bub.builtin.tools as builtin_tools
 from bub.builtin.shell_manager import ShellManager
-from bub.builtin.tools import bash, bash_output, kill_bash
+from bub.builtin.tools import bash, bash_output, kill_bash, quit_tool
 
 
-def _tool_context(tmp_path) -> ToolContext:
-    return ToolContext(tape="test-tape", run_id="test-run", state={"_runtime_workspace": str(tmp_path)})
+def _tool_context(tmp_path, **state) -> ToolContext:
+    return ToolContext(tape="test-tape", run_id="test-run", state={"_runtime_workspace": str(tmp_path), **state})
 
 
 def _python_shell(code: str) -> str:
@@ -47,6 +49,26 @@ async def test_foreground_bash_releases_shell_when_command_fails(tmp_path, monke
 
     with pytest.raises(RuntimeError, match="command exited with code"):
         await bash.run(cmd=_python_shell("import sys; sys.exit(2)"), context=_tool_context(tmp_path))
+
+    assert manager._shells == {}
+
+
+@pytest.mark.asyncio
+async def test_foreground_bash_terminates_shell_when_cancelled(tmp_path, monkeypatch) -> None:
+    manager = ShellManager()
+    monkeypatch.setattr(builtin_tools, "shell_manager", manager)
+
+    task = asyncio.create_task(
+        bash.run(
+            cmd=_python_shell("import time; time.sleep(10)"),
+            context=_tool_context(tmp_path, session_id="session:target"),
+        )
+    )
+    await asyncio.sleep(0.1)
+
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
 
     assert manager._shells == {}
 
@@ -124,3 +146,46 @@ async def test_kill_bash_returns_status_when_process_already_finished(tmp_path) 
     result = await kill_bash.run(shell_id=shell_id)
 
     assert result == f"id: {shell_id}\nstatus: exited\nexit_code: 0"
+
+
+@pytest.mark.asyncio
+async def test_quit_tool_terminates_background_shells_for_current_session(tmp_path, monkeypatch) -> None:
+    manager = ShellManager()
+    monkeypatch.setattr(builtin_tools, "shell_manager", manager)
+
+    target_started = await bash.run(
+        cmd=_python_shell("import time; time.sleep(10)"),
+        background=True,
+        context=_tool_context(tmp_path, session_id="session:target"),
+    )
+    target_shell_id = target_started.removeprefix("started: ").strip()
+    other_started = await bash.run(
+        cmd=_python_shell("import time; time.sleep(10)"),
+        background=True,
+        context=_tool_context(tmp_path, session_id="session:other"),
+    )
+    other_shell_id = other_started.removeprefix("started: ").strip()
+
+    class FakeFramework:
+        def __init__(self) -> None:
+            self.quit_sessions: list[str] = []
+
+        async def quit_via_router(self, session_id: str) -> None:
+            self.quit_sessions.append(session_id)
+
+    framework = FakeFramework()
+    context = _tool_context(
+        tmp_path,
+        session_id="session:target",
+        _runtime_agent=SimpleNamespace(framework=framework),
+    )
+
+    result = await quit_tool.run(context=context)
+
+    assert result == "Session tasks stopped."
+    assert framework.quit_sessions == ["session:target"]
+    with pytest.raises(KeyError, match="unknown shell id"):
+        await bash_output.run(shell_id=target_shell_id)
+    assert manager.get(other_shell_id).returncode is None
+
+    await kill_bash.run(shell_id=other_shell_id)

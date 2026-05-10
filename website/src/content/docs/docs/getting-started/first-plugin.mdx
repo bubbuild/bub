@@ -1,15 +1,24 @@
 ---
 title: Build Your First Plugin
-description: Create a minimal Bub plugin, install it locally, and verify that it overrides the builtin runtime.
+description: Build a minimal echo plugin, install it editable, and verify Bub loads its hooks.
 sidebar:
-  order: 3
+  order: 4
 ---
 
-Use this page only after the builtins, your workspace files, and existing plugins are no longer enough.
+This tutorial walks through writing a minimal Bub plugin that overrides the model stage with an echo response, installs it into the active environment, and verifies the framework picked it up.
 
-This tutorial builds a tiny local plugin that overrides Bub's model stage and echoes the incoming text. It is intentionally simple, so you can verify plugin loading without needing model credentials.
+The plugin needs no model credentials, so it is useful as both a smoke test and a starting template for real plugins.
 
-## 1. Create the package skeleton
+## Before you begin
+
+You should have:
+
+- [Bub installed](/docs/getting-started/install/) in a `uv`-managed environment
+- a free directory outside your workspace where you can scaffold the plugin package
+
+## 1. Scaffold the package
+
+Create the package layout:
 
 ```bash
 mkdir bub-echo-plugin
@@ -18,7 +27,7 @@ mkdir -p src/bub_echo_plugin
 touch src/bub_echo_plugin/__init__.py
 ```
 
-Create `pyproject.toml`:
+Create `pyproject.toml`. The `[project.entry-points."bub"]` block is what makes the plugin discoverable:
 
 ```toml
 [build-system]
@@ -28,7 +37,8 @@ build-backend = "hatchling.build"
 [project]
 name = "bub-echo-plugin"
 version = "0.1.0"
-dependencies = ["bub"]
+requires-python = ">=3.12"
+dependencies = ["bub>=0.1"]
 
 [project.entry-points."bub"]
 echo = "bub_echo_plugin.plugin:echo_plugin"
@@ -39,7 +49,7 @@ packages = ["src/bub_echo_plugin"]
 
 ## 2. Implement the plugin
 
-Create `src/bub_echo_plugin/plugin.py`:
+Create `src/bub_echo_plugin/plugin.py`. A plugin is any object whose methods are decorated with `@hookimpl`:
 
 ```python
 from __future__ import annotations
@@ -65,47 +75,46 @@ class EchoPlugin:
 echo_plugin = EchoPlugin()
 ```
 
-This plugin does two things:
+`build_prompt` is a `firstresult` hook — the first non-None return value wins. `run_model` is also `firstresult`, so this implementation overrides the built-in agent entirely.
 
-- `build_prompt()` keeps the prompt equal to the original inbound text
-- `run_model()` replaces the builtin model call with a deterministic echo response
+## 3. Create the plugin environment
 
-## 3. Install it into the active environment
-
-From the plugin directory:
+From the plugin directory, sync the package and its dependencies into the plugin project's `.venv`:
 
 ```bash
-uv pip install -e .
+uv sync
 ```
 
-Bub loads entry points from the active Python environment, so an editable install is enough for local development.
+`uv sync` installs the plugin package editable by default. The `uv run bub ...` commands below then run Bub from the same environment that contains the plugin entry point.
 
-## 4. Verify that Bub loads it
+If you instead want to install the plugin into an existing Bub checkout environment, activate that target virtualenv first, then run `uv pip install -e .`.
 
-Check the hook report:
+## 4. Verify Bub loaded it
+
+Ask Bub for its hook report:
 
 ```bash
 uv run bub hooks
 ```
 
-You should see `echo` listed on both `build_prompt` and `run_model`.
+You should see `echo` listed under the `build_prompt` and `run_model` hook entries alongside `builtin`.
 
-Now run one turn:
+Now run a one-shot turn:
 
 ```bash
 uv run bub run "hello from plugin tutorial"
 ```
 
-The rendered outbound should include:
+The outbound message should contain:
 
-`[echo:cli:local] hello from plugin tutorial`
+```text
+[echo:cli:local] hello from plugin tutorial
+```
 
-## Result
+If the response came from a real model instead, the plugin did not load — re-run `uv sync` in the plugin project, or ensure you installed it into the virtualenv that runs `bub`, then re-check `bub hooks`.
 
-You now have:
+## Next steps
 
-- a package entry point under the `bub` group
-- two hook implementations that override builtin behavior
-- a local editable install workflow for quick iteration
-
-From here, continue with [Plugins](/docs/extending/plugins/) and [Hooks](/docs/extending/hooks/) for the full plugin and hook reference.
+- [Build plugins](/docs/build/plugins/) — package layout, lifecycle, and discovery details.
+- [Hooks reference](/docs/reference/hooks/) — every hookspec, with signatures.
+- [Distribution](/docs/build/distribution/) — ship plugins plus skills as one package.

@@ -1,0 +1,94 @@
+---
+title: Telegram channel
+description: Configure the builtin Telegram bot — token, allowlists, session ids, debounce behavior, and how to launch the gateway.
+---
+
+This page shows how to operate the builtin Telegram channel: which environment variables it reads, how it names sessions, and how it debounces inbound messages.
+
+The Telegram channel is registered under the name `telegram`. It uses long polling via `python-telegram-bot`, and it is enabled at runtime when `BUB_TELEGRAM_TOKEN` is set.
+
+## Before you begin
+
+- A bot exists in [@BotFather](https://t.me/BotFather) and you have its token.
+- For group chats, **Privacy Mode is disabled** in BotFather. Otherwise the bot only sees commands, and the inbound filter cannot decide whether to respond.
+- Bub is configured with a working model — see [Configure](/docs/operate/configure/).
+
+## 1. Set the token
+
+```bash
+BUB_TELEGRAM_TOKEN=123456:abcdef...
+```
+
+This single variable is the on/off switch. With it unset, the channel reports `enabled=False` and `bub gateway` skips it without error.
+
+## 2. Restrict who can talk to the bot
+
+Allowlists are comma-separated and case-sensitive on usernames:
+
+```bash
+BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
+BUB_TELEGRAM_ALLOW_CHATS=-1001234567890,-1009876543210
+```
+
+Behavior:
+
+- If `BUB_TELEGRAM_ALLOW_CHATS` is set, messages from any other chat are dropped silently.
+- If `BUB_TELEGRAM_ALLOW_USERS` is set, messages from any other user receive `Access denied.`
+- A user matches when **either** their numeric id or their username appears in the list.
+
+:::caution
+Leaving both allowlists empty means anyone who finds the bot can drive it. For any production deployment, set at least one.
+:::
+
+## 3. Optional: route through a proxy
+
+```bash
+BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
+# or socks5://user:pass@host:port
+```
+
+The same proxy is used for both the polling connection and outbound API calls.
+
+## 4. Launch the gateway
+
+```bash
+uv run bub gateway --enable-channel telegram
+```
+
+`--enable-channel telegram` pins the listener to one channel. Without it, `bub gateway` enables `all` channels (which excludes `cli` and includes Telegram if its token is set). On startup you should see:
+
+```text
+telegram.start allow_users_count=2 allow_chats_count=1 proxy_enabled=False
+telegram.start polling
+```
+
+## 5. How inbound messages are framed
+
+The Telegram channel uses `telegram:<chat_id>` as the session id. That keeps a private chat and a group chat separate even if the same user is in both.
+
+Inbound handling:
+
+- `/start` is handled internally; the bot replies with a fixed greeting (or the "not allowed" message in disallowed chats).
+- `/bub <text>` is normalized — the `/bub ` prefix is stripped and the rest becomes the prompt content.
+- In private chats, every non-command message is ingested.
+- In group chats, every non-command message reaches the Telegram channel. Messages that mention `@<bot_username>`, contain the keyword `bub`, or reply to one of the bot's own messages are marked active. Other group messages are ignored unless an active conversation for the same session is open within `BUB_ACTIVE_TIME_WINDOW`, in which case they join that batch.
+
+## 6. Debounce
+
+The Telegram channel sets `needs_debounce=True`. Inbound messages are batched per session using `BUB_DEBOUNCE_SECONDS`, `BUB_MAX_WAIT_SECONDS`, and `BUB_ACTIVE_TIME_WINDOW`. See [Channels overview](/docs/operate/channels/) for the values.
+
+:::tip
+Comma commands (`,help`, `,fs.read ...`) always bypass debounce. They are dispatched the moment they arrive, regardless of any pending batch.
+:::
+
+## 7. Outbound behavior
+
+Normal Telegram inbound messages set `output_channel="null"` before they enter the turn pipeline. That prevents a plain model return value from being sent back blindly. The bundled `telegram` skill is the canonical path for replies, progress updates, and edits.
+
+Comma commands are different: they keep `output_channel="telegram"`, so their tool output is sent back to the originating `chat_id`. If content routed to `TelegramChannel.send(...)` is JSON with a `"message"` field, only that field is sent; otherwise the raw content is sent. Empty payloads are dropped.
+
+## Next steps
+
+- [Channels overview](/docs/operate/channels/) — debounce, `enabled_channels`, session ids.
+- [Deploy](/docs/operate/deploy/) — package the bot into a container with persistent state.
+- [Settings reference](/docs/reference/settings/) — every `BUB_TELEGRAM_*` variable.

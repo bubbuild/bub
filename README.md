@@ -70,24 +70,28 @@ Key source files:
 
 ```python
 from bub import hookimpl
+from bub.envelope import content_of
 
 
 class EchoPlugin:
     @hookimpl
     def build_prompt(self, message, session_id, state):
-        return f"[echo] {message['content']}"
+        return f"[echo] {content_of(message)}"
 
     @hookimpl
     async def run_model(self, prompt, session_id, state):
         return prompt
+
+
+echo_plugin = EchoPlugin()
 ```
 
 ```toml
 [project.entry-points."bub"]
-echo = "my_package.plugin:EchoPlugin"
+echo = "my_package.plugin:echo_plugin"
 ```
 
-See the [Extending docs](https://bub.build/docs/extending/) for hook guides, packaging, and plugin structure.
+See the [Build docs](https://bub.build/docs/build/) for hook guides, packaging, and plugin structure.
 
 ## CLI
 
@@ -114,7 +118,7 @@ Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-sk
 | `BUB_API_FORMAT`            | `completion`                 | `completion`, `responses`, or `messages`             |
 | `BUB_CLIENT_ARGS`           | —                            | JSON object forwarded to the underlying model client |
 | `BUB_MAX_STEPS`             | `50`                         | Max tool-use loop iterations                         |
-| `BUB_MAX_TOKENS`            | `1024`                       | Max tokens per model call                            |
+| `BUB_MAX_TOKENS`            | `16384`                      | Max tokens per model call                            |
 | `BUB_MODEL_TIMEOUT_SECONDS` | —                            | Model call timeout (seconds)                         |
 
 ## Background
@@ -130,11 +134,11 @@ Read more:
 ## Docs
 
 - [Getting Started](https://bub.build/docs/getting-started/) — install Bub and run the first turn
-- [Architecture](https://bub.build/docs/concepts/architecture/) — the mental model behind the runtime
-- [Channels](https://bub.build/docs/guides/channels/) — run Bub in CLI, Telegram, or your own channel
-- [Skills](https://bub.build/docs/guides/skills/) — discover, inspect, and author Agent Skills in Bub
-- [Extending](https://bub.build/docs/extending/) — write plugins, override hooks, ship tools and skills
-- [Deployment](https://bub.build/docs/guides/deployment/) — Docker, environment, upgrades
+- [Concepts](https://bub.build/docs/concepts/) — the mental model behind the runtime
+- [Channels](https://bub.build/docs/operate/channels/) — run Bub in CLI, Telegram, or your own channel
+- [Skills](https://bub.build/docs/build/skills/) — discover, inspect, and author Agent Skills in Bub
+- [Build](https://bub.build/docs/build/) — write plugins, override hooks, ship tools and skills
+- [Deployment](https://bub.build/docs/operate/deploy/) — Docker, environment, upgrades
 
 ## Development
 

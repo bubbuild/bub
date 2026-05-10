@@ -1,0 +1,74 @@
+---
+title: Author Your First Skill
+description: Write one project skill under .agents/skills and verify Bub can discover and invoke it.
+sidebar:
+  order: 3
+---
+
+This tutorial walks through authoring a project-local skill — a reusable procedure the agent can call by name — and confirming Bub discovers it.
+
+A skill is a directory containing a `SKILL.md` file with frontmatter (`name`, `description`) plus body instructions. See [Surfaces](/docs/concepts/surfaces/) for how skills, channels, and tools differ.
+
+## Before you begin
+
+You should have:
+
+- a workspace from [Run Your First Turn](/docs/getting-started/first-turn/)
+- `uv run bub hooks` reporting the `builtin` plugin
+
+## 1. Create the skill directory
+
+Project skills live under `.agents/skills/<skill-name>/`:
+
+```bash
+mkdir -p .agents/skills/repo-map
+```
+
+The directory name must match the skill `name` in the frontmatter and use lowercase hyphenated form (the discovery code rejects names that fail `^[a-z0-9]+(?:-[a-z0-9]+)*$`).
+
+## 2. Write SKILL.md
+
+Create `.agents/skills/repo-map/SKILL.md`:
+
+```markdown
+---
+name: repo-map
+description: Read the local repository layout before changing code.
+---
+
+1. Run `rg --files` to see the repository shape.
+2. Open the smallest set of files that explains the task.
+3. Summarize the modules you touched before editing code.
+```
+
+The frontmatter fields are required — `name` must equal the directory name, and `description` is shown to the model when the skill is listed.
+
+## 3. Verify discovery
+
+Ask Bub to run the skill via the built-in `,skill` command:
+
+```bash
+uv run bub run ",skill name=repo-map"
+```
+
+Bub will print the rendered skill body. If Bub reports `(no such skill)`, check that `SKILL.md` is at the right path and the frontmatter parses as YAML.
+
+:::note
+Bub discovers skills from three roots in priority order: project (`.agents/skills/`), user home (`~/.agents/skills/`), and built-in. Project skills win on name collisions.
+:::
+
+## 4. Use it from a model turn
+
+The agent sees skills in the system prompt as `<available_skills>`. Reference the skill by name from a normal turn:
+
+```bash
+uv run bub run 'Use the $repo-map skill, then list the top-level modules you found.'
+```
+
+The `$repo-map` hint expands that skill's body into the model prompt for this turn.
+
+## Next steps
+
+- [Build Your First Plugin](/docs/getting-started/first-plugin/) — ship a plugin that includes hooks, tools, or skills.
+- [Build skills](/docs/build/skills/) — full skill authoring guide, including bundled assets.
+- [Surfaces](/docs/concepts/surfaces/) — how skills relate to channels and tools.

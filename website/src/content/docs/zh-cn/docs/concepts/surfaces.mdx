@@ -1,0 +1,84 @@
+---
+title: 扩展面
+description: 三个解耦的扩展面 —— channel、skill、tool —— 以及它们在 envelope 与共享 state 上如何相遇。
+sidebar:
+  order: 4
+---
+
+本页解释 Bub 公开的三个扩展面，以及为何彼此独立。
+
+多数 agent 框架会把“与聊天平台对话”、“知道某条流程”、“代模型调用动作”混作一个概念。Bub 把它们分开，让每一面都能独立演化与替换。
+
+## 三个扩展面
+
+```diagram
+          outward I/O              operator procedures        model-callable actions
+    ╭─────────────────────╮      ╭─────────────────────╮      ╭─────────────────────╮
+    │      Channels       │      │       Skills        │      │        Tools        │
+    ╰──────────┬──────────╯      ╰──────────┬──────────╯      ╰──────────┬──────────╯
+               │                            │                            │
+               ▼                            ▼                            ▼
+           Envelope                     Envelope                       State
+       (in & out of the             (loaded into the              (per-turn dict
+        turn pipeline)               prompt as text)            with `_runtime_*`)
+```
+
+三者在来自 [`bub.types`](https://github.com/bubbuild/bub/blob/main/src/bub/types.py) 的两个共享类型上相遇：
+
+- **`Envelope`** — 在 turn pipeline 中流转的 duck-typed 负载。它有意保持弱类型（`Any`），并通过 helper（`field_of`、`content_of`）访问。
+- **`State`** — per-turn dict，由各 hook 通过 [`load_state`](/zh-cn/docs/concepts/turn-pipeline/) 贡献，并存活到 [`save_state`](/zh-cn/docs/concepts/turn-pipeline/) 完成为止。
+
+### Channels — 对外 I/O
+
+channel 是把 inbound 消息送进 turn pipeline、并接受由其产出的 outbound 消息的任意实体。契约是 `bub.channels.base.Channel`：
+
+- `start(stop_event)` — 启动监听循环。
+- `stop()` — 清理资源。
+- `send(message)` — 投递一条 outbound envelope。
+- `stream_events(message, stream)` — 可选：包装模型流以做增量渲染。
+
+为何解耦：内核不关心消息来自 CLI、Telegram、webhook 还是硬件设备。新增 channel 只需实现该类，并通过 `provide_channels` hook 注册。
+
+具体内置 channel 与启用方法见 [Operate Bub: channels](/zh-cn/docs/operate/channels/)。
+
+### Skills —— 操作者流程
+
+skill 是一个目录，包含 `SKILL.md`（frontmatter + 正文）以及可选的脚本与资产。skill 可被**任何 operator**——人或 agent——按名字调用。
+
+契约故意不是 Python 接口：skill 是 markdown 流程。Bub 按优先级从三个根目录发现：项目（`.agents/skills/`）、用户（`~/.agents/skills/`）、内置。
+
+为何解耦：skill 在不同 agent 之间可迁移（Bub 遵循 [Agent Skills](https://agentskills.io/) 格式），不绑定具体模型、channel 或运行时。同一份 `SKILL.md` 既适用于 code review 中的人类同事，也适用于 turn 中调用它的 agent。
+
+### Tools — 模型可调用动作
+
+tool 是模型在 turn 中可调用的有类型 Python 函数。tool 通过 `bub.tool` 注册，并通过 agent 循环对模型暴露。
+
+为何解耦：tool 是唯一由模型自身调用的扩展面。skill 告诉 operator *该做什么*；tool 是 *agent 实际能做什么*。把它们分开，使添加 skill 不会顺带授予模型新权限，添加 tool 也不会强迫人去直接调用。
+
+## 为什么是这三个
+
+这种切分对应三种不同的控制流：
+
+- **channel** 由外部世界发起。
+- **skill** 由 operator 按名字调用。
+- **tool** 由模型自主调用。
+
+把它们混作一谈就无从推理权限。分开后，每个面都拥有自己的契约：channel 有生命周期，skill 有发现与命名约定，tool 有有类型签名与注册表。
+
+## 它们在哪里相遇
+
+pipeline 是这三面唯一直接交互的地方：
+
+- channel 产出一个 `Envelope`，进入 [`process_inbound`](/zh-cn/docs/concepts/turn-pipeline/)。
+- `load_state`（以及内置 agent）将适用的 skill 加载到 prompt 与活动 tool 集合中。
+- 模型可能调用 tool，结果落回 [tape](/zh-cn/docs/concepts/tape-and-context/)。
+- `render_outbound` 产出 envelope，`dispatch_outbound` 把它交给 channel。
+
+除此之外，三者并无其他耦合。这正是某个插件能在不触动 skill 的前提下加上 Discord channel、或某个 workspace 能在不触动 channel 与 tool 的前提下加上 `repo-map` skill 的原因。
+
+## 下一步
+
+- [构建 channel](/zh-cn/docs/build/hooks/#6-add-a-channel) —— 通过 `provide_channels` 实现并注册一个 channel。
+- [Build skills](/zh-cn/docs/build/skills/) — 编写 skill，包括打包资产。
+- [Build tools](/zh-cn/docs/build/tools/) — 注册模型可调用的有类型 tool。
+- [Types 参考](/zh-cn/docs/reference/types/) — `Envelope`、`State` 与访问 helper。

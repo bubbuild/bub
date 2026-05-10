@@ -50,7 +50,7 @@ class CliChannel(Channel):
 
     def _install_log_sink(self) -> int:
         with contextlib.suppress(ValueError):
-            logger.remove(0)
+            logger.remove()
         return logger.add(self._renderer.log, colorize=False, format="{level:<8} | {message}")
 
     async def _refresh_tape_info(self) -> None:

@@ -1,0 +1,133 @@
+---
+title: Settings
+description: Every BUB_* environment variable, its config-file key, and the pydantic-settings class that owns it.
+---
+
+This page lists every `BUB_*` environment variable read by Bub, the YAML key under `~/.bub/config.yml` that maps to it, and the `pydantic-settings` class that defines it. For deployment recipes see [Operate › Configure](/docs/operate/configure/).
+
+## Precedence
+
+Bub resolves a setting value in this order, highest priority first:
+
+1. **CLI flag** (e.g. `--workspace`, `--project`, `--enable-channel`).
+2. **Environment variable** (`BUB_*`).
+3. **`.env`** values loaded during CLI startup or by settings classes that declare `env_file=".env"`.
+4. **`~/.bub/config.yml`** entry, loaded by `bub.configure.load`.
+5. **Field default** declared on the `Settings` subclass.
+
+Verified via `Settings.settings_customise_sources` in `src/bub/configure.py`, which returns `(env_settings, dotenv_settings, init_settings, file_secret_settings)` — env beats `.env`, and both beat the dict produced from YAML when `ensure_config(...)` calls `model_validate`.
+
+## Config file location
+
+| Path | Source |
+| --- | --- |
+| `~/.bub/config.yml` | `DEFAULT_CONFIG_FILE` in `src/bub/framework.py`. |
+| Override via `BubFramework(config_file=...)` | Constructor argument. |
+
+`~/.bub/` is also the default value of `bub.home`, controlled by the `BUB_HOME` environment variable (`src/bub/__init__.py`). `BUB_HOME` affects `bub.home` consumers such as history, tapes, and the managed plugin project; the default config file path remains `~/.bub/config.yml` unless an embedding application passes `BubFramework(config_file=...)`.
+
+## Framework — runtime paths
+
+| Env var | Default | YAML key | Read by | Description |
+| --- | --- | --- | --- | --- |
+| `BUB_HOME` | `~/.bub` | — | `bub.home` (`bub/__init__.py`) | Root directory for history, tape store, and the managed plugin project. Does not move the default config file. |
+| `BUB_PROJECT` | `BUB_HOME/bub-project`, or `~/.bub/bub-project` when `BUB_HOME` is unset | — | `--project` option in `bub install` / `uninstall` / `update` | Plugin project directory; created on first `install` via `uv init`. |
+
+## Agent — `AgentSettings`
+
+Defined in `src/bub/builtin/settings.py`:
+
+```python
+class AgentSettings(Settings):
+    model_config = SettingsConfigDict(env_prefix="BUB_", env_parse_none_str="null", extra="ignore")
+    model: str = DEFAULT_MODEL  # "openrouter:openrouter/free"
+    fallback_models: list[str] | None = None
+    api_key: str | dict[str, str] | None = Field(default_factory=provider_specific("api_key"))
+    api_base: str | dict[str, str] | None = Field(default_factory=provider_specific("api_base"))
+    api_format: Literal["completion", "responses", "messages"] = "completion"
+    max_steps: int = 50
+    max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
+    model_timeout_seconds: int | None = None
+    client_args: dict[str, Any] | None = None
+    verbose: int = Field(default=0, ge=0, le=2)
+```
+
+Loaded under the YAML root section.
+
+| Env var | Default | YAML key | Description |
+| --- | --- | --- | --- |
+| `BUB_MODEL` | `openrouter:openrouter/free` | `model` | Default model identifier (`provider:model_name`). |
+| `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | Optional list of fallback model identifiers. |
+| `BUB_API_KEY` | unset | `api_key` | Default API key. May also be a JSON object mapping provider → key. |
+| `BUB_API_BASE` | unset | `api_base` | Default API base URL or per-provider mapping. |
+| `BUB_<PROVIDER>_API_KEY` | unset | — | Provider-scoped API key, e.g. `BUB_OPENAI_API_KEY`. Collected by the `provider_specific("api_key")` factory. |
+| `BUB_<PROVIDER>_API_BASE` | unset | — | Provider-scoped API base URL, e.g. `BUB_OPENROUTER_API_BASE`. |
+| `BUB_API_FORMAT` | `completion` | `api_format` | One of `completion`, `responses`, `messages`. |
+| `BUB_MAX_STEPS` | `50` | `max_steps` | Maximum agent loop iterations per turn. |
+| `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Maximum tokens per model call. |
+| `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | Per-call timeout in seconds. |
+| `BUB_CLIENT_ARGS` | `null` | `client_args` | Extra kwargs passed to the underlying model client (JSON / dict). |
+| `BUB_VERBOSE` | `0` | `verbose` | Logging verbosity level (`0`–`2`). |
+
+Provider-specific defaults are gathered at startup by scanning `os.environ` for `^BUB_(.+)_(API_KEY|API_BASE)$` and lowercasing the captured provider name.
+
+## Channels — `ChannelSettings`
+
+Defined in `src/bub/channels/manager.py`:
+
+```python
+class ChannelSettings(Settings):
+    model_config = SettingsConfigDict(env_prefix="BUB_", extra="ignore", env_file=".env")
+    enabled_channels: str = "all"
+    debounce_seconds: float = 1.0
+    max_wait_seconds: float = 10.0
+    active_time_window: float = 60.0
+    stream_output: bool = False
+```
+
+Loaded under the YAML root section.
+
+| Env var | Default | YAML key | Description |
+| --- | --- | --- | --- |
+| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | Comma-separated channel names, or `all` (excludes `cli`). Overridden per-invocation by `bub gateway --enable-channel`. |
+| `BUB_DEBOUNCE_SECONDS` | `1.0` | `debounce_seconds` | Minimum gap between two messages from the same channel when the channel sets `needs_debounce=True`. |
+| `BUB_MAX_WAIT_SECONDS` | `10.0` | `max_wait_seconds` | Hard cap for the debounce wait. |
+| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | `active_time_window` | Window in seconds during which a session stays "active" for buffered handling. |
+| `BUB_STREAM_OUTPUT` | `false` | `stream_output` | Stream model output to channels in real time. `bub chat` forces `True`; `bub gateway` honors the setting. |
+
+## Telegram — `TelegramSettings`
+
+Defined in `src/bub/channels/telegram.py`:
+
+```python
+@config(name="telegram")
+class TelegramSettings(Settings):
+    model_config = SettingsConfigDict(env_prefix="BUB_TELEGRAM_", extra="ignore", env_file=".env")
+    token: str = ""
+    allow_users: str | None = None
+    allow_chats: str | None = None
+    proxy: str | None = None
+```
+
+Loaded under the YAML `telegram:` section.
+
+| Env var | Default | YAML key (`telegram.*`) | Description |
+| --- | --- | --- | --- |
+| `BUB_TELEGRAM_TOKEN` | `""` | `token` | Telegram bot token. Required to enable the channel. |
+| `BUB_TELEGRAM_ALLOW_USERS` | unset | `allow_users` | Comma-separated allowlist of Telegram user IDs. Empty means no restriction. |
+| `BUB_TELEGRAM_ALLOW_CHATS` | unset | `allow_chats` | Comma-separated allowlist of Telegram chat IDs. Empty means no restriction. |
+| `BUB_TELEGRAM_PROXY` | unset | `proxy` | Proxy URL for the Telegram API, e.g. `http://user:pass@host:port` or `socks5://host:port`. |
+
+See [Operate › Channels › Telegram](/docs/operate/channels/telegram/) for deployment notes.
+
+## Login — third-party env vars
+
+`bub login openai` reads one non-`BUB_*` env var:
+
+| Env var | Default | Read by | Description |
+| --- | --- | --- | --- |
+| `CODEX_HOME` | `~/.codex` | `bub login openai` (`src/bub/builtin/auth.py`) | Directory to store Codex OAuth `auth.json`. Overridden by `--codex-home`. |
+
+## Plugin-specific settings
+
+Plugins can register their own `Settings` subclass via the `@config(name="...")` decorator (see [Build › Plugins](/docs/build/plugins/)). The decorator records the class under `CONFIG_MAP[name]`, which `configure.validate` then validates and `ensure_config` reads. The YAML key matches the registered name; env vars follow whatever `env_prefix` the subclass declares.

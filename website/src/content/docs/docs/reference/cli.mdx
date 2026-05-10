@@ -1,0 +1,199 @@
+---
+title: CLI
+description: Every bub command, its options, defaults, and behavior notes.
+---
+
+This page lists every command exposed by the `bub` CLI entry point. Commands are registered through the builtin `register_cli_commands` hook (`src/bub/builtin/hook_impl.py`); plugins may add more.
+
+## Global options
+
+```text
+bub [OPTIONS] COMMAND [ARGS]...
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--workspace`, `-w` | TEXT | current working directory | Path to the workspace; sets `BubFramework.workspace`. |
+| `--help` | flag | — | Show help and exit. |
+
+The framework is created in `bub/__main__.py`, which calls `BubFramework().load_hooks()` and then `create_cli_app()`. The active framework is stored on `ctx.obj`.
+
+## `bub run`
+
+Run one inbound `ChannelMessage` through `BubFramework.process_inbound` and print every outbound to stdout.
+
+```text
+bub run [OPTIONS] MESSAGE
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `MESSAGE` (arg) | TEXT | required | Inbound message content. |
+| `--channel` | TEXT | `cli` | Channel name attached to the inbound envelope. |
+| `--chat-id` | TEXT | `local` | Chat id attached to the inbound envelope. |
+| `--sender-id` | TEXT | `human` | Sender id; stored under `context.sender_id`. |
+| `--session-id` | TEXT | `{channel}:{chat_id}` | Override the session id. |
+
+Behavior notes:
+
+- Opens `framework.running()` for the duration of one turn — `provide_tape_store` is entered and exited around the call.
+- Outbounds are formatted as `[channel:chat_id]\n<content>`.
+- Streaming output is **not** enabled; the model hook is invoked through `HookRuntime.run_model`.
+
+## `bub chat`
+
+Start an interactive REPL backed by the `cli` channel.
+
+```text
+bub chat [OPTIONS]
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--chat-id` | TEXT | `local` | Chat id reported by the CLI channel. |
+| `--session-id` | TEXT | none | Optional explicit session id. |
+
+Behavior notes:
+
+- Constructs a `ChannelManager` with `enabled_channels=["cli"]` and `stream_output=True`, then calls `manager.listen_and_run()`.
+- Exits with code `1` if no plugin provides a channel named `cli`.
+- The CLI channel uses `prompt_toolkit` and `rich` to render streamed events.
+
+## `bub gateway`
+
+Start every enabled channel listener (Telegram, custom plugin channels, …).
+
+```text
+bub gateway [OPTIONS]
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--enable-channel` | TEXT (repeatable) | empty list (use `BUB_ENABLED_CHANNELS`) | Restrict gateway to the listed channel names. Pass multiple times. |
+
+Behavior notes:
+
+- When `--enable-channel` is omitted the manager reads `ChannelSettings.enabled_channels` (`BUB_ENABLED_CHANNELS`, default `all`).
+- `all` excludes the `cli` channel automatically to avoid stdout contention.
+- `framework.running()` is held open until the manager loop exits; `provide_tape_store` cleanup runs on shutdown.
+
+See [Operate › Channels](/docs/operate/channels/) for per-channel deployment notes.
+
+## `bub onboard`
+
+Interactively collect plugin configuration via `onboard_config` hooks and write the result to `~/.bub/config.yml` (or whatever `framework.config_file` resolves to).
+
+```text
+bub onboard [OPTIONS]
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--help` | flag | — | Show help and exit. |
+
+Behavior notes:
+
+- The builtin onboarding fragment prompts for: provider (one of `openrouter`, `openai`, `anthropic`, `gemini`, `azure`, `bedrock`, `ollama`, `groq`, `mistral`, `deepseek`, plus `custom`), model name, optional API key, optional API base, API format (`completion` / `responses` / `messages`), enabled channels, and stream output.
+- Each plugin's `onboard_config` hook receives the accumulated dict so far; non-dict returns abort with `TypeError`.
+- The merged dict is validated through `configure.validate` before being written.
+
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Config saved. |
+| `1` | Validation or write error; message printed to stderr. |
+
+## `bub install`
+
+Install a plugin into Bub's managed `uv` project (`BUB_HOME/bub-project`, or `~/.bub/bub-project` when `BUB_HOME` is unset), or sync the project when no specs are passed.
+
+```text
+bub install [OPTIONS] [SPECS]...
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `SPECS` (args) | one or more strings | empty list | Package specs: PyPI name, `owner/repo[@ref]`, `git+...`, or a bub-contrib package as `name@ref` resolved against `https://github.com/bubbuild/bub-contrib.git`. |
+| `--project` | PATH | `BUB_HOME/bub-project`, or `~/.bub/bub-project` when `BUB_HOME` is unset (env: `BUB_PROJECT`) | Path to the Bub plugin project directory. |
+
+Behavior notes:
+
+- Requires `uv` on `PATH` and that Bub itself runs inside a virtualenv (`sys.prefix != sys.base_prefix`); otherwise exits with `1`.
+- Initializes the project on first use via `uv init --bare --name bub-project --app` and adds Bub to it as a dependency (matching the local install: editable, file://, VCS, or PyPI).
+- The default project directory is created automatically. When `--project` is provided explicitly, the directory must already exist.
+- With no specs, runs `uv sync --active --inexact`.
+- With specs, runs `uv add --active <requirements>`.
+
+Exit codes mirror `uv` — non-zero from the underlying `subprocess.run` is propagated.
+
+## `bub uninstall`
+
+```text
+bub uninstall [OPTIONS] PACKAGES...
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `PACKAGES` (args) | one or more strings | required | Package names as recorded in the project's `pyproject.toml`. |
+| `--project` | PATH | `BUB_HOME/bub-project`, or `~/.bub/bub-project` when `BUB_HOME` is unset (env: `BUB_PROJECT`) | Plugin project directory. |
+
+Calls `uv remove --active <packages>` inside `--project`.
+
+## `bub update`
+
+```text
+bub update [OPTIONS] [PACKAGES]...
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `PACKAGES` (args) | zero or more strings | empty list | Package names to upgrade; empty means all. |
+| `--project` | PATH | `BUB_HOME/bub-project`, or `~/.bub/bub-project` when `BUB_HOME` is unset (env: `BUB_PROJECT`) | Plugin project directory. |
+
+Behavior notes:
+
+- No packages → `uv sync --active --upgrade --inexact`.
+- With packages → `uv sync --active --inexact --upgrade-package <name>` for each.
+
+## `bub login`
+
+Top-level group for authentication subcommands.
+
+```text
+bub login [OPTIONS] COMMAND [ARGS]...
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--help` | flag | — | Show help and exit. |
+
+### `bub login openai`
+
+Run the Codex OAuth flow to obtain OpenAI credentials, then save them under the resolved Codex home.
+
+```text
+bub login openai [OPTIONS]
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--codex-home` | PATH | `$CODEX_HOME` or `~/.codex` | Directory to store the resulting `auth.json`. |
+| `--browser` / `--no-browser` | flag | `--browser` | Open the OAuth authorize URL in the default browser. |
+| `--manual` | flag | off | Skip the local callback server and prompt for the callback URL or code. |
+| `--timeout` | FLOAT | `300.0` | OAuth wait timeout in seconds. |
+
+Behavior notes:
+
+- On success prints `login: ok`, the account id, the auth file path, and a usage hint to set `BUB_MODEL=openai:gpt-5-codex` and omit `BUB_API_KEY`.
+- On `CodexOAuthLoginError` exits with code `1`.
+
+## `bub hooks`
+
+Hidden diagnostic command that prints the `hook → adapters` map.
+
+```text
+bub hooks
+```
+
+The command is registered with `hidden=True`, so it does not appear in the top-level `--help` listing. Output is one line per hook: `hook_name: adapter1, adapter2, …`. Use it to verify discovery; see [Hooks › How hooks are invoked](/docs/reference/hooks/#how-hooks-are-invoked) before inferring firstresult precedence from the printed order.

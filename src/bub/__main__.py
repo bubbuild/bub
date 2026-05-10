@@ -17,9 +17,10 @@ def _instrument_bub() -> None:
 
     try:
         import logfire
+        from logfire.integrations.loguru import LogfireHandler
 
         logfire.configure()
-        logger.add(logfire.loguru_handler())
+        logger.add(LogfireHandler(), format="{message}")
     except ImportError:
         pass
 

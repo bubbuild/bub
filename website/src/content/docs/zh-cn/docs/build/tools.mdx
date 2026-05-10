@@ -1,0 +1,84 @@
+---
+title: 工具
+description: 用 @tool 定义模型可调用的工具，通过导入时副作用注册它们，并理解工具与操作者侧逗号命令的区别。
+sidebar:
+  order: 3
+---
+
+本指南展示如何定义一个 Bub **工具** —— 一个可在轮次内被模型调用的 Python 函数 —— 并确保你的插件确实注册了它。
+
+## 开始之前
+
+- 一个已经接入 `bub` 入口点组的插件包（见[插件](/zh-cn/docs/build/plugins/)）。
+- 模块中可用的 `from bub import tool` 标记。
+
+## 定义工具
+
+用 `@tool` 装饰任意函数。装饰器会构造一个 [`Tool`](https://github.com/bubbuild/bub/blob/main/src/bub/tools.py) 对象，套上计时日志，并写入中央 `REGISTRY`：
+
+```python
+from bub import tool
+
+
+@tool
+def add(a: int, b: int) -> int:
+    """Add two integers and return the sum."""
+    return a + b
+```
+
+工具名默认为函数名。可用 `@tool(name="math.add")` 覆写，也可传 `description=` 控制它在模型提示中的呈现。带点的 registry 名会保留给运行时查找和逗号命令使用，但面向模型的工具名会把点替换为下划线（`math.add` 会变成 `math_add`）。支持异步函数 —— 包装器会 await 它们。
+
+## 工具如何变得可用
+
+`REGISTRY` 位于 [`bub.tools`](https://github.com/bubbuild/bub/blob/main/src/bub/tools.py)：
+
+```python
+# 来自 src/bub/tools.py
+REGISTRY: dict[str, Tool] = {}
+```
+
+每一次 `@tool` 调用都会在**导入时**修改这个字典。Bub 内置代理在为模型组装工具列表时从 `REGISTRY` 读取。没有独立的注册步骤。
+
+## 在插件里导入工具模块
+
+由于注册是导入时副作用，定义 `@tool` 函数的模块必须在 Bub 询问工具之前真的被导入。在插件的入口模块里加入：
+
+```python
+# bub_myplugin/plugin.py
+from bub import hookimpl
+
+from . import tools  # noqa: F401  —— 触发 @tool 注册
+```
+
+如果缺少这个导入，工具模块永远不会运行，`REGISTRY` 里也不会出现条目，模型自然看不到这个工具。
+
+内置运行时也走相同模式 —— 见 [`BuiltinImpl.__init__`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/hook_impl.py#L62-L66)，它出于同样原因导入 `bub.builtin.tools`。
+
+## 工具与逗号命令
+
+二者都是 Bub 内的可调用单元，但操作者不同：
+
+| 表面               | 调用者 | 触发方式                       |
+|-------------------|------|------------------------------|
+| **工具**           | 模型  | 一次轮次中的工具调用消息          |
+| **逗号命令**        | 人类  | 以逗号开头的入站文本             |
+
+像 `,skill name=hello` 这样的一行就是逗号命令 —— 由操作者键入，Bub 内置的 [`build_prompt`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/hook_impl.py#L131-L139) 会把消息标记为 `kind="command"`，从而绕过模型。工具则相反，由模型在产出工具调用事件时自行触发。
+
+操作者面与模型面的完整划分见[表面](/zh-cn/docs/concepts/surfaces/)。
+
+## 验证工具已注册
+
+工具不会出现在 `bub hooks` 中，但可以用一行 Python 验证注册：
+
+```bash
+uv run python -c "import bub_myplugin.plugin; from bub.tools import REGISTRY; print(sorted(REGISTRY))"
+```
+
+输出应包含你的工具名。然后运行一次让模型调用它的轮次。
+
+## 下一步
+
+- [钩子](/zh-cn/docs/build/hooks/) —— 把工具与钩子结合构造完整插件
+- [技能](/zh-cn/docs/build/skills/) —— 与工具一起打包面向模型的指令
+- [表面](/zh-cn/docs/concepts/surfaces/) —— 操作者面 vs 模型面

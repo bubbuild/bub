@@ -1,0 +1,202 @@
+---
+title: Types
+description: Public types exported from bub — envelopes, state, channels, framework surface.
+---
+
+This page lists the types and helpers that plugin authors interact with. Source files: `src/bub/types.py`, `src/bub/envelope.py`, `src/bub/channels/base.py`, `src/bub/framework.py`, `src/bub/__init__.py`.
+
+## `Envelope`
+
+```python
+type Envelope = Any
+```
+
+`Envelope` is an alias for `Any`. Bub does not require a specific class — a dict, a `dataclass`, a `pydantic.BaseModel`, or any object with attribute access works. The framework reads fields through the helpers below; access them rather than indexing the envelope directly.
+
+### `field_of(message, key, default=None)`
+
+```python
+def field_of(message: Envelope, key: str, default: Any = None) -> Any
+```
+
+Reads `message.get(key, default)` if `message` is a `Mapping`, else `getattr(message, key, default)`.
+
+### `content_of(message)`
+
+```python
+def content_of(message: Envelope) -> str
+```
+
+Returns `str(field_of(message, "content", ""))`.
+
+### `normalize_envelope(message)`
+
+```python
+def normalize_envelope(message: Envelope) -> dict[str, Any]
+```
+
+Converts any envelope into a mutable dict. `Mapping` → `dict(message)`; objects with `__dict__` → `dict(vars(message))`; everything else → `{"content": str(message)}`.
+
+### `unpack_batch(batch)`
+
+```python
+def unpack_batch(batch: Any) -> list[Envelope]
+```
+
+Normalizes one `render_outbound` return value to a list. `None` → `[]`; `list`/`tuple` → list copy; anything else → `[batch]`.
+
+## `State`
+
+```python
+type State = dict[str, Any]
+```
+
+The per-turn state dict. The framework seeds it with `_runtime_workspace` and merges the results of every `load_state` hook before the model call. The same dict is passed to `build_prompt`, `run_model[_stream]`, `save_state`, `render_outbound`, and `system_prompt`.
+
+## `MessageHandler`
+
+```python
+type MessageHandler = Callable[[Envelope], Coroutine[Any, Any, None]]
+```
+
+Async callable that a `Channel` invokes for every inbound message. The `ChannelManager` provides this handler when calling `provide_channels`.
+
+## `OutboundDispatcher`
+
+```python
+type OutboundDispatcher = Callable[[Envelope], Coroutine[Any, Any, bool]]
+```
+
+Async callable returning `True` when an outbound has been delivered. Used internally by the channel router; plugins return `True` from `dispatch_outbound` to signal a successful send.
+
+## `OutboundChannelRouter`
+
+```python
+class OutboundChannelRouter(Protocol):
+    async def dispatch_output(self, message: Envelope) -> bool: ...
+    def wrap_stream(
+        self, message: Envelope, stream: AsyncIterable[StreamEvent]
+    ) -> AsyncIterable[StreamEvent]: ...
+    async def quit(self, session_id: str) -> None: ...
+```
+
+Structural protocol implemented by `ChannelManager`. Bound to the framework via `BubFramework.bind_outbound_router(router)`; used to send outbounds and to wrap the model stream so that channels can render incremental tokens.
+
+## `TurnResult`
+
+```python
+@dataclass(frozen=True)
+class TurnResult:
+    session_id: str
+    prompt: str
+    model_output: str
+    outbounds: list[Envelope] = field(default_factory=list)
+```
+
+Returned by `BubFramework.process_inbound`. `prompt` is the resolved prompt. The source annotation is currently `str`, but a `build_prompt` hook may return multimodal content parts and the runtime preserves that list. `outbounds` is the flattened result of every `render_outbound` impl.
+
+## `Channel`
+
+```python
+class Channel(ABC):
+    name: ClassVar[str] = "base"
+
+    @abstractmethod
+    async def start(self, stop_event: asyncio.Event) -> None: ...
+
+    @abstractmethod
+    async def stop(self) -> None: ...
+
+    @property
+    def needs_debounce(self) -> bool: ...
+
+    @property
+    def enabled(self) -> bool: ...
+
+    async def send(self, message: ChannelMessage) -> None: ...
+
+    def stream_events(
+        self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]
+    ) -> AsyncIterable[StreamEvent]: ...
+```
+
+Abstract base for inbound/outbound channels (`src/bub/channels/base.py`).
+
+| Member | Description |
+| --- | --- |
+| `name` | Class variable used to look up the channel in `ChannelManager` and to dedupe across `provide_channels` impls. |
+| `start(stop_event)` | Begin listening; release when `stop_event` is set. Required. |
+| `stop()` | Tear down resources. Required. |
+| `needs_debounce` | When `True`, the manager wraps inbound messages with `BufferedMessageHandler`. Defaults to `False`. |
+| `enabled` | When `False`, the manager skips the channel even if it is in `enabled_channels`. Defaults to `True`. |
+| `send(message)` | Outbound delivery. Default impl is a no-op. |
+| `stream_events(message, stream)` | Optional stream wrapper used by `OutboundChannelRouter.wrap_stream`. Returns the stream unchanged by default. |
+
+See [Operate › Channels](/docs/operate/channels/) and [Build › Plugins](/docs/build/plugins/) for end-to-end examples.
+
+## `BubFramework`
+
+Constructor and public methods exposed by `src/bub/framework.py`.
+
+```python
+class BubFramework:
+    workspace: Path
+    config_file: Path
+
+    def __init__(self, config_file: Path = DEFAULT_CONFIG_FILE) -> None: ...
+
+    def load_hooks(self) -> None: ...
+    def create_cli_app(self) -> typer.Typer: ...
+
+    async def process_inbound(
+        self, inbound: Envelope, stream_output: bool = False
+    ) -> TurnResult: ...
+
+    def get_channels(
+        self, message_handler: MessageHandler
+    ) -> dict[str, Channel]: ...
+
+    def get_tape_store(self) -> TapeStore | AsyncTapeStore | None: ...
+    def get_system_prompt(self, prompt: str | list[dict], state: dict[str, Any]) -> str: ...
+    def hook_report(self) -> dict[str, list[str]]: ...
+
+    @contextlib.asynccontextmanager
+    async def running(self) -> AsyncGenerator[contextlib.AsyncExitStack, None]: ...
+
+    def bind_outbound_router(self, router: OutboundChannelRouter | None) -> None: ...
+    def build_tape_context(self) -> TapeContext: ...
+    def collect_onboard_config(self) -> dict[str, Any]: ...
+```
+
+| Member | Description |
+| --- | --- |
+| `workspace` | Resolved current working directory; overridden by `--workspace`. |
+| `config_file` | Resolved path to the YAML config (default `~/.bub/config.yml`). |
+| `load_hooks()` | Register the builtin plugin and every `bub` entry-point plugin. Records success/failure in `_plugin_status`. |
+| `create_cli_app()` | Build the root `typer.Typer`, set `ctx.obj`, and call `register_cli_commands` (sync). |
+| `process_inbound(inbound, stream_output=False)` | Run one inbound through the full hook pipeline and return a `TurnResult`. |
+| `get_channels(message_handler)` | Sync-collect channels from every `provide_channels` impl, deduped by `Channel.name`. |
+| `get_tape_store()` | Return the tape store entered by `running()`, or `None` outside the scope. |
+| `get_system_prompt(prompt, state)` | Run `system_prompt` impls (sync), reverse, and join non-empty results with `\n\n`. |
+| `hook_report()` | Map hook name → discovered adapter names. Backs `bub hooks`; read the hook reference before treating this order as runtime precedence. |
+| `running()` | Async context manager; resolves `provide_tape_store` once and binds the resulting store for the duration. |
+| `bind_outbound_router(router)` | Attach (or detach with `None`) the `OutboundChannelRouter`. The `ChannelManager` calls this on start/stop. |
+| `build_tape_context()` | Sync-call `build_tape_context` and return the resulting `TapeContext`. |
+| `collect_onboard_config()` | Iterate `onboard_config` impls, merging dict fragments via `configure.merge`, then validate. |
+
+For the lifecycle of `process_inbound` step-by-step, see [Concepts › Turn pipeline](/docs/concepts/turn-pipeline/). For tape semantics see [Concepts › Tape and context](/docs/concepts/tape-and-context/).
+
+## Module-level exports
+
+From `src/bub/__init__.py`:
+
+| Name | Kind | Description |
+| --- | --- | --- |
+| `BubFramework` | class | Framework runtime (above). |
+| `Settings` | class | Base class for plugin settings (re-exported from `bub.configure`). |
+| `config` | decorator | `@config(name="...")` registers a settings class for YAML/env validation. |
+| `ensure_config` | function | `ensure_config(SettingsCls)` — return the singleton instance for that class. |
+| `home` | `Path` (lazy attr) | `Path(BUB_HOME)` if set, else `~/.bub`. |
+| `hookimpl` | marker | `pluggy.HookimplMarker("bub")` — decorate plugin hook methods. |
+| `tool` | decorator | Register a builtin tool with the agent (`src/bub/tools.py`). |
+| `__version__` | str | Installed package version. |

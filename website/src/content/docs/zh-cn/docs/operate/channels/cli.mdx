@@ -1,0 +1,78 @@
+---
+title: CLI channel
+description: 通过终端运维 Bub —— bub chat 提供交互式 REPL，bub run 执行单次 turn，逗号命令绕过模型。
+---
+
+本页说明 CLI channel 的运行行为：何时被激活、如何命名 session、以及为什么它被刻意排除在 gateway 之外。
+
+CLI 本身就是一个 channel，注册名为 `cli`。它实现了与 Telegram 或任何插件提供面相同的 `Channel` 接口 —— 但因为它独占运维者的终端，Bub 把它视为前台工具，而不是后台监听器。
+
+## 开始之前
+
+- Bub 已配置可用的模型 —— 参见 [配置](/zh-cn/docs/operate/configure/)。
+
+## 1. 启动交互式 REPL
+
+`bub chat` 会基于 `cli` channel 打开一个 prompt-toolkit REPL：
+
+```bash
+uv run bub chat
+```
+
+默认值：
+
+- `chat_id` = `local`
+- `session_id` = `cli_session`（字面值，不是 `cli:local`）
+
+任意一个都可以用参数覆盖：
+
+```bash
+uv run bub chat --chat-id review --session-id cli:review
+```
+
+每行输入对应一条入站 `ChannelMessage`。Ctrl-D 退出，`,quit` 与 `,exit` 也会干净退出。
+
+## 2. 从 shell 跑一次 turn
+
+`bub run "..."` 把单条消息送入框架，并打印每条出站：
+
+```bash
+uv run bub run "summarize CHANGELOG.md"
+```
+
+输出按出站分块：
+
+```text
+[cli:local]
+<rendered content>
+```
+
+默认 session id 是 `<channel>:<chat_id>`，所以无参数的 `bub run "..."` 写入 `cli:local`。如果要与 `bub chat` 会话共享状态，使用 `--session-id`。
+
+## 3. 用逗号命令绕过模型
+
+任何以 `,` 开头的输入都是 **逗号命令**：它走内置工具或 shell，而不进入模型。逗号命令会跳过 LLM 调用以及 channel 的防抖逻辑。
+
+```bash
+uv run bub run ",help"
+uv run bub run ",fs.read path=README.md"
+uv run bub run ",echo hello"   # 找不到的命令会回落到 shell
+```
+
+在 `bub chat` 内同样有效。`Ctrl-X` 切换 "shell mode"，会把 `,` 自动加在每行前。
+
+## 4. 为什么 `cli` 不在 `bub gateway` 中
+
+`bub gateway` 监听所有已启用 channel。它的默认 —— `--enable-channel` 留空 —— 展开为 `all`，channel 管理器将其解释为"除 `cli` 外的全部已注册 channel"。否则 CLI channel 会抢占运维者用来运行 gateway 的终端。
+
+要打开 REPL，使用 `bub chat`（它强制 `enabled_channels=["cli"]` 并启用 `stream_output=True`）。要只跑 Telegram，使用 `bub gateway --enable-channel telegram`。
+
+## 5. 为什么 `cli` 不防抖
+
+防抖把短时间内的多条入站消息合并为一次 turn。这对聊天平台合理 —— 用户一次会发很多短消息。CLI 是单线程的 —— 一次提示、一次输入、一次 turn —— 防抖只会徒增延迟。`CliChannel.needs_debounce` 为 `False`，所以每行 REPL 输入即时分发。
+
+## 后续阅读
+
+- [CLI 参考](/zh-cn/docs/reference/cli/) —— 全部子命令与参数。
+- [Channels 总览](/zh-cn/docs/operate/channels/) —— 防抖参数与 `enabled_channels`。
+- [Telegram](/zh-cn/docs/operate/channels/telegram/) —— 远程 channel 的标准示例。

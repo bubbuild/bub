@@ -1,59 +1,52 @@
 ---
 title: Getting Started
-description: Learn what Bub is, run it locally, add local rules and skills, and extend it with plugins only when needed.
+description: Pick the path that matches your role — operator, plugin author, or distribution author — and run Bub end to end.
 sidebar:
   order: 0
 ---
 
-Bub is a small Python framework for building agents in shared environments. It gives you a clear turn pipeline, a simple workspace layout, and a normal Python packaging story for extensions.
+This page introduces Bub and helps you pick one of three usage paths so the rest of this section reads in the right order.
 
-If you are new to Bub, start here. This section helps you get one working setup first, then add only the pieces you actually need.
+Bub is a small Python framework for building agents that run in shared environments. The kernel handles a single turn pipeline; everything else is a plugin. You opt into channels, tools, skills, and storage backends as you need them.
 
-## What You Need To Know
+## Before you begin
 
-1. **A small core**
-   Bub runs each turn through a visible hook pipeline. You can replace one stage without rewriting the whole system.
-2. **A shared workspace**
-   Put workspace instructions in `AGENTS.md` and repeatable local procedures in `.agents/skills`.
-3. **Standard Python extensions**
-   Plugins are normal Python packages discovered through entry points. Skills can ship with plugins through regular build tooling, including PEP 517 build hooks.
-4. **A migration path from other agents**
-   Bub follows [agents.md](https://agents.md/) for workspace instructions and [Agent Skills](https://agentskills.io/) for skills. If you already use those conventions elsewhere, you can usually reuse your `AGENTS.md` file and skill directories.
+You should have:
 
-## Before You Start
-
-Have these ready:
-
-- Python 3.12+
-- `uv`
+- Python 3.12 or newer
+- [`uv`](https://docs.astral.sh/uv/) on your `PATH`
 - one model access path for the model-backed step:
-  - an API key via `BUB_API_KEY`, or
-  - OAuth login via `uv run bub login openai`
+  - an API key exported as `BUB_API_KEY` or as a provider-specific `BUB_<PROVIDER>_API_KEY`, or
+  - OpenAI Codex OAuth via `uv run bub login openai` with `BUB_MODEL=openai:gpt-5-codex`
 
-## What You Will Build
+If you only want to inspect Bub without running a model turn, the API key is optional — comma commands such as `,help` work without one.
 
-By the end of this section, you will have:
+## Three usage paths
 
-- one local Bub workspace
-- one project skill under `.agents/skills`
-- one installed extension from `bub-contrib`
-- one minimal plugin package you can iterate on locally
+Bub serves three audiences. Pick the one that matches your goal today:
 
-## Recommended Path
+- **Operator** — you want to run a Bub instance, configure channels, and ship it.
+  Read this section for the first turn, then move to [Operate Bub](/docs/operate/) for configuration, channels, and deployment.
+- **Plugin author** — you want to extend Bub with new hooks, tools, or skills.
+  Read this section through [Build Your First Plugin](/docs/getting-started/first-plugin/), then move to [Build Plugins](/docs/build/) for the full extension contract.
+- **Distribution author** — you want to package Bub plus a curated plugin set for a specific scenario.
+  Read this section first, then go to [Distribution](/docs/build/distribution/) for packaging conventions.
 
-1. [Run Bub Locally](/docs/getting-started/run-bub-locally/)
-   Install Bub, create a workspace, inspect the builtin kernel, and complete the first successful turn.
-2. [Equip Your Bub](/docs/getting-started/equip-your-bub/)
-   Add rules in `AGENTS.md`, add one project skill, and install only the extension you actually need.
-3. [Build Your First Plugin](/docs/getting-started/first-plugin/)
-   Create a minimal plugin package, install it locally, and verify that Bub loads its hook implementations.
+All three audiences share the same starting point: install Bub, run one turn, and confirm the runtime is healthy.
 
-## If You Need Something Else First
+## Recommended path
 
-- Want the runtime model first: go to [Architecture](/docs/concepts/architecture/)
-- Want command details: go to [CLI Reference](/docs/guides/cli/)
-- Want to configure the builtin Telegram channel: go to [Telegram](/docs/guides/telegram/)
-- Want deployment guidance: go to [Deployment](/docs/guides/deployment/)
-- Want the full plugin and hook documentation: go to [Plugins](/docs/extending/plugins/) and [Hooks](/docs/extending/hooks/)
+Work through these pages in order:
 
-This section is meant to get you started, not cover every option. Deployment details, full Telegram setup, and the complete plugin API stay in the Guides, Concepts, and Extending sections.
+1. [Install Bub](/docs/getting-started/install/) — install from PyPI or from source, pin Bub as a framework dependency, verify with `bub hooks`.
+2. [Run Your First Turn](/docs/getting-started/first-turn/) — create a workspace, write `AGENTS.md`, send `,help`, then run a model-backed turn.
+3. [Author Your First Skill](/docs/getting-started/first-skill/) — write a project skill under `.agents/skills/` and call it from a turn.
+4. [Build Your First Plugin](/docs/getting-started/first-plugin/) — ship a minimal plugin via Python entry points and verify it loads.
+
+If you want the conceptual model first, read [Concepts](/docs/concepts/) before any of the tutorials.
+
+## Next steps
+
+- [Install Bub](/docs/getting-started/install/) — start the recommended path.
+- [Concepts](/docs/concepts/) — read the kernel model before extending Bub.
+- [CLI reference](/docs/reference/cli/) — see every command this section uses.

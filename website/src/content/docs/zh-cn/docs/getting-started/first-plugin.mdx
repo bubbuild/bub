@@ -1,15 +1,24 @@
 ---
-title: 制作第一个插件
-description: 创建一个最小 Bub 插件，做本地可编辑安装，并验证它已经覆写了内置运行时。
+title: 构建你的第一个插件
+description: 构建一个最小 echo 插件，可编辑安装到本地，并验证 Bub 加载了它的 hook。
 sidebar:
-  order: 3
+  order: 4
 ---
 
-当内置能力、工作区里的本地文件，以及现有插件仍然不够用时，再进入这一页。
+本教程引导你编写一个最小 Bub 插件，用 echo 响应覆写 model 阶段，将其安装到活动环境，并确认框架已识别。
 
-本教程会做一个极小的本地插件，它直接覆写 Bub 的模型阶段并返回 echo 结果。这样你不需要模型凭据，也能验证插件是怎样被加载的。
+该插件无需模型凭据，可同时作为冒烟测试和真实插件的起点模板。
 
-## 1. 创建包骨架
+## 在开始之前
+
+你需要准备：
+
+- 已在 `uv` 管理的环境中 [安装 Bub](/zh-cn/docs/getting-started/install/)
+- 在 workspace 之外有一个空闲目录用于 scaffold 插件包
+
+## 1. 搭建包结构
+
+创建包结构：
 
 ```bash
 mkdir bub-echo-plugin
@@ -18,7 +27,7 @@ mkdir -p src/bub_echo_plugin
 touch src/bub_echo_plugin/__init__.py
 ```
 
-创建 `pyproject.toml`：
+创建 `pyproject.toml`。`[project.entry-points."bub"]` 段是让插件可被发现的关键：
 
 ```toml
 [build-system]
@@ -28,7 +37,8 @@ build-backend = "hatchling.build"
 [project]
 name = "bub-echo-plugin"
 version = "0.1.0"
-dependencies = ["bub"]
+requires-python = ">=3.12"
+dependencies = ["bub>=0.1"]
 
 [project.entry-points."bub"]
 echo = "bub_echo_plugin.plugin:echo_plugin"
@@ -39,7 +49,7 @@ packages = ["src/bub_echo_plugin"]
 
 ## 2. 实现插件
 
-创建 `src/bub_echo_plugin/plugin.py`：
+创建 `src/bub_echo_plugin/plugin.py`。插件是任何方法被 `@hookimpl` 装饰的对象：
 
 ```python
 from __future__ import annotations
@@ -65,47 +75,46 @@ class EchoPlugin:
 echo_plugin = EchoPlugin()
 ```
 
-这个插件只做两件事：
+`build_prompt` 是 `firstresult` hook —— 第一个非 None 的返回值胜出。`run_model` 同样是 `firstresult`，所以本实现完全覆写了内置 agent。
 
-- `build_prompt()` 保证 prompt 就是原始输入文本
-- `run_model()` 用一个确定性的 echo 响应替换内置模型调用
+## 3. 创建插件环境
 
-## 3. 安装到当前环境
-
-在插件目录中执行：
+从插件目录把插件包及其依赖同步到该插件项目的 `.venv`：
 
 ```bash
-uv pip install -e .
+uv sync
 ```
 
-Bub 会从当前 Python 环境加载 entry point，所以本地开发阶段只需要 editable install。
+`uv sync` 默认以 editable 方式安装当前插件包。下面的 `uv run bub ...` 命令会在同一个包含插件 entry point 的环境中运行 Bub。
 
-## 4. 验证 Bub 已经加载它
+如果你想把插件安装到已有 Bub checkout 的虚拟环境中，请先激活目标虚拟环境，再运行 `uv pip install -e .`。
 
-先看 hook 报告：
+## 4. 验证 Bub 已加载
+
+请求 Bub 输出 hook 报告：
 
 ```bash
 uv run bub hooks
 ```
 
-你应该能在 `build_prompt` 和 `run_model` 这两个 hook 上看到 `echo`。
+你应当在 `build_prompt` 与 `run_model` hook 项下看到 `echo` 与 `builtin` 并列。
 
-然后跑一次 turn：
+接着运行一次单次 turn：
 
 ```bash
 uv run bub run "hello from plugin tutorial"
 ```
 
-输出内容里应该包含：
+outbound 消息应当包含：
 
-`[echo:cli:local] hello from plugin tutorial`
+```text
+[echo:cli:local] hello from plugin tutorial
+```
 
-## 结果
+如果响应来自真实模型，说明插件未加载——请在插件项目中重跑 `uv sync`，或确认插件已安装到运行 `bub` 的虚拟环境中，然后重新检查 `bub hooks`。
 
-现在你已经有了：
+## 下一步
 
-- 注册到 `bub` entry point group 的包入口
-- 两个覆写内置行为的 hook 实现
-- 一个适合快速迭代的本地 editable install 流程
-
-接下来，请继续阅读 [插件](/zh-cn/docs/extending/plugins/) 和 [Hooks](/zh-cn/docs/extending/hooks/)，查看完整的插件和 hook 参考文档。
+- [Build plugins](/zh-cn/docs/build/plugins/) — 包结构、生命周期与发现细节。
+- [Hooks 参考](/zh-cn/docs/reference/hooks/) — 每条 hookspec 及其签名。
+- [Distribution](/zh-cn/docs/build/distribution/) — 将插件与 skill 一起打包发布。

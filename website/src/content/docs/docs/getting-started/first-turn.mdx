@@ -1,0 +1,97 @@
+---
+title: Run Your First Turn
+description: Create a workspace, write AGENTS.md, run a comma command, and send your first model-backed turn.
+sidebar:
+  order: 2
+---
+
+This tutorial walks through one full turn — the framework's name for one inbound message processed end to end.
+
+## Before you begin
+
+You should have:
+
+- [Bub installed](/docs/getting-started/install/) and `uv run bub hooks` reporting the `builtin` plugin
+- one model access path: an API key exported as `BUB_API_KEY` or a provider-specific `BUB_<PROVIDER>_API_KEY`; alternatively, OpenAI Codex OAuth via `uv run bub login openai` with `BUB_MODEL=openai:gpt-5-codex`
+
+## 1. Create a workspace
+
+A workspace is the directory Bub treats as the project root. Create one and move into it:
+
+```bash
+mkdir hello-bub
+cd hello-bub
+```
+
+Bub uses `Path.cwd()` as the workspace, so every subsequent `bub` command in this directory shares the same context.
+
+## 2. Write AGENTS.md
+
+`AGENTS.md` is the per-workspace instruction file. Bub reads it for model-backed turns and appends it to the system prompt.
+
+```bash
+cat > AGENTS.md <<'EOF'
+You are the Bub agent for this workspace.
+Read files before editing them.
+Keep replies short and specific.
+EOF
+```
+
+Bub follows the [agents.md](https://agents.md/) convention, so an `AGENTS.md` written for another compatible agent works here unchanged.
+
+## 3. Run a comma command
+
+Comma commands are runtime tools you can invoke without calling the model. Try the built-in help command:
+
+```bash
+uv run bub run ",help"
+```
+
+Expected output (abridged):
+
+```text
+Commands use ',' at line start.
+Known internal commands:
+  ,help
+  ,skill name=foo
+  ,tape.info
+  ...
+```
+
+If you see this list, the kernel resolved the session, built the prompt, and routed the comma command through the built-in tool registry — without contacting any model.
+
+:::tip
+Anything starting with a comma at the line start is a comma command. Unknown commands fall back to a shell call via `bash`.
+:::
+
+## 4. Run a model-backed turn
+
+With your provider configured, run a one-shot turn:
+
+```bash
+uv run bub run "Summarize the purpose of this workspace."
+```
+
+Bub will resolve the session, load state, build the user prompt, call the model with a system prompt that includes your `AGENTS.md`, render an outbound message, and print that outbound from the CLI command.
+
+For interactive use, start a chat session instead:
+
+```bash
+uv run bub chat
+```
+
+## 5. Optional: log in with OpenAI OAuth
+
+If you want to use the OpenAI Codex OAuth path instead of an API key, log in with OAuth:
+
+```bash
+uv run bub login openai
+```
+
+Bub stores the credential locally. Use it by setting `BUB_MODEL=openai:gpt-5-codex` and leaving `BUB_API_KEY` unset.
+
+## Next steps
+
+- [Author Your First Skill](/docs/getting-started/first-skill/) — add a project skill the agent can call.
+- [Turn pipeline](/docs/concepts/turn-pipeline/) — see exactly which hooks ran in step 4.
+- [Configure Bub](/docs/operate/configure/) — switch providers, channels, and tape storage.

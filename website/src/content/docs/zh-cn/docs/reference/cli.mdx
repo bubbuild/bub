@@ -1,0 +1,199 @@
+---
+title: CLI
+description: 每个 bub 命令的选项、默认值与行为说明。
+---
+
+本页列出 `bub` CLI 入口注册的全部命令。命令通过 builtin 的 `register_cli_commands` 钩子(`src/bub/builtin/hook_impl.py`)注册;插件可以追加更多。
+
+## 全局选项
+
+```text
+bub [OPTIONS] COMMAND [ARGS]...
+```
+
+| 选项 | 类型 | 默认值 | 描述 |
+| --- | --- | --- | --- |
+| `--workspace`, `-w` | TEXT | 当前工作目录 | 工作区路径,赋值给 `BubFramework.workspace`。 |
+| `--help` | flag | — | 显示帮助并退出。 |
+
+框架在 `bub/__main__.py` 中创建:先 `BubFramework().load_hooks()`,再 `create_cli_app()`。当前 framework 实例存放在 `ctx.obj` 上。
+
+## `bub run`
+
+将一条 `ChannelMessage` 通过 `BubFramework.process_inbound` 跑完整条流水线,并把每个 outbound 打印到 stdout。
+
+```text
+bub run [OPTIONS] MESSAGE
+```
+
+| 选项 | 类型 | 默认值 | 描述 |
+| --- | --- | --- | --- |
+| `MESSAGE` (arg) | TEXT | required | inbound 消息内容。 |
+| `--channel` | TEXT | `cli` | 写入 inbound envelope 的 channel 名称。 |
+| `--chat-id` | TEXT | `local` | 写入 inbound envelope 的 chat id。 |
+| `--sender-id` | TEXT | `human` | 发送方 id,放进 `context.sender_id`。 |
+| `--session-id` | TEXT | `{channel}:{chat_id}` | 覆盖 session id。 |
+
+行为说明:
+
+- 在该次 turn 周围打开 `framework.running()` —— `provide_tape_store` 在调用前进入,调用后退出。
+- outbound 以 `[channel:chat_id]\n<content>` 的格式打印。
+- **不** 启用流式输出;模型钩子通过 `HookRuntime.run_model` 调用。
+
+## `bub chat`
+
+启动一个由 `cli` channel 支撑的交互式 REPL。
+
+```text
+bub chat [OPTIONS]
+```
+
+| 选项 | 类型 | 默认值 | 描述 |
+| --- | --- | --- | --- |
+| `--chat-id` | TEXT | `local` | CLI channel 上报的 chat id。 |
+| `--session-id` | TEXT | none | 可选的显式 session id。 |
+
+行为说明:
+
+- 构造一个 `enabled_channels=["cli"]`、`stream_output=True` 的 `ChannelManager`,然后调用 `manager.listen_and_run()`。
+- 没有插件提供名为 `cli` 的 channel 时,以退出码 `1` 退出。
+- CLI channel 使用 `prompt_toolkit` 与 `rich` 渲染流式事件。
+
+## `bub gateway`
+
+启动所有已启用的 channel listener(Telegram、自定义插件 channel 等)。
+
+```text
+bub gateway [OPTIONS]
+```
+
+| 选项 | 类型 | 默认值 | 描述 |
+| --- | --- | --- | --- |
+| `--enable-channel` | TEXT (repeatable) | 空列表(读取 `BUB_ENABLED_CHANNELS`) | 限制 gateway 仅启用列出的 channel 名。可重复传入。 |
+
+行为说明:
+
+- 未传 `--enable-channel` 时,Manager 读取 `ChannelSettings.enabled_channels`(`BUB_ENABLED_CHANNELS`,默认 `all`)。
+- `all` 自动排除 `cli` channel,避免与 stdout 打架。
+- `framework.running()` 持续到 manager 主循环退出;关闭时执行 `provide_tape_store` 的清理。
+
+部署细节见 [运维 › Channels](/zh-cn/docs/operate/channels/)。
+
+## `bub onboard`
+
+通过 `onboard_config` 钩子交互式收集插件配置,并写入 `~/.bub/config.yml`(或 `framework.config_file` 解析出的路径)。
+
+```text
+bub onboard [OPTIONS]
+```
+
+| 选项 | 类型 | 默认值 | 描述 |
+| --- | --- | --- | --- |
+| `--help` | flag | — | 显示帮助并退出。 |
+
+行为说明:
+
+- builtin 的 onboarding fragment 会询问:provider(`openrouter`、`openai`、`anthropic`、`gemini`、`azure`、`bedrock`、`ollama`、`groq`、`mistral`、`deepseek` 之一,或 `custom`)、模型名、可选 API key、可选 API base、API format(`completion` / `responses` / `messages`)、启用的 channel、是否流式输出。
+- 每个插件的 `onboard_config` 钩子都会拿到当前已累计的 dict;返回值不是 dict 时抛 `TypeError` 并中止。
+- 合并后的 dict 会经过 `configure.validate` 验证后才写入。
+
+退出码:
+
+| 退出码 | 含义 |
+| --- | --- |
+| `0` | 配置已保存。 |
+| `1` | 验证或写入失败;错误信息打印到 stderr。 |
+
+## `bub install`
+
+把插件安装到 Bub 管理的 `uv` 项目（`BUB_HOME/bub-project`，未设置 `BUB_HOME` 时为 `~/.bub/bub-project`）中；不传任何 spec 时仅同步项目。
+
+```text
+bub install [OPTIONS] [SPECS]...
+```
+
+| 选项 | 类型 | 默认值 | 描述 |
+| --- | --- | --- | --- |
+| `SPECS` (args) | one or more strings | 空列表 | 包规格:PyPI 名称、`owner/repo[@ref]`、`git+...`,或以 `name@ref` 形式解析到 `https://github.com/bubbuild/bub-contrib.git` 的 bub-contrib 子包。 |
+| `--project` | PATH | `BUB_HOME/bub-project`；未设置 `BUB_HOME` 时为 `~/.bub/bub-project`(env: `BUB_PROJECT`) | Bub 插件项目目录。 |
+
+行为说明:
+
+- 需要 `uv` 在 `PATH` 上,且 Bub 自身运行在 virtualenv 内 (`sys.prefix != sys.base_prefix`),否则以退出码 `1` 退出。
+- 首次使用时通过 `uv init --bare --name bub-project --app` 初始化项目,并把 Bub 自身作为依赖添加(根据本地安装方式选择 editable / file:// / VCS / PyPI)。
+- 默认项目目录会自动创建。显式传入 `--project` 时，该目录必须已经存在。
+- 不传 spec 时执行 `uv sync --active --inexact`。
+- 传入 spec 时执行 `uv add --active <requirements>`。
+
+退出码沿用 `uv`:底层 `subprocess.run` 的非零退出码会被透传。
+
+## `bub uninstall`
+
+```text
+bub uninstall [OPTIONS] PACKAGES...
+```
+
+| 选项 | 类型 | 默认值 | 描述 |
+| --- | --- | --- | --- |
+| `PACKAGES` (args) | one or more strings | required | 项目 `pyproject.toml` 中记录的包名。 |
+| `--project` | PATH | `BUB_HOME/bub-project`；未设置 `BUB_HOME` 时为 `~/.bub/bub-project`(env: `BUB_PROJECT`) | 插件项目目录。 |
+
+在 `--project` 内执行 `uv remove --active <packages>`。
+
+## `bub update`
+
+```text
+bub update [OPTIONS] [PACKAGES]...
+```
+
+| 选项 | 类型 | 默认值 | 描述 |
+| --- | --- | --- | --- |
+| `PACKAGES` (args) | zero or more strings | 空列表 | 需要升级的包名;留空表示全部。 |
+| `--project` | PATH | `BUB_HOME/bub-project`；未设置 `BUB_HOME` 时为 `~/.bub/bub-project`(env: `BUB_PROJECT`) | 插件项目目录。 |
+
+行为说明:
+
+- 不传包名 → `uv sync --active --upgrade --inexact`。
+- 传入包名 → 为每个包追加 `--upgrade-package <name>` 并执行 `uv sync --active --inexact`。
+
+## `bub login`
+
+认证子命令的顶层分组。
+
+```text
+bub login [OPTIONS] COMMAND [ARGS]...
+```
+
+| 选项 | 类型 | 默认值 | 描述 |
+| --- | --- | --- | --- |
+| `--help` | flag | — | 显示帮助并退出。 |
+
+### `bub login openai`
+
+跑 Codex OAuth 流程获取 OpenAI 凭据,并保存到解析后的 Codex home 目录下。
+
+```text
+bub login openai [OPTIONS]
+```
+
+| 选项 | 类型 | 默认值 | 描述 |
+| --- | --- | --- | --- |
+| `--codex-home` | PATH | `$CODEX_HOME` 或 `~/.codex` | 写入 `auth.json` 的目录。 |
+| `--browser` / `--no-browser` | flag | `--browser` | 在默认浏览器中打开 OAuth authorize URL。 |
+| `--manual` | flag | off | 跳过本地回调服务器,改为提示粘贴 callback URL 或 code。 |
+| `--timeout` | FLOAT | `300.0` | OAuth 等待超时时间(秒)。 |
+
+行为说明:
+
+- 成功时打印 `login: ok`、account id、auth 文件路径,并提示设置 `BUB_MODEL=openai:gpt-5-codex` 且不再提供 `BUB_API_KEY`。
+- 抛出 `CodexOAuthLoginError` 时以退出码 `1` 退出。
+
+## `bub hooks`
+
+打印 `hook → adapters` 映射的隐藏诊断命令。
+
+```text
+bub hooks
+```
+
+注册时使用 `hidden=True`,因此不会出现在顶层 `--help` 列表中。输出每行一个钩子:`hook_name: adapter1, adapter2, …`。它适合确认实现是否被发现；如果要据此推断 firstresult 优先级，请先阅读 [Hooks › How hooks are invoked](/zh-cn/docs/reference/hooks/#how-hooks-are-invoked)。

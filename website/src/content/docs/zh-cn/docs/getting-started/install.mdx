@@ -1,0 +1,84 @@
+---
+title: 安装 Bub
+description: 从 PyPI 或源码安装 Bub，将其固定为框架依赖，并用 hook 报告验证安装。
+sidebar:
+  order: 1
+---
+
+本页说明三种受支持的安装方式：运行 CLI、从源码贡献框架，以及在另一个包中依赖 Bub。
+
+## 在开始之前
+
+你需要准备：
+
+- Python 3.12 或更高版本
+- [`uv`](https://docs.astral.sh/uv/) — 下面的每个示例都会使用
+- 在你打算运行 Bub 的 workspace 中已可用的终端
+
+## 1. 从 PyPI 安装
+
+大多数运维者应当将正式发布版本安装到由 `uv` 管理的虚拟环境：
+
+```bash
+uv tool install bub
+```
+
+确认二进制已加入 `PATH`：
+
+```bash
+bub --help
+```
+
+如果你倾向使用 `pip`，等价命令是：
+
+```bash
+pip install bub
+```
+
+## 2. 从源码安装
+
+如果你想为框架贡献代码或跟随 `main` 分支，使用本路径：
+
+```bash
+git clone https://github.com/bubbuild/bub.git
+cd bub
+uv sync
+```
+
+`uv sync` 会在 `.venv/` 下创建项目本地虚拟环境并装好所有开发依赖。完成后，文档中所有 `uv run bub` 示例都可以在仓库根目录使用。
+
+## 3. 将 Bub 固定为框架依赖
+
+插件作者与发行版作者应当像普通 Python 包那样依赖 Bub。在插件的 `pyproject.toml` 中声明依赖，并在 `bub` entry-point 组下注册一个入口：
+
+```toml
+[project]
+name = "bub-my-plugin"
+version = "0.1.0"
+dependencies = ["bub>=0.1"]
+
+[project.entry-points."bub"]
+my-plugin = "bub_my_plugin.plugin:MyPlugin"
+```
+
+Bub 通过 `importlib.metadata.entry_points(group="bub")` 发现插件，因此活动环境中任何注册了该 entry point 的包都会在框架启动时被加载。
+
+:::note
+请把 Bub 固定到兼容的发布范围，而非 `main`。内核较小且稳定，但插件契约在 1.0 之前可能发生变化。
+:::
+
+## 4. 验证安装
+
+确认 Bub 加载了内置 hook 的最快方法是 `bub hooks` 命令：
+
+```bash
+uv run bub hooks
+```
+
+你应当看到一份摘要，包含 `builtin` 插件以及 `resolve_session`、`build_prompt`、`run_model_stream`、`render_outbound`、`dispatch_outbound` 等 hook 的实现。如果 `builtin` 缺失或被标记为失败，请重新执行 `uv sync` 并查看 loader 打印的错误。
+
+## 下一步
+
+- [运行你的第一次 turn](/zh-cn/docs/getting-started/first-turn/) — 发送一个 comma 命令和一次 model-backed turn。
+- [配置 Bub](/zh-cn/docs/operate/configure/) — 设置 `BUB_MODEL`、`BUB_API_KEY` 等运行时设置。
+- [Settings 参考](/zh-cn/docs/reference/settings/) — 查看所有受支持的环境变量。

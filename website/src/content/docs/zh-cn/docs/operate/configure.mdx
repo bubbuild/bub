@@ -1,0 +1,103 @@
+---
+title: 配置
+description: 通过 ~/.bub/config.yml 与 BUB_* 环境变量设置模型、API 端点和 channel 凭据。
+sidebar:
+  order: 1
+---
+
+本页说明如何配置 Bub：调用哪个模型、经哪个提供商访问、以及启动时加载哪些 channel 凭据。
+
+Bub 自己的配置按以下优先级（从高到低）读取：
+
+1. 进程环境（`BUB_*` 变量）。
+2. CLI 启动阶段加载的 `.env` 值，或显式声明 `env_file=".env"` 的 settings class 读取到的 `.env` 值。
+3. `~/.bub/config.yml`（由 `bub onboard` 创建）。
+
+当未显式提供 `BUB_API_KEY` 时，下游模型 SDK 仍可能读取自己的提供商变量，例如 `OPENROUTER_API_KEY`。Bub 的 settings 层只映射 `BUB_*` 变量。
+
+## 开始之前
+
+- Bub 已安装（`uv run bub --help` 可用）。
+- 你已拥有某个模型提供商的 API key，或已运行 `uv run bub login openai` 完成 OAuth。
+
+## 1. 运行交互式初始化
+
+`bub onboard` 引导你完成最小配置 —— 模型、API key、启用的 channel 与流式输出设置 —— 并将结果写入 `~/.bub/config.yml`。插件可通过 `onboard_config` hook 添加自己的交互提示。
+
+```bash
+uv run bub onboard
+```
+
+文件默认位于 `~/.bub/config.yml`。`BUB_HOME` 控制 `bub.home`，包括 history、tapes 与托管插件项目；它不会移动默认配置文件。嵌入 Bub 且需要不同配置路径时，请使用 `BubFramework(config_file=...)`。
+
+:::note
+`bub onboard` 只收集已加载插件通过 `onboard_config` hook 声明的内容。安装新增设置项的插件后，请重新运行 `onboard`。
+:::
+
+## 2. 检查配置文件
+
+最小配置示例：
+
+```yaml
+# ~/.bub/config.yml
+model: openrouter:openrouter/free
+api_key: sk-or-v1-...
+api_format: completion
+telegram:
+  token: "123456:abcdef..."
+  allow_users: "123456789,your_username"
+```
+
+顶层键对应 [src/bub/builtin/settings.py](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/settings.py) 中的 `AgentSettings`。每个 channel 的子键（如 `telegram:`）对应该 channel 的 `Settings` 子类。
+
+## 3. 用环境变量在运行时覆盖
+
+每个 YAML 键都有对应的环境变量。规则是 `BUB_<UPPERCASE_KEY>`：
+
+| 变量 | 用途 |
+|---|---|
+| `BUB_MODEL` | 模型标识，如 `openrouter:openrouter/free` 或 `openai:gpt-5-codex`。 |
+| `BUB_API_KEY` | 当前提供商的 API key。 |
+| `BUB_API_BASE` | 覆盖提供商的基础 URL。 |
+| `BUB_API_FORMAT` | 请求格式：`completion`（默认）、`responses` 或 `messages`。 |
+| `BUB_HOME` | Bub 的运行时数据目录（history、tapes、托管插件项目）。默认 `~/.bub`；不会移动默认配置文件。 |
+| `BUB_<PROVIDER>_API_KEY` | 单个提供商的 key，如 `BUB_OPENROUTER_API_KEY`。 |
+| `BUB_<PROVIDER>_API_BASE` | 单个提供商的基础 URL。 |
+
+完整变量表（包括 channel 防抖参数和高级模型客户端设置）见 [Settings 参考](/zh-cn/docs/reference/settings/)。
+
+## 4. 配置 channel 凭据
+
+每个 channel 有自己的设置前缀。内置 Telegram channel 读取 `BUB_TELEGRAM_*`：
+
+```bash
+BUB_TELEGRAM_TOKEN=123456:abcdef...
+BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
+BUB_TELEGRAM_ALLOW_CHATS=-1001234567890
+BUB_TELEGRAM_PROXY=http://127.0.0.1:7890   # 可选
+```
+
+这些变量驱动的消息处理与访问控制行为见 [Telegram](/zh-cn/docs/operate/channels/telegram/)。
+
+## 5. 验证
+
+打印已加载 hook 映射：
+
+```bash
+uv run bub hooks
+```
+
+跑一次端到端：
+
+```bash
+uv run bub run "say hi"
+```
+
+预期输出会把每个 outbound 打印成两部分：先是一行 `[<channel>:<chat_id>]` 前缀，随后是消息正文。
+
+## 后续阅读
+
+- [Channels](/zh-cn/docs/operate/channels/) —— 选择 Bub 监听的接入面。
+- [Telegram](/zh-cn/docs/operate/channels/telegram/) —— 配置机器人。
+- [Settings 参考](/zh-cn/docs/reference/settings/) —— 完整环境变量表。
+- [部署](/zh-cn/docs/operate/deploy/) —— 把这份配置打入容器。

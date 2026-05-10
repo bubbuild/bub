@@ -1,0 +1,133 @@
+---
+title: 设置
+description: 全部 BUB_* 环境变量、对应的配置文件字段以及拥有它们的 pydantic-settings 类。
+---
+
+本页列出 Bub 读取的全部 `BUB_*` 环境变量、它们在 `~/.bub/config.yml` 中的 YAML 字段，以及定义它们的 `pydantic-settings` 类。部署示例见 [运维 › 配置](/zh-cn/docs/operate/configure/)。
+
+## 优先级
+
+Bub 按以下顺序解析配置值,优先级从高到低:
+
+1. **CLI 参数**(例如 `--workspace`、`--project`、`--enable-channel`)。
+2. **环境变量**(`BUB_*`)。
+3. **`.env`** 值，来自 CLI 启动阶段的加载，或声明了 `env_file=".env"` 的 settings class。
+4. **`~/.bub/config.yml`** 中的字段,由 `bub.configure.load` 加载。
+5. **字段默认值**,在 `Settings` 子类中声明。
+
+通过 `src/bub/configure.py` 中的 `Settings.settings_customise_sources` 验证:它返回 `(env_settings, dotenv_settings, init_settings, file_secret_settings)` —— env 高于 `.env`,两者均高于 `ensure_config(...)` 调用 `model_validate` 时传入的 YAML dict。
+
+## 配置文件位置
+
+| 路径 | 来源 |
+| --- | --- |
+| `~/.bub/config.yml` | `src/bub/framework.py` 中的 `DEFAULT_CONFIG_FILE`。 |
+| 通过 `BubFramework(config_file=...)` 覆盖 | 构造函数参数。 |
+
+`~/.bub/` 同时是 `bub.home` 的默认取值，由 `BUB_HOME` 环境变量控制（`src/bub/__init__.py`）。`BUB_HOME` 影响 history、tapes 与托管插件项目等 `bub.home` 使用方；默认配置文件路径仍是 `~/.bub/config.yml`，除非嵌入方显式传入 `BubFramework(config_file=...)`。
+
+## Framework —— 运行时路径
+
+| 环境变量 | 默认值 | YAML 字段 | 读取方 | 描述 |
+| --- | --- | --- | --- | --- |
+| `BUB_HOME` | `~/.bub` | — | `bub.home` (`bub/__init__.py`) | history、tape store 与托管插件项目的根目录；不会移动默认配置文件。 |
+| `BUB_PROJECT` | `BUB_HOME/bub-project`；未设置 `BUB_HOME` 时为 `~/.bub/bub-project` | — | `bub install` / `uninstall` / `update` 的 `--project` 选项 | 插件项目目录;首次 `install` 时通过 `uv init` 创建。 |
+
+## Agent —— `AgentSettings`
+
+定义于 `src/bub/builtin/settings.py`:
+
+```python
+class AgentSettings(Settings):
+    model_config = SettingsConfigDict(env_prefix="BUB_", env_parse_none_str="null", extra="ignore")
+    model: str = DEFAULT_MODEL  # "openrouter:openrouter/free"
+    fallback_models: list[str] | None = None
+    api_key: str | dict[str, str] | None = Field(default_factory=provider_specific("api_key"))
+    api_base: str | dict[str, str] | None = Field(default_factory=provider_specific("api_base"))
+    api_format: Literal["completion", "responses", "messages"] = "completion"
+    max_steps: int = 50
+    max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
+    model_timeout_seconds: int | None = None
+    client_args: dict[str, Any] | None = None
+    verbose: int = Field(default=0, ge=0, le=2)
+```
+
+加载到 YAML 根节点。
+
+| 环境变量 | 默认值 | YAML 字段 | 描述 |
+| --- | --- | --- | --- |
+| `BUB_MODEL` | `openrouter:openrouter/free` | `model` | 默认模型标识 (`provider:model_name`)。 |
+| `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | 可选的回退模型标识列表。 |
+| `BUB_API_KEY` | unset | `api_key` | 默认 API key;也可以是按 provider 索引的 JSON object。 |
+| `BUB_API_BASE` | unset | `api_base` | 默认 API base URL,或按 provider 索引的映射。 |
+| `BUB_<PROVIDER>_API_KEY` | unset | — | 按 provider 划分的 API key,例如 `BUB_OPENAI_API_KEY`。由 `provider_specific("api_key")` 工厂收集。 |
+| `BUB_<PROVIDER>_API_BASE` | unset | — | 按 provider 划分的 API base URL,例如 `BUB_OPENROUTER_API_BASE`。 |
+| `BUB_API_FORMAT` | `completion` | `api_format` | `completion`、`responses`、`messages` 之一。 |
+| `BUB_MAX_STEPS` | `50` | `max_steps` | 单次 turn 内 agent 循环的最大步数。 |
+| `BUB_MAX_TOKENS` | `16384` | `max_tokens` | 单次模型调用的最大 token 数。 |
+| `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | 单次调用的超时秒数。 |
+| `BUB_CLIENT_ARGS` | `null` | `client_args` | 传递给底层模型 client 的额外 kwargs(JSON / dict)。 |
+| `BUB_VERBOSE` | `0` | `verbose` | 日志详细级别(`0`–`2`)。 |
+
+启动时 `provider_specific` 工厂会扫描 `os.environ` 中匹配 `^BUB_(.+)_(API_KEY|API_BASE)$` 的变量,把捕获到的 provider 名称小写后作为 key 收集。
+
+## Channels —— `ChannelSettings`
+
+定义于 `src/bub/channels/manager.py`:
+
+```python
+class ChannelSettings(Settings):
+    model_config = SettingsConfigDict(env_prefix="BUB_", extra="ignore", env_file=".env")
+    enabled_channels: str = "all"
+    debounce_seconds: float = 1.0
+    max_wait_seconds: float = 10.0
+    active_time_window: float = 60.0
+    stream_output: bool = False
+```
+
+加载到 YAML 根节点。
+
+| 环境变量 | 默认值 | YAML 字段 | 描述 |
+| --- | --- | --- | --- |
+| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | 逗号分隔的 channel 名,或 `all`(排除 `cli`)。可被 `bub gateway --enable-channel` 单次覆盖。 |
+| `BUB_DEBOUNCE_SECONDS` | `1.0` | `debounce_seconds` | channel 设置 `needs_debounce=True` 时,同一 channel 两次消息之间的最小间隔。 |
+| `BUB_MAX_WAIT_SECONDS` | `10.0` | `max_wait_seconds` | 防抖等待的硬上限。 |
+| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | `active_time_window` | 会话保持"活跃"以接受缓冲处理的窗口秒数。 |
+| `BUB_STREAM_OUTPUT` | `false` | `stream_output` | 是否实时把模型输出流式推送给 channel。`bub chat` 强制为 `True`;`bub gateway` 遵循该配置。 |
+
+## Telegram —— `TelegramSettings`
+
+定义于 `src/bub/channels/telegram.py`:
+
+```python
+@config(name="telegram")
+class TelegramSettings(Settings):
+    model_config = SettingsConfigDict(env_prefix="BUB_TELEGRAM_", extra="ignore", env_file=".env")
+    token: str = ""
+    allow_users: str | None = None
+    allow_chats: str | None = None
+    proxy: str | None = None
+```
+
+加载到 YAML 的 `telegram:` 段。
+
+| 环境变量 | 默认值 | YAML 字段 (`telegram.*`) | 描述 |
+| --- | --- | --- | --- |
+| `BUB_TELEGRAM_TOKEN` | `""` | `token` | Telegram bot token。启用该 channel 必填。 |
+| `BUB_TELEGRAM_ALLOW_USERS` | unset | `allow_users` | 逗号分隔的允许 Telegram 用户 ID 列表。留空表示不限制。 |
+| `BUB_TELEGRAM_ALLOW_CHATS` | unset | `allow_chats` | 逗号分隔的允许 Telegram chat ID 列表。留空表示不限制。 |
+| `BUB_TELEGRAM_PROXY` | unset | `proxy` | 访问 Telegram API 的代理 URL,例如 `http://user:pass@host:port` 或 `socks5://host:port`。 |
+
+部署细节见 [运维 › Channels › Telegram](/zh-cn/docs/operate/channels/telegram/)。
+
+## Login —— 第三方环境变量
+
+`bub login openai` 读取一个非 `BUB_*` 环境变量:
+
+| 环境变量 | 默认值 | 读取方 | 描述 |
+| --- | --- | --- | --- |
+| `CODEX_HOME` | `~/.codex` | `bub login openai`(`src/bub/builtin/auth.py`) | Codex OAuth `auth.json` 的存放目录。可被 `--codex-home` 覆盖。 |
+
+## 插件自定义配置
+
+插件可以通过 `@config(name="...")` 装饰器注册自己的 `Settings` 子类（参见 [构建 › 插件](/zh-cn/docs/build/plugins/)）。装饰器把类记录进 `CONFIG_MAP[name]`，然后由 `configure.validate` 验证、`ensure_config` 读取。YAML key 与注册名一致；环境变量遵循子类声明的 `env_prefix`。

@@ -142,6 +142,8 @@ cython_debug/
 
 # Reference directory - ignore all reference projects
 reference/
+!website/src/content/docs/**/build
+!website/src/content/docs/**/reference
 
 # Local legacy backups created during framework migrations
 backup/

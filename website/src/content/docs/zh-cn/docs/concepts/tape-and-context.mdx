@@ -1,0 +1,88 @@
+---
+title: Tape 与 context
+description: tape 原语、append-only 不变式、anchor 与 handoff，以及 Bub 如何把 per-session tape 转成模型 context window。
+sidebar:
+  order: 3
+---
+
+本页解释 Bub 使用的 context 模型：每个 session 一条 append-only tape、标记重建点的 anchor、改变阶段的 handoff，以及把 tape entry 转成模型消息列表的 context selector。
+
+更深入的模型见 [tape.systems](https://tape.systems)。本页只覆盖 Bub 的具体实现；需要完整理论时请查阅上游模型。
+
+## tape 原语
+
+Bub 复用了 tape 模型的四个原语：
+
+- **Tape** — 单个 session 的事实序列，按时间排列。
+- **Entry** — tape 上的一条不可变记录（message、tool call、tool result、event、anchor）。
+- **Anchor** — 携带结构化 state 负载的检查点。可以从 anchor 重建 context，无需重扫整条 tape。
+- **View** — 由 entry 派生的、面向具体任务的 context window。
+
+恒守三条不变式：
+
+1. 历史是 append-only —— entry 永不被覆写。
+2. 派生物从不替换原始事实 —— 摘要是派生 view，而非编辑。
+3. context 是构造出来的，而不是整体继承 —— 每次 turn 都派生一份新的 view。
+
+### anchor 是重建标记
+
+anchor **不是** 删除点。tape 完整保留 anchor 之前的所有内容；anchor 只告诉 context 构造从哪里开始重建。anchor 的 state 负载提供下一阶段所需的最小继承状态。
+
+### handoff 是带状态的阶段过渡
+
+*handoff* 是受约束的过渡：写入新 anchor、附上最小继承 state、把执行起点推过新 anchor。在 Bub 中，调用 handoff 时给出名字与可选 state dict；结果是同一条 tape 上新增一条 anchor entry。
+
+## Bub 的具体实现
+
+### per-session tape
+
+每个 session 对应一条 tape。Bub 用 workspace 路径与 session id 计算 tape 名（`TapeService.session_tape`）：
+
+```python
+workspace_hash = md5(str(workspace.resolve()).encode()).hexdigest()[:16]
+session_hash   = md5(session_id.encode()).hexdigest()[:16]
+tape_name      = f"{workspace_hash}__{session_hash}"
+```
+
+这意味着同一个 `session_id` 在不同 workspace 会得到不同 tape，两个仓库不会互相串 state。
+
+默认的 `provide_tape_store` 返回根目录在 `~/.bub/tapes/` 的 `FileTapeStore`。插件通过提供自己的 `provide_tape_store`（例如 SQLite 或 HTTP 后端）来替换它。
+
+### ensure_bootstrap_anchor
+
+在某条 tape 的第一次 turn 之前，`TapeService.ensure_bootstrap_anchor` 会检查是否存在 anchor entry。如果没有，则写入一条 `session/start` handoff，`state={"owner": "human"}`。这保证每条 tape 在 context 重建时都有起始 anchor。
+
+### default_tape_context：entry → OpenAI 消息
+
+`default_tape_context()` 构造一个 `TapeContext`，其 `select` 函数（`_select_messages`）遍历 tape entry 并产出 OpenAI 兼容的消息。映射规则如下：
+
+- `anchor` → 形如 `[Anchor created: <name>]: <state-as-json>` 的 `assistant` 消息。
+- `message` → 直接以 entry payload 作为 chat 消息 dict。
+- `tool_call` → 带空 content 与 `tool_calls` 数组的 `assistant` 消息。
+- `tool_result` → 每个 result 一条 `tool` role 消息；若前面有 pending `tool_call`，Bub 会按 result 位置复制对应 call 的 `id` 到 `tool_call_id`。
+
+context selector 本身是个 hook（`build_tape_context`），插件可以用其他策略（压缩、摘要、检索）替换它，而无需触动 pipeline 其余部分。
+
+### fork_tape
+
+`TapeService.fork_tape(tape_name, merge_back=True)` 是由 `ForkTapeStore.fork` 支撑的 async context manager。块内的写入发生在 fork 后的 tape 上；退出时合并回父 tape（若 `merge_back=False` 则丢弃）。可以用它跑子任务，避免污染父 session 的历史，直到决定保留结果。
+
+### context 溢出时的 auto_handoff
+
+内置 `Agent` 循环会捕捉匹配 `_is_context_length_error` 的模型错误（如 `context length`、`maximum context`、`token limit`、`prompt too long`）。当此类错误触发且 `MAX_AUTO_HANDOFF_RETRIES`（当前为 `1`）尚未耗尽时，循环会：
+
+1. 写入名为 `auto_handoff/context_overflow` 的 handoff，`state={"reason": "context_length_exceeded", "error": <message>}`。
+2. 记录 `loop.step` 事件，`status="auto_handoff"`。
+3. 用同一 prompt 重试 —— 默认 `TapeContext` 会选择最新 anchor 之后的 entry，因此重试使用更短的重建历史。
+
+每次 turn 仅重试一次。如果 prompt 或保留 state 仍然过大，重试仍可能失败；此时错误会正常抛出。
+
+:::tip
+同样的 anchor 机制可以通过 `,tape.handoff` comma 命令以及 `tape.handoff` tool 手动触发。当你完成一个阶段并希望下一阶段从干净检查点开始时使用它。
+:::
+
+## 下一步
+
+- [Surfaces](/zh-cn/docs/concepts/surfaces/) — channel 与 tool 与 tape 的关系。
+- [Turn pipeline](/zh-cn/docs/concepts/turn-pipeline/) — context 构造在一次 turn 中的位置。
+- [tape.systems](https://tape.systems) — 更深入的模型与参考资料。

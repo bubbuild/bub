@@ -1,0 +1,84 @@
+---
+title: Tools
+description: Define tools the model can call with @tool, register them via the import-time side effect, and contrast tools with operator-callable comma commands.
+sidebar:
+  order: 3
+---
+
+This guide shows how to define a Bub **tool** — a Python function the model can call during a turn — and how to make sure your plugin actually registers it.
+
+## Before you begin
+
+- A plugin package wired to the `bub` entry-point group (see [Plugins](/docs/build/plugins/)).
+- The marker `from bub import tool` available in your module.
+
+## Define a tool
+
+Decorate any function with `@tool`. The decorator builds a [`Tool`](https://github.com/bubbuild/bub/blob/main/src/bub/tools.py) object, wraps it with timing logs, and inserts it into the central `REGISTRY`:
+
+```python
+from bub import tool
+
+
+@tool
+def add(a: int, b: int) -> int:
+    """Add two integers and return the sum."""
+    return a + b
+```
+
+The tool's name defaults to the function name. Override it with `@tool(name="math.add")` or pass `description=` to control how it appears in the model prompt. Dotted registry names are preserved for runtime lookup and comma commands, but model-facing tool names replace dots with underscores (`math.add` becomes `math_add`). Async functions are supported — the wrapper awaits them.
+
+## How tools become available
+
+The `REGISTRY` lives in [`bub.tools`](https://github.com/bubbuild/bub/blob/main/src/bub/tools.py):
+
+```python
+# from src/bub/tools.py
+REGISTRY: dict[str, Tool] = {}
+```
+
+Every `@tool` call mutates this dict at **import time**. Bub's builtin agent reads from `REGISTRY` when assembling the tool list for the model. There is no separate registration step.
+
+## Import the tools module from your plugin
+
+Because registration is an import-time side effect, the module that defines `@tool` functions must actually be imported before Bub asks for tools. Inside your plugin's entry-point module, add:
+
+```python
+# bub_myplugin/plugin.py
+from bub import hookimpl
+
+from . import tools  # noqa: F401  — registers @tool decorators
+```
+
+If that import is missing, the tool module never runs, nothing lands in `REGISTRY`, and the model never sees the tool.
+
+The builtin runtime follows the same pattern — see [`BuiltinImpl.__init__`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/hook_impl.py#L62-L66), which imports `bub.builtin.tools` for the same reason.
+
+## Tools versus comma commands
+
+Both are callable units inside Bub, but they are operated by different actors:
+
+| Surface           | Caller    | Trigger                             |
+|-------------------|-----------|-------------------------------------|
+| **Tool**          | The model | Tool-call message during a turn     |
+| **Comma command** | The human | Inbound text starting with a comma  |
+
+A line like `,skill name=hello` is a comma command — the operator typed it, and Bub's [builtin `build_prompt`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/hook_impl.py#L131-L139) marks the message as `kind="command"` so it bypasses the model. Tools, by contrast, are invoked by the model itself when it produces a tool-call event.
+
+See [Surfaces](/docs/concepts/surfaces/) for the full split between operator and model surfaces.
+
+## Verify your tool is registered
+
+Tools do not appear in `bub hooks`, but you can confirm registration with a Python one-liner:
+
+```bash
+uv run python -c "import bub_myplugin.plugin; from bub.tools import REGISTRY; print(sorted(REGISTRY))"
+```
+
+The output should include your tool's name. From there, run a turn that asks the model to call it.
+
+## Next steps
+
+- [Hooks](/docs/build/hooks/) — combine tools with hooks to build a complete plugin
+- [Skills](/docs/build/skills/) — package model-facing instructions alongside tools
+- [Surfaces](/docs/concepts/surfaces/) — operator vs model surfaces

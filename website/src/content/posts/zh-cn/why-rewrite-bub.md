@@ -34,7 +34,7 @@ tags:
 
 我的答案是，把额外的功能，分离出去，变成一个**精心设计的轻内核**+**随便 vibe 的功能插件**的架构。这个内核要足够稳定，而且能让 Agent 容易理解，由维护者保证质量；而功能插件则利用开放的接口去扩展，可以任意 vibe，甚至直接让 Agent 为功能需求本地生成代码来实现。这两者的维护模型完全不同，前者严，后者宽。同时这也解决了按需安装的问题，你只用关心已经安装的插件的配置。在内核方面，我不太相信现今 Coding Agent 的能力，选择了手工古法实现————这有可能是我最后一次这样做。主要是合理抽象、单向依赖和接口的最小化和自由度。
 
-采用了这样的设计后，在理想情况下，主项目得到的贡献不会很多，然而每个用户都维护一些自己的插件。未来我们会做一个插件市场和发行版，用来打包安装一些预先选择好的插件集合。每个人用的都是不同的插件集合，适合自己的使用场景。
+采用了这样的设计后，在理想情况下，主项目得到的贡献不会很多，然而每个用户都维护一些自己的插件，并且生态会被公开索引在 [hub.bub.build](https://hub.bub.build)（数据源自 [bubbuild/buildscape](https://github.com/bubbuild/buildscape)），让其他人能发现它们。每个人用的都是不同的插件集合，适合自己的使用场景。
 
 另外，利用 [PEP 517 build hook](https://github.com/frostming/pdm-build-skills)，我还实现了把 skill 文件和插件打包在一起，这是非常常见的场景————当你增加了飞书的支持，你通常需要一个飞书的技能。
 
@@ -48,13 +48,13 @@ tags:
 4. `provide_tape_store()`，这个接口允许插件自定义 tape 的存储方式，可以保存在 DB 里，或者保存在一个外挂的服务中，非常适合用来改造记忆系统。例子：[bub-tapestore-sqlite](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite)
 5. `provide_channels()`，这个接口允许插件提供一个或多个渠道，这个渠道在整个应用周期的开始时启动，结束时销毁，所以不仅可以用来做消息收发的通道，也适合任何需要长时间运行的服务，比如 HTTP server，[bub 的定时任务系统](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-schedule)就是基于这个来实现的，尽管它听上去和「渠道」没什么联系。
 
-完整的插件接口参考 [bub 的文档](https://bub.build/docs/extending/hooks/)。
+完整的插件接口参考 [bub 的文档](https://bub.build/docs/build/hooks/)。
 
 [^4]: 一个 turn 指的是 Agent 处理一次 user prompt 的完整过程，包括一整个 ReAct loop 的执行。
 
 ## 最后
 
-最近我们也在 bub 上做了很多好玩的东西：[小爱音箱][xiaoai]，[folotoy]，[Robo eyes][face]，都是用现有的插件接口实现的。其实这些插件的代码我都没怎么看过，完全是 vibe 的产物。也欢迎大家来 vibe bub 的插件，以及敬请期待插件市场的上线。
+最近我们也在 bub 上做了很多好玩的东西：[小爱音箱][xiaoai]，[folotoy]，[Robo eyes][face]，都是用现有的插件接口实现的。其实这些插件的代码我都没怎么看过，完全是 vibe 的产物。也欢迎大家来 vibe bub 的插件，并把它们登记到 [hub.bub.build](https://hub.bub.build)，让更多人能找到。
 
 [xiaoai]: https://github.com/bubbuild/bub-xiaoai
 [folotoy]: https://github.com/bubbuild/bub-folotoy
