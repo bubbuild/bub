@@ -514,16 +514,15 @@ async def test_channel_manager_admission_cancel_and_process_requests_cancel_and_
 
 
 @pytest.mark.asyncio
-async def test_channel_manager_admission_hook_timeout_falls_back_to_process(load_config) -> None:
+async def test_channel_manager_admission_hook_error_falls_back_to_process(load_config) -> None:
     _load_channel_config(load_config, enabled_channels="telegram")
     framework = FakeFramework({"telegram": FakeChannel("telegram")})
 
-    async def slow_admit_message(*, session_id: str, message: ChannelMessage, turn):
-        await asyncio.sleep(10)
+    async def broken_admit_message(*, session_id: str, message: ChannelMessage, turn):
+        raise RuntimeError("bad admission")
 
-    framework.admit_message = slow_admit_message  # type: ignore[method-assign]
+    framework.admit_message = broken_admit_message  # type: ignore[method-assign]
     manager = ChannelManager(framework, enabled_channels=["telegram"])
-    manager._settings.admission_timeout_seconds = 0.01
 
     async def never_finish() -> None:
         await asyncio.sleep(10)

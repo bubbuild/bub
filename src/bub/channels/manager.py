@@ -40,10 +40,6 @@ class ChannelSettings(Settings):
         description="Time window in seconds to consider a channel active for processing messages.",
     )
     stream_output: bool = Field(default=False, description="Whether to stream model output to channels in real-time.")
-    admission_timeout_seconds: float = Field(
-        default=1.0,
-        description="Maximum seconds to wait for admission hooks before falling back to concurrent processing.",
-    )
 
 
 class ChannelManager:
@@ -185,16 +181,11 @@ class ChannelManager:
 
         snapshot = controller.snapshot(supports_steering=self.framework.supports_steering())
         try:
-            async with asyncio.timeout(self._settings.admission_timeout_seconds):
-                decision = await self.framework.admit_message(
-                    session_id=message.session_id,
-                    message=message,
-                    turn=snapshot,
-                )
-        except TimeoutError as exc:
-            logger.warning("channel.manager admission hook timed out session_id={}", message.session_id)
-            await self.framework._hook_runtime.notify_error(stage="admit_message", error=exc, message=message)
-            return True
+            decision = await self.framework.admit_message(
+                session_id=message.session_id,
+                message=message,
+                turn=snapshot,
+            )
         except Exception as exc:
             logger.exception("channel.manager admission hook failed")
             await self.framework._hook_runtime.notify_error(stage="admit_message", error=exc, message=message)
