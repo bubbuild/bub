@@ -23,6 +23,7 @@
     "@fontsource/outfit": "^5.2.8",
     "@tailwindcss/vite": "^4.1.14",
     "astro": "^6.0.1",
+    "astro-mermaid": "^2.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "mermaid": "^11.15.0",

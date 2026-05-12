@@ -13,9 +13,9 @@ Most agent frameworks conflate "talks to a chat platform", "knows how to do a pr
 
 ```mermaid
 flowchart LR
-  channels["Channels<br/>outward I/O"] --> envelope_io["Envelope<br/>in and out of the turn pipeline"]
-  skills["Skills<br/>operator procedures"] --> envelope_prompt["Envelope<br/>loaded into the prompt as text"]
-  tools["Tools<br/>model-callable actions"] --> state["State<br/>per-turn dict with runtime keys"]
+  channels["Channels<br/>outward I/O"] --> envelope_io["Envelope<br/>(in & out of the<br/>turn pipeline)"]
+  skills["Skills<br/>operator procedures"] --> envelope_prompt["Envelope<br/>(loaded into the<br/>prompt as text)"]
+  tools["Tools<br/>model-callable actions"] --> state["State<br/>(per-turn dict<br/>with _runtime_*)"]
 ```
 
 All three surfaces meet on two shared types from [`bub.types`](https://github.com/bubbuild/bub/blob/main/src/bub/types.py):

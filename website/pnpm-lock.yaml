@@ -35,6 +35,9 @@ importers:
       astro:
         specifier: ^6.0.1
         version: 6.1.6(@types/node@24.12.2)(@vercel/functions@3.4.3)(jiti@2.6.1)(lightningcss@1.32.0)(rollup@4.60.1)
+      astro-mermaid:
+        specifier: ^2.0.1
+        version: 2.0.1(astro@6.1.6(@types/node@24.12.2)(@vercel/functions@3.4.3)(jiti@2.6.1)(lightningcss@1.32.0)(rollup@4.60.1))(mermaid@11.15.0)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -1302,6 +1305,16 @@ packages:
     resolution: {integrity: sha512-hUpogGc6DdAd+I7pPXsctyYPRBJDK7Q7d06s4cyP0Vz3OcbziP3FNzN0jZci1BpCvLn9675DvS7B9ctKKX64JQ==}
     peerDependencies:
       astro: ^4.0.0-beta || ^5.0.0-beta || ^3.3.0 || ^6.0.0-beta
+
+  astro-mermaid@2.0.1:
+    resolution: {integrity: sha512-JTyB62FMFJpwS/1yUplmrugL0yr0flBVYZw6mf3s7pVlh+CHCeZTXyj3KCCWtFhnPLAdM+PYld0D+gxN/SysLQ==}
+    peerDependencies:
+      '@mermaid-js/layout-elk': ^0.2.0
+      astro: '>=4'
+      mermaid: ^10.0.0 || ^11.0.0
+    peerDependenciesMeta:
+      '@mermaid-js/layout-elk':
+        optional: true
 
   astro@6.1.6:
     resolution: {integrity: sha512-pRsz+kYriwCV/AUcY/I9OVKtVHuYFs2DtCszAxprXded/kTE53nMwxfnK0Nf6FPfaX9vcUiLnigcSIhuFoKntA==}
@@ -4055,6 +4068,14 @@ snapshots:
     dependencies:
       astro: 6.1.6(@types/node@24.12.2)(@vercel/functions@3.4.3)(jiti@2.6.1)(lightningcss@1.32.0)(rollup@4.60.1)
       rehype-expressive-code: 0.41.7
+
+  astro-mermaid@2.0.1(astro@6.1.6(@types/node@24.12.2)(@vercel/functions@3.4.3)(jiti@2.6.1)(lightningcss@1.32.0)(rollup@4.60.1))(mermaid@11.15.0):
+    dependencies:
+      astro: 6.1.6(@types/node@24.12.2)(@vercel/functions@3.4.3)(jiti@2.6.1)(lightningcss@1.32.0)(rollup@4.60.1)
+      import-meta-resolve: 4.2.0
+      mdast-util-to-string: 4.0.0
+      mermaid: 11.15.0
+      unist-util-visit: 5.1.0
 
   astro@6.1.6(@types/node@24.12.2)(@vercel/functions@3.4.3)(jiti@2.6.1)(lightningcss@1.32.0)(rollup@4.60.1):
     dependencies:

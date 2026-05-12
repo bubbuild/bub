@@ -23,14 +23,22 @@ After your first pass, treat each page as a reference and return to specific sec
 This is the same diagram you will see expanded in [Turn pipeline](/docs/concepts/turn-pipeline/):
 
 ```mermaid
-flowchart LR
-  inbound(["inbound envelope"]) --> resolve["resolve_session"]
-  resolve --> load["load_state"]
-  load --> prompt["build_prompt"]
-  prompt --> model["run_model<br/>run_model_stream"]
-  model --> save["save_state<br/>(finally)"]
-  save --> render["render_outbound"]
-  render --> dispatch["dispatch_outbound"]
+flowchart TB
+  subgraph row1[" "]
+    direction LR
+    inbound(["inbound envelope"]) --> resolve["resolve_session"]
+    resolve --> load["load_state"]
+    load --> prompt["build_prompt"]
+    prompt --> model["run_model<br/>[_stream]"]
+  end
+  subgraph row2[" "]
+    direction RL
+    save["save_state<br/>(finally)"] --> render["render_outbound"]
+    render --> dispatch["dispatch_outbound"]
+  end
+  model --> save
+  style row1 fill:transparent,stroke:transparent
+  style row2 fill:transparent,stroke:transparent
 ```
 
 `save_state` always runs in a `finally` block; `render_outbound` and `dispatch_outbound` run only when the turn succeeds.
