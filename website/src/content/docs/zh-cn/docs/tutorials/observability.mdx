@@ -1,0 +1,148 @@
+---
+title: 使用 tape 与 Jaeger 观察 Bub
+description: 先把 Bub 的 tape 当作第一层可观测性，再把 Logfire/OpenTelemetry trace 导出到 Jaeger。
+sidebar:
+  order: 1
+---
+
+本教程提供两条观察同一个 Bub workspace 的路径：
+
+1. 先运行一个小的英文自然语言任务，再询问 Bub 刚写入的 tape。由于 Bub 会把每个 session 记录为 append-only tape，这条路径不依赖外部 tracing backend。
+2. 在运行同类任务时，将 Logfire/OpenTelemetry telemetry 发送到 Jaeger。需要把进程级 telemetry 放到本地或生产可观测平台时使用这条路径。
+
+完成后，你会得到一个本地快速健康检查方式，以及一个 Jaeger trace 视图。
+
+## 前置条件
+
+你需要：
+
+- Bub 已安装，且 `uv run bub --help` 可以运行。
+- 一个 workspace，其中 `uv run bub run "What tools do you have?"` 能调用已配置的模型。
+- 如果要本地运行 Jaeger，需要 Docker 或 Podman。
+- 启动带 Jaeger 的 Bub 之前，安装 Logfire extra：
+
+```bash
+uv sync --extra logfire
+```
+
+## 1. 询问 Bub 当前 tape
+
+先运行一个英文自然语言任务：
+
+```bash
+uv run bub run "What tools do you have, and what small tasks are they useful for?"
+```
+
+然后让 Bub 检查刚刚被这个 turn 更新过的 tape：
+
+```bash
+uv run bub run ",tape.info"
+```
+
+期望输出类似：
+
+```text
+name: becda04eb9f7369c__065943a03cbe6395
+entries: 98
+anchors: 2
+last_anchor: session/start
+entries_since_last_anchor: 44
+last_token_usage: 7458
+```
+
+![展示 Bub task run 之后 `tape.info` 输出的终端截图](/docs/observability/tape-info.png)
+
+这些字段在模型行为异常时很有用：
+
+- `entries` 表示 session 已积累多少历史。
+- `anchors` 与 `last_anchor` 表示 tape 是否已有用于重建 context 的 checkpoint。
+- `entries_since_last_anchor` 表示是否可以通过 handoff 缩短下一次 prompt。
+- `last_token_usage` 会在模型路径记录 token usage 后出现。
+
+由于 Bub 使用来自 [tape.systems](https://tape.systems) 的 [tape 模型](/zh-cn/docs/concepts/tape-and-context/)，运行时可以检查自己的操作记录。Bub 能回答发生了什么，是因为 tape 正是它重建 context 时使用的状态。
+
+## 2. 在 tape 中搜索症状
+
+需要查找之前的 tool call、error 或 handoff 时，使用 `tape.search`：
+
+```bash
+uv run bub run ",tape.search query=loop.step"
+```
+
+你也可以让模型检查 tape 并解释它看到的变化：
+
+```bash
+uv run bub run "Inspect the current tape and summarize the last turn."
+```
+
+第二条命令可能会调用模型，因此只在 provider credential 已配置后使用。
+
+## 3. 在本地启动 Jaeger
+
+运行启用 OTLP HTTP ingest 的 Jaeger：
+
+```bash
+docker run --rm --name bub-jaeger \
+  -p 16686:16686 \
+  -p 4318:4318 \
+  jaegertracing/all-in-one:latest
+```
+
+打开 UI：
+
+```text
+http://localhost:16686
+```
+
+## 4. 使用 Logfire 与 OTLP 运行 Bub
+
+安装 `logfire` extra 后，Bub 在 CLI 启动时已经支持 Logfire。Logfire 会发出 OpenTelemetry 数据，因此你可以使用任何支持 OTLP 的可观测性 backend；本教程使用 Jaeger。
+
+在另一个终端运行：
+
+```bash
+LOGFIRE_SEND_TO_LOGFIRE=false \
+LOGFIRE_SERVICE_NAME=bub \
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces \
+uv run --extra logfire bub run "What tools do you have, and what small tasks are they useful for?"
+```
+
+然后用相同 telemetry 设置运行本地 tape 检查：
+
+```bash
+LOGFIRE_SEND_TO_LOGFIRE=false \
+LOGFIRE_SERVICE_NAME=bub \
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces \
+uv run --extra logfire bub run ",tape.info"
+```
+
+本地 Jaeger 教程建议设置 `LOGFIRE_SEND_TO_LOGFIRE=false`，避免 Bub 尝试把 telemetry 发送到托管 Logfire backend。`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` 指向 Jaeger 的 OTLP HTTP endpoint。
+
+## 5. 在 Jaeger 中检查 trace
+
+在 Jaeger 中：
+
+1. 选择 `bub` service。
+2. 点击 **Find Traces**。
+3. 打开最近的 trace，查找 tape merge 等 Loguru 事件。
+
+![展示 Bub telemetry 通过 Logfire 与 OTLP 导出到 Jaeger 的截图](/docs/observability/jaeger-logfire.png)
+
+这条路径与 tape 检查互补：
+
+- Tape 回答“这个 Bub session 记住了什么？”
+- Jaeger 回答“这个 Bub process 运行时发出了什么？”
+
+排查生产行为时建议两者一起使用：先用 `,tape.info` 判断 session 状态，再用 Jaeger 查看耗时、错误和进程级日志。
+
+## 清理
+
+如果 Jaeger 在前台运行，用 `Ctrl+C` 停止。若以 detached 方式运行，删除容器：
+
+```bash
+docker rm -f bub-jaeger
+```
+
+## 下一步
+
+- [Tape 与 context](/zh-cn/docs/concepts/tape-and-context/) — 理解 Bub 记录什么，以及如何重建 context。

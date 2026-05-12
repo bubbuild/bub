@@ -85,6 +85,11 @@ export default defineConfig({
           autogenerate: { directory: 'docs/build' },
         },
         {
+          label: 'Tutorials',
+          translations: { 'zh-CN': '教程' },
+          autogenerate: { directory: 'docs/tutorials' },
+        },
+        {
           label: 'Reference',
           translations: { 'zh-CN': '参考' },
           autogenerate: { directory: 'docs/reference' },

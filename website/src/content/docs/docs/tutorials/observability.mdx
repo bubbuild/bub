@@ -1,0 +1,148 @@
+---
+title: Observe Bub with tapes and Jaeger
+description: Use Bub's tape as a first observability surface, then export Logfire/OpenTelemetry traces to Jaeger.
+sidebar:
+  order: 1
+---
+
+This tutorial gives you two observability paths for one Bub workspace:
+
+1. Run a small natural-language task, then ask Bub about the tape it just wrote. This works without a tracing backend because Bub records each session as an append-only tape.
+2. Send Logfire/OpenTelemetry telemetry to Jaeger while running the same kind of task. Use this when you want traces outside the local workspace.
+
+By the end, you will have a quick local health check and a Jaeger view for process-level telemetry.
+
+## Before you begin
+
+You need:
+
+- Bub installed and runnable with `uv run bub --help`.
+- One workspace where `uv run bub run "What tools do you have?"` can call your configured model.
+- Docker or Podman if you want to run Jaeger locally.
+- The Logfire extra installed before starting Bub with Jaeger:
+
+```bash
+uv sync --extra logfire
+```
+
+## 1. Ask Bub for its current tape
+
+Run an English natural-language task first:
+
+```bash
+uv run bub run "What tools do you have, and what small tasks are they useful for?"
+```
+
+Then ask Bub to inspect the tape that was updated by that turn:
+
+```bash
+uv run bub run ",tape.info"
+```
+
+Expected output looks like this:
+
+```text
+name: becda04eb9f7369c__065943a03cbe6395
+entries: 98
+anchors: 2
+last_anchor: session/start
+entries_since_last_anchor: 44
+last_token_usage: 7458
+```
+
+![A terminal screenshot showing `tape.info` after a Bub task run](/docs/observability/tape-info.png)
+
+The fields are useful when the model starts behaving oddly:
+
+- `entries` tells you how much history the session has accumulated.
+- `anchors` and `last_anchor` tell you whether the tape has a checkpoint for context reconstruction.
+- `entries_since_last_anchor` tells you whether a handoff could shorten the next prompt.
+- `last_token_usage` appears when token usage has been recorded by the model path.
+
+Because Bub uses the [tape model](/docs/concepts/tape-and-context/) from [tape.systems](https://tape.systems), the runtime can inspect its own operational record. Bub can answer questions about what happened because the tape is the same state it uses to rebuild context.
+
+## 2. Search the tape for symptoms
+
+Use `tape.search` when you need to find a prior tool call, error, or handoff:
+
+```bash
+uv run bub run ",tape.search query=loop.step"
+```
+
+You can also ask the model to inspect the tape and explain what it sees:
+
+```bash
+uv run bub run "Inspect the current tape and summarize the last turn."
+```
+
+That second command may call the model, so use it only after provider credentials are configured.
+
+## 3. Start Jaeger locally
+
+Run Jaeger with OTLP HTTP ingestion enabled:
+
+```bash
+docker run --rm --name bub-jaeger \
+  -p 16686:16686 \
+  -p 4318:4318 \
+  jaegertracing/all-in-one:latest
+```
+
+Open the UI:
+
+```text
+http://localhost:16686
+```
+
+## 4. Run Bub with Logfire and OTLP
+
+Bub already supports Logfire during CLI startup when the `logfire` extra is installed. Logfire emits OpenTelemetry data, so you can use any observability backend that accepts OTLP. This tutorial uses Jaeger.
+
+In another terminal, run:
+
+```bash
+LOGFIRE_SEND_TO_LOGFIRE=false \
+LOGFIRE_SERVICE_NAME=bub \
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces \
+uv run --extra logfire bub run "What tools do you have, and what small tasks are they useful for?"
+```
+
+Then run the local tape check with the same telemetry settings:
+
+```bash
+LOGFIRE_SEND_TO_LOGFIRE=false \
+LOGFIRE_SERVICE_NAME=bub \
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces \
+uv run --extra logfire bub run ",tape.info"
+```
+
+Use `LOGFIRE_SEND_TO_LOGFIRE=false` for local Jaeger tutorials so Bub does not try to send telemetry to the hosted Logfire backend. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` points Logfire's OpenTelemetry exporter at Jaeger's OTLP HTTP endpoint.
+
+## 5. Inspect the trace in Jaeger
+
+In Jaeger:
+
+1. Select the `bub` service.
+2. Click **Find Traces**.
+3. Open the most recent trace and look for Loguru events such as tape merge messages.
+
+![A Jaeger screenshot showing Bub telemetry exported through Logfire and OTLP](/docs/observability/jaeger-logfire.png)
+
+This path complements tape inspection:
+
+- Tape answers "what did this Bub session remember?"
+- Jaeger answers "what did this Bub process emit while it ran?"
+
+Use both when debugging production behavior: start with `,tape.info` to understand the session state, then use Jaeger to inspect timing, errors, and process-level logs.
+
+## Clean up
+
+Stop Jaeger with `Ctrl+C` if it is running in the foreground. If it is detached, remove it:
+
+```bash
+docker rm -f bub-jaeger
+```
+
+## Next steps
+
+- [Tape and context](/docs/concepts/tape-and-context/) — understand what Bub records and how context is rebuilt.
