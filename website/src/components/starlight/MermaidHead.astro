@@ -1,0 +1,97 @@
+---
+import DefaultHead from '@astrojs/starlight/components/Head.astro';
+---
+
+<DefaultHead />
+
+<script>
+  import mermaid from 'mermaid';
+
+  let renderCounter = 0;
+
+  function configureMermaid() {
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      theme: 'base',
+      themeVariables: {
+        background: 'transparent',
+        mainBkg: 'var(--sl-color-bg)',
+        primaryColor: 'var(--sl-color-bg-nav)',
+        primaryTextColor: 'var(--sl-color-white)',
+        primaryBorderColor: 'var(--sl-color-accent-high)',
+        secondaryColor: 'var(--sl-color-bg-inline-code)',
+        secondaryTextColor: 'var(--sl-color-white)',
+        lineColor: 'var(--sl-color-gray-4)',
+        edgeLabelBackground: 'var(--sl-color-bg)',
+        fontFamily: 'var(--__sl-font)',
+        nodeBorder: 'var(--sl-color-accent-high)',
+      },
+      flowchart: {
+        curve: 'basis',
+        htmlLabels: true,
+      },
+    });
+  }
+
+  async function renderMermaidBlocks() {
+    configureMermaid();
+
+    const blocks = Array.from(
+      document.querySelectorAll('pre > code.language-mermaid:not([data-mermaid-rendered])'),
+    );
+
+    for (const block of blocks) {
+      const pre = block.parentElement;
+      const source = block.textContent?.trim();
+      if (!pre || !source) continue;
+
+      block.setAttribute('data-mermaid-rendered', 'true');
+
+      const diagram = document.createElement('figure');
+      diagram.className = 'bub-mermaid-diagram';
+      diagram.setAttribute('aria-label', 'Diagram');
+
+      try {
+        const id = `bub-mermaid-${++renderCounter}`;
+        const { svg, bindFunctions } = await mermaid.render(id, source);
+        diagram.innerHTML = svg;
+        bindFunctions?.(diagram);
+        pre.replaceWith(diagram);
+      } catch (error) {
+        console.error('Failed to render Mermaid diagram', error);
+        block.removeAttribute('data-mermaid-rendered');
+      }
+    }
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    void renderMermaidBlocks();
+  });
+</script>
+
+<style is:global>
+  .bub-mermaid-diagram {
+    margin-block: 1.5rem;
+    overflow-x: auto;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    background: var(--sl-color-bg-nav);
+    padding: 1rem;
+  }
+
+  .bub-mermaid-diagram > svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin-inline: auto;
+  }
+
+  .bub-mermaid-diagram .node rect,
+  .bub-mermaid-diagram .node polygon,
+  .bub-mermaid-diagram .node circle,
+  .bub-mermaid-diagram .node ellipse {
+    rx: 4px;
+    ry: 4px;
+  }
+</style>

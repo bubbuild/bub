@@ -51,6 +51,9 @@ export default defineConfig({
         alt: 'Bub',
       },
       customCss: ['./src/styles/global.css'],
+      components: {
+        Head: './src/components/starlight/MermaidHead.astro',
+      },
       disable404Route: true,
       locales: {
         root: {

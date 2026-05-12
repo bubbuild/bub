@@ -11,16 +11,11 @@ sidebar:
 
 ## 三个扩展面
 
-```diagram
-          outward I/O              operator procedures        model-callable actions
-    ╭─────────────────────╮      ╭─────────────────────╮      ╭─────────────────────╮
-    │      Channels       │      │       Skills        │      │        Tools        │
-    ╰──────────┬──────────╯      ╰──────────┬──────────╯      ╰──────────┬──────────╯
-               │                            │                            │
-               ▼                            ▼                            ▼
-           Envelope                     Envelope                       State
-       (in & out of the             (loaded into the              (per-turn dict
-        turn pipeline)               prompt as text)            with `_runtime_*`)
+```mermaid
+flowchart LR
+  channels["Channels<br/>outward I/O"] --> envelope_io["Envelope<br/>in and out of the turn pipeline"]
+  skills["Skills<br/>operator procedures"] --> envelope_prompt["Envelope<br/>loaded into the prompt as text"]
+  tools["Tools<br/>model-callable actions"] --> state["State<br/>per-turn dict with runtime keys"]
 ```
 
 三者在来自 [`bub.types`](https://github.com/bubbuild/bub/blob/main/src/bub/types.py) 的两个共享类型上相遇：

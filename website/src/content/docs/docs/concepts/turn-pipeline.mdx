@@ -11,48 +11,15 @@ A *turn* is one full pass: one inbound envelope in, zero or more outbound envelo
 
 ## End-to-end flow
 
-```diagram
-   inbound envelope
-           │
-           ▼
-╭─────────────────────╮
-│   resolve_session   │  firstresult
-│      (fallback:     │
-│     channel:chat)   │
-╰──────────┬──────────╯
-           ▼
-╭─────────────────────╮
-│      load_state     │  many → reverse → merge
-│   (seed _runtime_   │
-│      workspace)     │
-╰──────────┬──────────╯
-           ▼
-╭─────────────────────╮
-│     build_prompt    │  firstresult
-│      (fallback:     │
-│     inbound text)   │
-╰──────────┬──────────╯
-           ▼
-╭─────────────────────╮
-│   run_model_stream  │  firstresult
-│     ↕ adapts to     │
-│      run_model      │  firstresult
-╰──────────┬──────────╯
-           ▼  (always)
-╭─────────────────────╮
-│      save_state     │  many, in finally
-╰──────────┬──────────╯
-           ▼
-╭─────────────────────╮
-│   render_outbound   │  many → flatten
-│      (fallback:     │
-│     one envelope    │
-│     from output)    │
-╰──────────┬──────────╯
-           ▼
-╭─────────────────────╮
-│  dispatch_outbound  │  many, per outbound
-╰─────────────────────╯
+```mermaid
+flowchart TD
+  inbound(["inbound envelope"]) --> resolve["resolve_session<br/>firstresult<br/>(fallback: channel:chat)"]
+  resolve --> load["load_state<br/>many, reverse, merge<br/>(seed runtime workspace)"]
+  load --> prompt["build_prompt<br/>firstresult<br/>(fallback: inbound text)"]
+  prompt --> model["run_model_stream<br/>adapts to run_model<br/>firstresult"]
+  model -->|always| save["save_state<br/>many, in finally"]
+  save --> render["render_outbound<br/>many, flatten<br/>(fallback: one envelope from output)"]
+  render --> dispatch["dispatch_outbound<br/>many, per outbound"]
 ```
 
 ## Stages, in source order
