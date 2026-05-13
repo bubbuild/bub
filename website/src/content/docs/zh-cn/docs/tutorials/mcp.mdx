@@ -1,0 +1,184 @@
+---
+title: 使用 bub-mcp 连接 MCP 服务器
+description: 安装 bub-mcp 插件，注册一个时间 MCP 服务器，并在 Bub turn 中调用其工具。
+sidebar:
+  order: 2
+---
+
+本教程通过 `bub-mcp` 插件，将一个 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 服务器接入 Bub。MCP 服务器把外部能力——API、本地工具、数据源——暴露成 Bub 在 turn 中可调用的工具。
+
+完成后，你将把官方的 `mcp-server-time` 注册到 Bub 并验证连接通畅。在此基础上，替换为其他 stdio、HTTP 或 SSE 服务器只需改一行配置。
+
+## 前提条件
+
+你需要：
+
+- 已安装 Bub 并可通过 `uv run bub --help` 运行。
+- 系统 `PATH` 中存在 [`uv`](https://docs.astral.sh/uv/)，以便 `uvx mcp-server-time` 能按需启动 [time MCP 服务器](https://pypi.org/project/mcp-server-time/)。
+- 如果想在真实 turn 中调用 MCP 工具，需要一个可用的模型提供商（参见最后一节）。
+
+## 1. 安装 bub-mcp
+
+`bub-mcp` 位于 [`bubbuild/bub-contrib`](https://github.com/bubbuild/bub-contrib) 仓库，**未发布到 PyPI**。请使用 `bub install`——当传入 `<name>@<ref>` 形式的裸名时，它会自动到 bub-contrib 中解析：
+
+```bash
+bub install bub-mcp@main
+```
+
+这要求 Bub 自身运行在 virtualenv 中（参见 [`bub install`](/zh-cn/docs/reference/cli/#bub-install)）；如未激活该 venv，请先激活。
+
+验证插件已加载：
+
+```bash
+uv run bub hooks
+```
+
+应能看到 `mcp` 与 `builtin` 并列：
+
+```text
+load_state: builtin, mcp
+provide_channels: builtin, mcp
+register_cli_commands: builtin, mcp
+```
+
+如果没有 `mcp`，说明插件被装到了与 `uv run bub` 解析出的环境不同的地方。
+
+## 2. 注册时间服务器
+
+`bub-mcp` 从 `~/.bub/mcp.json`（设置 `BUB_HOME` 时为 `$BUB_HOME/mcp.json`）读取服务器定义。创建该文件，写入一个通过 stdio 拉起 `mcp-server-time` 的条目：
+
+```bash
+mkdir -p ~/.bub
+cat > ~/.bub/mcp.json <<'EOF'
+{
+  "mcpServers": {
+    "time": {
+      "command": "uvx",
+      "args": ["mcp-server-time"]
+    }
+  }
+}
+EOF
+```
+
+stdio 服务器中，`command` 必填；`args`、`env` 可选。**存在 `command` 即视为 stdio**——stdio 条目无需 `transport` 字段。
+
+## 3. 验证服务器已连接
+
+```bash
+uv run bub mcp list
+```
+
+预期输出：
+
+```text
+🔌 MCP Tools
+- time
+  Status: Connected
+  Tools: mcp.time_get_current_time, mcp.time_convert_time
+```
+
+`Status: Connected` 表示 `bub-mcp` 已启动子进程、完成 MCP 握手并发现了服务器工具。每个远程工具会以 `mcp.<server>_<tool>` 的前缀暴露给 Bub。
+
+如果出现 `Status: Disconnected`，先在 Bub 之外直接运行启动命令排错：
+
+```bash
+uvx mcp-server-time
+```
+
+进程应能正常启动而不退出，按 `Ctrl-C` 终止；修复底层问题后再次执行 `bub mcp list`。
+
+## 4. 在运行中的 turn 里使用 MCP 工具
+
+`bub mcp list` 已经足以确认接入正确。**真正在 turn 中调用工具，需要 Bub 的 channel 运行时**——而只有 `bub gateway` 才会启动它：
+
+- `bub run` 与 `bub chat` **不会**启动任何 `Channel`。承载 MCP 服务器的 `mcp.lifecycle` channel 不会启动，因此这两个命令下模型看不到 MCP 工具。
+- `bub gateway` 会启动 `provide_channels` 钩子返回的所有 channel（受 `--enable-channel` / `BUB_ENABLED_CHANNELS` 控制）。当 `mcp.lifecycle` 启用后，channel 会在后台启动、把每个远程工具按 `mcp.<server>_<tool>` 名称注册到全局工具表中，模型从此即可调用它们。
+
+同时启用输入 channel 与 MCP 生命周期 channel 来运行 gateway：
+
+```bash
+uv run bub gateway --enable-channel cli --enable-channel mcp.lifecycle
+```
+
+看到 `channel.manager started listening` 后**等几秒**让 MCP 完成 bootstrap，再向 Bub 提一个会用到时间服务器的问题（例如 `What time is it right now in UTC?`）。模型应该会调用 `mcp.time_get_current_time` 并把结果纳入回复。
+
+如果模型在没调用 MCP 工具的情况下就回答了，多半是 turn 开始时 bootstrap 还没完成——多等一会，或先发一条预热消息。bootstrap 通过 `asyncio.create_task` 异步启动，既不阻塞 channel 启动，也不阻塞首个 turn。
+
+长期运行的部署请参见 [Deploy](/zh-cn/docs/operate/deploy/) —— 容器镜像跑的就是同样的 gateway 命令。
+
+## 添加其他类型的服务器
+
+编辑 `~/.bub/mcp.json`，在 `mcpServers` 下追加更多条目。不同传输方式的字段不同。
+
+**HTTP**——`url` 加 `transport: "http"`，可选 `headers`：
+
+```json
+{
+  "weather": {
+    "url": "https://weather.example.com/mcp",
+    "transport": "http"
+  }
+}
+```
+
+**SSE**——`url` 加 `transport: "sse"`，可选 `headers`：
+
+```json
+{
+  "events": {
+    "url": "https://events.example.com/mcp",
+    "transport": "sse",
+    "headers": { "Authorization": "Bearer token" }
+  }
+}
+```
+
+**另一个 stdio 服务器**——例如通过 `npx` 启动的 Node 实现 [`@modelcontextprotocol/server-filesystem`](https://www.npmjs.com/package/@modelcontextprotocol/server-filesystem)。允许访问的目录作为位置参数写入 `args`，凭证通过 `env` 传入：
+
+```json
+{
+  "filesystem": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+  }
+}
+```
+
+保存后，执行 `bub mcp list` 确认每个新服务器都已连接。
+
+### CLI 等价命令
+
+如果你不想手动编辑 JSON，可以使用 `bub mcp add`，效果完全一致：
+
+```bash
+# stdio
+uv run bub mcp add --transport stdio time -- uvx mcp-server-time
+uv run bub mcp add --transport stdio --env API_KEY=secret example -- node ./my-server.js
+
+# http / sse
+uv run bub mcp add --transport http weather https://weather.example.com/mcp
+uv run bub mcp add --transport sse --header "Authorization: Bearer token" \
+    events https://events.example.com/mcp
+
+# 移除
+uv run bub mcp remove time
+```
+
+`--env` 仅在 `--transport stdio` 下可用；`--header` 仅在 `--transport http` 或 `--transport sse` 下可用。
+
+## 故障排除
+
+| 症状 | 检查项 |
+|---|---|
+| `bub hooks` 中没有 `mcp` | 插件被装到了与 `uv run bub` 解析出的环境不同的地方。重新装入当前 Bub venv。 |
+| `bub mcp list` 显示 `Status: Disconnected` | 在 Bub 之外直接运行配置的 `command`（或访问 `url`）确认能正常启动；错误信息会显示根本原因。 |
+| `bub mcp add` 在 `Added MCP server …` 之后打印 `CancelledError` | 仅是表面问题——条目已写入。用 `bub mcp list` 复核，或改为手动编辑 `mcp.json`。 |
+| turn 中工具未被调用 | 确认 `bub mcp list` 显示 `Status: Connected` 且列出了预期工具，然后提一个明显需要该工具的问题。 |
+| `mcp.json` 权限被拒绝 | 确认 `~/.bub/` 对当前用户可写，或将 `BUB_HOME` 设到你拥有的目录后重试。 |
+
+## 下一步
+
+- [构建插件](/zh-cn/docs/build/plugins/) — 编写自己的 Bub 插件。
+- [配置](/zh-cn/docs/operate/configure/) — Bub 的配置层与环境变量。
+- [bub-mcp 源码](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp) — 插件完整源码与高级选项。
