@@ -75,3 +75,59 @@ def test_save_writes_yaml_and_refreshes_loaded_config(tmp_path: Path) -> None:
             assert configure.ensure_config(TelegramSettings).token == expected_token
         finally:
             os.chdir(previous_cwd)
+
+
+def test_get_value_reads_registered_section_from_yaml(load_config) -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        load_config(
+            """
+telegram:
+  token: yaml-token
+""".strip(),
+        )
+
+        assert configure.get_value("telegram.token") == "yaml-token"
+
+
+def test_get_value_prefers_registered_env_over_yaml(load_config) -> None:
+    load_config(
+        """
+telegram:
+  token: yaml-token
+""".strip(),
+    )
+
+    with patch.dict(os.environ, {"BUB_TELEGRAM_TOKEN": "env-token"}, clear=True):
+        configure._global_config.clear()
+
+        assert configure.get_value("telegram.token") == "env-token"
+
+
+def test_get_value_descends_into_registered_dict_field(load_config) -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        load_config(
+            """
+api_key:
+  openai: sk-yaml
+""".strip(),
+        )
+
+        assert configure.get_value("api_key") == {"openai": "sk-yaml"}
+        assert configure.get_value("api_key.openai") == "sk-yaml"
+
+
+def test_get_value_ignores_raw_unregistered_path(load_config) -> None:
+    load_config(
+        """
+custom:
+  nested:
+    value: raw-value
+""".strip(),
+    )
+
+    with pytest.raises(KeyError):
+        configure.get_value("custom.nested.value")
+
+
+def test_get_value_returns_default_for_missing_path() -> None:
+    assert configure.get_value("missing.value", default="fallback") == "fallback"

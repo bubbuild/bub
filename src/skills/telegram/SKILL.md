@@ -13,7 +13,9 @@ metadata:
 
 Agent-facing execution guide for Telegram outbound communication.
 
-Assumption: `BUB_TELEGRAM_TOKEN` is already available.
+Env vars:
+
+- `BUB_TELEGRAM_TOKEN=${config.telegram.token}`
 
 ## Required Inputs
 Collect these before execution:
@@ -76,18 +78,18 @@ Paths are relative to this skill directory.
 
 ```bash
 # Send message (ALWAYS use heredoc stdin, never inline text in arguments)
-cat << 'EOF' | uv run ${SKILL_DIR}/scripts/telegram_send.py --chat-id <CHAT_ID> --message -
+cat << 'EOF' | uv run ${SKILL_DIR}/scripts/telegram_send.py --chat-id <CHAT_ID> --token "$BUB_TELEGRAM_TOKEN" --message -
 Your message content here.
 Special characters are safe: $100, "quotes", 'apostrophes', !exclamation
 EOF
 
 # Reply to a specific message
-cat << 'EOF' | uv run ${SKILL_DIR}/scripts/telegram_send.py --chat-id <CHAT_ID> --reply-to <MESSAGE_ID> --message -
+cat << 'EOF' | uv run ${SKILL_DIR}/scripts/telegram_send.py --chat-id <CHAT_ID> --token "$BUB_TELEGRAM_TOKEN" --reply-to <MESSAGE_ID> --message -
 Reply content here.
 EOF
 
 # Edit an existing message
-cat << 'EOF' | uv run ${SKILL_DIR}/scripts/telegram_edit.py --chat-id <CHAT_ID> --message-id <MESSAGE_ID> --text -
+cat << 'EOF' | uv run ${SKILL_DIR}/scripts/telegram_edit.py --chat-id <CHAT_ID> --token "$BUB_TELEGRAM_TOKEN" --message-id <MESSAGE_ID> --text -
 Updated content here.
 EOF
 ```

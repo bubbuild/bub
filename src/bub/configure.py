@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
 CONFIG_MAP: dict[str, list[type[BaseSettings]]] = {}
 ROOT = ""
+MISSING = object()
 
 _global_config: dict[str, list[BaseSettings]] = {}
 _config_data: dict[str, Any] = {}
@@ -95,6 +96,22 @@ def ensure_config[C: BaseSettings](config_cls: type[C]) -> C:
     return instance
 
 
+def get_value(path: str, default: Any = MISSING) -> Any:
+    """Get a loaded config value by dotted path, preserving registered settings behavior."""
+
+    parts = [part for part in path.split(".") if part]
+    if not parts:
+        raise ValueError("config path must not be empty")
+
+    value = _lookup_registered_config(parts)
+    if value is not MISSING:
+        return value
+
+    if default is not MISSING:
+        return default
+    raise KeyError(path)
+
+
 def _copy_dict(data: dict[str, Any]) -> dict[str, Any]:
     copied: dict[str, Any] = {}
     for key, value in data.items():
@@ -103,6 +120,36 @@ def _copy_dict(data: dict[str, Any]) -> dict[str, Any]:
         else:
             copied[key] = value
     return copied
+
+
+def _lookup_registered_config(parts: list[str]) -> Any:
+    section, *subpath = parts
+    if section in CONFIG_MAP and section != ROOT:
+        for config_cls in CONFIG_MAP[section]:
+            value = _lookup_path(ensure_config(config_cls), subpath)
+            if value is not MISSING:
+                return value
+
+    for config_cls in CONFIG_MAP.get(ROOT, []):
+        value = _lookup_path(ensure_config(config_cls), parts)
+        if value is not MISSING:
+            return value
+
+    return MISSING
+
+
+def _lookup_path(value: Any, parts: list[str]) -> Any:
+    current = value
+    for part in parts:
+        if isinstance(current, dict):
+            if part not in current:
+                return MISSING
+            current = current[part]
+            continue
+        if not hasattr(current, part):
+            return MISSING
+        current = getattr(current, part)
+    return current
 
 
 def _merge_into(target: dict[str, Any], incoming: dict[str, Any], path: tuple[str, ...]) -> None:

@@ -1,5 +1,8 @@
 from pathlib import Path
+from unittest.mock import patch
 
+import bub.configure as configure
+from bub.channels.telegram import TelegramSettings
 from bub.skills import (
     SKILL_FILE_NAME,
     SkillMetadata,
@@ -44,6 +47,56 @@ def test_skill_metadata_body_strips_frontmatter(tmp_path: Path) -> None:
         source="project",
     )
     assert metadata.body() == "Line 1\nLine 2"
+
+
+def test_skill_metadata_body_renders_config_templates(tmp_path: Path, load_config) -> None:
+    assert TelegramSettings.__name__ == "TelegramSettings"
+    skill_file = _write_skill(
+        tmp_path,
+        "demo-skill",
+        body='Token: "${config.telegram.token}"\nSkill dir: $SKILL_DIR',
+    )
+    metadata = SkillMetadata(
+        name="demo-skill",
+        description="Demo",
+        location=skill_file,
+        source="project",
+    )
+
+    with patch.dict("os.environ", {}, clear=True):
+        load_config(
+            """
+telegram:
+  token: yaml-token
+""".strip(),
+        )
+
+        body = metadata.body()
+
+    assert 'Token: "yaml-token"' in body
+    assert f"Skill dir: {tmp_path / 'demo-skill'}" in body
+
+
+def test_skill_metadata_body_renders_env_over_config(tmp_path: Path, load_config) -> None:
+    assert TelegramSettings.__name__ == "TelegramSettings"
+    skill_file = _write_skill(tmp_path, "demo-skill", body='Token: "${config.telegram.token}"')
+    metadata = SkillMetadata(
+        name="demo-skill",
+        description="Demo",
+        location=skill_file,
+        source="project",
+    )
+    load_config(
+        """
+telegram:
+  token: yaml-token
+""".strip(),
+    )
+
+    with patch.dict("os.environ", {"BUB_TELEGRAM_TOKEN": "env-token"}, clear=True):
+        configure._global_config.clear()
+
+        assert metadata.body() == 'Token: "env-token"'
 
 
 def test_read_skill_rejects_invalid_metadata_field_type(tmp_path: Path) -> None:

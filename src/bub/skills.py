@@ -13,11 +13,14 @@ from typing import Any
 
 import yaml
 
+import bub.configure as configure
+
 PROJECT_SKILLS_DIR = ".agents/skills"
 LEGACY_SKILLS_DIR = ".agent/skills"
 SKILL_FILE_NAME = "SKILL.md"
 SKILL_SOURCES = ("project", "global", "builtin")
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+CONFIG_TEMPLATE_PATTERN = re.compile(r"\$\{\s*config\.([a-zA-Z0-9_.-]+)\s*\}")
 
 
 @dataclass(frozen=True)
@@ -33,11 +36,15 @@ class SkillMetadata:
     def body(self) -> str:
         front_matter_pattern = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
         try:
-            template = string.Template(self.location.read_text(encoding="utf-8").strip())
+            template_content = self.location.read_text(encoding="utf-8").strip()
         except OSError:
             return ""
-        content = template.safe_substitute({"SKILL_DIR": str(self.location.parent), "PYTHON": sys.executable})
-        return front_matter_pattern.sub("", content, count=1).strip()
+        raw_content = front_matter_pattern.sub("", template_content, count=1).strip()
+        content = _render_config_templates(raw_content)
+        return string.Template(content).safe_substitute({
+            "SKILL_DIR": str(self.location.parent),
+            "PYTHON": sys.executable,
+        })
 
 
 def discover_skills(workspace_path: Path) -> list[SkillMetadata]:
@@ -58,6 +65,23 @@ def discover_skills(workspace_path: Path) -> list[SkillMetadata]:
                 skills_by_name[key] = metadata
 
     return sorted(skills_by_name.values(), key=lambda item: item.name.casefold())
+
+
+def _render_config_templates(content: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        try:
+            value = configure.get_value(match.group(1), default="")
+        except KeyError:
+            return match.group(0)
+        if isinstance(value, str):
+            return value
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, int | float):
+            return str(value)
+        return yaml.safe_dump(value, sort_keys=False).strip()
+
+    return CONFIG_TEMPLATE_PATTERN.sub(replace, content)
 
 
 def _read_skill(skill_dir: Path, *, source: str) -> SkillMetadata | None:
