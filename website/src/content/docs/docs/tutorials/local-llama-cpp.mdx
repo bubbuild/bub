@@ -1,0 +1,116 @@
+---
+title: Run Bub with a local llama.cpp model
+description: Start a local llama.cpp server and configure Bub to use it as an OpenAI-compatible model provider.
+sidebar:
+  order: 3
+---
+
+This tutorial shows how to run Bub against a local `llama.cpp` server. By the end, Bub will send model calls to a GGUF Gemma model running on your machine instead of a hosted API.
+
+Use this path when you want a local model for development, private experiments, offline demos, or latency-sensitive tasks near your application. This tutorial does not cover model benchmarking, fine-tuning, production hardening, or choosing the best model for every workload.
+
+The example uses [`ggml-org/gemma-4-E2B-it-GGUF`](https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF), a GGUF build of Google's Gemma 4 E2B instruction-tuned model. Google's [Gemma 4 overview](https://deepmind.google/models/gemma/gemma-4/) describes E2B and E4B as efficient models for mobile and edge devices, and the [Gemma 4 model card](https://ai.google.dev/gemma/docs/core/model_card_4) documents capabilities, limits, and responsible-use considerations.
+
+## Before you begin
+
+You need:
+
+- Bub installed and runnable with `uv run bub --help`.
+- Docker installed.
+- A GGUF model file under `~/.cache/llama.cpp/`.
+- Enough system memory for the quantization you choose. The Q8 Gemma 4 E2B GGUF file is about 5 GB on disk; runtime memory also depends on context size, batching, and GPU offload.
+
+This tutorial uses these file names:
+
+```text
+~/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_gemma-4-E2B-it-Q8_0.gguf
+~/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_mmproj-gemma-4-E2B-it-Q8_0.gguf
+```
+
+If your files use different names, update the `-m` and `--mmproj` paths in the Docker command.
+
+## 1. Start the local server
+
+Set an API key for the local server:
+
+```bash
+export LLAMA_API_KEY="${LLAMA_API_KEY:-test}"
+```
+
+Start `llama-server`:
+
+```bash
+sudo docker run --rm -it \
+  --security-opt label=disable \
+  -p 127.0.0.1:8080:8080 \
+  -v "$HOME/.cache/llama.cpp:/root/.cache/llama.cpp:ro" \
+  ghcr.m.daocloud.io/ggml-org/llama.cpp:full-rocm \
+  --server \
+  --host 0.0.0.0 \
+  --port 8080 \
+  --api-key "$LLAMA_API_KEY" \
+  -m /root/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_gemma-4-E2B-it-Q8_0.gguf \
+  --mmproj /root/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_mmproj-gemma-4-E2B-it-Q8_0.gguf
+```
+
+The Docker port is bound to `127.0.0.1` so the server is available only from the local machine. Change the port binding only if you intentionally want another machine to reach it.
+
+On SELinux systems, `--security-opt label=disable` avoids bind-mount permission failures when the container reads model files from `~/.cache/llama.cpp`. If you only need text input, remove the `--mmproj` line.
+
+If Docker prints `no ROCm-capable device is detected`, the container can still fall back to CPU inference. That is enough to test the integration, but responses will be slower.
+
+## 2. Test the OpenAI-compatible API
+
+In another terminal, send a small chat request:
+
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer $LLAMA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemma-4-E2B-it",
+    "messages": [
+      {"role": "user", "content": "hello"}
+    ]
+  }'
+```
+
+A working server returns a `chat.completion` JSON object with an assistant message.
+
+## 3. Configure Bub
+
+Point Bub at the local server:
+
+```bash
+export BUB_API_BASE="http://localhost:8080/v1"
+export BUB_API_KEY="$LLAMA_API_KEY"
+export BUB_MODEL="openai:gemma-4-E2B-it"
+```
+
+Run one Bub turn:
+
+```bash
+uv run bub run "Reply with one short sentence: hello from a local model."
+```
+
+Bub now uses the local OpenAI-compatible endpoint for model calls. The turn pipeline, channels, tools, and tapes are unchanged.
+
+## 4. Check the model documentation before changing workloads
+
+When you switch the model or quantization, check the upstream model documentation first:
+
+- The Hugging Face GGUF card lists supported local runtimes and the available quantized files.
+- The Gemma 4 model card documents input modalities, context windows, intended use, license, and risks.
+- Local execution does not remove the need for evaluation. A local model can still produce incorrect, biased, or unsafe output.
+
+Use small local models for workloads where their latency, privacy, cost, or offline behavior matters more than maximum model quality. For higher-stakes or product-facing workflows, evaluate the model on representative tasks before routing real users to it.
+
+## Clean up
+
+Stop the Docker container with `Ctrl-C`.
+
+Unset the Bub overrides when you want to return to your previous provider:
+
+```bash
+unset BUB_API_BASE BUB_API_KEY BUB_MODEL LLAMA_API_KEY
+```
