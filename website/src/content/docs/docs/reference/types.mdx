@@ -51,7 +51,7 @@ Normalizes one `render_outbound` return value to a list. `None` → `[]`; `list`
 type State = dict[str, Any]
 ```
 
-The per-turn state dict. The framework seeds it with `_runtime_workspace` and merges the results of every `load_state` hook before the model call. The same dict is passed to `build_prompt`, `run_model[_stream]`, `save_state`, `render_outbound`, and `system_prompt`.
+The per-turn state dict. The framework seeds it with `_runtime_workspace` and `_runtime_steering`, then merges the results of every `load_state` hook before the model call. The same dict is passed to `build_prompt`, `run_model[_stream]`, `save_state`, `render_outbound`, and `system_prompt`.
 
 ## `MessageHandler`
 
@@ -94,6 +94,51 @@ class TurnResult:
 ```
 
 Returned by `BubFramework.process_inbound`. `prompt` is the resolved prompt. The source annotation is currently `str`, but a `build_prompt` hook may return multimodal content parts and the runtime preserves that list. `outbounds` is the flattened result of every `render_outbound` impl.
+
+## Turn Admission Types
+
+These types are exported from `bub` and defined in `src/bub/turn_admission.py`.
+
+```python
+class AdmitAction(StrEnum):
+    PROCESS = "process"
+    DROP = "drop"
+    WAIT = "wait"
+    STEER = "steer"
+```
+
+```python
+@dataclass(frozen=True)
+class AdmitDecision:
+    action: AdmitAction | Literal["process", "drop", "wait", "steer"]
+    reason: str | None = None
+```
+
+```python
+@dataclass(frozen=True)
+class TurnSnapshot:
+    session_id: str
+    is_running: bool
+    running_count: int
+    pending_count: int
+    steering_count: int
+```
+
+`admit_message` implementations return `AdmitDecision` to tell the channel manager whether to process, drop, wait, or steer one inbound message.
+
+```python
+@dataclass
+class SteeringHandle:
+    session_id: str
+
+    @property
+    def count(self) -> int: ...
+    def has_messages(self) -> bool: ...
+    def get_nowait(self) -> Envelope | None: ...
+    def drain_nowait(self) -> list[Envelope]: ...
+```
+
+`SteeringHandle` is exposed to model hooks as `state["_runtime_steering"]`. `get_nowait()` removes one message; `drain_nowait()` removes all currently queued messages. Returned messages are owned by the model hook and will not be replayed.
 
 ## `Channel`
 
@@ -159,6 +204,11 @@ class BubFramework:
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None: ...
     def get_system_prompt(self, prompt: str | list[dict], state: dict[str, Any]) -> str: ...
     def hook_report(self) -> dict[str, list[str]]: ...
+    async def admit_message(
+        self, *, session_id: str, message: Envelope, turn: TurnSnapshot
+    ) -> AdmitDecision | None: ...
+    def steering(self, session_id: str) -> SteeringHandle: ...
+    def clear_steering(self, session_id: str) -> None: ...
 
     @contextlib.asynccontextmanager
     async def running(self) -> AsyncGenerator[contextlib.AsyncExitStack, None]: ...
@@ -179,6 +229,9 @@ class BubFramework:
 | `get_tape_store()` | Return the tape store entered by `running()`, or `None` outside the scope. |
 | `get_system_prompt(prompt, state)` | Run `system_prompt` impls (sync), reverse, and join non-empty results with `\n\n`. |
 | `hook_report()` | Map hook name → discovered adapter names. Backs `bub hooks`; read the hook reference before treating this order as runtime precedence. |
+| `admit_message(...)` | Call the `admit_message` hook and return the selected decision. Used by `ChannelManager`. |
+| `steering(session_id)` | Return the per-session steering handle exposed to model hooks. |
+| `clear_steering(session_id)` | Clear an idle session's steering handle. |
 | `running()` | Async context manager; resolves `provide_tape_store` once and binds the resulting store for the duration. |
 | `bind_outbound_router(router)` | Attach (or detach with `None`) the `OutboundChannelRouter`. The `ChannelManager` calls this on start/stop. |
 | `build_tape_context()` | Sync-call `build_tape_context` and return the resulting `TapeContext`. |
@@ -193,7 +246,11 @@ From `src/bub/__init__.py`:
 | Name | Kind | Description |
 | --- | --- | --- |
 | `BubFramework` | class | Framework runtime (above). |
+| `AdmitAction` | enum | Turn admission action vocabulary. |
+| `AdmitDecision` | dataclass | Decision returned by `admit_message`. |
 | `Settings` | class | Base class for plugin settings (re-exported from `bub.configure`). |
+| `SteeringHandle` | dataclass | Per-session steering queue handle exposed to model hooks. |
+| `TurnSnapshot` | dataclass | Snapshot passed to `admit_message`. |
 | `config` | decorator | `@config(name="...")` registers a settings class for YAML/env validation. |
 | `ensure_config` | function | `ensure_config(SettingsCls)` — return the singleton instance for that class. |
 | `home` | `Path` (lazy attr) | `Path(BUB_HOME)` if set, else `~/.bub`. |

@@ -6,7 +6,7 @@ import contextlib
 from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pluggy
 import typer
@@ -20,6 +20,7 @@ from bub import configure
 from bub.envelope import content_of, field_of, unpack_batch
 from bub.hook_runtime import _SKIP_VALUE, HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs
+from bub.turn_admission import AdmitDecision, SteeringBuffer, SteeringHandle, TurnSnapshot
 from bub.types import Envelope, MessageHandler, OutboundChannelRouter, TurnResult
 
 if TYPE_CHECKING:
@@ -48,6 +49,7 @@ class BubFramework:
         self._hook_runtime = HookRuntime(self._plugin_manager)
         self._plugin_status: dict[str, PluginStatus] = {}
         self._outbound_router: OutboundChannelRouter | None = None
+        self._steering_handles: dict[str, SteeringHandle] = {}
         self._tape_store: TapeStore | AsyncTapeStore | None = None
         configure.load(self.config_file)
 
@@ -109,12 +111,10 @@ class BubFramework:
         """Run one inbound message through hooks and return turn result."""
 
         try:
-            session_id = await self._hook_runtime.call_first(
-                "resolve_session", message=inbound
-            ) or self._default_session_id(inbound)
+            session_id = await self.resolve_session(inbound)
             if isinstance(inbound, dict):
                 inbound.setdefault("session_id", session_id)
-            state = {"_runtime_workspace": str(self.workspace)}
+            state = {"_runtime_workspace": str(self.workspace), "_runtime_steering": self.steering(session_id)}
             for hook_state in reversed(
                 await self._hook_runtime.call_many("load_state", message=inbound, session_id=session_id)
             ):
@@ -145,6 +145,15 @@ class BubFramework:
             logger.exception("Error processing inbound message")
             await self._hook_runtime.notify_error(stage="turn", error=exc, message=inbound)
             raise
+
+    async def resolve_session(self, message: Envelope) -> str:
+        """Resolve the canonical session id for a message."""
+
+        runtime_session_id = field_of(message, "_runtime_session_id")
+        if runtime_session_id is not None:
+            return str(runtime_session_id)
+        resolved = await self._hook_runtime.call_first("resolve_session", message=message)
+        return str(resolved or self._default_session_id(message))
 
     async def _run_model(
         self,
@@ -206,6 +215,27 @@ class BubFramework:
     async def quit_via_router(self, session_id: str) -> None:
         if self._outbound_router is not None:
             await self._outbound_router.quit(session_id)
+
+    async def admit_message(self, *, session_id: str, message: Envelope, turn: TurnSnapshot) -> AdmitDecision | None:
+        return cast(
+            "AdmitDecision | None",
+            await self._hook_runtime.call_first(
+                "admit_message",
+                session_id=session_id,
+                message=message,
+                turn=turn,
+            ),
+        )
+
+    def steering(self, session_id: str) -> SteeringHandle:
+        handle = self._steering_handles.get(session_id)
+        if handle is None:
+            handle = SteeringHandle(session_id=session_id, buffer=SteeringBuffer())
+            self._steering_handles[session_id] = handle
+        return handle
+
+    def clear_steering(self, session_id: str) -> None:
+        self._steering_handles.pop(session_id, None)
 
     @staticmethod
     def _default_session_id(message: Envelope) -> str:
