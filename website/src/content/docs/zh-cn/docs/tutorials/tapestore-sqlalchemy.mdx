@@ -1,18 +1,17 @@
 ---
-title: 用 SQLAlchemy 持久化 tape：本地 SQLite 与 Turso
-description: 用一份 SQLAlchemy 数据库替代基于文件的 tape store，先在本地 SQLite 上跑通，再把同一套流程接到 Turso 嵌入式副本。
+title: 用 SQLAlchemy 与 SQLite 持久化 tape
+description: 通过 SQLAlchemy tape store 插件，把 Bub 基于文件的 tape store 换成本地 SQLite 数据库。
 sidebar:
   order: 2
 ---
 
-近年来流行的一部分 Agent 实现并不以数据库为中心。它们更习惯用文件——JSONL 记录、Markdown 笔记——承载上下文与记忆，需要可观测性时再去接入独立的服务。Bub 的 [tape 模型](/zh-cn/docs/concepts/tape-and-context/)（参见 [tape.systems](https://tape.systems)）则提供了另一种表达：用来重建 context 的同一份 append-only 记录，本身就是出问题时你要去查的运行日志。
+近年来流行的一部分 Agent 实现更习惯用文件——JSONL 记录、Markdown 笔记、本地缓存——承载上下文与记忆，需要可观测性时再去接入独立的服务。Bub 的 [tape 模型](/zh-cn/docs/concepts/tape-and-context/)（参见 [tape.systems](https://tape.systems)）描述的不是某一种存储介质，而是底层抽象：用来重建 context 的同一份 append-only 记录，也可以承载偏记忆的事实，并成为出问题时你要去查的运行日志。
 
-本教程使用 [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy) 把 Bub 默认的每个 tape 一个 JSONL 的写入方式，换成一份 SQLAlchemy 数据库，并把同一个流程跑两次：
+这不要求你一定使用数据库。默认 store 会在 `~/.bub/tapes/` 下为每条 tape 写一个 JSONL 文件，这很简单，也便于迁移。但这个抽象同样适合放进数据库：当 tape entries 进入数据库之后，你可以开始利用数据库在查询规划、索引、事务写入、备份流程和存储扩展上的能力，而不需要改 Bub 的 turn pipeline。
 
-1. **本地 SQLite** —— 一个可以备份、复制、用任意 SQL 客户端打开的文件。
-2. **[Turso](https://turso.tech) 嵌入式副本（libSQL）** —— 同样是本地文件，并由 libSQL 透明同步到托管云端。本地写入保持快速且事务安全，云端副本是持久化、可跨机器访问的真实存储。
+本教程使用 [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy)，把 Bub 的文件 store 换成一个可以用标准 SQL 工具检查的本地 SQLite 数据库。
 
-[`,tape.info`](/zh-cn/docs/tutorials/observability/) 与 `,tape.search` 流程不变：在两种模式之间切换，只需要更换 storage URL，以及——对于 Turso ——一个 auth token。
+[`,tape.info`](/zh-cn/docs/tutorials/observability/) 与 `,tape.search` 流程不变：变化的只有 tape store。
 
 ## 前置条件
 
@@ -20,10 +19,15 @@ sidebar:
 
 - Bub 已安装，且 `uv run bub --help` 可以运行（参考 [安装](/zh-cn/docs/getting-started/install/)）。
 - 一个 workspace，其中 `uv run bub run "What tools do you have?"` 能调用已配置的模型。
-- `sqlite3` CLI，用于可选的本地检查。
-- 一个免费的 [Turso](https://turso.tech/) 账号，并已通过 `turso auth login` 完成 [`turso`](https://docs.turso.tech/cli/installation) CLI 鉴权。
+- `sqlite3` CLI，用于可选的数据库检查。
 
 ## 1. 安装插件
+
+如果还没有配置过 `BUB_HOME`，先把它设成绝对路径：
+
+```bash
+export BUB_HOME="${BUB_HOME:-$HOME/.bub}"
+```
 
 ```bash
 uv run bub install bub-tapestore-sqlalchemy@main
@@ -39,13 +43,17 @@ uv run bub hooks
 provide_tape_store: builtin, tapestore-sqlalchemy
 ```
 
-## 2. 在本地 SQLite 上跑一个 turn
+## 2. 把 Bub 指向本地 SQLite 数据库
 
-插件默认使用 `<BUB_HOME>/tapes.db`。教程里换一个方便检查的位置：
+插件默认使用 `<BUB_HOME>/tapes.db`。教程里换一个方便找到和清理的位置：
 
 ```bash
 export BUB_TAPESTORE_SQLALCHEMY_URL="sqlite+pysqlite:///$PWD/bub-tapes.db"
 ```
+
+这个 URL 会传给 SQLAlchemy。`sqlite+pysqlite` 方言使用 Python 标准库里的 SQLite driver，因此不需要额外安装数据库驱动。
+
+## 3. 跑一个 turn
 
 跑一个小的自然语言任务，然后让 Bub 检查刚刚写入的 tape：
 
@@ -63,6 +71,10 @@ entries_since_last_anchor: 8
 last_token_usage: 4106
 ```
 
+具体 tape name 和数量取决于你的 workspace 与模型调用，但命令应当输出 tape name、至少一个 anchor，以及 `session/start` 之后写入的 entries。
+
+## 4. 检查数据库
+
 用标准 CLI 打开 SQLite 文件：
 
 ```bash
@@ -73,87 +85,30 @@ sqlite3 "$PWD/bub-tapes.db" "SELECT name, last_entry_id FROM tapes;"
 86774b31b96845a4__0b871d5e50e7c192|9
 ```
 
-`last_entry_id` 与 `,tape.info` 中的 `entries` 一致——插件使用的是每条 tape 单调递增的计数器，也就是 Bub 重放 context 时使用的那个计数器。
-
-## 3. 创建 Turso 数据库
+`last_entry_id` 记录每条 tape 当前写到的最高 entry id。也可以检查 anchor 行：
 
 ```bash
-turso db create bub-tapes
-export TURSO_DB_URL="$(turso db show bub-tapes --url)"
-export TURSO_AUTH_TOKEN="$(turso db tokens create bub-tapes)"
-```
-
-把 libSQL 的 SQLAlchemy 方言安装到运行 `bub` 的同一个 Python 环境：
-
-```bash
-uv pip install sqlalchemy-libsql
-```
-
-## 4. 把 Bub 指向 Turso 嵌入式副本
-
-嵌入式副本会把一份本地 libSQL 文件与 Turso 保持同步。你在本地写入——速度快、事务安全、每次 `append` 都不需要往返网络——再由 libSQL 把同样的字节流同步到云端。这正好契合 append-only 的 tape：Agent 永远不需要等待网络，云端副本在后台追上。
-
-把 SQLAlchemy URL 换成 libSQL 方言，并通过 `BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS` 传入 auth token 与 sync URL：
-
-```bash
-HOST="${TURSO_DB_URL#libsql://}"
-export BUB_TAPESTORE_SQLALCHEMY_URL="sqlite+libsql:///$PWD/bub-tapes-replica.db"
-export BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS="$(printf '{"auth_token": "%s", "sync_url": "https://%s"}' "$TURSO_AUTH_TOKEN" "$HOST")"
-```
-
-`BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS` 是一个 JSON 对象，会原样转给 `sqlalchemy.create_engine(connect_args=...)`。对 libSQL 来说，`auth_token` 与 `sync_url` 这两个键就足以让本地文件变成一份云端副本。
-
-## 5. 在 Turso 上跑一个 turn
-
-```bash
-uv run bub run "Reply with one short sentence: hello via embedded replica."
-uv run bub run ",tape.info"
+sqlite3 "$PWD/bub-tapes.db" \
+  "SELECT entry_id, anchor_name, entry_date FROM tape_entries WHERE kind = 'anchor';"
 ```
 
 ```text
-name: f8d663d1fa2fa3e9__0b871d5e50e7c192
-entries: 9
-anchors: 1
-last_anchor: session/start
-entries_since_last_anchor: 8
-last_token_usage: 2546
+1|session/start|2026-05-15T01:27:57Z
 ```
 
-输出与第 2 节一致——只是后端换了一个。
+这就是完整的存储切换：Bub 仍然写 append-only tape entries，只是它们现在进入 SQL 数据库，而不是每条 tape 一个 JSONL 文件。
 
-## 6. 在 Turso 上验证数据
+## 5. 扩展后端
 
-打开远程数据库的 SQL shell：
+`bub-tapestore-sqlalchemy` 通过 `BUB_TAPESTORE_SQLALCHEMY_URL` 配置，因此同一个插件也可以指向其他 SQLAlchemy 支持的数据库 URL，前提是运行 `bub` 的环境中安装了对应 dialect 与 driver。不同 driver 可能需要兼容性设置或特定处理；用于长期 tape 之前，请先用本教程里的 `,tape.info` 流程验证后端行为。
 
-```bash
-turso db shell bub-tapes
-```
-
-```sql
-.tables
--- tape_entries  tapes
-
-SELECT name, last_entry_id FROM tapes;
--- f8d663d1fa2fa3e9__0b871d5e50e7c192|10
-
-SELECT entry_id, anchor_name, entry_date
-  FROM tape_entries
-  WHERE kind = 'anchor'
-  ORDER BY tape_id DESC, entry_id DESC LIMIT 1;
--- 1|session/start|2026-05-15T01:27:57Z
-```
-
-![Turso shell 中显示由 Bub 写入的 tapes 与 tape_entries 表](/docs/tapestore-sqlalchemy/turso-shell.png)
-
-把 tape 放进真正的数据库的好处就在这里：context、记忆、运行日志是同一份记录，而这份记录现在可以从任何一台 export 了相同 `BUB_TAPESTORE_SQLALCHEMY_URL` 与 `BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS` 的机器上访问。
+如果你需要更专门的 SQLite store，可以参考 [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite)。它基于 `sqlite-vec`，并支持利用 embedding 做 tape 检索。
 
 ## 清理
 
 ```bash
-turso db destroy bub-tapes --yes
-unset BUB_TAPESTORE_SQLALCHEMY_URL BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS \
-      TURSO_DB_URL TURSO_AUTH_TOKEN
-rm -f "$PWD/bub-tapes.db" "$PWD/bub-tapes-replica.db"*
+unset BUB_TAPESTORE_SQLALCHEMY_URL BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS
+rm -f "$PWD/bub-tapes.db"
 ```
 
 ## 下一步

@@ -1,18 +1,17 @@
 ---
-title: Persist tapes in SQLAlchemy with local SQLite or Turso
-description: Replace the file-based tape store with one SQLAlchemy database. Run it against local SQLite, then push the same workflow to a Turso embedded replica.
+title: Persist tapes in SQLAlchemy with SQLite
+description: Replace Bub's file-based tape store with one local SQLite database through the SQLAlchemy tape store plugin.
 sidebar:
   order: 2
 ---
 
-A growing share of agent runtimes are not database-centric. Many of them lean on plain files — JSONL transcripts, Markdown notes — for context and memory, and reach for a separate hosted service whenever they need observability. Bub's [tape model](/docs/concepts/tape-and-context/) (see [tape.systems](https://tape.systems)) frames the same surface differently: the same append-only record that rebuilds context is also the operational log you query when something goes wrong.
+Many agent implementations lean on files — JSONL transcripts, Markdown notes, local caches — to carry context and memory, then attach a separate service when they need observability. Bub's [tape model](/docs/concepts/tape-and-context/) (see [tape.systems](https://tape.systems)) names the underlying abstraction instead of the medium: the same append-only record can rebuild context, carry memory-oriented facts, and serve as the operational log you inspect when something goes wrong.
 
-This tutorial uses [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy) to replace Bub's per-tape JSONL files with one SQLAlchemy database, twice:
+That does not require a database. The default store writes one JSONL file per tape under `~/.bub/tapes/`, which is simple and portable. But the abstraction is also a natural fit for databases: when tape entries live in a database, you can start using database strengths — query planning, indexes, transactional writes, backup workflows, and storage scaling — without changing Bub's turn pipeline.
 
-1. **Local SQLite** — one file you can back up, copy, or open in any SQL client.
-2. **[Turso](https://turso.tech) embedded replica (libSQL)** — the same local file, transparently synced to a managed cloud database. Local writes stay fast and transactional; the cloud copy is the durable, multi-machine store.
+This tutorial uses [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy) to replace Bub's file store with one local SQLite database that you can inspect with standard SQL tooling.
 
-The [`,tape.info`](/docs/tutorials/observability/) and `,tape.search` workflow stays unchanged: only the storage URL — and, for Turso, an auth token — moves between modes.
+The [`,tape.info`](/docs/tutorials/observability/) and `,tape.search` workflow stays unchanged. Only the tape store changes.
 
 ## Before you begin
 
@@ -20,10 +19,15 @@ You need:
 
 - Bub installed and runnable with `uv run bub --help` (see [Install](/docs/getting-started/install/)).
 - A workspace where `uv run bub run "What tools do you have?"` can call your configured model.
-- The `sqlite3` CLI for the optional local check.
-- A free [Turso](https://turso.tech/) account and the [`turso`](https://docs.turso.tech/cli/installation) CLI authenticated with `turso auth login`.
+- The `sqlite3` CLI for the optional database check.
 
 ## 1. Install the plugin
+
+Set `BUB_HOME` to an absolute path if you have not configured it already:
+
+```bash
+export BUB_HOME="${BUB_HOME:-$HOME/.bub}"
+```
 
 ```bash
 uv run bub install bub-tapestore-sqlalchemy@main
@@ -39,13 +43,17 @@ uv run bub hooks
 provide_tape_store: builtin, tapestore-sqlalchemy
 ```
 
-## 2. Run a turn against local SQLite
+## 2. Point Bub at a local SQLite database
 
-The plugin uses `<BUB_HOME>/tapes.db` by default. Override it for this tutorial:
+The plugin uses `<BUB_HOME>/tapes.db` by default. Override it for this tutorial so the database is easy to find and remove:
 
 ```bash
 export BUB_TAPESTORE_SQLALCHEMY_URL="sqlite+pysqlite:///$PWD/bub-tapes.db"
 ```
+
+This URL is passed to SQLAlchemy. The `sqlite+pysqlite` dialect uses Python's standard SQLite driver, so no extra database driver is required.
+
+## 3. Run a turn
 
 Run a small natural-language task, then ask Bub to inspect the tape it just wrote:
 
@@ -63,6 +71,10 @@ entries_since_last_anchor: 8
 last_token_usage: 4106
 ```
 
+The exact tape name and counts depend on your workspace and model call, but the command should report a tape name, at least one anchor, and entries written after `session/start`.
+
+## 4. Inspect the database
+
 Open the SQLite file with the standard CLI:
 
 ```bash
@@ -73,87 +85,30 @@ sqlite3 "$PWD/bub-tapes.db" "SELECT name, last_entry_id FROM tapes;"
 86774b31b96845a4__0b871d5e50e7c192|9
 ```
 
-The `last_entry_id` matches `entries` from `,tape.info` because the plugin uses a per-tape monotonic counter — the same counter Bub uses to replay context.
-
-## 3. Provision a Turso database
+The `last_entry_id` tracks the highest entry id written to each tape. Inspect the anchor rows as well:
 
 ```bash
-turso db create bub-tapes
-export TURSO_DB_URL="$(turso db show bub-tapes --url)"
-export TURSO_AUTH_TOKEN="$(turso db tokens create bub-tapes)"
-```
-
-Install the libSQL SQLAlchemy dialect into the same Python environment that runs `bub`:
-
-```bash
-uv pip install sqlalchemy-libsql
-```
-
-## 4. Point Bub at a Turso embedded replica
-
-Embedded replicas keep a local libSQL file in sync with Turso. You write locally — fast, transactional, no network round-trip per `append` — and libSQL streams the same bytes to the cloud. That is the natural fit for an append-only tape: the agent never waits on the network, and the cloud copy is always catching up.
-
-Switch the SQLAlchemy URL to the libSQL dialect and pass the auth token plus sync URL through `BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS`:
-
-```bash
-HOST="${TURSO_DB_URL#libsql://}"
-export BUB_TAPESTORE_SQLALCHEMY_URL="sqlite+libsql:///$PWD/bub-tapes-replica.db"
-export BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS="$(printf '{"auth_token": "%s", "sync_url": "https://%s"}' "$TURSO_AUTH_TOKEN" "$HOST")"
-```
-
-`BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS` is a JSON object forwarded straight to `sqlalchemy.create_engine(connect_args=...)`. For libSQL, `auth_token` and `sync_url` are the two keys that turn a local file into a cloud-backed replica.
-
-## 5. Run a turn against Turso
-
-```bash
-uv run bub run "Reply with one short sentence: hello via embedded replica."
-uv run bub run ",tape.info"
+sqlite3 "$PWD/bub-tapes.db" \
+  "SELECT entry_id, anchor_name, entry_date FROM tape_entries WHERE kind = 'anchor';"
 ```
 
 ```text
-name: f8d663d1fa2fa3e9__0b871d5e50e7c192
-entries: 9
-anchors: 1
-last_anchor: session/start
-entries_since_last_anchor: 8
-last_token_usage: 2546
+1|session/start|2026-05-15T01:27:57Z
 ```
 
-The output matches step 2 — only the storage backend changed.
+That is the full storage switch: Bub still records append-only tape entries, but they now live in a SQL database instead of per-tape JSONL files.
 
-## 6. Verify the data landed in Turso
+## 5. Extend the backend
 
-Open a SQL shell against the remote database:
+`bub-tapestore-sqlalchemy` is configured with `BUB_TAPESTORE_SQLALCHEMY_URL`, so the same plugin can target another SQLAlchemy-supported database URL when the matching dialect and driver are installed in the environment that runs `bub`. Depending on the driver, you may need compatibility settings or driver-specific handling; validate the backend with this same `,tape.info` flow before using it for long-lived tapes.
 
-```bash
-turso db shell bub-tapes
-```
-
-```sql
-.tables
--- tape_entries  tapes
-
-SELECT name, last_entry_id FROM tapes;
--- f8d663d1fa2fa3e9__0b871d5e50e7c192|10
-
-SELECT entry_id, anchor_name, entry_date
-  FROM tape_entries
-  WHERE kind = 'anchor'
-  ORDER BY tape_id DESC, entry_id DESC LIMIT 1;
--- 1|session/start|2026-05-15T01:27:57Z
-```
-
-![A Turso shell showing the tapes and tape_entries tables populated by Bub](/docs/tapestore-sqlalchemy/turso-shell.png)
-
-This is the payoff of letting the tape live in a real database: context, memory, and the operational log are all the same record, and that record is now reachable from any machine that exports the same `BUB_TAPESTORE_SQLALCHEMY_URL` and `BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS`.
+For a SQLite-focused store with vector-search support, see [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite). It builds on `sqlite-vec` and can use embeddings for tape retrieval.
 
 ## Clean up
 
 ```bash
-turso db destroy bub-tapes --yes
-unset BUB_TAPESTORE_SQLALCHEMY_URL BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS \
-      TURSO_DB_URL TURSO_AUTH_TOKEN
-rm -f "$PWD/bub-tapes.db" "$PWD/bub-tapes-replica.db"*
+unset BUB_TAPESTORE_SQLALCHEMY_URL BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS
+rm -f "$PWD/bub-tapes.db"
 ```
 
 ## Next steps
