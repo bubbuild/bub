@@ -15,6 +15,7 @@ from bub.channels.message import ChannelMessage
 from bub.configure import Settings, ensure_config
 from bub.envelope import content_of, field_of
 from bub.framework import BubFramework
+from bub.turn_admission import AdmitAction, AdmitDecision, SessionTurnController
 from bub.types import Envelope, MessageHandler
 from bub.utils import wait_until_stopped
 
@@ -57,7 +58,7 @@ class ChannelManager:
         else:
             self._enabled_channels = self._settings.enabled_channels.split(",")
         self._messages = asyncio.Queue[ChannelMessage]()
-        self._ongoing_tasks: dict[str, set[asyncio.Task]] = {}
+        self._session_controllers: dict[str, SessionTurnController] = {}
         self._session_handlers: dict[str, MessageHandler] = {}
 
     async def on_receive(self, message: ChannelMessage) -> None:
@@ -117,7 +118,14 @@ class ChannelManager:
         return channel.stream_events(message, stream)
 
     async def quit(self, session_id: str) -> None:
-        tasks = self._ongoing_tasks.pop(session_id, set())
+        controller = self._session_controllers.get(session_id)
+        if controller is None:
+            self.framework.clear_steering(session_id)
+            logger.info(f"channel.manager quit session_id={session_id}, cancelled 0 tasks")
+            return
+        controller.clear_pending()
+        controller.steering.drain_nowait()
+        tasks = set(controller.active_tasks)
         current_task = asyncio.current_task()
         cancelled_count = 0
         for task in tasks:
@@ -127,6 +135,8 @@ class ChannelManager:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
             cancelled_count += 1
+        controller.active_tasks.difference_update(task for task in tasks if task is not current_task)
+        self._drop_empty_controller(session_id)
         logger.info(f"channel.manager quit session_id={session_id}, cancelled {cancelled_count} tasks")
 
     def enabled_channels(self) -> list[Channel]:
@@ -137,15 +147,132 @@ class ChannelManager:
             channel for name, channel in self._channels.items() if name in self._enabled_channels and channel.enabled
         ]
 
+    def _controller(self, session_id: str) -> SessionTurnController:
+        controller = self._session_controllers.get(session_id)
+        if controller is None:
+            controller = SessionTurnController(session_id=session_id, steering=self.framework.steering(session_id))
+            self._session_controllers[session_id] = controller
+        return controller
+
+    def _drop_empty_controller(self, session_id: str) -> None:
+        controller = self._session_controllers.get(session_id)
+        if controller is None:
+            return
+        if controller.active() or controller.pending_queue or controller.steering.has_messages():
+            return
+        self._session_controllers.pop(session_id, None)
+        self.framework.clear_steering(session_id)
+
     def _on_task_done(self, session_id: str, task: asyncio.Task) -> None:
         if task.cancelled():
             logger.info("channel.manager task cancelled session_id={}", session_id)
         else:
             task.exception()  # to log any exception
-        tasks = self._ongoing_tasks.get(session_id, set())
-        tasks.discard(task)
-        if not tasks:
-            self._ongoing_tasks.pop(session_id, None)
+        controller = self._session_controllers.get(session_id)
+        if controller is None:
+            return
+        controller.active_tasks.discard(task)
+        if not controller.active():
+            controller.promote_steering_to_pending()
+        self._schedule_pending(session_id)
+        self._drop_empty_controller(session_id)
+
+    async def _admit_message(self, message: ChannelMessage) -> bool:
+        try:
+            session_id = await self._resolve_message_session(message)
+        except Exception as exc:
+            logger.exception("channel.manager resolve_session failed")
+            await self.framework._hook_runtime.notify_error(stage="resolve_session", error=exc, message=message)
+            return False
+        controller = self._controller(session_id)
+        try:
+            decision = await self.framework.admit_message(
+                session_id=session_id,
+                message=message,
+                turn=controller.snapshot(),
+            )
+        except Exception as exc:
+            logger.exception("channel.manager admission hook failed")
+            await self.framework._hook_runtime.notify_error(stage="admit_message", error=exc, message=message)
+            return True
+        if decision is None:
+            self._drop_empty_controller(session_id)
+            return True
+        admitted = await self._apply_admission_decision(controller, message, decision)
+        if not admitted or not controller.active():
+            self._drop_empty_controller(session_id)
+        return admitted
+
+    async def _apply_admission_decision(
+        self,
+        controller: SessionTurnController,
+        message: ChannelMessage,
+        decision: AdmitDecision,
+    ) -> bool:
+        action = _normalize_admit_action(decision.action)
+        if action == AdmitAction.PROCESS:
+            return True
+        if action == AdmitAction.DROP:
+            logger.info(
+                "channel.manager admission drop session_id={} reason={}",
+                message.session_id,
+                decision.reason,
+            )
+            return False
+        if action == AdmitAction.WAIT:
+            return self._queue_pending(controller, message, decision.reason)
+        if action == AdmitAction.STEER:
+            if controller.active() and controller.steering.put_nowait(message):
+                logger.info(
+                    "channel.manager admission steer session_id={} reason={}",
+                    message.session_id,
+                    decision.reason,
+                )
+                return False
+            return self._queue_pending(controller, message, decision.reason)
+        logger.warning("channel.manager admission unknown action={} session_id={}", decision.action, message.session_id)
+        return True
+
+    def _queue_pending(
+        self,
+        controller: SessionTurnController,
+        message: ChannelMessage,
+        reason: str | None,
+    ) -> bool:
+        if not controller.active():
+            return True
+        controller.add_pending(message)
+        logger.info(
+            "channel.manager admission wait session_id={} pending_count={} reason={}",
+            message.session_id,
+            len(controller.pending_queue),
+            reason,
+        )
+        return False
+
+    def _schedule_message(self, message: ChannelMessage) -> asyncio.Task:
+        controller = self._controller(message.session_id)
+        task = asyncio.create_task(self._run_message(message))
+        task.add_done_callback(functools.partial(self._on_task_done, message.session_id))
+        controller.active_tasks.add(task)
+        return task
+
+    def _schedule_pending(self, session_id: str) -> None:
+        controller = self._session_controllers.get(session_id)
+        if controller is None or controller.active():
+            return
+        message = controller.pop_pending()
+        if message is not None:
+            self._schedule_message(message)
+
+    async def _resolve_message_session(self, message: ChannelMessage) -> str:
+        session_id = await self.framework.resolve_session(message)
+        message.session_id = session_id
+        setattr(message, "_runtime_session_id", session_id)  # noqa: B010
+        return session_id
+
+    async def _run_message(self, message: ChannelMessage) -> None:
+        await self.framework.process_inbound(message, self._stream_output)
 
     async def listen_and_run(self) -> None:
         stop_event = asyncio.Event()
@@ -157,9 +284,9 @@ class ChannelManager:
             try:
                 while True:
                     message = await wait_until_stopped(self._messages.get(), stop_event)
-                    task = asyncio.create_task(self.framework.process_inbound(message, self._stream_output))
-                    task.add_done_callback(functools.partial(self._on_task_done, message.session_id))
-                    self._ongoing_tasks.setdefault(message.session_id, set()).add(task)
+                    if not await self._admit_message(message):
+                        continue
+                    self._schedule_message(message)
             except asyncio.CancelledError:
                 logger.info("channel.manager received shutdown signal")
             except Exception:
@@ -172,13 +299,27 @@ class ChannelManager:
 
     async def shutdown(self) -> None:
         count = 0
-        for tasks in self._ongoing_tasks.values():
-            for task in tasks:
+        session_ids = list(self._session_controllers)
+        for controller in list(self._session_controllers.values()):
+            controller.clear_pending()
+            controller.steering.drain_nowait()
+            for task in set(controller.active_tasks):
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
                 count += 1
-        self._ongoing_tasks.clear()
+        self._session_controllers.clear()
+        for session_id in session_ids:
+            self.framework.clear_steering(session_id)
         logger.info(f"channel.manager cancelled {count} in-flight tasks")
         for channel in self.enabled_channels():
             await channel.stop()
+
+
+def _normalize_admit_action(action: AdmitAction | str) -> AdmitAction | str:
+    if isinstance(action, AdmitAction):
+        return action
+    try:
+        return AdmitAction(action)
+    except ValueError:
+        return action

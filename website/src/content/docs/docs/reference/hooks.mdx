@@ -30,6 +30,7 @@ For the *why* and *how* of each stage see [Turn pipeline](/docs/concepts/turn-pi
 | `provide_tape_store` | firstresult | `() -> TapeStore \| AsyncTapeStore` | tape store | `BubFramework.running()` | Resolved once when the runtime scope opens; sync/async iterators are entered as context managers. |
 | `provide_channels` | sync-only consumer (deduped) | `(message_handler: MessageHandler) -> list[Channel]` | channels | `BubFramework.get_channels` (`call_many_sync`) | Channels are deduplicated by `Channel.name`; the first channel seen in hook priority order wins. |
 | `build_tape_context` | firstresult | `() -> TapeContext` | tape context | `BubFramework.build_tape_context` (`call_first_sync`) | Sync-only; awaitable returns are skipped. |
+| `admit_message` | firstresult | `(session_id, message, turn) -> AdmitDecision \| None` | turn admission decision | `ChannelManager` | Runs before channel scheduling. `None` keeps default concurrent scheduling; decision types are listed in [Types](/docs/reference/types/#turn-admission-types). |
 
 ## How hooks are invoked
 

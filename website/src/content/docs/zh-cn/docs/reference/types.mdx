@@ -51,7 +51,7 @@ def unpack_batch(batch: Any) -> list[Envelope]
 type State = dict[str, Any]
 ```
 
-per-turn 的 state dict。框架先以 `_runtime_workspace` 初始化,再合并所有 `load_state` 钩子的结果,然后才调用模型。同一个 dict 会被传给 `build_prompt`、`run_model[_stream]`、`save_state`、`render_outbound` 与 `system_prompt`。
+per-turn 的 state dict。框架先以 `_runtime_workspace` 与 `_runtime_steering` 初始化,再合并所有 `load_state` 钩子的结果,然后才调用模型。同一个 dict 会被传给 `build_prompt`、`run_model[_stream]`、`save_state`、`render_outbound` 与 `system_prompt`。
 
 ## `MessageHandler`
 
@@ -94,6 +94,51 @@ class TurnResult:
 ```
 
 `BubFramework.process_inbound` 的返回值。`prompt` 是解析后的 prompt。源码标注当前仍是 `str`，但 `build_prompt` hook 可以返回多模态内容片段列表，运行时会保留这个 list。`outbounds` 是所有 `render_outbound` 实现结果的扁平拼接。
+
+## Turn Admission 类型
+
+这些类型从 `bub` 导出,定义在 `src/bub/turn_admission.py`。
+
+```python
+class AdmitAction(StrEnum):
+    PROCESS = "process"
+    DROP = "drop"
+    WAIT = "wait"
+    STEER = "steer"
+```
+
+```python
+@dataclass(frozen=True)
+class AdmitDecision:
+    action: AdmitAction | Literal["process", "drop", "wait", "steer"]
+    reason: str | None = None
+```
+
+```python
+@dataclass(frozen=True)
+class TurnSnapshot:
+    session_id: str
+    is_running: bool
+    running_count: int
+    pending_count: int
+    steering_count: int
+```
+
+`admit_message` 实现返回 `AdmitDecision`,告诉 channel manager 对单条 inbound message 执行 process、drop、wait 或 steer。
+
+```python
+@dataclass
+class SteeringHandle:
+    session_id: str
+
+    @property
+    def count(self) -> int: ...
+    def has_messages(self) -> bool: ...
+    def get_nowait(self) -> Envelope | None: ...
+    def drain_nowait(self) -> list[Envelope]: ...
+```
+
+`SteeringHandle` 会以 `state["_runtime_steering"]` 暴露给 model hooks。`get_nowait()` 取出一条;`drain_nowait()` 取出当前全部 queued messages。返回的消息由 model hook 接管,不会重放。
 
 ## `Channel`
 
@@ -159,6 +204,11 @@ class BubFramework:
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None: ...
     def get_system_prompt(self, prompt: str | list[dict], state: dict[str, Any]) -> str: ...
     def hook_report(self) -> dict[str, list[str]]: ...
+    async def admit_message(
+        self, *, session_id: str, message: Envelope, turn: TurnSnapshot
+    ) -> AdmitDecision | None: ...
+    def steering(self, session_id: str) -> SteeringHandle: ...
+    def clear_steering(self, session_id: str) -> None: ...
 
     @contextlib.asynccontextmanager
     async def running(self) -> AsyncGenerator[contextlib.AsyncExitStack, None]: ...
@@ -179,6 +229,9 @@ class BubFramework:
 | `get_tape_store()` | 返回 `running()` 中启用的 tape store;在作用域之外返回 `None`。 |
 | `get_system_prompt(prompt, state)` | 同步调用 `system_prompt` 实现,反转后用 `\n\n` 拼接非空片段。 |
 | `hook_report()` | 返回 hook 名 → 已发现的 adapter 列表。`bub hooks` 的数据来源；不要只根据该输出顺序推断运行时优先级。 |
+| `admit_message(...)` | 调用 `admit_message` hook 并返回选中的 decision。由 `ChannelManager` 使用。 |
+| `steering(session_id)` | 返回暴露给 model hooks 的 per-session steering handle。 |
+| `clear_steering(session_id)` | 清除 idle session 的 steering handle。 |
 | `running()` | 异步 context manager;一次性解析 `provide_tape_store` 并在作用域内绑定 tape store。 |
 | `bind_outbound_router(router)` | 绑定(或传 `None` 解绑)`OutboundChannelRouter`。`ChannelManager` 在启停时调用。 |
 | `build_tape_context()` | 同步调用 `build_tape_context` 并返回 `TapeContext`。 |
@@ -193,7 +246,11 @@ class BubFramework:
 | 名称 | 类型 | 描述 |
 | --- | --- | --- |
 | `BubFramework` | class | 框架运行时(见上)。 |
+| `AdmitAction` | enum | Turn admission action 词汇。 |
+| `AdmitDecision` | dataclass | `admit_message` 返回的 decision。 |
 | `Settings` | class | 插件配置基类(从 `bub.configure` 重新导出)。 |
+| `SteeringHandle` | dataclass | 暴露给 model hooks 的 per-session steering queue handle。 |
+| `TurnSnapshot` | dataclass | 传给 `admit_message` 的快照。 |
 | `config` | decorator | `@config(name="...")` 注册一个用于 YAML/env 验证的配置类。 |
 | `ensure_config` | function | `ensure_config(SettingsCls)` —— 返回该类的单例实例。 |
 | `home` | `Path`(惰性属性) | `BUB_HOME` 已设置时为 `Path(BUB_HOME)`,否则为 `~/.bub`。 |
