@@ -8,6 +8,7 @@ import pluggy
 from republic import AsyncStreamEvents, AsyncTapeStore, TapeContext
 from republic.tape import TapeStore
 
+from bub.turn_admission import AdmitDecision, TurnSnapshot
 from bub.types import Envelope, MessageHandler, State
 
 if TYPE_CHECKING:
@@ -106,4 +107,17 @@ class BubHookSpecs:
     @hookspec(firstresult=True)
     def build_tape_context(self) -> TapeContext:
         """Build a tape context for the current session, to be used to build context messages."""
+        raise NotImplementedError
+
+    @hookspec(firstresult=True)
+    def admit_message(
+        self,
+        session_id: str,
+        message: Envelope,
+        turn: TurnSnapshot,
+    ) -> AdmitDecision | None:
+        """Decide how to handle an inbound channel message for a session.
+
+        Return ``None`` to keep Bub's default concurrent scheduling behavior.
+        """
         raise NotImplementedError

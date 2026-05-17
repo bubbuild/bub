@@ -30,6 +30,7 @@ description: BubHookSpecs 中每个钩子的类型、签名、返回值与调用
 | `provide_tape_store` | firstresult | `() -> TapeStore \| AsyncTapeStore` | tape store | `BubFramework.running()` | 仅在 runtime 作用域开启时解析一次;返回同步或异步迭代器时会被作为 context manager 进入。 |
 | `provide_channels` | sync-only consumer (deduped) | `(message_handler: MessageHandler) -> list[Channel]` | channels | `BubFramework.get_channels` (`call_many_sync`) | 按 `Channel.name` 去重；在钩子优先级顺序中最先出现的 channel 胜出。 |
 | `build_tape_context` | firstresult | `() -> TapeContext` | tape context | `BubFramework.build_tape_context` (`call_first_sync`) | 仅同步;awaitable 返回会被跳过。 |
+| `admit_message` | firstresult | `(session_id, message, turn) -> AdmitDecision \| None` | turn admission decision | `ChannelManager` | 调度 channel message 前调用。返回 `None` 保持默认并发调度；decision 类型见 [类型](/zh-cn/docs/reference/types/#turn-admission-类型)。 |
 
 ## 钩子如何被调用
 
