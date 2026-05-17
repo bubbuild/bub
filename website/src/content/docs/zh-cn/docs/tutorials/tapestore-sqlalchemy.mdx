@@ -1,0 +1,118 @@
+---
+title: 用 SQLAlchemy 与 SQLite 持久化 tape
+description: 通过 SQLAlchemy tape store 插件，把 Bub 基于文件的 tape store 换成本地 SQLite 数据库。
+sidebar:
+  order: 2
+---
+
+近年来流行的一部分 Agent 实现更习惯用文件——JSONL 记录、Markdown 笔记、本地缓存——承载上下文与记忆，需要可观测性时再去接入独立的服务。Bub 的 [tape 模型](/zh-cn/docs/concepts/tape-and-context/)（参见 [tape.systems](https://tape.systems)）描述的不是某一种存储介质，而是底层抽象：用来重建 context 的同一份 append-only 记录，也可以承载偏记忆的事实，并成为出问题时你要去查的运行日志。
+
+这不要求你一定使用数据库。默认 store 会在 `~/.bub/tapes/` 下为每条 tape 写一个 JSONL 文件，这很简单，也便于迁移。但这个抽象同样适合放进数据库：当 tape entries 进入数据库之后，你可以开始利用数据库在查询规划、索引、事务写入、备份流程和存储扩展上的能力，而不需要改 Bub 的 turn pipeline。
+
+本教程使用 [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy)，把 Bub 的文件 store 换成一个可以用标准 SQL 工具检查的本地 SQLite 数据库。
+
+[`,tape.info`](/zh-cn/docs/tutorials/observability/) 与 `,tape.search` 流程不变：变化的只有 tape store。
+
+## 前置条件
+
+你需要：
+
+- Bub 已安装，且 `uv run bub --help` 可以运行（参考 [安装](/zh-cn/docs/getting-started/install/)）。
+- 一个 workspace，其中 `uv run bub run "What tools do you have?"` 能调用已配置的模型。
+- `sqlite3` CLI，用于可选的数据库检查。
+
+## 1. 安装插件
+
+如果还没有配置过 `BUB_HOME`，先把它设成绝对路径：
+
+```bash
+export BUB_HOME="${BUB_HOME:-$HOME/.bub}"
+```
+
+```bash
+uv run bub install bub-tapestore-sqlalchemy@main
+```
+
+确认 Bub 加载了 entry point：
+
+```bash
+uv run bub hooks
+```
+
+```text
+provide_tape_store: builtin, tapestore-sqlalchemy
+```
+
+## 2. 把 Bub 指向本地 SQLite 数据库
+
+插件默认使用 `<BUB_HOME>/tapes.db`。教程里换一个方便找到和清理的位置：
+
+```bash
+export BUB_TAPESTORE_SQLALCHEMY_URL="sqlite+pysqlite:///$PWD/bub-tapes.db"
+```
+
+这个 URL 会传给 SQLAlchemy。`sqlite+pysqlite` 方言使用 Python 标准库里的 SQLite driver，因此不需要额外安装数据库驱动。
+
+## 3. 跑一个 turn
+
+跑一个小的自然语言任务，然后让 Bub 检查刚刚写入的 tape：
+
+```bash
+uv run bub run "Reply with one short sentence: hello from local SQLAlchemy."
+uv run bub run ",tape.info"
+```
+
+```text
+name: 86774b31b96845a4__0b871d5e50e7c192
+entries: 9
+anchors: 1
+last_anchor: session/start
+entries_since_last_anchor: 8
+last_token_usage: 4106
+```
+
+具体 tape name 和数量取决于你的 workspace 与模型调用，但命令应当输出 tape name、至少一个 anchor，以及 `session/start` 之后写入的 entries。
+
+## 4. 检查数据库
+
+用标准 CLI 打开 SQLite 文件：
+
+```bash
+sqlite3 "$PWD/bub-tapes.db" "SELECT name, last_entry_id FROM tapes;"
+```
+
+```text
+86774b31b96845a4__0b871d5e50e7c192|9
+```
+
+`last_entry_id` 记录每条 tape 当前写到的最高 entry id。也可以检查 anchor 行：
+
+```bash
+sqlite3 "$PWD/bub-tapes.db" \
+  "SELECT entry_id, anchor_name, entry_date FROM tape_entries WHERE kind = 'anchor';"
+```
+
+```text
+1|session/start|2026-05-15T01:27:57Z
+```
+
+这就是完整的存储切换：Bub 仍然写 append-only tape entries，只是它们现在进入 SQL 数据库，而不是每条 tape 一个 JSONL 文件。
+
+## 5. 扩展后端
+
+`bub-tapestore-sqlalchemy` 通过 `BUB_TAPESTORE_SQLALCHEMY_URL` 配置，因此同一个插件也可以指向其他 SQLAlchemy 支持的数据库 URL，前提是运行 `bub` 的环境中安装了对应 dialect 与 driver。不同 driver 可能需要兼容性设置或特定处理；用于长期 tape 之前，请先用本教程里的 `,tape.info` 流程验证后端行为。
+
+如果你需要更专门的 SQLite store，可以参考 [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite)。它基于 `sqlite-vec`，并支持利用 embedding 做 tape 检索。
+
+## 清理
+
+```bash
+unset BUB_TAPESTORE_SQLALCHEMY_URL BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS
+rm -f "$PWD/bub-tapes.db"
+```
+
+## 下一步
+
+- [使用 tape 与 Jaeger 观察 Bub](/zh-cn/docs/tutorials/observability/) —— 把持久化 tape 和进程级 telemetry 配合使用。
+- [Tape 与 context](/zh-cn/docs/concepts/tape-and-context/) —— 理解 Bub 记录什么，以及如何重建 context。
+- [Plugins](/zh-cn/docs/build/plugins/) —— `bub-tapestore-sqlalchemy` 遵循的插件契约。

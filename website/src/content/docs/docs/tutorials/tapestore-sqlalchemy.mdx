@@ -1,0 +1,118 @@
+---
+title: Persist tapes in SQLAlchemy with SQLite
+description: Replace Bub's file-based tape store with one local SQLite database through the SQLAlchemy tape store plugin.
+sidebar:
+  order: 2
+---
+
+Many agent implementations lean on files — JSONL transcripts, Markdown notes, local caches — to carry context and memory, then attach a separate service when they need observability. Bub's [tape model](/docs/concepts/tape-and-context/) (see [tape.systems](https://tape.systems)) names the underlying abstraction instead of the medium: the same append-only record can rebuild context, carry memory-oriented facts, and serve as the operational log you inspect when something goes wrong.
+
+That does not require a database. The default store writes one JSONL file per tape under `~/.bub/tapes/`, which is simple and portable. But the abstraction is also a natural fit for databases: when tape entries live in a database, you can start using database strengths — query planning, indexes, transactional writes, backup workflows, and storage scaling — without changing Bub's turn pipeline.
+
+This tutorial uses [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy) to replace Bub's file store with one local SQLite database that you can inspect with standard SQL tooling.
+
+The [`,tape.info`](/docs/tutorials/observability/) and `,tape.search` workflow stays unchanged. Only the tape store changes.
+
+## Before you begin
+
+You need:
+
+- Bub installed and runnable with `uv run bub --help` (see [Install](/docs/getting-started/install/)).
+- A workspace where `uv run bub run "What tools do you have?"` can call your configured model.
+- The `sqlite3` CLI for the optional database check.
+
+## 1. Install the plugin
+
+Set `BUB_HOME` to an absolute path if you have not configured it already:
+
+```bash
+export BUB_HOME="${BUB_HOME:-$HOME/.bub}"
+```
+
+```bash
+uv run bub install bub-tapestore-sqlalchemy@main
+```
+
+Confirm Bub picked up the entry point:
+
+```bash
+uv run bub hooks
+```
+
+```text
+provide_tape_store: builtin, tapestore-sqlalchemy
+```
+
+## 2. Point Bub at a local SQLite database
+
+The plugin uses `<BUB_HOME>/tapes.db` by default. Override it for this tutorial so the database is easy to find and remove:
+
+```bash
+export BUB_TAPESTORE_SQLALCHEMY_URL="sqlite+pysqlite:///$PWD/bub-tapes.db"
+```
+
+This URL is passed to SQLAlchemy. The `sqlite+pysqlite` dialect uses Python's standard SQLite driver, so no extra database driver is required.
+
+## 3. Run a turn
+
+Run a small natural-language task, then ask Bub to inspect the tape it just wrote:
+
+```bash
+uv run bub run "Reply with one short sentence: hello from local SQLAlchemy."
+uv run bub run ",tape.info"
+```
+
+```text
+name: 86774b31b96845a4__0b871d5e50e7c192
+entries: 9
+anchors: 1
+last_anchor: session/start
+entries_since_last_anchor: 8
+last_token_usage: 4106
+```
+
+The exact tape name and counts depend on your workspace and model call, but the command should report a tape name, at least one anchor, and entries written after `session/start`.
+
+## 4. Inspect the database
+
+Open the SQLite file with the standard CLI:
+
+```bash
+sqlite3 "$PWD/bub-tapes.db" "SELECT name, last_entry_id FROM tapes;"
+```
+
+```text
+86774b31b96845a4__0b871d5e50e7c192|9
+```
+
+The `last_entry_id` tracks the highest entry id written to each tape. Inspect the anchor rows as well:
+
+```bash
+sqlite3 "$PWD/bub-tapes.db" \
+  "SELECT entry_id, anchor_name, entry_date FROM tape_entries WHERE kind = 'anchor';"
+```
+
+```text
+1|session/start|2026-05-15T01:27:57Z
+```
+
+That is the full storage switch: Bub still records append-only tape entries, but they now live in a SQL database instead of per-tape JSONL files.
+
+## 5. Extend the backend
+
+`bub-tapestore-sqlalchemy` is configured with `BUB_TAPESTORE_SQLALCHEMY_URL`, so the same plugin can target another SQLAlchemy-supported database URL when the matching dialect and driver are installed in the environment that runs `bub`. Depending on the driver, you may need compatibility settings or driver-specific handling; validate the backend with this same `,tape.info` flow before using it for long-lived tapes.
+
+For a SQLite-focused store with vector-search support, see [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite). It builds on `sqlite-vec` and can use embeddings for tape retrieval.
+
+## Clean up
+
+```bash
+unset BUB_TAPESTORE_SQLALCHEMY_URL BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS
+rm -f "$PWD/bub-tapes.db"
+```
+
+## Next steps
+
+- [Observe Bub with tapes and Jaeger](/docs/tutorials/observability/) — pair the durable tape with process-level telemetry.
+- [Tape and context](/docs/concepts/tape-and-context/) — what Bub records and how context is rebuilt.
+- [Plugins](/docs/build/plugins/) — the plugin contract `bub-tapestore-sqlalchemy` follows.
