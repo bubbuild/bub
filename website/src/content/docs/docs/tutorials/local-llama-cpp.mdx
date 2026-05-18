@@ -44,7 +44,7 @@ sudo docker run --rm -it \
   --security-opt label=disable \
   -p 127.0.0.1:8080:8080 \
   -v "$HOME/.cache/llama.cpp:/root/.cache/llama.cpp:ro" \
-  ghcr.m.daocloud.io/ggml-org/llama.cpp:full-rocm \
+  ghcr.io/ggml-org/llama.cpp:full \
   --server \
   --host 0.0.0.0 \
   --port 8080 \
@@ -94,6 +94,14 @@ uv run bub run "Reply with one short sentence: hello from a local model."
 ```
 
 Bub now uses the local OpenAI-compatible endpoint for model calls. The turn pipeline, channels, tools, and tapes are unchanged.
+
+```bash
+~/bubbuild/bub$ uv run bub run "Reply with one short sentence: hello from a local model."
+2026-05-19 01:32:40.601 | INFO     | bub.builtin.agent:_run_tools_with_auto_handoff:271 - loop.step step=1 tape=becda04eb9f7369c__0b871d5e50e7c192 model=openai:gemma-4-E2B-it
+2026-05-19 01:32:46.747 | INFO     | bub.builtin.store:fork:122 - Merged 7 entries into tape "becda04eb9f7369c__0b871d5e50e7c192"
+[cli:local]
+hello from a local model.
+```
 
 ## 4. Check the model documentation before changing workloads
 
