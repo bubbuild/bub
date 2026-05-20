@@ -1,0 +1,154 @@
+---
+title: Experimental: Extending Bub with Other Languages
+description: Keep Bub as a Python host while implementing select hooks in Go, Rust, or other languages—using pluggy, WebAssembly, and Extism.
+sidebar:
+  order: 5
+---
+
+This tutorial is experimental. It demonstrates **how to extend Bub from other languages**—not how to rewrite Bub itself as a multi-language project.
+
+Many teams want to write business logic in languages they already know well, or they want the runtime boundary to sit closer to their existing stack. Splitting the Bub core across multiple languages would make maintenance significantly harder. Bub takes a different approach: **keep the Python host**, and use [pluggy](https://pluggy.readthedocs.io/en/stable/), [WebAssembly](https://webassembly.org/), and [Extism](https://extism.org/) to let other languages implement select hooks.
+
+The goal here is not to replace the Bub kernel. It's to provide a pragmatic extension boundary—one that's useful whenever a hook makes more sense to write in Go, Rust, or something else entirely.
+
+## Before you start
+
+Make sure you have:
+
+- Bub installed, with `uv run bub --help` working.
+- The `bub-extism` plugin installed from [`bub-contrib`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism).
+- A Go toolchain if you plan to build the Go example.
+- A Rust toolchain with the `wasm32-unknown-unknown` target if you plan to build the Rust example.
+
+You'll probably want to keep these references handy:
+
+- [`bub-extism` README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism)
+- [`bub-extism` examples](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples)
+- [Extism manifest reference](https://extism.org/docs/concepts/manifest/)
+- [Bub hooks reference](/docs/reference/hooks/)
+
+## 1. Install the experimental plugin
+
+Install `bub-extism` into the same environment where Bub runs:
+
+```bash
+bub install bub-extism@main
+```
+
+Verify that Bub picks it up:
+
+```bash
+uv run bub hooks
+```
+
+You should see `extism` listed alongside `builtin`.
+
+## 2. Implement one hook in Go and one in Rust
+
+We'll use the two verified example modules that ship with `bub-extism`:
+
+- `go-build-prompt` implements the `build_prompt` hook
+- `rust-run-model` implements the `run_model` hook
+
+Build the Go example:
+
+```bash
+cd bub-contrib/packages/bub-extism/examples/go-build-prompt
+GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o go-build-prompt.wasm .
+```
+
+Build the Rust example:
+
+```bash
+cd bub-contrib/packages/bub-extism/examples/rust-run-model
+cargo build --release --target wasm32-unknown-unknown
+```
+
+If you need the full build commands for either example, check the [examples guide](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples).
+
+## 3. Wire both modules into `extism.json`
+
+Create an `extism.json` in your project root that binds the prompt hook to the Go module and the model hook to the Rust module:
+
+```json
+{
+  "plugins": {
+    "prompt": {
+      "manifest": {
+        "wasm": [
+          {
+            "path": "bub-contrib/packages/bub-extism/examples/go-build-prompt/go-build-prompt.wasm"
+          }
+        ]
+      },
+      "wasi": true,
+      "hooks": {
+        "build_prompt": "build_prompt"
+      }
+    },
+    "model": {
+      "manifest": {
+        "wasm": [
+          {
+            "path": "bub-contrib/packages/bub-extism/examples/rust-run-model/target/wasm32-unknown-unknown/release/bub_extism_rust_run_model.wasm"
+          }
+        ]
+      },
+      "hooks": {
+        "run_model": "run_model"
+      }
+    }
+  }
+}
+```
+
+A few things to note about this structure:
+
+- `manifest` follows the standard Extism manifest format.
+- `hooks` maps Bub hook names to wasm exports.
+- Bub still owns dispatch and precedence.
+
+Point Bub at the config file before running a turn:
+
+```bash
+export BUB_EXTISM_CONFIG_PATH=./extism.json
+```
+
+## 4. Run a turn that spans both languages
+
+Now let Bub build a prompt first, then execute the model hook:
+
+```bash
+uv run bub run "Say hello from a prompt built outside Python."
+```
+
+When everything is wired up correctly, Bub will:
+
+1. Call `build_prompt` inside the Go module
+2. Pass the returned prompt to `run_model` inside the Rust module
+3. Hand the final result back for this turn
+
+The CLI prints outbound messages in `[channel:chat_id]` format, so a default `bub run` typically shows `[cli:local]` first, followed by the rendered output.
+
+You can expect output similar to:
+
+```text
+[go-build-prompt:example] hello from bub
+[rust-run-model:example] [go-build-prompt:example] hello from bub
+```
+
+## 5. Know the boundary
+
+This path works well when:
+
+- A particular hook genuinely fits better in another language
+- A team wants more direct ownership of the implementation
+- You still want Bub to act as the orchestration host
+
+**Don't** treat this as a reason to fragment the Bub core into separate rewrites in multiple languages. That would reintroduce exactly the kind of maintenance burden this architecture was designed to avoid. This is an extension path—not a rewrite plan.
+
+## Next steps
+
+- [Building plugins](/docs/build/plugins/) — learn the structure of first-party Bub plugins.
+- [`bub-extism` README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) — read the package conventions and supported hooks.
+- [Extism overview](https://extism.org/docs/overview) — understand how Extism runs wasm modules across languages.
