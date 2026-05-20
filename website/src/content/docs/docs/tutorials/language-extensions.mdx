@@ -1,5 +1,5 @@
 ---
-title: Experimental: Extending Bub with Other Languages
+title: "Experimental: Extending Bub with Other Languages"
 description: Keep Bub as a Python host while implementing select hooks in Go, Rust, or other languages—using pluggy, WebAssembly, and Extism.
 sidebar:
   order: 5
@@ -15,7 +15,7 @@ The goal here is not to replace the Bub kernel. It's to provide a pragmatic exte
 
 Make sure you have:
 
-- Bub installed, with `uv run bub --help` working.
+- Bub installed into an active virtual environment (`bub install` requires running from inside a venv), with `bub --help` working.
 - The `bub-extism` plugin installed from [`bub-contrib`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism).
 - A Go toolchain if you plan to build the Go example.
 - A Rust toolchain with the `wasm32-unknown-unknown` target if you plan to build the Rust example.
@@ -133,9 +133,11 @@ The CLI prints outbound messages in `[channel:chat_id]` format, so a default `bu
 You can expect output similar to:
 
 ```text
-[go-build-prompt:example] hello from bub
-[rust-run-model:example] [go-build-prompt:example] hello from bub
+[cli:local]
+[rust-run-model:cli:local] [go-build-prompt:cli:local] Say hello from a prompt built outside Python.
 ```
+
+The Go module wraps the inbound prompt with a `[go-build-prompt:<chat_id>]` prefix; the Rust module then wraps the Go output with `[rust-run-model:<chat_id>]`. The leading `[cli:local]` line is the channel header emitted by the CLI adapter.
 
 ## 5. Know the boundary
 
