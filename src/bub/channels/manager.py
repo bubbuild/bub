@@ -130,6 +130,11 @@ class ChannelManager:
         logger.info(f"channel.manager quit session_id={session_id}, cancelled {cancelled_count} tasks")
 
     def enabled_channels(self) -> list[Channel]:
+        """Channels are enabled by the following rules:
+        - Interfaces are enabled only if explicitly *included*.
+        - Lifecycles are always enabled unless explicitly *excluded*.
+        - Regular channels depend on the values of include and exclude.
+        """
         included_channels = [
             name.strip() for name in self._enabled_channels if name.strip() and not name.strip().startswith("!")
         ]
