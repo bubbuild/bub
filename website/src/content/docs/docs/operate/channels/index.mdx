@@ -16,7 +16,7 @@ A **channel** is one inbound/outbound surface — a CLI prompt, a chat platform,
 
 ## 1. Choose which channels to enable
 
-`bub gateway` listens on every enabled channel that ships with a working config. By default it enables `all`, which expands to every registered channel **except `cli`** — the CLI channel is excluded so that a long-lived gateway does not steal the operator's terminal.
+`bub gateway` listens on every enabled channel that ships with a working config. By default it enables `all`, which expands to every enabled non-`Interface` channel. That includes listener channels such as Telegram as well as `Lifecycle` runtimes such as `mcp.lifecycle`. The built-in `cli` interface is excluded so that a long-lived gateway does not steal the operator's terminal.
 
 Enable a specific channel:
 
@@ -28,6 +28,12 @@ Enable several:
 
 ```bash
 uv run bub gateway --enable-channel telegram --enable-channel wechat
+```
+
+Exclude a default lifecycle channel:
+
+```bash
+uv run bub gateway --enable-channel all --enable-channel '!mcp.lifecycle'
 ```
 
 To pin the default in config, set `enabled_channels` (comma-separated, or `all`):

@@ -63,7 +63,7 @@ uv run bub run ",echo hello"   # 找不到的命令会回落到 shell
 
 ## 4. 为什么 `cli` 不在 `bub gateway` 中
 
-`bub gateway` 监听所有已启用 channel。它的默认 —— `--enable-channel` 留空 —— 展开为 `all`，channel 管理器将其解释为"除 `cli` 外的全部已注册 channel"。否则 CLI channel 会抢占运维者用来运行 gateway 的终端。
+`bub gateway` 监听所有已启用 channel。它的默认 —— `--enable-channel` 留空 —— 会展开为所有已启用且不是 `Interface` 的 channel，其中包括 listener 和 `Lifecycle` 后台服务。`cli` interface 会被排除，否则它会抢占运维者用来运行 gateway 的终端。
 
 要打开 REPL，使用 `bub chat`（它强制 `enabled_channels=["cli"]` 并启用 `stream_output=True`）。要只跑 Telegram，使用 `bub gateway --enable-channel telegram`。
 

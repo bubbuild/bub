@@ -89,7 +89,7 @@ Loaded under the YAML root section.
 
 | Env var | Default | YAML key | Description |
 | --- | --- | --- | --- |
-| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | Comma-separated channel names, or `all` (excludes `cli`). Overridden per-invocation by `bub gateway --enable-channel`. |
+| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | Comma-separated channel names, `all`, or exclusions prefixed with `!`. The default runtime set includes every enabled non-`Interface` channel, and explicit lists that contain a non-`Lifecycle` channel also attach enabled `Lifecycle` runtimes unless excluded. Overridden per-invocation by `bub gateway --enable-channel`. |
 | `BUB_DEBOUNCE_SECONDS` | `1.0` | `debounce_seconds` | Minimum gap between two messages from the same channel when the channel sets `needs_debounce=True`. |
 | `BUB_MAX_WAIT_SECONDS` | `10.0` | `max_wait_seconds` | Hard cap for the debounce wait. |
 | `BUB_ACTIVE_TIME_WINDOW` | `60.0` | `active_time_window` | Window in seconds during which a session stays "active" for buffered handling. |

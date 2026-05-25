@@ -74,7 +74,7 @@ bub gateway [OPTIONS]
 行为说明:
 
 - 未传 `--enable-channel` 时,Manager 读取 `ChannelSettings.enabled_channels`(`BUB_ENABLED_CHANNELS`,默认 `all`)。
-- `all` 自动排除 `cli` channel,避免与 stdout 打架。
+- `all` 会启动所有已启用且不是 `Interface` 的 channel。显式列出且至少包含一个非 `Lifecycle` channel 时，会自动附着已启用的 `Lifecycle` 后台服务；可用 `!name` 排除其中某个 channel。
 - `framework.running()` 持续到 manager 主循环退出;关闭时执行 `provide_tape_store` 的清理。
 
 部署细节见 [运维 › Channels](/zh-cn/docs/operate/channels/)。

@@ -74,7 +74,7 @@ bub gateway [OPTIONS]
 Behavior notes:
 
 - When `--enable-channel` is omitted the manager reads `ChannelSettings.enabled_channels` (`BUB_ENABLED_CHANNELS`, default `all`).
-- `all` excludes the `cli` channel automatically to avoid stdout contention.
+- `all` starts every enabled non-`Interface` channel. When you list at least one non-`Lifecycle` channel explicitly, enabled `Lifecycle` runtimes are attached automatically. Use `!name` to exclude one.
 - `framework.running()` is held open until the manager loop exits; `provide_tape_store` cleanup runs on shutdown.
 
 See [Operate › Channels](/docs/operate/channels/) for per-channel deployment notes.

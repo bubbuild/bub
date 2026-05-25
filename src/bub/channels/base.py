@@ -39,3 +39,11 @@ class Channel(ABC):
     def stream_events(self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]) -> AsyncIterable[StreamEvent]:
         """Optionally wrap the output stream for this channel."""
         return stream
+
+
+class Interface(Channel):
+    """User-facing inbound/outbound surface managed by the channel runtime."""
+
+
+class Lifecycle(Channel):
+    """Background runtime managed alongside channels."""

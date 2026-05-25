@@ -118,6 +118,12 @@ class Channel(ABC):
     def stream_events(
         self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]
     ) -> AsyncIterable[StreamEvent]: ...
+
+
+class Interface(Channel): ...
+
+
+class Lifecycle(Channel): ...
 ```
 
 Abstract base for inbound/outbound channels (`src/bub/channels/base.py`).
@@ -131,6 +137,8 @@ Abstract base for inbound/outbound channels (`src/bub/channels/base.py`).
 | `enabled` | When `False`, the manager skips the channel even if it is in `enabled_channels`. Defaults to `True`. |
 | `send(message)` | Outbound delivery. Default impl is a no-op. |
 | `stream_events(message, stream)` | Optional stream wrapper used by `OutboundChannelRouter.wrap_stream`. Returns the stream unchanged by default. |
+
+`Interface` is the public base for channels that should not be part of the default `gateway all` runtime set, such as the built-in CLI REPL. `Lifecycle` is the public base for background runtimes that start and stop with the channel manager, such as MCP bootstrap services.
 
 See [Operate › Channels](/docs/operate/channels/) and [Build › Plugins](/docs/build/plugins/) for end-to-end examples.
 

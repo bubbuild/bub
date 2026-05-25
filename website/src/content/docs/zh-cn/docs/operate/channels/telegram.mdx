@@ -55,7 +55,7 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
 uv run bub gateway --enable-channel telegram
 ```
 
-`--enable-channel telegram` 把监听器固定到一个 channel。不带它时，`bub gateway` 启用 `all` channel（排除 `cli`，并在 token 已设置时包括 Telegram）。启动时应看到：
+`--enable-channel telegram` 把监听器固定到一个 channel。不带它时，`bub gateway` 会启用所有不是 `Interface` 的默认运行时 channel，其中会在 token 已设置时包含 Telegram，并同时启动已启用的 `Lifecycle` 后台服务。启动时应看到：
 
 ```text
 telegram.start allow_users_count=2 allow_chats_count=1 proxy_enabled=False

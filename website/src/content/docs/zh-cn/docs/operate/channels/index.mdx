@@ -16,7 +16,7 @@ sidebar:
 
 ## 1. 选择启用哪些 channel
 
-`bub gateway` 监听所有已启用、配置可用的 channel。它默认启用 `all`，展开为已注册的全部 channel **不含 `cli`** —— CLI channel 被排除，避免长期运行的网关抢占运维者的终端。
+`bub gateway` 监听所有已启用、配置可用的 channel。它默认启用 `all`，展开为所有已启用且不是 `Interface` 的 channel。这既包括 Telegram 这类 listener，也包括 `mcp.lifecycle` 这类 `Lifecycle` 后台服务。内置 `cli` interface 会被排除，避免长期运行的网关抢占运维者的终端。
 
 启用单个 channel：
 
@@ -28,6 +28,12 @@ uv run bub gateway --enable-channel telegram
 
 ```bash
 uv run bub gateway --enable-channel telegram --enable-channel wechat
+```
+
+排除默认 lifecycle channel：
+
+```bash
+uv run bub gateway --enable-channel all --enable-channel '!mcp.lifecycle'
 ```
 
 要在配置中固化默认值，设置 `enabled_channels`（逗号分隔，或 `all`）：

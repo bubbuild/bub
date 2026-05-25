@@ -63,7 +63,7 @@ Inside `bub chat`, the same prefix works at any prompt. `Ctrl-X` toggles "shell 
 
 ## 4. Why `cli` is excluded from `bub gateway`
 
-`bub gateway` listens on every enabled channel. Its default — `--enable-channel` left empty — expands to `all`, which the channel manager interprets as "every registered channel except `cli`". The CLI channel would otherwise grab the controlling terminal that the operator is using to run the gateway itself.
+`bub gateway` listens on every enabled channel. Its default — `--enable-channel` left empty — expands to every enabled non-`Interface` channel, including listener channels and `Lifecycle` runtimes. The CLI interface is excluded so it does not grab the controlling terminal that the operator is using to run the gateway itself.
 
 To open a REPL, use `bub chat` (which forces `enabled_channels=["cli"]` and `stream_output=True`). To run only Telegram, use `bub gateway --enable-channel telegram`.
 

@@ -90,10 +90,11 @@ The process should start without exiting. Press `Ctrl-C` to stop it, fix the und
 
 ## 4. Use the MCP tool from a running turn
 
-`bub mcp list` is enough to confirm the integration. Calling the tool from a real turn requires Bub's **channel runtime**, which only `bub gateway` starts:
+`bub mcp list` is enough to confirm the integration. Calling the tool from a real turn requires Bub's **channel runtime**:
 
-- `bub run` and `bub chat` do **not** start any `Channel`. The `mcp.lifecycle` channel that owns the MCP servers never boots, so MCP tools are not exposed to the model in those commands.
+- `bub chat` starts the `cli` interface and automatically attaches enabled `Lifecycle` runtimes, including `mcp.lifecycle`.
 - `bub gateway` starts every channel returned by the `provide_channels` hook (subject to `--enable-channel` / `BUB_ENABLED_CHANNELS`). With `mcp.lifecycle` enabled, the channel boots in the background, registers each remote tool into the global tool registry as `mcp.<server>_<tool>`, and from then on the model can call them.
+- `bub run` still does not start channels, so MCP tools discovered through `mcp.lifecycle` are not exposed there.
 
 Run the gateway with both the input channel and the MCP lifecycle channel enabled:
 

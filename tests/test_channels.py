@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 from republic import StreamEvent
 
+from bub.channels.base import Channel, Interface, Lifecycle
 from bub.channels.cli import CliChannel
 from bub.channels.cli import renderer as cli_renderer
 from bub.channels.cli.renderer import CliRenderer
@@ -34,7 +35,7 @@ telegram:
     load_config(content)
 
 
-class FakeChannel:
+class _FakeChannelMixin:
     def __init__(self, name: str, *, needs_debounce: bool = False) -> None:
         self.name = name
         self._needs_debounce = needs_debounce
@@ -61,8 +62,20 @@ class FakeChannel:
         self.sent.append(message)
 
 
+class FakeChannel(_FakeChannelMixin, Channel):
+    pass
+
+
+class FakeInterfaceChannel(_FakeChannelMixin, Interface):
+    pass
+
+
+class FakeLifecycleChannel(_FakeChannelMixin, Lifecycle):
+    pass
+
+
 class FakeFramework:
-    def __init__(self, channels: dict[str, FakeChannel]) -> None:
+    def __init__(self, channels: dict[str, Channel]) -> None:
         self._channels = channels
         self.router = None
         self.process_calls: list[tuple[ChannelMessage, bool]] = []
@@ -213,12 +226,43 @@ async def test_channel_manager_dispatch_uses_output_channel_and_preserves_metada
     assert outbound.context["source"] == "test"
 
 
-def test_channel_manager_enabled_channels_excludes_cli_from_all(load_config) -> None:
+@pytest.mark.parametrize(
+    ("enabled_channels", "expected_channels"),
+    [
+        (["all"], ["mcp.lifecycle", "manual.lifecycle", "telegram", "discord"]),
+        (["cli"], ["cli", "mcp.lifecycle", "manual.lifecycle"]),
+        (["mcp.lifecycle"], ["mcp.lifecycle"]),
+        (["cli", "!mcp.lifecycle"], ["cli", "manual.lifecycle"]),
+        (["all", "!mcp.lifecycle", "!telegram"], ["manual.lifecycle", "discord"]),
+        (["mcp.lifecycle", "!mcp.lifecycle"], []),
+    ],
+)
+def test_channel_manager_selects_channels_by_runtime_role(
+    load_config, enabled_channels: list[str], expected_channels: list[str]
+) -> None:
     _load_channel_config(load_config)
-    channels = {"cli": FakeChannel("cli"), "telegram": FakeChannel("telegram"), "discord": FakeChannel("discord")}
-    manager = ChannelManager(FakeFramework(channels), enabled_channels=["all"])
+    channels = {
+        "cli": FakeInterfaceChannel("cli"),
+        "mcp.lifecycle": FakeLifecycleChannel("mcp.lifecycle"),
+        "manual.lifecycle": FakeLifecycleChannel("manual.lifecycle"),
+        "telegram": FakeChannel("telegram"),
+        "discord": FakeChannel("discord"),
+    }
+    manager = ChannelManager(FakeFramework(channels), enabled_channels=enabled_channels)
 
-    assert [channel.name for channel in manager.enabled_channels()] == ["telegram", "discord"]
+    assert [channel.name for channel in manager.enabled_channels()] == expected_channels
+
+
+def test_channel_manager_selects_real_channel_types(load_config) -> None:
+    _load_channel_config(load_config, telegram_value="test-token")
+    cli = CliChannel.__new__(CliChannel)
+    telegram = TelegramChannel(lambda message: None)
+    manager = ChannelManager(
+        FakeFramework({"cli": cli, "telegram": telegram}),
+        enabled_channels=["all"],
+    )
+
+    assert [channel.name for channel in manager.enabled_channels()] == ["telegram"]
 
 
 @pytest.mark.asyncio
@@ -257,7 +301,7 @@ async def test_channel_manager_on_receive_uses_buffer_for_debounced_channel(
 async def test_channel_manager_shutdown_cancels_tasks_and_stops_enabled_channels(load_config) -> None:
     _load_channel_config(load_config)
     telegram = FakeChannel("telegram")
-    cli = FakeChannel("cli")
+    cli = FakeInterfaceChannel("cli")
     manager = ChannelManager(FakeFramework({"telegram": telegram, "cli": cli}), enabled_channels=["all"])
 
     async def never_finish() -> None:

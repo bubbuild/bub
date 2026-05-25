@@ -19,7 +19,7 @@ from rich.live import Live
 import bub
 from bub.builtin.agent import Agent
 from bub.builtin.tape import TapeInfo
-from bub.channels.base import Channel
+from bub.channels.base import Interface
 from bub.channels.cli.renderer import CliRenderer
 from bub.channels.message import ChannelMessage
 from bub.envelope import field_of
@@ -27,7 +27,7 @@ from bub.tools import REGISTRY
 from bub.types import MessageHandler
 
 
-class CliChannel(Channel):
+class CliChannel(Interface):
     """A simple CLI channel for testing and debugging."""
 
     name = "cli"

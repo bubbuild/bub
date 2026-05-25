@@ -90,10 +90,11 @@ uvx mcp-server-time
 
 ## 4. 在运行中的 turn 里使用 MCP 工具
 
-`bub mcp list` 已经足以确认接入正确。**真正在 turn 中调用工具，需要 Bub 的 channel 运行时**——而只有 `bub gateway` 才会启动它：
+`bub mcp list` 已经足以确认接入正确。**真正在 turn 中调用工具，需要 Bub 的 channel 运行时**：
 
-- `bub run` 与 `bub chat` **不会**启动任何 `Channel`。承载 MCP 服务器的 `mcp.lifecycle` channel 不会启动，因此这两个命令下模型看不到 MCP 工具。
+- `bub chat` 会启动 `cli` interface，并自动附着已启用的 `Lifecycle` 后台服务，包括 `mcp.lifecycle`。
 - `bub gateway` 会启动 `provide_channels` 钩子返回的所有 channel（受 `--enable-channel` / `BUB_ENABLED_CHANNELS` 控制）。当 `mcp.lifecycle` 启用后，channel 会在后台启动、把每个远程工具按 `mcp.<server>_<tool>` 名称注册到全局工具表中，模型从此即可调用它们。
+- `bub run` 仍然不会启动 channel，因此不会暴露通过 `mcp.lifecycle` 发现的 MCP 工具。
 
 同时启用输入 channel 与 MCP 生命周期 channel 来运行 gateway：
 

@@ -118,6 +118,12 @@ class Channel(ABC):
     def stream_events(
         self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]
     ) -> AsyncIterable[StreamEvent]: ...
+
+
+class Interface(Channel): ...
+
+
+class Lifecycle(Channel): ...
 ```
 
 inbound / outbound channel 的抽象基类(`src/bub/channels/base.py`)。
@@ -131,6 +137,8 @@ inbound / outbound channel 的抽象基类(`src/bub/channels/base.py`)。
 | `enabled` | 为 `False` 时,即使在 `enabled_channels` 中也会被 Manager 跳过。默认 `True`。 |
 | `send(message)` | outbound 投递。默认实现为 no-op。 |
 | `stream_events(message, stream)` | `OutboundChannelRouter.wrap_stream` 调用的可选 stream 包装器。默认原样返回。 |
+
+`Interface` 是不会进入默认 `gateway all` 运行时集合的公共基类，比如内置 CLI REPL。`Lifecycle` 是随 channel manager 启停的后台运行时基类，比如负责 MCP bootstrap 的服务。
 
 完整示例见 [运维 › Channels](/zh-cn/docs/operate/channels/) 与 [构建 › 插件](/zh-cn/docs/build/plugins/)。
 

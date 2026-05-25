@@ -89,7 +89,7 @@ class ChannelSettings(Settings):
 
 | 环境变量 | 默认值 | YAML 字段 | 描述 |
 | --- | --- | --- | --- |
-| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | 逗号分隔的 channel 名,或 `all`(排除 `cli`)。可被 `bub gateway --enable-channel` 单次覆盖。 |
+| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | 逗号分隔的 channel 名、`all`，或前缀为 `!` 的排除项。默认运行时集合包含所有已启用且不是 `Interface` 的 channel；显式列出且包含非 `Lifecycle` channel 时，也会附着已启用的 `Lifecycle` 服务，除非被排除。可被 `bub gateway --enable-channel` 单次覆盖。 |
 | `BUB_DEBOUNCE_SECONDS` | `1.0` | `debounce_seconds` | channel 设置 `needs_debounce=True` 时,同一 channel 两次消息之间的最小间隔。 |
 | `BUB_MAX_WAIT_SECONDS` | `10.0` | `max_wait_seconds` | 防抖等待的硬上限。 |
 | `BUB_ACTIVE_TIME_WINDOW` | `60.0` | `active_time_window` | 会话保持"活跃"以接受缓冲处理的窗口秒数。 |
