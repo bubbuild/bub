@@ -186,13 +186,24 @@ def model_tools(tools: Iterable[Tool]) -> list[Tool]:
     return [replace(tool, name=_to_model_name(tool.name)) for tool in tools]
 
 
+def _tool_signature(tool: Tool) -> str:
+    properties = tool.parameters.get("properties", {})
+    if not isinstance(properties, dict) or not properties:
+        return f"{_to_model_name(tool.name)}()"
+
+    required = tool.parameters.get("required", [])
+    required_names = set(required) if isinstance(required, list) else set()
+    params = [name if name in required_names else f"{name}?" for name in properties]
+    return f"{_to_model_name(tool.name)}({', '.join(params)})"
+
+
 def render_tools_prompt(tools: Iterable[Tool]) -> str:
     """Render a human-readable description of tools for model prompts."""
     if not tools:
         return ""
     lines = []
     for tool in tools:
-        line = f"- {_to_model_name(tool.name)}"
+        line = f"- {_tool_signature(tool)}"
         if tool.description:
             line += f": {tool.description}"
         lines.append(line)

@@ -12,6 +12,7 @@ from republic import AsyncStreamEvents, StreamEvent, TapeContext
 import bub.builtin.agent as agent_module
 from bub.builtin.agent import Agent
 from bub.builtin.settings import AgentSettings
+from bub.tools import REGISTRY, tool
 
 
 def test_build_llm_passes_codex_resolver_to_republic(monkeypatch) -> None:
@@ -84,6 +85,7 @@ class _FakeTapeService:
     def __init__(self, fork_capture: _ForkCapture) -> None:
         self._fork = fork_capture
         self.run_tools_model: str | None = None
+        self.stream_kwargs: dict[str, Any] | None = None
 
     def session_tape(self, session_id: str, workspace: Any) -> MagicMock:
         tape = MagicMock()
@@ -92,6 +94,7 @@ class _FakeTapeService:
 
         async def fake_stream_events_async(**kwargs: Any) -> AsyncStreamEvents:
             self.run_tools_model = kwargs.get("model")
+            self.stream_kwargs = kwargs
 
             async def iterator():
                 yield StreamEvent("final", {"text": "done"})
@@ -184,3 +187,56 @@ async def test_agent_run_model_defaults_to_none() -> None:
     [event async for event in result]
 
     assert fake_tapes.run_tools_model is None
+
+
+@pytest.mark.asyncio
+async def test_agent_run_resolves_allowed_tool_aliases_and_limits_prompt() -> None:
+    allowed_name = "tests.allowed_agent_tool"
+    denied_name = "tests.denied_agent_tool"
+    REGISTRY.pop(allowed_name, None)
+    REGISTRY.pop(denied_name, None)
+
+    @tool(name=allowed_name, description="Allowed tool")
+    def allowed_agent_tool() -> str:
+        return "allowed"
+
+    @tool(name=denied_name, description="Denied tool")
+    def denied_agent_tool() -> str:
+        return "denied"
+
+    agent = _make_agent()
+    fork_capture = _ForkCapture()
+    fake_tapes = _FakeTapeService(fork_capture)
+    agent.tapes = fake_tapes  # type: ignore[assignment]
+
+    result = await agent.run_stream(
+        session_id="user/s1",
+        prompt="hello",
+        state={"_runtime_workspace": "/tmp"},  # noqa: S108
+        allowed_tools=[" tests_allowed_agent_tool "],
+    )
+    [event async for event in result]
+
+    assert fake_tapes.stream_kwargs is not None
+    assert [tool.name for tool in fake_tapes.stream_kwargs["tools"]] == ["tests_allowed_agent_tool"]
+    system_prompt = fake_tapes.stream_kwargs["system_prompt"]
+    assert "- tests_allowed_agent_tool(): Allowed tool" in system_prompt
+    assert "tests_denied_agent_tool" not in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_agent_run_rejects_unknown_allowed_tools() -> None:
+    agent = _make_agent()
+    fork_capture = _ForkCapture()
+    fake_tapes = _FakeTapeService(fork_capture)
+    agent.tapes = fake_tapes  # type: ignore[assignment]
+
+    stream = await agent.run_stream(
+        session_id="user/s1",
+        prompt="hello",
+        state={"_runtime_workspace": "/tmp"},  # noqa: S108
+        allowed_tools=["tests_missing_agent_tool"],
+    )
+
+    with pytest.raises(ValueError, match="tests_missing_agent_tool"):
+        [event async for event in stream]

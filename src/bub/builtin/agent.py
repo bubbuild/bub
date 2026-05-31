@@ -24,6 +24,7 @@ from republic import (
     StreamEvent,
     StreamState,
     TapeContext,
+    Tool,
     ToolAutoResult,
     ToolContext,
 )
@@ -34,7 +35,7 @@ from bub.builtin.store import ForkTapeStore
 from bub.builtin.tape import TapeService
 from bub.framework import BubFramework
 from bub.skills import discover_skills, render_skills_prompt
-from bub.tools import REGISTRY, model_tools, render_tools_prompt
+from bub.tools import REGISTRY, model_tools, render_tools_prompt, resolve_tool_names
 from bub.types import State
 from bub.utils import workspace_from_state
 
@@ -530,12 +531,12 @@ class Agent:
     ) -> AsyncStreamEvents | ToolAutoResult:
         prompt_text = prompt if isinstance(prompt, str) else _extract_text_from_parts(prompt)
         if allowed_tools is not None:
-            allowed_tools = {name.casefold() for name in allowed_tools}
+            allowed_tools = resolve_tool_names(allowed_tools)
         if allowed_skills is not None:
             allowed_skills = {name.casefold() for name in allowed_skills}
             tape.context.state["allowed_skills"] = list(allowed_skills)
         if allowed_tools is not None:
-            tools = [tool for tool in REGISTRY.values() if tool.name.casefold() in allowed_tools]
+            tools = [tool for tool in REGISTRY.values() if tool.name in allowed_tools]
         else:
             tools = list(REGISTRY.values())
         async with asyncio.timeout(self.settings.model_timeout_seconds):
@@ -543,7 +544,7 @@ class Agent:
                 return await tape.stream_events_async(
                     prompt=prompt,
                     system_prompt=self._system_prompt(
-                        prompt_text, state=tape.context.state, allowed_skills=allowed_skills
+                        prompt_text, state=tape.context.state, allowed_skills=allowed_skills, tools=tools
                     ),
                     max_tokens=self.settings.max_tokens,
                     tools=model_tools(tools),
@@ -553,18 +554,20 @@ class Agent:
                 return await tape.run_tools_async(
                     prompt=prompt,
                     system_prompt=self._system_prompt(
-                        prompt_text, state=tape.context.state, allowed_skills=allowed_skills
+                        prompt_text, state=tape.context.state, allowed_skills=allowed_skills, tools=tools
                     ),
                     max_tokens=self.settings.max_tokens,
                     tools=model_tools(tools),
                     model=model,
                 )
 
-    def _system_prompt(self, prompt: str, state: State, allowed_skills: set[str] | None = None) -> str:
+    def _system_prompt(
+        self, prompt: str, state: State, allowed_skills: set[str] | None = None, tools: Iterable[Tool] | None = None
+    ) -> str:
         blocks: list[str] = []
         if result := self.framework.get_system_prompt(prompt=prompt, state=state):
             blocks.append(result)
-        tools_prompt = render_tools_prompt(REGISTRY.values())
+        tools_prompt = render_tools_prompt(tools if tools is not None else REGISTRY.values())
         if tools_prompt:
             blocks.append(tools_prompt)
         workspace = workspace_from_state(state)

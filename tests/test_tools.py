@@ -93,13 +93,15 @@ def test_model_tools_rewrites_dotted_names_without_mutating_original() -> None:
     REGISTRY.pop(tool_name, None)
 
     @tool(name=tool_name, description="rename")
-    def rename_me() -> str:
+    def rename_me(value: str) -> str:
         return "ok"
 
     rewritten = model_tools([rename_me])
 
     assert [item.name for item in rewritten] == ["tests_rename_me"]
+    assert rewritten[0].parameters == rename_me.parameters
     assert rename_me.name == tool_name
+    assert "additionalProperties" not in rename_me.parameters
 
 
 def test_render_tools_prompt_renders_available_tools_block() -> None:
@@ -118,7 +120,20 @@ def test_render_tools_prompt_renders_available_tools_block() -> None:
 
     rendered = render_tools_prompt([prompt_one, prompt_two])
 
-    assert rendered == "<available_tools>\n- tests_prompt_one: First tool\n- tests_prompt_two\n</available_tools>"
+    assert rendered == "<available_tools>\n- tests_prompt_one(): First tool\n- tests_prompt_two()\n</available_tools>"
+
+
+def test_render_tools_prompt_includes_model_name_and_parameter_signature() -> None:
+    tool_name = "tests.prompt_signature"
+    REGISTRY.pop(tool_name, None)
+
+    @tool(name=tool_name, description="Read a file")
+    def prompt_signature(path: str, offset: int = 0) -> str:
+        return f"{path}:{offset}"
+
+    rendered = render_tools_prompt([prompt_signature])
+
+    assert rendered == "<available_tools>\n- tests_prompt_signature(path, offset?): Read a file\n</available_tools>"
 
 
 def test_render_tools_prompt_returns_empty_string_for_empty_input() -> None:
@@ -128,8 +143,10 @@ def test_render_tools_prompt_returns_empty_string_for_empty_input() -> None:
 def test_resolve_tool_names_accepts_runtime_names_and_model_aliases() -> None:
     dotted_name = "tests.resolve_alias"
     underscored_name = "tests_with_underscore"
+    excluded_name = "tests.excluded_tool"
     REGISTRY.pop(dotted_name, None)
     REGISTRY.pop(underscored_name, None)
+    REGISTRY.pop(excluded_name, None)
 
     @tool(name=dotted_name)
     def resolve_alias() -> str:
@@ -139,11 +156,16 @@ def test_resolve_tool_names_accepts_runtime_names_and_model_aliases() -> None:
     def resolve_runtime_name() -> str:
         return "runtime"
 
-    assert resolve_tool_names([" tests_resolve_alias ", " tests_with_underscore "], exclude={" subagent "}) == {
+    @tool(name=excluded_name)
+    def excluded_tool() -> str:
+        return "excluded"
+
+    assert resolve_tool_names([" tests_resolve_alias ", " tests_with_underscore "], exclude={" tests_excluded_tool "}) == {
         dotted_name,
         underscored_name,
     }
     assert dotted_name not in resolve_tool_names(None, exclude={" tests_resolve_alias "})
+    assert excluded_name not in resolve_tool_names(None, exclude={" tests_excluded_tool "})
     assert resolve_tool_names(None, exclude={" tests_resolve_alias "}) >= {underscored_name}
 
 
