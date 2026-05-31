@@ -1,0 +1,135 @@
+---
+title: 将 Bub 作为 ACP agent 使用
+description: 安装 bub-acp-server，并把 Bub 接入 Zed 等支持 ACP 的编辑器。
+sidebar:
+  order: 6
+---
+
+本教程演示如何把 Bub 暴露为 [Agent Client Protocol](https://agentclientprotocol.com/) agent。ACP 是一种用于标准化代码编辑器与 coding agent 之间通信的协议，让编辑器不需要为每个 agent 单独写集成。
+
+Bub 已经可以通过命令行和 IM gateway 等 channel 工作。ACP 提供了一条实用路径：让 Bub 进入已经支持该协议的图形客户端，而不必先为 Bub 单独实现一套完整编辑器 UI。
+
+完成后，你可以在支持 ACP 的编辑器中选择 Bub。示例使用 Zed，因为它可以通过 `agent_servers` 配置自定义 ACP agent；对 Bub 来说，只要客户端通过 stdio 启动 agent 进程，接入方式就是一样的。
+
+## 开始前
+
+你需要：
+
+- 已安装 Bub，并且可以运行 `bub --help`。
+- Bub 的模型配置已经可用。先在编辑器之外用 `bub run` 确认。
+- 一个可以启动自定义 ACP agent 的编辑器或客户端。本教程使用 Zed。
+
+本教程不配置模型 provider。ACP 进程启动时，Bub 会读取它平时使用的配置和环境变量，和 `bub run` 或 `bub chat` 一样。
+
+## 1. 安装 ACP server 插件
+
+`bub-acp-server` 位于 [`bubbuild/bub-contrib`](https://github.com/bubbuild/bub-contrib)。把它安装到提供 `bub` 命令的同一个环境中：
+
+```bash
+bub install bub-acp-server@main
+```
+
+确认命令可用：
+
+```bash
+bub acp serve --help
+```
+
+输出中应包含：
+
+```text
+Usage: bub acp serve [OPTIONS]
+```
+
+如果没有 `bub acp`，说明插件安装到了另一个 Python 环境，而不是当前 shell 解析到的 `bub` 所在环境。
+
+## 2. 先确认 Bub 本身可用
+
+在编辑器将要使用的同一个 shell 或环境中运行一个 turn：
+
+```bash
+bub run "Reply with one short sentence: hello from Bub."
+```
+
+先在这里修复 Bub 配置或网络问题。ACP 只改变编辑器和 Bub 之间的通信方式，不会替代 Bub 的模型配置。
+
+如果你的 Bub 配置放在项目 `.env` 中，需要确保 ACP 进程启动前已经加载这份环境。一个可移植的做法是写一个小 wrapper script：
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd /path/to/your/project
+set -a
+. ./.env
+set +a
+exec bub acp serve
+```
+
+只有需要时才使用 wrapper。如果编辑器环境里直接运行 `bub run` 已经可用，就可以直接启动 `bub acp serve`。
+
+## 3. 配置 Zed
+
+用 `zed: open settings` 打开 Zed 设置，并添加一个自定义 agent server：
+
+```json
+{
+  "agent_servers": {
+    "Bub": {
+      "type": "custom",
+      "command": "bub",
+      "args": ["acp", "serve"],
+      "env": {}
+    }
+  }
+}
+```
+
+如果 Zed 找不到 `bub`，可以改用绝对路径，或使用上一步的 wrapper script：
+
+```json
+{
+  "agent_servers": {
+    "Bub": {
+      "type": "custom",
+      "command": "/path/to/bub-acp-wrapper",
+      "args": [],
+      "env": {}
+    }
+  }
+}
+```
+
+保持编辑器配置和 Bub 配置分离。Zed 负责启动 ACP 进程，并传入 `agent_servers.Bub.env` 里的环境变量；模型设置、tools、skills、tapes 和插件配置仍然由 Bub 自己读取和管理。
+
+## 4. 启动 Bub 会话
+
+保存设置后 reload Zed。用 `cmd-?`（macOS）或 `ctrl-?`（Linux/Windows）打开 agent panel，然后点击 `+` 新建线程并选择 `Bub`。
+
+发送一条简单消息，例如：
+
+```text
+HELLO
+```
+
+你应该会在 agent panel 中看到 Bub 的回复。工具调用和流式模型文本会通过 ACP session update 转发给编辑器，因此 turn 运行时可以显示活动状态。
+
+![Zed agent panel 中连接为 ACP external agent 的 Bub](/docs/acp-server/zed-session-content.png)
+
+当编辑器重新打开已有线程时，`bub-acp-server` 会加载匹配的 Bub tape，并通过和实时 turn 相同的 ACP streaming 路径重放历史。这样恢复出来的用户消息、助手文本和工具事件会与 Bub 记录会话的方式保持一致。
+
+## 排障
+
+| 现象 | 检查 |
+|---|---|
+| 没有 `bub acp` | 把 `bub-acp-server` 重新安装到编辑器实际使用的 `bub` 可执行文件所在环境。 |
+| 编辑器提示无法启动 Bub | 使用绝对路径作为 `command`，或让 `command` 指向能激活正确环境的 wrapper script。 |
+| Bub 已启动但提示配置错误 | 在同一个环境中确认 `bub run` 可用。如果必要设置放在 `.env`，在 `bub acp serve` 之前加载这份文件。 |
+| 编辑器无法 load 或 resume thread | 确认编辑器启动的是同一个 `bub` 环境，且其中 `bub acp serve --help` 可用；同时保持每次启动使用稳定的 `BUB_HOME`。 |
+| 重启编辑器后旧线程消失 | 保持每次启动使用同一个 Bub 环境和 `BUB_HOME`。`bub-acp-server` 会把 ACP session metadata 保存在 Bub home 下，并从 Bub tapes 加载历史。 |
+| turn 已开始但界面没有活动显示 | 在 Zed 中运行 `dev: open acp logs`，检查 Zed 与 Bub 之间的 JSON-RPC 消息。 |
+
+## 下一步
+
+- [配置](/zh-cn/docs/operate/configure/) — Bub 的模型和运行时设置。
+- [Turn pipeline](/zh-cn/docs/concepts/turn-pipeline/) — Bub 如何把 inbound message 转成模型调用和 outbound message。
+- [构建插件](/zh-cn/docs/build/plugins/) — 用 hooks、tools 和 channels 扩展 Bub。
