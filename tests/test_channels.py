@@ -461,7 +461,7 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
         ),
     )
 
-    message = _message("ignored", channel="cli", kind="normal", session_id="cli:1")
+    message = _message("ignored", channel="cli", kind="command", session_id="cli:1")
 
     async def source() -> asyncio.AsyncIterator[StreamEvent]:
         yield StreamEvent("text", {"delta": "  "})
