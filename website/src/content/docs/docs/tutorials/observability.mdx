@@ -1,6 +1,6 @@
 ---
-title: Observe Bub with tapes and Jaeger
-description: Use Bub's tape as a first observability surface, then export Logfire/OpenTelemetry traces to Jaeger.
+title: Observe Bub with tapes and Phoenix
+description: Use Bub's tape as a first observability surface, then export OpenTelemetry GenAI traces to Phoenix.
 sidebar:
   order: 1
 ---
@@ -8,9 +8,9 @@ sidebar:
 This tutorial gives you two observability paths for one Bub workspace:
 
 1. Run a small natural-language task, then ask Bub about the tape it just wrote. This works without a tracing backend because Bub records each session as an append-only tape.
-2. Send Logfire/OpenTelemetry telemetry to Jaeger while running the same kind of task. Use this when you want traces outside the local workspace.
+2. Send OpenTelemetry telemetry to Phoenix while running the same kind of task. Use this when you want GenAI traces outside the local workspace.
 
-By the end, you will have a quick local health check and a Jaeger view for process-level telemetry.
+By the end, you will have a quick local health check and a Phoenix trace view for agent, model, and tool activity.
 
 ## Before you begin
 
@@ -18,11 +18,16 @@ You need:
 
 - Bub installed and runnable with `uv run bub --help`.
 - One workspace where `uv run bub run "What tools do you have?"` can call your configured model.
-- Docker or Podman if you want to run Jaeger locally.
-- The Logfire extra installed before starting Bub with Jaeger:
+- Docker or Podman if you want to run Phoenix locally.
+- The Logfire extra installed before starting Bub with Phoenix:
 
 ```bash
 uv sync --extra logfire
+```
+- The `bub-tapestore-otel` contrib plugin installed for richer tape and agent spans:
+
+```bash
+bub install bub-tapestore-otel@main
 ```
 
 ## 1. Ask Bub for its current tape
@@ -77,33 +82,36 @@ uv run bub run "Inspect the current tape and summarize the last turn."
 
 That second command may call the model, so use it only after provider credentials are configured.
 
-## 3. Start Jaeger locally
+## 3. Start Phoenix locally
 
-Run Jaeger with OTLP HTTP ingestion enabled:
+Run Phoenix with OTLP HTTP ingestion enabled:
 
 ```bash
-docker run --rm --name bub-jaeger \
-  -p 16686:16686 \
-  -p 4318:4318 \
-  jaegertracing/all-in-one:latest
+docker run --rm --name bub-phoenix \
+  -p 6006:6006 \
+  arizephoenix/phoenix:latest
 ```
 
 Open the UI:
 
 ```text
-http://localhost:16686
+http://localhost:6006
 ```
 
-## 4. Run Bub with Logfire and OTLP
+## 4. Run Bub with contrib and OTLP
 
-Bub already supports Logfire during CLI startup when the `logfire` extra is installed. Logfire emits OpenTelemetry data, so you can use any observability backend that accepts OTLP. This tutorial uses Jaeger.
+Bub already supports Logfire during CLI startup when the `logfire` extra is installed. The `bub-tapestore-otel` contrib plugin adds GenAI-oriented spans from Bub's tape store, including `invoke_agent bub`, `bub.agent.step`, chat, and tool execution spans. This tutorial sends both to Phoenix through OTLP.
 
 In another terminal, run:
 
 ```bash
 LOGFIRE_SEND_TO_LOGFIRE=false \
 LOGFIRE_SERVICE_NAME=bub \
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces \
+BUB_TAPESTORE_OTEL_ENABLED=true \
+BUB_TAPESTORE_OTEL_SERVICE_NAME=bub \
+BUB_TAPESTORE_OTEL_AGENT_NAME=bub \
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces \
+OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf \
 uv run --extra logfire bub run "What tools do you have, and what small tasks are they useful for?"
 ```
 
@@ -112,35 +120,39 @@ Then run the local tape check with the same telemetry settings:
 ```bash
 LOGFIRE_SEND_TO_LOGFIRE=false \
 LOGFIRE_SERVICE_NAME=bub \
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces \
+BUB_TAPESTORE_OTEL_ENABLED=true \
+BUB_TAPESTORE_OTEL_SERVICE_NAME=bub \
+BUB_TAPESTORE_OTEL_AGENT_NAME=bub \
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces \
+OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf \
 uv run --extra logfire bub run ",tape.info"
 ```
 
-Use `LOGFIRE_SEND_TO_LOGFIRE=false` for local Jaeger tutorials so Bub does not try to send telemetry to the hosted Logfire backend. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` points Logfire's OpenTelemetry exporter at Jaeger's OTLP HTTP endpoint.
+Use `LOGFIRE_SEND_TO_LOGFIRE=false` for local Phoenix tutorials so Bub does not try to send telemetry to the hosted Logfire backend. `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` points OpenTelemetry exporters at Phoenix's OTLP HTTP endpoint.
 
-## 5. Inspect the trace in Jaeger
+## 5. Inspect the trace in Phoenix
 
-In Jaeger:
+In Phoenix:
 
-1. Select the `bub` service.
-2. Click **Find Traces**.
-3. Open the most recent trace and look for Loguru events such as tape merge messages.
+1. Open the default project.
+2. Open the most recent trace.
+3. Look for `invoke_agent bub`, `bub.agent.step`, `chat <model>`, and `execute_tool <tool>` spans.
 
-![A Jaeger screenshot showing Bub telemetry exported through Logfire and OTLP](/docs/observability/jaeger-logfire.png)
+![A Phoenix screenshot showing Bub GenAI telemetry exported through OTLP](/docs/observability/phoenix-otel.png)
 
 This path complements tape inspection:
 
 - Tape answers "what did this Bub session remember?"
-- Jaeger answers "what did this Bub process emit while it ran?"
+- Phoenix answers "how did this Bub agent turn run across model calls, tool calls, and tape updates?"
 
-Use both when debugging production behavior: start with `,tape.info` to understand the session state, then use Jaeger to inspect timing, errors, and process-level logs.
+Use both when debugging production behavior: start with `,tape.info` to understand the session state, then use Phoenix to inspect timing, errors, model calls, and tool calls.
 
 ## Clean up
 
-Stop Jaeger with `Ctrl+C` if it is running in the foreground. If it is detached, remove it:
+Stop Phoenix with `Ctrl+C` if it is running in the foreground. If it is detached, remove it:
 
 ```bash
-docker rm -f bub-jaeger
+docker rm -f bub-phoenix
 ```
 
 ## Next steps
