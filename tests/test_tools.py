@@ -160,7 +160,9 @@ def test_resolve_tool_names_accepts_runtime_names_and_model_aliases() -> None:
     def excluded_tool() -> str:
         return "excluded"
 
-    assert resolve_tool_names([" tests_resolve_alias ", " tests_with_underscore "], exclude={" tests_excluded_tool "}) == {
+    assert resolve_tool_names(
+        [" tests_resolve_alias ", " tests_with_underscore "], exclude={" tests_excluded_tool "}
+    ) == {
         dotted_name,
         underscored_name,
     }
