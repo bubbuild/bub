@@ -101,16 +101,22 @@ class ForkTapeStore:
     @contextlib.asynccontextmanager
     async def fork(self, tape: str, merge_back: bool = True) -> AsyncGenerator[None, None]:
         store = InMemoryTapeStore()
-        token = current_store.set(store)
-        tape_token = current_fork_tape.set(tape)
-        reset_token = current_tape_was_reset.set(False)
+        # Save/restore instead of ContextVar.reset(token) to avoid
+        # "Token was created in a different Context" when cleanup
+        # runs in a different asyncio Task (e.g. cancellation, TaskGroup).
+        prev_store = current_store.get(_empty_store)
+        prev_fork_tape = current_fork_tape.get()
+        prev_was_reset = current_tape_was_reset.get()
+        current_store.set(store)
+        current_fork_tape.set(tape)
+        current_tape_was_reset.set(False)
         try:
             yield
         finally:
             was_reset = current_tape_was_reset.get()
-            current_store.reset(token)
-            current_fork_tape.reset(tape_token)
-            current_tape_was_reset.reset(reset_token)
+            current_store.set(prev_store)
+            current_fork_tape.set(prev_fork_tape)
+            current_tape_was_reset.set(prev_was_reset)
             if merge_back:
                 if was_reset:
                     await self._parent.reset(tape)
