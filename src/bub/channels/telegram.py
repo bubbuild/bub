@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Any, ClassVar
 
 from loguru import logger
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic_settings import SettingsConfigDict
 from telegram import Bot, Message, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, filters
@@ -22,21 +22,73 @@ from bub.types import MessageHandler
 from bub.utils import exclude_none
 
 
+class BotConfig(BaseModel):
+    """Configuration for a single Telegram bot instance."""
+
+    name: str = Field(default="", description="Unique bot name used as channel name suffix.")
+    token: str = Field(..., description="Telegram bot token.")
+    allow_users: str | None = Field(default=None, description="Comma-separated allowed user IDs.")
+    allow_chats: str | None = Field(default=None, description="Comma-separated allowed chat IDs.")
+    proxy: str | None = Field(
+        default=None,
+        description="Optional proxy URL for connecting to Telegram API.",
+    )
+
+
 @config(name="telegram")
 class TelegramSettings(Settings):
     model_config = SettingsConfigDict(env_prefix="BUB_TELEGRAM_", extra="ignore", env_file=".env")
 
-    token: str = Field(default="", description="Telegram bot token.")
+    token: str = Field(default="", description="Telegram bot token (backward compat, single-bot mode).")
+    bots: str = Field(
+        default="",
+        description="JSON array of bot configs for multi-bot mode, e.g. '[{\"name\":\"personal\",\"token\":\"xxx\"}]'.",
+    )
     allow_users: str | None = Field(
-        default=None, description="Comma-separated list of allowed Telegram user IDs, or empty for no restriction."
+        default=None, description="Comma-separated list of allowed Telegram user IDs (single-bot mode)."
     )
     allow_chats: str | None = Field(
-        default=None, description="Comma-separated list of allowed Telegram chat IDs, or empty for no restriction."
+        default=None, description="Comma-separated list of allowed Telegram chat IDs (single-bot mode)."
     )
     proxy: str | None = Field(
         default=None,
-        description="Optional proxy URL for connecting to Telegram API, e.g. 'http://user:pass@host:port' or 'socks5://host:port'.",
+        description="Optional proxy URL for connecting to Telegram API (single-bot mode).",
     )
+
+    @staticmethod
+    def bot_configs() -> list[BotConfig]:
+        """Return the list of bot configurations, supporting both single and multi-bot modes."""
+        settings = ensure_config(TelegramSettings)
+        if settings.bots:
+            try:
+                import json as _json
+                raw = _json.loads(settings.bots)
+                if not isinstance(raw, list):
+                    logger.warning("telegram settings: BUB_TELEGRAM_BOTS is not a JSON array, falling back to single-bot")
+                    return TelegramSettings._single_bot_config(settings)
+                configs = [BotConfig(**item) for item in raw]
+                if not configs:
+                    return []
+                return configs
+            except Exception as exc:
+                logger.warning("telegram settings: failed to parse BUB_TELEGRAM_BOTS: %s", exc)
+                return TelegramSettings._single_bot_config(settings)
+        return TelegramSettings._single_bot_config(settings)
+
+    @staticmethod
+    def _single_bot_config(settings: TelegramSettings) -> list[BotConfig]:
+        """Build a single BotConfig from the legacy single-bot settings."""
+        if settings.token:
+            return [
+                BotConfig(
+                    name="",
+                    token=settings.token,
+                    allow_users=settings.allow_users,
+                    allow_chats=settings.allow_chats,
+                    proxy=settings.proxy,
+                )
+            ]
+        return []
 
 
 NO_ACCESS_MESSAGE = "You are not allowed to chat with me. Please deploy your own instance of Bub."
@@ -146,35 +198,39 @@ def _extract_media_items(metadata: dict[str, Any]) -> list[MediaItem]:
 
 
 class TelegramChannel(Channel):
-    name = "telegram"
     _app: Application
 
-    def __init__(self, on_receive: MessageHandler) -> None:
+    def __init__(self, on_receive: MessageHandler, bot_config: BotConfig) -> None:
         self._on_receive = on_receive
-        self._settings = ensure_config(TelegramSettings)
-        self._allow_users = {uid.strip() for uid in (self._settings.allow_users or "").split(",") if uid.strip()}
-        self._allow_chats = {cid.strip() for cid in (self._settings.allow_chats or "").split(",") if cid.strip()}
+        self._config = bot_config
+        self._allow_users = {uid.strip() for uid in (self._config.allow_users or "").split(",") if uid.strip()}
+        self._allow_chats = {cid.strip() for cid in (self._config.allow_chats or "").split(",") if cid.strip()}
         self._parser = TelegramMessageParser(bot_getter=lambda: self._app.bot)
         self._typing_tasks: dict[str, asyncio.Task] = {}
 
     @property
+    def name(self) -> str:
+        return f"telegram-{self._config.name}" if self._config.name else "telegram"
+
+    @property
     def enabled(self) -> bool:
-        return bool(self._settings.token)
+        return bool(self._config.token)
 
     @property
     def needs_debounce(self) -> bool:
         return True
 
     async def start(self, stop_event: asyncio.Event) -> None:
-        proxy = self._settings.proxy
+        proxy = self._config.proxy
         logger.info(
-            "telegram.start allow_users_count={} allow_chats_count={} proxy_enabled={}",
+            "telegram.start channel={} allow_users_count={} allow_chats_count={} proxy_enabled={}",
+            self.name,
             len(self._allow_users),
             len(self._allow_chats),
             bool(proxy),
         )
         get_updates_request = HTTPXRequest(read_timeout=30, proxy=proxy)
-        builder = Application.builder().token(self._settings.token).get_updates_request(get_updates_request)
+        builder = Application.builder().token(self._config.token).get_updates_request(get_updates_request)
         if proxy:
             builder = builder.proxy(proxy)
         self._app = builder.build()
@@ -187,6 +243,7 @@ class TelegramChannel(Channel):
         if updater is None:
             return
         await updater.start_polling(drop_pending_updates=True, allowed_updates=["message"])
+        logger.info("telegram.start polling channel={}", self.name)
         logger.info("telegram.start polling")
 
     async def stop(self) -> None:
@@ -201,7 +258,7 @@ class TelegramChannel(Channel):
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         self._typing_tasks.clear()
-        logger.info("telegram.stopped")
+        logger.info("telegram.stopped channel={}", self.name)
 
     async def send(self, message: ChannelMessage) -> None:
         chat_id = message.chat_id

@@ -10,7 +10,7 @@ import pytest
 
 from bub.builtin.hook_impl import BuiltinImpl
 from bub.channels.message import ChannelMessage, MediaItem
-from bub.channels.telegram import TelegramChannel, _extract_media_items
+from bub.channels.telegram import BotConfig, TelegramChannel, _extract_media_items
 from bub.framework import BubFramework
 
 # ---------------------------------------------------------------------------
@@ -186,7 +186,7 @@ async def _receive_message(_message) -> None:
 @pytest.mark.asyncio
 async def test_telegram_build_message_extracts_media_items(monkeypatch: pytest.MonkeyPatch, load_config) -> None:
     load_config("telegram:\n  token: test-token")
-    channel = TelegramChannel(_receive_message)
+    channel = TelegramChannel(_receive_message, bot_config=BotConfig(token="test_token"))
     photo_metadata = {
         "type": "photo",
         "sender_id": "7",
@@ -213,7 +213,7 @@ async def test_telegram_build_message_extracts_media_items(monkeypatch: pytest.M
 @pytest.mark.asyncio
 async def test_telegram_build_message_no_media_for_text(monkeypatch: pytest.MonkeyPatch, load_config) -> None:
     load_config("telegram:\n  token: test-token")
-    channel = TelegramChannel(_receive_message)
+    channel = TelegramChannel(_receive_message, bot_config=BotConfig(token="test_token"))
     channel._parser = SimpleNamespace(  # type: ignore[assignment]
         parse=_async_return(("hello", {"type": "text", "sender_id": "7"})),
         get_reply=_async_return(None),
