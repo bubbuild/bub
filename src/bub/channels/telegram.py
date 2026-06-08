@@ -128,6 +128,8 @@ _MSG_TYPE_TO_MEDIA_TYPE: dict[str, MediaType] = {
     "document": "document",
 }
 
+_MAX_REPLY_CONTEXT_CHARS = 1000
+
 
 def _extract_media_items(metadata: dict[str, Any]) -> list[MediaItem]:
     """Extract MediaItem from parsed metadata, removing data_url from it."""
@@ -143,6 +145,14 @@ def _extract_media_items(metadata: dict[str, Any]) -> list[MediaItem]:
     return [
         MediaItem(type=media_type, data_fetcher=data_fetcher, mime_type=mime_type, filename=media_dict.get("file_name"))
     ]
+
+
+def _truncate_reply_content(content: str, *, max_chars: int = _MAX_REPLY_CONTEXT_CHARS) -> str:
+    """Keep quoted Telegram replies small enough for agent prompts."""
+    if len(content) <= max_chars:
+        return content
+    omitted = len(content) - max_chars
+    return f"{content[:max_chars]}… [truncated {omitted} chars]"
 
 
 class TelegramChannel(Channel):
@@ -324,7 +334,8 @@ class TelegramMessageParser:
         if reply_to is None or reply_to.from_user is None:
             return None
         content, metadata = await self.parse(reply_to)
-        return {"message": content, **metadata}
+        metadata.pop("media", None)
+        return {"message": _truncate_reply_content(content), **metadata}
 
     @staticmethod
     def _extract_links(message: Message) -> list[str] | None:
