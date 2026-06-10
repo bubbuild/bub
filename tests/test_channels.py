@@ -774,7 +774,9 @@ async def test_telegram_channel_start_with_proxy_does_not_call_get_updates_proxy
     fake_builder = _FakeTelegramBuilder()
     monkeypatch.setattr("bub.channels.telegram.Application.builder", lambda: fake_builder)
 
-    channel = TelegramChannel(lambda message: None, bot_config=BotConfig(token="test_token", proxy="http://127.0.0.1:1087"))
+    channel = TelegramChannel(
+        lambda message: None, bot_config=BotConfig(token="test_token", proxy="http://127.0.0.1:1087")
+    )
     await channel.start(asyncio.Event())
 
     assert fake_builder.proxy_value == "http://127.0.0.1:1087"

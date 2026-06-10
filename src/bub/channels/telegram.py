@@ -42,7 +42,7 @@ class TelegramSettings(Settings):
     token: str = Field(default="", description="Telegram bot token (backward compat, single-bot mode).")
     bots: str = Field(
         default="",
-        description="JSON array of bot configs for multi-bot mode, e.g. '[{\"name\":\"personal\",\"token\":\"xxx\"}]'.",
+        description='JSON array of bot configs for multi-bot mode, e.g. \'[{"name":"personal","token":"xxx"}]\'.',
     )
     allow_users: str | None = Field(
         default=None, description="Comma-separated list of allowed Telegram user IDs (single-bot mode)."
@@ -62,9 +62,12 @@ class TelegramSettings(Settings):
         if settings.bots:
             try:
                 import json as _json
+
                 raw = _json.loads(settings.bots)
                 if not isinstance(raw, list):
-                    logger.warning("telegram settings: BUB_TELEGRAM_BOTS is not a JSON array, falling back to single-bot")
+                    logger.warning(
+                        "telegram settings: BUB_TELEGRAM_BOTS is not a JSON array, falling back to single-bot"
+                    )
                     return TelegramSettings._single_bot_config(settings)
                 configs = [BotConfig(**item) for item in raw]
                 if not configs:
