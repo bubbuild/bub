@@ -69,7 +69,7 @@ class TelegramSettings(Settings):
                 configs = [BotConfig(**item) for item in raw]
                 if not configs:
                     return []
-                return configs
+                return configs  # noqa: TRY300
             except Exception as exc:
                 logger.warning("telegram settings: failed to parse BUB_TELEGRAM_BOTS: %s", exc)
                 return TelegramSettings._single_bot_config(settings)
@@ -203,14 +203,15 @@ class TelegramChannel(Channel):
     def __init__(self, on_receive: MessageHandler, bot_config: BotConfig) -> None:
         self._on_receive = on_receive
         self._config = bot_config
+        self._channel_name = f"telegram-{self._config.name}" if self._config.name else "telegram"
         self._allow_users = {uid.strip() for uid in (self._config.allow_users or "").split(",") if uid.strip()}
         self._allow_chats = {cid.strip() for cid in (self._config.allow_chats or "").split(",") if cid.strip()}
         self._parser = TelegramMessageParser(bot_getter=lambda: self._app.bot)
         self._typing_tasks: dict[str, asyncio.Task] = {}
 
     @property
-    def name(self) -> str:
-        return f"telegram-{self._config.name}" if self._config.name else "telegram"
+    def name(self) -> str:  # type: ignore[override]
+        return self._channel_name
 
     @property
     def enabled(self) -> bool:

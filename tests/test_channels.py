@@ -15,7 +15,7 @@ from bub.channels.cli.renderer import CliRenderer
 from bub.channels.handler import BufferedMessageHandler
 from bub.channels.manager import ChannelManager
 from bub.channels.message import ChannelMessage
-from bub.channels.telegram import BubMessageFilter, BotConfig, TelegramChannel, TelegramMessageParser
+from bub.channels.telegram import BotConfig, BubMessageFilter, TelegramChannel, TelegramMessageParser
 from bub.turn_admission import AdmitDecision, SessionTurnController, SteeringBuffer
 
 
