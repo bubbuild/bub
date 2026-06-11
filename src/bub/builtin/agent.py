@@ -31,9 +31,6 @@ from bub.tools import (
     Tool,
     ToolContext,
     ToolExecutor,
-    model_tools,
-    render_tools_prompt,
-    resolve_tool_names,
 )
 from bub.types import State
 from bub.utils import workspace_from_state
@@ -527,6 +524,8 @@ class Agent:
     ) -> AsyncStreamEvents | _ToolAutoResult:
         prompt_text = prompt if isinstance(prompt, str) else _extract_text_from_parts(prompt)
         if allowed_tools is not None:
+            from bub.builtin.tools import resolve_tool_names
+
             allowed_tools = resolve_tool_names(allowed_tools)
         if allowed_skills is not None:
             allowed_skills = {name.casefold() for name in allowed_skills}
@@ -624,6 +623,8 @@ class Agent:
             messages = [{"role": "system", "content": system_prompt}, *messages]
         messages.append(prompt_message)
 
+        from bub.builtin.tools import model_tools
+
         model_tools_for_call = model_tools(tools)
         async with asyncio.timeout(self.settings.model_timeout_seconds):
             response = await self._completion(
@@ -670,11 +671,7 @@ class Agent:
         api_base = (
             self.settings.api_base.get(provider) if isinstance(self.settings.api_base, dict) else self.settings.api_base
         )
-        schemas = completion_tool_schemas(tools)
-        completion_tools: list[dict[str, Any] | Callable[..., Any]] | None = None
-        if schemas:
-            completion_tools = []
-            completion_tools.extend(schemas)
+        completion_tools = completion_tool_schemas(tools) or None
         completion_messages: list[dict[str, Any] | ChatCompletionMessage] = list(messages)
         completion_response = await acompletion(
             model=model,
@@ -692,6 +689,8 @@ class Agent:
     def _system_prompt(
         self, prompt: str, state: State, allowed_skills: set[str] | None = None, tools: Iterable[Tool] | None = None
     ) -> str:
+        from bub.builtin.tools import render_tools_prompt
+
         blocks: list[str] = []
         if result := self.framework.get_system_prompt(prompt=prompt, state=state):
             blocks.append(result)

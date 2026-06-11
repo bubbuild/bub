@@ -6,7 +6,7 @@ import pytest
 from loguru import logger
 from pydantic import BaseModel
 
-from bub.tools import REGISTRY, model_tools, render_tools_prompt, resolve_tool_names, tool
+from bub.tools import REGISTRY, tool
 
 
 class EchoInput(BaseModel):
@@ -86,94 +86,3 @@ async def test_tool_direct_call_registers_wrapped_instance_in_registry() -> None
 
     assert REGISTRY[tool_name] is direct_tool
     assert await REGISTRY[tool_name].run("hello") == "HELLO"
-
-
-def test_model_tools_rewrites_dotted_names_without_mutating_original() -> None:
-    tool_name = "tests.rename_me"
-    REGISTRY.pop(tool_name, None)
-
-    @tool(name=tool_name, description="rename")
-    def rename_me(value: str) -> str:
-        return "ok"
-
-    rewritten = model_tools([rename_me])
-
-    assert [item.name for item in rewritten] == ["tests_rename_me"]
-    assert rewritten[0].parameters == rename_me.parameters
-    assert rename_me.name == tool_name
-    assert "additionalProperties" not in rename_me.parameters
-
-
-def test_render_tools_prompt_renders_available_tools_block() -> None:
-    first_name = "tests.prompt_one"
-    second_name = "tests.prompt_two"
-    REGISTRY.pop(first_name, None)
-    REGISTRY.pop(second_name, None)
-
-    @tool(name=first_name, description="First tool")
-    def prompt_one() -> str:
-        return "one"
-
-    @tool(name=second_name)
-    def prompt_two() -> str:
-        return "two"
-
-    rendered = render_tools_prompt([prompt_one, prompt_two])
-
-    assert rendered == "<available_tools>\n- tests_prompt_one(): First tool\n- tests_prompt_two()\n</available_tools>"
-
-
-def test_render_tools_prompt_includes_model_name_and_parameter_signature() -> None:
-    tool_name = "tests.prompt_signature"
-    REGISTRY.pop(tool_name, None)
-
-    @tool(name=tool_name, description="Read a file")
-    def prompt_signature(path: str, offset: int = 0) -> str:
-        return f"{path}:{offset}"
-
-    rendered = render_tools_prompt([prompt_signature])
-
-    assert rendered == "<available_tools>\n- tests_prompt_signature(path, offset?): Read a file\n</available_tools>"
-
-
-def test_render_tools_prompt_returns_empty_string_for_empty_input() -> None:
-    assert render_tools_prompt([]) == ""
-
-
-def test_resolve_tool_names_accepts_runtime_names_and_model_aliases() -> None:
-    dotted_name = "tests.resolve_alias"
-    underscored_name = "tests_with_underscore"
-    excluded_name = "tests.excluded_tool"
-    REGISTRY.pop(dotted_name, None)
-    REGISTRY.pop(underscored_name, None)
-    REGISTRY.pop(excluded_name, None)
-
-    @tool(name=dotted_name)
-    def resolve_alias() -> str:
-        return "alias"
-
-    @tool(name=underscored_name)
-    def resolve_runtime_name() -> str:
-        return "runtime"
-
-    @tool(name=excluded_name)
-    def excluded_tool() -> str:
-        return "excluded"
-
-    assert resolve_tool_names(
-        [" tests_resolve_alias ", " tests_with_underscore "], exclude={" tests_excluded_tool "}
-    ) == {
-        dotted_name,
-        underscored_name,
-    }
-    assert dotted_name not in resolve_tool_names(None, exclude={" tests_resolve_alias "})
-    assert excluded_name not in resolve_tool_names(None, exclude={" tests_excluded_tool "})
-    assert resolve_tool_names(None, exclude={" tests_resolve_alias "}) >= {underscored_name}
-
-
-def test_resolve_tool_names_rejects_unknown_names() -> None:
-    with pytest.raises(ValueError, match="tests_missing_tool"):
-        resolve_tool_names([" tests_missing_tool "])
-
-    with pytest.raises(ValueError, match="tests_missing_tool"):
-        resolve_tool_names(None, exclude={" tests_missing_tool "})

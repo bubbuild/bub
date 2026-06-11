@@ -4,6 +4,7 @@ import asyncio
 import json
 import uuid
 from collections.abc import Iterable
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -12,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
-from bub.tools import Tool, ToolContext, resolve_tool_names, tool
+from bub.tools import REGISTRY, Tool, ToolContext, tool
 
 if TYPE_CHECKING:
     from bub.builtin.agent import Agent
@@ -24,9 +25,87 @@ DEFAULT_HEADERS = {"accept": "text/markdown"}
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 10
 
 
-def completion_tool_schemas(tools: Iterable[Tool]) -> list[dict[str, Any]]:
+def _to_model_name(name: str) -> str:
+    return name.replace(".", "_")
+
+
+def _tool_name_index() -> dict[str, str]:
+    real_names = {tool_name.casefold(): tool_name for tool_name in REGISTRY}
+    alias_names = {_to_model_name(tool_name).casefold(): tool_name for tool_name in REGISTRY}
+    return {**alias_names, **real_names}
+
+
+def resolve_tool_name(name: str) -> str | None:
+    """Resolve a user/model-provided tool name to the runtime registry name."""
+    key = name.strip().casefold()
+    if not key:
+        return None
+    return _tool_name_index().get(key)
+
+
+def _resolve_explicit_tool_names(names: Iterable[str]) -> tuple[set[str], set[str]]:
+    resolved: set[str] = set()
+    unknown: set[str] = set()
+    for name in names:
+        normalized_name = name.strip()
+        if resolved_name := resolve_tool_name(normalized_name):
+            resolved.add(resolved_name)
+        else:
+            unknown.add(normalized_name)
+    return resolved, unknown
+
+
+def _raise_unknown_tool_names(names: set[str]) -> None:
+    formatted = ", ".join(sorted(repr(name) for name in names))
+    raise ValueError(f"unknown tool name(s): {formatted}")
+
+
+def resolve_tool_names(names: Iterable[str] | None = None, *, exclude: Iterable[str] = ()) -> set[str]:
+    """Resolve tool names from either runtime names or model-facing aliases."""
+    excluded, unknown_excluded = _resolve_explicit_tool_names(exclude)
+    if unknown_excluded:
+        _raise_unknown_tool_names(unknown_excluded)
+    if names is None:
+        return set(REGISTRY) - excluded
+
+    resolved, unknown = _resolve_explicit_tool_names(names)
+    if unknown:
+        _raise_unknown_tool_names(unknown)
+    return resolved - excluded
+
+
+def model_tools(tools: Iterable[Tool]) -> list[Tool]:
+    """Convert runtime tool names into model-safe aliases."""
+    return [replace(tool_item, name=_to_model_name(tool_item.name)) for tool_item in tools]
+
+
+def _tool_signature(tool_item: Tool) -> str:
+    properties = tool_item.parameters.get("properties", {})
+    if not isinstance(properties, dict) or not properties:
+        return f"{_to_model_name(tool_item.name)}()"
+
+    required = tool_item.parameters.get("required", [])
+    required_names = set(required) if isinstance(required, list) else set()
+    params = [name if name in required_names else f"{name}?" for name in properties]
+    return f"{_to_model_name(tool_item.name)}({', '.join(params)})"
+
+
+def render_tools_prompt(tools: Iterable[Tool]) -> str:
+    """Render a human-readable description of tools for builtin agent prompts."""
+    if not tools:
+        return ""
+    lines = []
+    for tool_item in tools:
+        line = f"- {_tool_signature(tool_item)}"
+        if tool_item.description:
+            line += f": {tool_item.description}"
+        lines.append(line)
+    return f"<available_tools>\n{'\n'.join(lines)}\n</available_tools>"
+
+
+def completion_tool_schemas(tools: Iterable[Tool]) -> list[Any]:
     """Build any-llm completion tool payloads from Bub tools."""
-    payloads: list[Any] = [
+    return prepare_tools([
         {
             "type": "function",
             "function": {
@@ -36,14 +115,7 @@ def completion_tool_schemas(tools: Iterable[Tool]) -> list[dict[str, Any]]:
             },
         }
         for tool_item in tools
-    ]
-
-    schemas: list[dict[str, Any]] = []
-    for item in prepare_tools(payloads):
-        if not isinstance(item, dict):
-            raise TypeError(f"Expected any-llm tool schema dict, got {type(item)}")
-        schemas.append(item)
-    return schemas
+    ])
 
 
 def _raise_for_failed_shell(returncode: int | None, output: str) -> None:
