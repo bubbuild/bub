@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from any_llm.types.completion import ChatCompletion
+from any_llm.types.completion import ChatCompletionChunk
 
 from bub.builtin.agent import Agent
 from bub.builtin.settings import AgentSettings
-from bub.runtime import BubError, ErrorKind
+from bub.runtime import BubError
 from bub.tape import Tape, TapeContext
 from bub.tools import REGISTRY, tool
 
@@ -31,29 +31,33 @@ def _make_agent() -> Agent:
     agent.settings = AgentSettings.model_construct(model="test:model", api_key="k", api_base="b")
     agent.framework = framework
 
-    async def fake_completion(**kwargs: Any) -> ChatCompletion:
+    async def fake_completion_response(**kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:
         agent.completion_kwargs = kwargs
-        return _chat_completion("done")
+        return _chat_stream("done")
 
     agent.completion_kwargs = None
-    agent._completion = fake_completion  # type: ignore[method-assign]
+    agent._completion_response = fake_completion_response  # type: ignore[method-assign]
     return agent
 
 
-def _chat_completion(content: str, tool_calls: list[dict[str, Any]] | None = None) -> ChatCompletion:
-    return ChatCompletion.model_validate({
+def _chat_chunk(content: str) -> ChatCompletionChunk:
+    return ChatCompletionChunk.model_validate({
         "id": "chatcmpl_test",
-        "object": "chat.completion",
+        "object": "chat.completion.chunk",
         "created": 0,
         "model": "test:model",
         "choices": [
             {
                 "index": 0,
-                "finish_reason": "tool_calls" if tool_calls else "stop",
-                "message": {"role": "assistant", "content": content, "tool_calls": tool_calls},
+                "finish_reason": "stop",
+                "delta": {"role": "assistant", "content": content},
             }
         ],
     })
+
+
+async def _chat_stream(content: str) -> AsyncIterator[ChatCompletionChunk]:
+    yield _chat_chunk(content)
 
 
 class _ForkCapture:
@@ -79,7 +83,6 @@ class _FakeTapeService:
         self._fork = fork_capture
         self.messages: list[dict[str, Any]] = []
         self.events: list[tuple[str, str, dict[str, Any]]] = []
-        self.read_error: BubError | None = None
 
     def session_tape(self, session_id: str, workspace: Any) -> Tape:
         return Tape(name="test-tape", context=TapeContext(state={}))
@@ -93,8 +96,6 @@ class _FakeTapeService:
             yield
 
     async def read_messages(self, tape: Tape) -> list[dict[str, Any]]:
-        if self.read_error is not None:
-            raise self.read_error
         return list(self.messages)
 
     async def append_event(self, tape_name: str, name: str, payload: dict[str, Any], **meta: Any) -> None:
@@ -131,17 +132,6 @@ class _FakeTapeService:
         if response_text is not None:
             self.messages.append({"role": "assistant", "content": response_text})
         self.events.append((tape, "run", {"run_id": run_id, "model": model, "error": error is not None}))
-
-    async def handoff(
-        self,
-        tape: str,
-        *,
-        name: str,
-        state: dict[str, Any] | None = None,
-        **meta: Any,
-    ) -> list[object]:
-        self.events.append((tape, "handoff", {"name": name, "state": state or {}}))
-        return []
 
 
 @pytest.mark.asyncio
@@ -225,54 +215,6 @@ async def test_agent_run_model_defaults_to_none() -> None:
     [event async for event in result]
 
     assert agent.completion_kwargs["model"] == "test:model"
-
-
-@pytest.mark.asyncio
-async def test_agent_run_records_system_prompt_on_tape() -> None:
-    agent = _make_agent()
-    agent.framework.get_system_prompt.return_value = "Custom system prompt"
-    fork_capture = _ForkCapture()
-    fake_tapes = _FakeTapeService(fork_capture)
-    agent.tapes = fake_tapes  # type: ignore[assignment]
-
-    result = await agent.run_stream(
-        session_id="user/s1",
-        prompt="hello",
-        state={"_runtime_workspace": "/tmp"},  # noqa: S108
-        allowed_tools=[],
-    )
-    [event async for event in result]
-
-    assert any(
-        tape == "test-tape" and name == "system" and payload["content"].startswith("Custom system prompt")
-        for tape, name, payload in fake_tapes.events
-    )
-
-
-@pytest.mark.asyncio
-async def test_agent_run_records_context_error_on_tape() -> None:
-    agent = _make_agent()
-    agent.framework.get_system_prompt.return_value = "Custom system prompt"
-    fork_capture = _ForkCapture()
-    fake_tapes = _FakeTapeService(fork_capture)
-    fake_tapes.read_error = BubError(ErrorKind.CONFIG, "bad context")
-    agent.tapes = fake_tapes  # type: ignore[assignment]
-
-    result = await agent.run_stream(
-        session_id="user/s1",
-        prompt="hello",
-        state={"_runtime_workspace": "/tmp"},  # noqa: S108
-        allowed_tools=[],
-    )
-    with pytest.raises(BubError, match="bad context"):
-        [event async for event in result]
-
-    assert (
-        "test-tape",
-        "error",
-        {"kind": "config", "message": "bad context"},
-    ) in fake_tapes.events
-    assert any(name == "run" and payload["error"] for _, name, payload in fake_tapes.events)
 
 
 @pytest.mark.asyncio

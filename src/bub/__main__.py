@@ -21,8 +21,8 @@ def _instrument_bub() -> None:
 
         logfire.configure()
         logger.add(LogfireHandler(), format="{message}")
-    except ImportError:
-        pass
+    except Exception as exc:
+        logger.debug("logfire instrumentation disabled: {}", exc)
 
 
 def create_cli_app() -> typer.Typer:

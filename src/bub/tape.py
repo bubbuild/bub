@@ -372,4 +372,3 @@ class UnavailableTapeStore:
 
     def append(self, tape: str, entry: TapeEntry) -> None:
         self._raise()
-

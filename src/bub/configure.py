@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -65,8 +66,31 @@ def validate(config_data: dict[str, Any]) -> dict[str, Any]:
     for section, config_classes in CONFIG_MAP.items():
         section_data = config_data if section == ROOT else config_data.get(section, {})
         for config_cls in config_classes:
-            config_cls.model_validate(section_data)
+            _validation_config(config_cls)(**section_data)
     return config_data
+
+
+@cache
+def _validation_config(config_cls: type[BaseSettings]) -> type[BaseSettings]:
+    def settings_customise_sources(
+        cls: type[BaseSettings],
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        del cls, settings_cls, env_settings, dotenv_settings, file_secret_settings
+        return (init_settings,)
+
+    return type(
+        f"{config_cls.__name__}Validation",
+        (config_cls,),
+        {
+            "__module__": config_cls.__module__,
+            "settings_customise_sources": classmethod(settings_customise_sources),
+        },
+    )
 
 
 def save(config_file: Path, config_data: dict[str, Any]) -> None:
