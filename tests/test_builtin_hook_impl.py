@@ -6,12 +6,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from republic import AsyncStreamEvents, StreamEvent
 
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.builtin.store import FileTapeStore
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
+from bub.runtime import AsyncStreamEvents, StreamEvent
 
 
 class RecordingLifespan:

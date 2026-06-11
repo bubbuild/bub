@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
-from republic import ToolContext
 
 import bub.builtin.tools as builtin_tools
 from bub.builtin.tools import tape_search
+from bub.tools import ToolContext
 
 
 @dataclass(frozen=True)
@@ -18,10 +18,26 @@ class _FakeEntry:
 class _FakeTapes:
     def __init__(self, entries: list[_FakeEntry]) -> None:
         self._entries = entries
-        self._store = object()
+
+    def query(self, _tape: str) -> _FakeQuery:
+        return _FakeQuery()
 
     async def search(self, _query: object) -> list[_FakeEntry]:
         return list(self._entries)
+
+
+class _FakeQuery:
+    def query(self, _value: str) -> _FakeQuery:
+        return self
+
+    def kinds(self, *_kinds: str) -> _FakeQuery:
+        return self
+
+    def limit(self, _value: int) -> _FakeQuery:
+        return self
+
+    def between_dates(self, _start: str, _end: str) -> _FakeQuery:
+        return self
 
 
 class _FakeAgent:

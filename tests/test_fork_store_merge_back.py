@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from republic import TapeEntry, TapeQuery
-from republic.tape import InMemoryTapeStore
 
 from bub.builtin.store import ForkTapeStore
+from bub.tape import InMemoryTapeStore, TapeEntry, TapeQuery
 
 
 @pytest.mark.asyncio

@@ -5,8 +5,6 @@ from typing import cast
 
 import typer
 from loguru import logger
-from republic import AsyncStreamEvents, TapeContext
-from republic.tape import TapeStore
 
 from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
@@ -17,6 +15,8 @@ from bub.channels.message import ChannelMessage, MediaItem
 from bub.envelope import content_of, field_of
 from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
+from bub.runtime import AsyncStreamEvents
+from bub.tape import TapeContext, TapeStore
 from bub.types import Envelope, MessageHandler, State
 
 AGENTS_FILE_NAME = "AGENTS.md"
@@ -32,7 +32,6 @@ MODEL_PROVIDER_CHOICES: tuple[str, ...] = (
     "mistral",
     "deepseek",
 )
-API_FORMAT_CHOICES: tuple[str, ...] = ("completion", "responses", "messages")
 DEFAULT_SYSTEM_PROMPT = """\
 <general_instruct>
 Call tools or skills to finish the task.
@@ -171,7 +170,6 @@ class BuiltinImpl:
         app.command("run")(cli.run)
         app.command("chat")(cli.chat)
         app.command("onboard")(cli.onboard)
-        app.add_typer(cli.login_app)
         app.command("hooks", hidden=True)(cli.list_hooks)
         app.command("gateway")(cli.gateway)
         app.command("install")(cli.install)
@@ -203,14 +201,6 @@ class BuiltinImpl:
         api_base_default = str(current_api_base) if isinstance(current_api_base, str) else ""
         api_base = bub_inquirer.ask_text("API base (optional)", default=api_base_default)
 
-        current_api_format = current_config.get("api_format")
-        api_format_default = (
-            str(current_api_format)
-            if isinstance(current_api_format, str) and current_api_format in API_FORMAT_CHOICES
-            else API_FORMAT_CHOICES[0]
-        )
-        api_format = bub_inquirer.ask_select("API format", choices=list(API_FORMAT_CHOICES), default=api_format_default)
-
         available_channels = self._channel_choices()
         default_channels = self._default_enabled_channels(current_config.get("enabled_channels"), available_channels)
         enabled_channels = bub_inquirer.ask_checkbox(
@@ -223,7 +213,6 @@ class BuiltinImpl:
         stream_output = bub_inquirer.ask_confirm("Stream output", default=bool(current_config.get("stream_output")))
         config: dict[str, object] = {
             "model": model,
-            "api_format": api_format,
             "enabled_channels": ",".join(enabled_channels),
             "stream_output": stream_output,
         }

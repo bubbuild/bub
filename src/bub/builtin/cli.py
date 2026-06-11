@@ -17,7 +17,6 @@ from urllib.request import url2pathname
 import typer
 
 from bub import __version__, configure
-from bub.builtin.auth import app as login_app  # noqa: F401
 from bub.channels.message import ChannelMessage
 from bub.envelope import field_of
 from bub.framework import BubFramework

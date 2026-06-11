@@ -4,7 +4,7 @@ import os
 import pathlib
 import re
 from collections.abc import Callable
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
@@ -40,7 +40,6 @@ class AgentSettings(Settings):
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = Field(default_factory=provider_specific("api_key"))
     api_base: str | dict[str, str] | None = Field(default_factory=provider_specific("api_base"))
-    api_format: Literal["completion", "responses", "messages"] = "completion"
     max_steps: int = 50
     max_tokens: int = DEFAULT_MAX_TOKENS
     model_timeout_seconds: int | None = None

@@ -7,13 +7,12 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-from republic import ToolContext
-from republic.core.errors import ErrorKind
-from republic.tools.executor import ToolExecutor
 
 import bub.builtin.tools as builtin_tools
 from bub.builtin.shell_manager import ShellManager
-from bub.builtin.tools import bash, bash_output, kill_bash, quit_tool
+from bub.builtin.tools import bash, bash_output, completion_tool_schemas, kill_bash, quit_tool
+from bub.runtime import ErrorKind
+from bub.tools import Tool, ToolContext, ToolExecutor
 
 
 def _tool_context(tmp_path, **state) -> ToolContext:
@@ -22,6 +21,31 @@ def _tool_context(tmp_path, **state) -> ToolContext:
 
 def _python_shell(code: str) -> str:
     return f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
+
+
+def test_completion_tool_schemas_prepare_any_llm_payload() -> None:
+    parameters = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    sample_tool = Tool(
+        name="tests_sample_tool",
+        description="Sample tool",
+        parameters=parameters,
+        handler=lambda value: value,
+    )
+
+    assert completion_tool_schemas([sample_tool]) == [
+        {
+            "type": "function",
+            "function": {
+                "name": "tests_sample_tool",
+                "description": "Sample tool",
+                "parameters": parameters,
+            },
+        }
+    ]
 
 
 @pytest.mark.asyncio

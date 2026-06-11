@@ -3,8 +3,7 @@ from collections.abc import Coroutine
 from pathlib import Path
 from typing import Any
 
-from republic import TapeEntry
-
+from bub.tape import TapeEntry
 from bub.types import State
 
 

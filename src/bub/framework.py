@@ -6,20 +6,19 @@ import contextlib
 from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import pluggy
 import typer
 from dotenv import load_dotenv
 from loguru import logger
-from republic import AsyncTapeStore, RepublicError, TapeContext
-from republic.core.errors import ErrorKind
-from republic.tape import TapeStore
 
 from bub import configure
 from bub.envelope import content_of, field_of, unpack_batch
 from bub.hook_runtime import _SKIP_VALUE, HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs
+from bub.runtime import BubError, ErrorKind
+from bub.tape import AsyncTapeStore, TapeContext, TapeStore
 from bub.turn_admission import AdmitDecision, SteeringBuffer, TurnSnapshot
 from bub.types import Envelope, MessageHandler, OutboundChannelRouter, TurnResult
 
@@ -180,20 +179,17 @@ class BubFramework:
             return prompt if isinstance(prompt, str) else content_of(inbound)
         else:
             parts: list[str] = []
-            if self._outbound_router is not None:
-                stream = self._outbound_router.wrap_stream(inbound, stream)
-            async for event in stream:
+            events = self._outbound_router.wrap_stream(inbound, stream) if self._outbound_router is not None else stream
+            async for event in events:
                 if event.kind == "text":
                     parts.append(str(event.data.get("delta", "")))
                 elif event.kind == "error":
-                    # Turn "kind" to enum type otherwise the RepublicError's __str__ won't work well
+                    # Turn "kind" to enum type otherwise BubError's __str__ won't work well.
                     data = {
                         **event.data,
                         "kind": ErrorKind(event.data.get("kind", "unknown")),
                     }
-                    await self._hook_runtime.notify_error(
-                        stage="run_model", error=RepublicError(**data), message=inbound
-                    )
+                    await self._hook_runtime.notify_error(stage="run_model", error=BubError(**data), message=inbound)
             return "".join(parts)
 
     def hook_report(self) -> dict[str, list[str]]:
@@ -214,15 +210,15 @@ class BubFramework:
             await self._outbound_router.quit(session_id)
 
     async def admit_message(self, *, session_id: str, message: Envelope, turn: TurnSnapshot) -> AdmitDecision | None:
-        return cast(
-            "AdmitDecision | None",
-            await self._hook_runtime.call_first(
-                "admit_message",
-                session_id=session_id,
-                message=message,
-                turn=turn,
-            ),
+        decision = await self._hook_runtime.call_first(
+            "admit_message",
+            session_id=session_id,
+            message=message,
+            turn=turn,
         )
+        if decision is None or isinstance(decision, AdmitDecision):
+            return decision
+        raise TypeError("hook.admit_message must return AdmitDecision or None")
 
     def steering(self, session_id: str) -> SteeringBuffer:
         buffer = self._steering_buffers.get(session_id)
@@ -310,7 +306,10 @@ class BubFramework:
         )
 
     def build_tape_context(self) -> TapeContext:
-        return self._hook_runtime.call_first_sync("build_tape_context")
+        context = self._hook_runtime.call_first_sync("build_tape_context")
+        if isinstance(context, TapeContext):
+            return context
+        raise TypeError("hook.build_tape_context must return TapeContext")
 
     def collect_onboard_config(self) -> dict[str, Any]:
         current_config: dict[str, Any] = {}

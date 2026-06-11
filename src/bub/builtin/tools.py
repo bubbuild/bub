@@ -3,15 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
+from any_llm.tools import prepare_tools
 from pydantic import BaseModel, Field
-from republic import AsyncTapeStore, TapeQuery, ToolContext
 
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
-from bub.tools import resolve_tool_names, tool
+from bub.tools import Tool, ToolContext, resolve_tool_names, tool
 
 if TYPE_CHECKING:
     from bub.builtin.agent import Agent
@@ -21,6 +22,28 @@ type EntryKind = Literal["event", "anchor", "system", "message", "tool_call", "t
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 30
 DEFAULT_HEADERS = {"accept": "text/markdown"}
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 10
+
+
+def completion_tool_schemas(tools: Iterable[Tool]) -> list[dict[str, Any]]:
+    """Build any-llm completion tool payloads from Bub tools."""
+    payloads: list[Any] = [
+        {
+            "type": "function",
+            "function": {
+                "name": tool_item.name,
+                "description": tool_item.description,
+                "parameters": tool_item.parameters,
+            },
+        }
+        for tool_item in tools
+    ]
+
+    schemas: list[dict[str, Any]] = []
+    for item in prepare_tools(payloads):
+        if not isinstance(item, dict):
+            raise TypeError(f"Expected any-llm tool schema dict, got {type(item)}")
+        schemas.append(item)
+    return schemas
 
 
 def _raise_for_failed_shell(returncode: int | None, output: str) -> None:
@@ -195,12 +218,7 @@ async def tape_info(context: ToolContext) -> str:
 async def tape_search(param: SearchInput, *, context: ToolContext) -> str:
     """Search for entries in the current tape that match the query. Returns a list of matching entries."""
     agent = _get_agent(context)
-    query = (
-        TapeQuery[AsyncTapeStore](tape=context.tape or "", store=agent.tapes._store)
-        .query(param.query)
-        .kinds(*param.kinds)
-        .limit(param.limit)
-    )
+    query = agent.tapes.query(context.tape or "").query(param.query).kinds(*param.kinds).limit(param.limit)
     if param.start or param.end:
         query = query.between_dates(param.start or "", param.end or "")
 

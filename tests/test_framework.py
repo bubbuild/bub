@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 import pytest
 import typer
-from republic import AsyncStreamEvents, StreamEvent, StreamState
 from typer.testing import CliRunner
 
 from bub import configure
@@ -20,6 +19,7 @@ from bub.channels.telegram import TelegramSettings
 from bub.configure import ensure_config
 from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
+from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
 from bub.turn_admission import AdmitDecision, SteeringBuffer, TurnSnapshot
 
 
@@ -149,7 +149,7 @@ async def test_running_enters_tape_store_once_and_reuses_it() -> None:
     assert tape_store.exit_count == 1
 
 
-def test_builtin_cli_exposes_login_and_gateway_command(write_config) -> None:
+def test_builtin_cli_exposes_gateway_command(write_config) -> None:
     with patch.dict(os.environ, {}, clear=True):
         framework = BubFramework(config_file=write_config())
         framework.load_hooks()
@@ -160,7 +160,7 @@ def test_builtin_cli_exposes_login_and_gateway_command(write_config) -> None:
         gateway_result = runner.invoke(app, ["gateway", "--help"])
 
     assert help_result.exit_code == 0
-    assert "login" in help_result.stdout
+    assert "login" not in help_result.stdout
     assert "gateway" in help_result.stdout
     assert "onboard" in help_result.stdout
     assert "│ message" not in help_result.stdout

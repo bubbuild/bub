@@ -1,9 +1,9 @@
 import pluggy
 import pytest
-from republic import AsyncStreamEvents, StreamEvent
 
 from bub.hook_runtime import HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
+from bub.runtime import AsyncStreamEvents, StreamEvent
 
 
 def _runtime_with_plugins(*plugins: tuple[str, object]) -> HookRuntime:

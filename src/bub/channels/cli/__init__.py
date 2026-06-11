@@ -12,7 +12,6 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
-from republic import StreamEvent
 from rich import get_console
 
 import bub
@@ -22,6 +21,7 @@ from bub.channels.base import Interface
 from bub.channels.cli.renderer import CliRenderer
 from bub.channels.message import ChannelMessage
 from bub.envelope import field_of
+from bub.runtime import StreamEvent
 from bub.tools import REGISTRY
 from bub.types import MessageHandler
 

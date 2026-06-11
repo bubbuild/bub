@@ -140,11 +140,9 @@ def test_load_settings_returns_loaded_config(load_config) -> None:
         load_config(
             """
 model: openrouter:openrouter/free
-api_format: responses
 """.strip(),
         )
 
         settings = load_settings()
 
     assert settings.model == "openrouter:openrouter/free"
-    assert settings.api_format == "responses"

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import AsyncGenerator
-from typing import Any, cast
+from typing import Any
 
 import pluggy
 from loguru import logger
-from republic import AsyncStreamEvents, StreamEvent, StreamState
 
+from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
 from bub.types import Envelope
 
 
@@ -165,7 +165,9 @@ class HookRuntime:
         for _, plugin in reversed(self._plugin_manager.list_name_plugin()):
             if hasattr(plugin, "run_model"):
                 output = await self.call_first("run_model", prompt=prompt, session_id=session_id, state=state)
-                return cast(str, output)
+                if output is None or isinstance(output, str):
+                    return output
+                raise TypeError("hook.run_model must return str or None")
             elif hasattr(plugin, "run_model_stream"):
                 stream = await self.call_first("run_model_stream", prompt=prompt, session_id=session_id, state=state)
                 text = ""
@@ -181,7 +183,10 @@ class HookRuntime:
         """Run the first `run_model_stream` hook found and fallback to `run_model` hook."""
         for _, plugin in reversed(self._plugin_manager.list_name_plugin()):
             if hasattr(plugin, "run_model_stream"):
-                return await self.call_first("run_model_stream", prompt=prompt, session_id=session_id, state=state)
+                stream = await self.call_first("run_model_stream", prompt=prompt, session_id=session_id, state=state)
+                if stream is None or isinstance(stream, AsyncStreamEvents):
+                    return stream
+                raise TypeError("hook.run_model_stream must return AsyncStreamEvents or None")
             elif hasattr(plugin, "run_model"):
 
                 async def iterator() -> AsyncGenerator[StreamEvent, None]:

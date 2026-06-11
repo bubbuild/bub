@@ -10,13 +10,20 @@ from collections.abc import AsyncGenerator, Iterable
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from loguru import logger
-from republic import AsyncTapeStore, TapeEntry, TapeQuery
-from republic.tape import AsyncTapeStoreAdapter, InMemoryQueryMixin, InMemoryTapeStore, TapeStore
-from republic.tape.store import is_async_tape_store
 
+from bub.tape import (
+    AsyncTapeStore,
+    AsyncTapeStoreAdapter,
+    InMemoryQueryMixin,
+    InMemoryTapeStore,
+    TapeEntry,
+    TapeQuery,
+    TapeStore,
+    is_async_tape_store,
+)
 from bub.utils import get_entry_text
 
 current_store: contextvars.ContextVar[TapeStore] = contextvars.ContextVar("current_store")
@@ -48,7 +55,7 @@ class ForkTapeStore:
         return current_tape_was_reset.get()
 
     async def list_tapes(self) -> list[str]:
-        return cast(list[str], await self._parent.list_tapes())
+        return await self._parent.list_tapes()
 
     async def reset(self, tape: str) -> None:
         self._current.reset(tape)
@@ -65,8 +72,8 @@ class ForkTapeStore:
             except Exception:
                 parent_entries = []
         this_entries: list[TapeEntry] = []
-        if hasattr(self._current, "read"):
-            for entry in cast(list[TapeEntry], self._current.read(query.tape) or []):
+        if isinstance(self._current, InMemoryQueryMixin):
+            for entry in self._current.read(query.tape) or []:
                 if query._kinds and entry.kind not in query._kinds:
                     continue
                 if entry.kind == "anchor":  # noqa: SIM102
@@ -257,7 +264,7 @@ class TapeFile:
 
     def _next_id(self) -> int:
         if self._read_entries:
-            return cast(int, self._read_entries[-1].id + 1)
+            return self._read_entries[-1].id + 1
         return 1
 
     def _reset(self) -> None:

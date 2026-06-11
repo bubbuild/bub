@@ -7,7 +7,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from republic import StreamEvent
 
 from bub.channels.base import Channel, Interface, Lifecycle
 from bub.channels.cli import CliChannel
@@ -16,6 +15,7 @@ from bub.channels.handler import BufferedMessageHandler
 from bub.channels.manager import ChannelManager
 from bub.channels.message import ChannelMessage
 from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMessageParser
+from bub.runtime import StreamEvent
 from bub.turn_admission import AdmitDecision, SessionTurnController, SteeringBuffer
 
 

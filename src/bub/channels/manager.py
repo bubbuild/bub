@@ -6,7 +6,6 @@ from collections.abc import AsyncIterable, Collection
 from loguru import logger
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
-from republic import StreamEvent
 
 from bub import config
 from bub.channels.base import Channel, Interface, Lifecycle
@@ -15,6 +14,7 @@ from bub.channels.message import ChannelMessage
 from bub.configure import Settings, ensure_config
 from bub.envelope import content_of, field_of
 from bub.framework import BubFramework
+from bub.runtime import StreamEvent
 from bub.turn_admission import AdmitDecision, SessionTurnController
 from bub.types import Envelope, MessageHandler
 from bub.utils import wait_until_stopped

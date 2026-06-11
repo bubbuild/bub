@@ -4,9 +4,9 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from republic import AsyncStreamEvents, StreamEvent
 
 from bub.builtin.tools import run_subagent
+from bub.runtime import AsyncStreamEvents, StreamEvent
 from bub.tools import REGISTRY, tool
 
 

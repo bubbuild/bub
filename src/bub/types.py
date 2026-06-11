@@ -6,7 +6,7 @@ from collections.abc import AsyncIterable, Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from republic import StreamEvent
+from bub.runtime import StreamEvent
 
 type Envelope = Any
 type State = dict[str, Any]
