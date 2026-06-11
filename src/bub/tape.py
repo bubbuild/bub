@@ -9,15 +9,30 @@ from collections.abc import Callable, Coroutine, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, time
 from datetime import date as date_type
-from typing import Any, NoReturn, Protocol, Self, overload
+from typing import Any, Literal, NoReturn, Protocol, Self, overload
 
 from typing_extensions import TypeIs
 
 from bub.runtime import BubError, ErrorKind
 
+type TapeEntryKind = Literal["event", "anchor", "system", "message", "tool_call", "tool_result", "error"]
+TAPE_ENTRY_KINDS: frozenset[TapeEntryKind] = frozenset({
+    "event",
+    "anchor",
+    "system",
+    "message",
+    "tool_call",
+    "tool_result",
+    "error",
+})
+
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def is_tape_entry_kind(value: object) -> TypeIs[TapeEntryKind]:
+    return isinstance(value, str) and value in TAPE_ENTRY_KINDS
 
 
 @dataclass(frozen=True)
@@ -25,7 +40,7 @@ class TapeEntry:
     """A single append-only entry in a tape."""
 
     id: int
-    kind: str
+    kind: TapeEntryKind
     payload: dict[str, Any]
     meta: dict[str, Any] = field(default_factory=dict)
     date: str = field(default_factory=utc_now)
@@ -105,7 +120,7 @@ class TapeQuery[T: TapeStore | AsyncTapeStore]:
     _after_last: bool = False
     _between_anchors: tuple[str, str] | None = None
     _between_dates: tuple[str, str] | None = None
-    _kinds: tuple[str, ...] = field(default_factory=tuple)
+    _kinds: tuple[TapeEntryKind, ...] = field(default_factory=tuple)
     _limit: int | None = None
 
     def query(self, value: str) -> Self:
@@ -127,7 +142,7 @@ class TapeQuery[T: TapeStore | AsyncTapeStore]:
         end_value = end.isoformat() if isinstance(end, date_type) else end
         return replace(self, _between_dates=(start_value, end_value))
 
-    def kinds(self, *kinds: str) -> Self:
+    def kinds(self, *kinds: TapeEntryKind) -> Self:
         return replace(self, _kinds=kinds)
 
     def limit(self, value: int) -> Self:

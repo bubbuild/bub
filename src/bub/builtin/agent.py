@@ -13,11 +13,18 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import cached_property
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from any_llm import AnyLLM
-from any_llm.types.completion import ChatCompletion, ChatCompletionChunk, ChatCompletionMessage
+from any_llm.types.completion import (
+    ChatCompletion,
+    ChatCompletionChunk,
+    ChatCompletionMessage,
+    ChoiceDeltaToolCall,
+)
 from loguru import logger
+from openai.types.chat.chat_completion_message_custom_tool_call import ChatCompletionMessageCustomToolCall
+from openai.types.chat.chat_completion_message_function_tool_call import ChatCompletionMessageFunctionToolCall, Function
 
 from bub.builtin.settings import load_settings
 from bub.builtin.store import ForkTapeStore
@@ -42,6 +49,7 @@ _CONTEXT_LENGTH_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 MAX_AUTO_HANDOFF_RETRIES = 1
+type CompletedToolCall = ChatCompletionMessageFunctionToolCall | ChatCompletionMessageCustomToolCall
 
 
 class Agent:
@@ -410,7 +418,7 @@ class Agent:
 
             model_tools_for_call = model_tools(tools)
             text_parts: list[str] = []
-            tool_call_parts: dict[int, dict[str, Any]] = {}
+            tool_calls = _ToolCallAccumulator()
             response: ChatCompletion | None = None
             async with asyncio.timeout(self.settings.model_timeout_seconds):
                 completion = await self._completion_response(
@@ -420,14 +428,18 @@ class Agent:
                 )
                 if isinstance(completion, ChatCompletion):
                     response = completion
-                async for event in _completion_events(completion, state, text_parts, tool_call_parts):
+                async for event in _completion_events(completion, state, text_parts, tool_calls):
                     yield event
 
             text = "".join(text_parts)
-            tool_calls = _stream_tool_calls(tool_call_parts)
-            if tool_calls:
+            resolved_tool_calls = tool_calls.as_list()
+            if resolved_tool_calls:
                 context = ToolContext(tape=tape.name, run_id=run_id, state=tape.context.state)
-                execution = await ToolExecutor().execute_async(tool_calls, tools=model_tools_for_call, context=context)
+                execution = await ToolExecutor().execute_async(
+                    resolved_tool_calls,
+                    tools=model_tools_for_call,
+                    context=context,
+                )
                 await self.tapes.record_chat(
                     tape=tape.name,
                     run_id=run_id,
@@ -464,7 +476,7 @@ class Agent:
     async def _completion_response(
         self, *, model: str, messages: list[dict[str, Any]], tools: list[Tool]
     ) -> ChatCompletion | AsyncIterator[ChatCompletionChunk]:
-        from bub.builtin.tools import completion_tool_schemas
+        from bub.builtin.tools import completion_tools
 
         provider_key, model_id = AnyLLM.split_model_provider(model)
         provider = provider_key.value
@@ -480,12 +492,12 @@ class Agent:
             api_base=api_base,
             **(self.settings.client_args or {}),
         )
-        completion_tools = completion_tool_schemas(tools) or None
+        tool_payloads = completion_tools(tools) or None
         completion_messages: list[dict[str, Any] | ChatCompletionMessage] = list(messages)
         return await llm.acompletion(
             model=model_id,
             messages=completion_messages,
-            tools=completion_tools,
+            tools=tool_payloads,
             max_tokens=self.settings.max_tokens,
             stream=llm.SUPPORTS_COMPLETION_STREAMING,
         )
@@ -513,11 +525,61 @@ def _continue_prompt(tape: Tape) -> str:
     return CONTINUE_PROMPT
 
 
+@dataclass
+class _StreamToolCall:
+    id: str | None = None
+    type: Literal["function"] | None = None
+    name: str | None = None
+    arguments: str = ""
+
+    def merge(self, delta: ChoiceDeltaToolCall) -> None:
+        if delta.id:
+            self.id = delta.id
+        if delta.type:
+            self.type = delta.type
+        if delta.function is None:
+            return
+        if delta.function.name:
+            self.name = _merge_stream_value(self.name, delta.function.name)
+        if delta.function.arguments:
+            self.arguments += delta.function.arguments
+
+    def as_tool_call(self, index: int) -> ChatCompletionMessageFunctionToolCall:
+        return ChatCompletionMessageFunctionToolCall(
+            id=self.id or f"call_{index}",
+            type=self.type or "function",
+            function=Function(name=self.name or "", arguments=self.arguments or "{}"),
+        )
+
+
+class _ToolCallAccumulator:
+    def __init__(self) -> None:
+        self._calls: list[CompletedToolCall] = []
+        self._stream_calls: dict[int, _StreamToolCall] = {}
+
+    def add_message_call(self, call: CompletedToolCall) -> None:
+        self._calls.append(call)
+
+    def merge_delta_calls(self, deltas: Iterable[ChoiceDeltaToolCall]) -> None:
+        for delta in deltas:
+            self._stream_calls.setdefault(delta.index, _StreamToolCall()).merge(delta)
+
+    def as_list(self) -> list[dict[str, Any]]:
+        calls = self._calls or [self._stream_calls[index].as_tool_call(index) for index in sorted(self._stream_calls)]
+        return [call.model_dump(exclude_none=True) for call in calls]
+
+
+def _merge_stream_value(existing: str | None, value: str) -> str:
+    if existing is None or existing == value:
+        return value
+    return f"{existing}{value}"
+
+
 async def _completion_events(
     completion: ChatCompletion | AsyncIterator[ChatCompletionChunk],
     state: StreamState,
     text_parts: list[str],
-    tool_call_parts: dict[int, dict[str, Any]],
+    tool_calls: _ToolCallAccumulator,
 ) -> AsyncGenerator[StreamEvent, None]:
     if isinstance(completion, ChatCompletion):
         if usage := TapeService._extract_usage(completion):
@@ -527,7 +589,7 @@ async def _completion_events(
             text_parts.append(message.content)
             yield StreamEvent("text", {"delta": message.content})
         for tool_call in message.tool_calls or []:
-            tool_call_parts[len(tool_call_parts)] = tool_call.model_dump(exclude_none=True)
+            tool_calls.add_message_call(tool_call)
         return
 
     async for chunk in completion:
@@ -539,36 +601,7 @@ async def _completion_events(
                 text_parts.append(delta.content)
                 yield StreamEvent("text", {"delta": delta.content})
             if delta.tool_calls:
-                _merge_stream_tool_call_parts(tool_call_parts, delta.tool_calls)
-
-
-def _merge_stream_tool_call_parts(tool_call_parts: dict[int, dict[str, Any]], deltas: Iterable[Any]) -> None:
-    for delta in deltas:
-        payload = delta.model_dump(exclude_none=True) if hasattr(delta, "model_dump") else dict(delta)
-        index = payload.pop("index", len(tool_call_parts))
-        call = tool_call_parts.setdefault(index, {"function": {"arguments": ""}})
-        if call_id := payload.get("id"):
-            call["id"] = call_id
-        if call_type := payload.get("type"):
-            call["type"] = call_type
-        if function := payload.get("function"):
-            target = call.setdefault("function", {"arguments": ""})
-            if name := function.get("name"):
-                existing = target.get("name", "")
-                target["name"] = name if not existing or name == existing else f"{existing}{name}"
-            if arguments := function.get("arguments"):
-                target["arguments"] = f"{target.get('arguments', '')}{arguments}"
-
-
-def _stream_tool_calls(tool_call_parts: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
-    calls: list[dict[str, Any]] = []
-    for index in sorted(tool_call_parts):
-        call = tool_call_parts[index]
-        call.setdefault("type", "function")
-        call.setdefault("id", f"call_{index}")
-        call.setdefault("function", {}).setdefault("arguments", "{}")
-        calls.append(call)
-    return calls
+                tool_calls.merge_delta_calls(delta.tool_calls)
 
 
 @dataclass(frozen=True)

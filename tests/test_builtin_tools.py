@@ -13,7 +13,7 @@ from bub.builtin.shell_manager import ShellManager
 from bub.builtin.tools import (
     bash,
     bash_output,
-    completion_tool_schemas,
+    completion_tools,
     kill_bash,
     model_tools,
     quit_tool,
@@ -32,7 +32,7 @@ def _python_shell(code: str) -> str:
     return f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
 
 
-def test_completion_tool_schemas_prepare_any_llm_payload() -> None:
+def test_completion_tools_builds_any_llm_payload() -> None:
     parameters = {
         "type": "object",
         "properties": {"value": {"type": "string"}},
@@ -45,7 +45,7 @@ def test_completion_tool_schemas_prepare_any_llm_payload() -> None:
         handler=lambda value: value,
     )
 
-    assert completion_tool_schemas([sample_tool]) == [
+    assert completion_tools([sample_tool]) == [
         {
             "type": "function",
             "function": {

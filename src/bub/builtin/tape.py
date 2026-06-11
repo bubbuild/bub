@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 from bub.builtin.store import ForkTapeStore
 from bub.runtime import BubError
 from bub.tape import AsyncTapeStore, Tape, TapeContext, TapeEntry, TapeQuery, build_messages
@@ -155,19 +157,16 @@ class TapeService:
         await self._store.append(tape, TapeEntry.event("run", data, **meta))
 
     @staticmethod
-    def _extract_usage(response: Any) -> dict[str, Any] | None:
+    def _extract_usage(response: object) -> dict[str, Any] | None:
         usage = getattr(response, "usage", None)
         if usage is None:
             return None
         if isinstance(usage, dict):
             return usage
-        if hasattr(usage, "model_dump"):
+        if isinstance(usage, BaseModel):
             payload = usage.model_dump(exclude_none=True)
             return payload if isinstance(payload, dict) else None
-        if hasattr(usage, "dict"):
-            payload = usage.dict(exclude_none=True)
-            return payload if isinstance(payload, dict) else None
-        return dict(getattr(usage, "__dict__", {}) or {}) or None
+        return None
 
     async def _archive(self, tape_name: str) -> Path:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")

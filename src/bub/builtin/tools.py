@@ -6,19 +6,18 @@ import uuid
 from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, cast
 
-from any_llm.tools import prepare_tools
+from openai.types.chat import ChatCompletionToolParam
 from pydantic import BaseModel, Field
 
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
+from bub.tape import TapeEntryKind
 from bub.tools import REGISTRY, Tool, ToolContext, tool
 
 if TYPE_CHECKING:
     from bub.builtin.agent import Agent
-
-type EntryKind = Literal["event", "anchor", "system", "message", "tool_call", "tool_result"]
 
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 30
 DEFAULT_HEADERS = {"accept": "text/markdown"}
@@ -103,9 +102,9 @@ def render_tools_prompt(tools: Iterable[Tool]) -> str:
     return f"<available_tools>\n{'\n'.join(lines)}\n</available_tools>"
 
 
-def completion_tool_schemas(tools: Iterable[Tool]) -> list[Any]:
+def completion_tools(tools: Iterable[Tool]) -> list[ChatCompletionToolParam]:
     """Build any-llm completion tool payloads from Bub tools."""
-    return prepare_tools([
+    return [
         {
             "type": "function",
             "function": {
@@ -115,7 +114,7 @@ def completion_tool_schemas(tools: Iterable[Tool]) -> list[Any]:
             },
         }
         for tool_item in tools
-    ])
+    ]
 
 
 def _raise_for_failed_shell(returncode: int | None, output: str) -> None:
@@ -137,9 +136,9 @@ class SearchInput(BaseModel):
     limit: int = Field(20, description="Maximum number of search results to return.")
     start: str | None = Field(None, description="Optional start date to filter entries (ISO format).")
     end: str | None = Field(None, description="Optional end date to filter entries (ISO format).")
-    kinds: list[str] = Field(
+    kinds: list[TapeEntryKind] = Field(
         default=["message", "tool_result"],
-        description="Optional list of entry kinds to filter search results. Can include 'event', 'anchor', 'system', 'message', 'tool_call', 'tool_result'.",
+        description="Optional list of entry kinds to filter search results. Can include 'event', 'anchor', 'system', 'message', 'tool_call', 'tool_result', 'error'.",
     )
 
 

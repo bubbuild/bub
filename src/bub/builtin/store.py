@@ -23,6 +23,7 @@ from bub.tape import (
     TapeQuery,
     TapeStore,
     is_async_tape_store,
+    is_tape_entry_kind,
 )
 from bub.utils import get_entry_text
 
@@ -318,7 +319,7 @@ class TapeFile:
         meta = payload.get("meta")
         if not isinstance(entry_id, int):
             return None
-        if not isinstance(kind, str):
+        if not is_tape_entry_kind(kind):
             return None
         if not isinstance(entry_payload, dict):
             return None
