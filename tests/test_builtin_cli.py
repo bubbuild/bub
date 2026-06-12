@@ -372,8 +372,8 @@ def test_login_openai_runs_oauth_flow_and_prints_usage_hint(
         callback = prompt_for_redirect("https://auth.openai.com/authorize")
         assert callback == "http://localhost:1455/auth/callback?code=test"
         return auth.OpenAICodexOAuthTokens(
-            access_token="access",  # noqa: S106
-            refresh_token="refresh",  # noqa: S106
+            access_token="access",
+            refresh_token="refresh",
             expires_at=123,
             account_id="acct_123",
         )

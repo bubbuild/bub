@@ -206,7 +206,7 @@ def test_provide_channels_returns_cli_and_telegram(tmp_path: Path, monkeypatch: 
     class DummyTelegramChannel:
         name = "telegram"
 
-        def __init__(self, on_receive) -> None:
+        def __init__(self, on_receive, bot_config=None) -> None:
             self.on_receive = on_receive
 
         @property
@@ -218,6 +218,11 @@ def test_provide_channels_returns_cli_and_telegram(tmp_path: Path, monkeypatch: 
 
     monkeypatch.setattr(bub.channels.cli, "CliChannel", DummyCliChannel)
     monkeypatch.setattr(bub.channels.telegram, "TelegramChannel", DummyTelegramChannel)
+    monkeypatch.setattr(
+        bub.channels.telegram.TelegramSettings,
+        "bot_configs",
+        staticmethod(lambda: [bub.channels.telegram.BotConfig(token="test")]),
+    )
 
     def message_handler(message) -> None:
         return None

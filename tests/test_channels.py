@@ -15,7 +15,7 @@ from bub.channels.cli.renderer import CliRenderer
 from bub.channels.handler import BufferedMessageHandler
 from bub.channels.manager import ChannelManager
 from bub.channels.message import ChannelMessage
-from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMessageParser
+from bub.channels.telegram import BotConfig, BubMessageFilter, TelegramChannel, TelegramMessageParser
 from bub.turn_admission import AdmitDecision, SessionTurnController, SteeringBuffer
 
 
@@ -283,7 +283,7 @@ def test_channel_manager_selects_channels_by_runtime_role(
 def test_channel_manager_selects_real_channel_types(load_config) -> None:
     _load_channel_config(load_config, telegram_value="test-token")
     cli = CliChannel.__new__(CliChannel)
-    telegram = TelegramChannel(lambda message: None)
+    telegram = TelegramChannel(lambda message: None, bot_config=BotConfig(token="test_token"))
     manager = ChannelManager(
         FakeFramework({"cli": cli, "telegram": telegram}),
         enabled_channels=["all"],
@@ -752,7 +752,7 @@ def test_bub_message_filter_accepts_group_mention() -> None:
 @pytest.mark.asyncio
 async def test_telegram_channel_send_extracts_json_message_and_skips_blank(load_config) -> None:
     _load_channel_config(load_config, telegram_value="test-token")
-    channel = TelegramChannel(lambda message: None)
+    channel = TelegramChannel(lambda message: None, bot_config=BotConfig(token="test_token"))
     sent: list[tuple[str, str]] = []
 
     async def send_message(chat_id: str, text: str) -> None:
@@ -774,7 +774,9 @@ async def test_telegram_channel_start_with_proxy_does_not_call_get_updates_proxy
     fake_builder = _FakeTelegramBuilder()
     monkeypatch.setattr("bub.channels.telegram.Application.builder", lambda: fake_builder)
 
-    channel = TelegramChannel(lambda message: None)
+    channel = TelegramChannel(
+        lambda message: None, bot_config=BotConfig(token="test_token", proxy="http://127.0.0.1:1087")
+    )
     await channel.start(asyncio.Event())
 
     assert fake_builder.proxy_value == "http://127.0.0.1:1087"
@@ -785,7 +787,7 @@ async def test_telegram_channel_start_with_proxy_does_not_call_get_updates_proxy
 @pytest.mark.asyncio
 async def test_telegram_channel_build_message_returns_command_directly(load_config) -> None:
     _load_channel_config(load_config, telegram_value="test-token")
-    channel = TelegramChannel(lambda message: None)
+    channel = TelegramChannel(lambda message: None, bot_config=BotConfig(token="test_token"))
     channel._parser = SimpleNamespace(parse=_async_return((",help", {"type": "text"})), get_reply=_async_return(None))
 
     message = SimpleNamespace(chat_id=42)
@@ -803,7 +805,7 @@ async def test_telegram_channel_build_message_wraps_payload_and_disables_outboun
     monkeypatch: pytest.MonkeyPatch, load_config
 ) -> None:
     _load_channel_config(load_config, telegram_value="test-token")
-    channel = TelegramChannel(lambda message: None)
+    channel = TelegramChannel(lambda message: None, bot_config=BotConfig(token="test_token"))
     parser = SimpleNamespace(
         parse=_async_return(("hello", {"type": "text", "sender_id": "7"})),
         get_reply=_async_return({"message": "prev", "type": "text"}),

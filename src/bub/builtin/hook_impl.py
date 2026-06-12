@@ -251,12 +251,13 @@ class BuiltinImpl:
     @hookimpl
     def provide_channels(self, message_handler: MessageHandler) -> list[Channel]:
         from bub.channels.cli import CliChannel
-        from bub.channels.telegram import TelegramChannel
+        from bub.channels.telegram import TelegramChannel, TelegramSettings
 
-        return [
-            TelegramChannel(on_receive=message_handler),
-            CliChannel(on_receive=message_handler, agent=self._get_agent()),
-        ]
+        channels: list[Channel] = []
+        for bot_config in TelegramSettings.bot_configs():
+            channels.append(TelegramChannel(on_receive=message_handler, bot_config=bot_config))
+        channels.append(CliChannel(on_receive=message_handler, agent=self._get_agent()))
+        return channels
 
     @hookimpl
     async def on_error(self, stage: str, error: Exception, message: Envelope | None) -> None:
