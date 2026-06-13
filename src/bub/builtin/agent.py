@@ -26,7 +26,7 @@ from loguru import logger
 from openai.types.chat.chat_completion_message_custom_tool_call import ChatCompletionMessageCustomToolCall
 from openai.types.chat.chat_completion_message_function_tool_call import ChatCompletionMessageFunctionToolCall, Function
 
-from bub.builtin.settings import load_settings
+from bub.builtin.settings import ModelCandidate, load_settings
 from bub.builtin.store import ForkTapeStore
 from bub.builtin.tape import TapeService
 from bub.framework import BubFramework
@@ -49,7 +49,6 @@ _CONTEXT_LENGTH_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 MAX_AUTO_HANDOFF_RETRIES = 1
-type CompletedToolCall = ChatCompletionMessageFunctionToolCall | ChatCompletionMessageCustomToolCall
 
 
 class Agent:
@@ -325,7 +324,7 @@ class Agent:
                 )
                 return
 
-            next_prompt = _continue_prompt(tape)
+            next_prompt = self._continue_prompt(tape)
             await self.tapes.append_event(
                 tape.name,
                 "loop.step",
@@ -473,6 +472,12 @@ class Agent:
 
         return AsyncStreamEvents(iterator(), state=state)
 
+    def _build_llm(self, candidate: ModelCandidate) -> AnyLLM:
+        return AnyLLM.create(
+            candidate.provider,
+            **self.settings.model_client_kwargs(candidate.provider),
+        )
+
     async def _completion_response(
         self, *, model: str, messages: list[dict[str, Any]], tools: list[Tool]
     ) -> ChatCompletion | AsyncIterator[ChatCompletionChunk]:
@@ -483,10 +488,7 @@ class Agent:
         candidates = self.settings.model_candidates(model)
         for index, candidate in enumerate(candidates):
             try:
-                llm = AnyLLM.create(
-                    candidate.provider,
-                    **self.settings.model_client_kwargs(candidate.provider),
-                )
+                llm = self._build_llm(candidate)
                 return await llm.acompletion(
                     model=candidate.model_id,
                     messages=completion_messages,
@@ -517,11 +519,10 @@ class Agent:
             blocks.append(skills_prompt)
         return "\n\n".join(blocks)
 
-
-def _continue_prompt(tape: Tape) -> str:
-    if "context" in tape.context.state:
-        return f"{CONTINUE_PROMPT} [context: {tape.context.state['context']}]"
-    return CONTINUE_PROMPT
+    def _continue_prompt(self, tape: Tape) -> str:
+        if "context" in tape.context.state:
+            return f"{CONTINUE_PROMPT} [context: {tape.context.state['context']}]"
+        return CONTINUE_PROMPT
 
 
 @dataclass
@@ -539,7 +540,10 @@ class _StreamToolCall:
         if delta.function is None:
             return
         if delta.function.name:
-            self.name = _merge_stream_value(self.name, delta.function.name)
+            if self.name is None or self.name == delta.function.name:
+                self.name = delta.function.name
+            else:
+                self.name += delta.function.name
         if delta.function.arguments:
             self.arguments += delta.function.arguments
 
@@ -553,10 +557,12 @@ class _StreamToolCall:
 
 class _ToolCallAccumulator:
     def __init__(self) -> None:
-        self._calls: list[CompletedToolCall] = []
+        self._calls: list[ChatCompletionMessageFunctionToolCall | ChatCompletionMessageCustomToolCall] = []
         self._stream_calls: dict[int, _StreamToolCall] = {}
 
-    def add_message_call(self, call: CompletedToolCall) -> None:
+    def add_message_call(
+        self, call: ChatCompletionMessageFunctionToolCall | ChatCompletionMessageCustomToolCall
+    ) -> None:
         self._calls.append(call)
 
     def merge_delta_calls(self, deltas: Iterable[ChoiceDeltaToolCall]) -> None:
@@ -566,12 +572,6 @@ class _ToolCallAccumulator:
     def as_list(self) -> list[dict[str, Any]]:
         calls = self._calls or [self._stream_calls[index].as_tool_call(index) for index in sorted(self._stream_calls)]
         return [call.model_dump(exclude_none=True) for call in calls]
-
-
-def _merge_stream_value(existing: str | None, value: str) -> str:
-    if existing is None or existing == value:
-        return value
-    return f"{existing}{value}"
 
 
 async def _completion_events(
