@@ -9,22 +9,13 @@ from collections.abc import Callable, Coroutine, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, time
 from datetime import date as date_type
-from typing import Any, Literal, NoReturn, Protocol, Self, overload
+from typing import Any, Literal, NoReturn, Protocol, Self, get_args, overload
 
 from typing_extensions import TypeIs
 
 from bub.runtime import BubError, ErrorKind
 
 type TapeEntryKind = Literal["event", "anchor", "system", "message", "tool_call", "tool_result", "error"]
-TAPE_ENTRY_KINDS: frozenset[TapeEntryKind] = frozenset({
-    "event",
-    "anchor",
-    "system",
-    "message",
-    "tool_call",
-    "tool_result",
-    "error",
-})
 
 
 def utc_now() -> str:
@@ -32,7 +23,7 @@ def utc_now() -> str:
 
 
 def is_tape_entry_kind(value: object) -> TypeIs[TapeEntryKind]:
-    return isinstance(value, str) and value in TAPE_ENTRY_KINDS
+    return isinstance(value, str) and value in get_args(TapeEntryKind)
 
 
 @dataclass(frozen=True)
