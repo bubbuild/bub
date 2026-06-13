@@ -37,7 +37,7 @@ def test_settings_no_keys_return_none() -> None:
 
     assert settings.api_key is None
     assert settings.api_base is None
-    assert settings.client_args is None
+    assert settings.client_args == {}
 
 
 def test_settings_provider_names_are_lowercased() -> None:
@@ -124,7 +124,7 @@ client_args:
 def test_settings_client_args_can_be_disabled() -> None:
     settings = _settings_with_env({"BUB_CLIENT_ARGS": "null"})
 
-    assert settings.client_args is None
+    assert settings.client_args == {}
 
 
 def test_load_settings_returns_defaults_without_loaded_config() -> None:

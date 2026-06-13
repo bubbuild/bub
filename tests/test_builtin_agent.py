@@ -28,7 +28,7 @@ def _make_agent() -> Agent:
     with patch.object(Agent, "__init__", lambda self, fw: None):
         agent = Agent.__new__(Agent)
 
-    agent.settings = AgentSettings.model_construct(model="test:model", api_key="k", api_base="b")
+    agent.settings = AgentSettings.model_construct(model="test:model", api_key="k", api_base="b", client_args={})
     agent.framework = framework
 
     async def fake_completion_response(**kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:

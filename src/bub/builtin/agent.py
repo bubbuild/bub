@@ -478,29 +478,28 @@ class Agent:
     ) -> ChatCompletion | AsyncIterator[ChatCompletionChunk]:
         from bub.builtin.tools import completion_tools
 
-        provider_key, model_id = AnyLLM.split_model_provider(model)
-        provider = provider_key.value
-        api_key = (
-            self.settings.api_key.get(provider) if isinstance(self.settings.api_key, dict) else self.settings.api_key
-        )
-        api_base = (
-            self.settings.api_base.get(provider) if isinstance(self.settings.api_base, dict) else self.settings.api_base
-        )
-        llm = AnyLLM.create(
-            provider_key,
-            api_key=api_key,
-            api_base=api_base,
-            **(self.settings.client_args or {}),
-        )
         tool_payloads = completion_tools(tools) or None
         completion_messages: list[dict[str, Any] | ChatCompletionMessage] = list(messages)
-        return await llm.acompletion(
-            model=model_id,
-            messages=completion_messages,
-            tools=tool_payloads,
-            max_tokens=self.settings.max_tokens,
-            stream=llm.SUPPORTS_COMPLETION_STREAMING,
-        )
+        candidates = self.settings.model_candidates(model)
+        for index, candidate in enumerate(candidates):
+            try:
+                llm = AnyLLM.create(
+                    candidate.provider,
+                    **self.settings.model_client_kwargs(candidate.provider),
+                )
+                return await llm.acompletion(
+                    model=candidate.model_id,
+                    messages=completion_messages,
+                    tools=tool_payloads,
+                    max_tokens=self.settings.max_tokens,
+                    stream=llm.SUPPORTS_COMPLETION_STREAMING,
+                )
+            except Exception as exc:
+                if index == len(candidates) - 1:
+                    raise
+                logger.warning("model candidate failed; trying fallback model={} error={}", candidate.name, exc)
+
+        raise RuntimeError("no model candidates available")
 
     def _system_prompt(
         self, prompt: str, state: State, allowed_skills: set[str] | None = None, tools: Iterable[Tool] | None = None
