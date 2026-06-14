@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterable, Callable, Coroutine
 from dataclasses import dataclass, field
-from typing import Any, Protocol
-
-from bub.runtime import StreamEvent
+from typing import Any, Protocol, runtime_checkable
 
 type Envelope = Any
 type State = dict[str, Any]
@@ -14,9 +12,17 @@ type MessageHandler = Callable[[Envelope], Coroutine[Any, Any, None]]
 type OutboundDispatcher = Callable[[Envelope], Coroutine[Any, Any, bool]]
 
 
+@runtime_checkable
+class EnvelopeBinding(Protocol):
+    """Capabilities attached to an envelope by the producer that understands it."""
+
+    def stream(self) -> AsyncIterable[Envelope] | None: ...
+    def output(self) -> Envelope | None: ...
+
+
 class OutboundChannelRouter(Protocol):
     async def dispatch_output(self, message: Envelope) -> bool: ...
-    def wrap_stream(self, message: Envelope, stream: AsyncIterable[StreamEvent]) -> AsyncIterable[StreamEvent]: ...
+    def wrap_stream(self, message: Envelope, stream: AsyncIterable[Envelope]) -> AsyncIterable[Envelope]: ...
     async def quit(self, session_id: str) -> None: ...
 
 
@@ -26,5 +32,5 @@ class TurnResult:
 
     session_id: str
     prompt: str
-    model_output: str
+    model_output: Envelope
     outbounds: list[Envelope] = field(default_factory=list)

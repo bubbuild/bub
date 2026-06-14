@@ -8,9 +8,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from any_llm.types.completion import ChatCompletionChunk
 
-from bub.builtin.agent import Agent
+from bub.builtin.agent import Agent, BuiltinModelStream
 from bub.builtin.settings import AgentSettings
-from bub.runtime import BubError
+from bub.errors import BubError
 from bub.tape import Tape, TapeContext
 from bub.tools import REGISTRY, tool
 
@@ -58,6 +58,13 @@ def _chat_chunk(content: str) -> ChatCompletionChunk:
 
 async def _chat_stream(content: str) -> AsyncIterator[ChatCompletionChunk]:
     yield _chat_chunk(content)
+
+
+async def _consume_stream(stream: BuiltinModelStream) -> list[Any]:
+    events = stream.stream()
+    if events is None:
+        return []
+    return [event async for event in events]
 
 
 class _ForkCapture:
@@ -146,7 +153,7 @@ async def test_agent_run_regular_session_merges_back() -> None:
     assert fork_capture.merge_back_values == [True]
     assert fork_capture.exit_count == 0
 
-    [event async for event in result]
+    await _consume_stream(result)
 
     assert fork_capture.merge_back_values == [True]
     assert fork_capture.exit_count == 1
@@ -164,7 +171,7 @@ async def test_agent_run_temp_session_does_not_merge_back() -> None:
     assert fork_capture.merge_back_values == [False]
     assert fork_capture.exit_count == 0
 
-    [event async for event in result]
+    await _consume_stream(result)
 
     assert fork_capture.merge_back_values == [False]
     assert fork_capture.exit_count == 1
@@ -184,7 +191,7 @@ async def test_agent_run_passes_model_to_llm() -> None:
         state={"_runtime_workspace": "/tmp"},  # noqa: S108
         model="openai:gpt-4o",
     )
-    [event async for event in result]
+    await _consume_stream(result)
 
     assert agent.completion_kwargs["model"] == "openai:gpt-4o"
 
@@ -195,11 +202,14 @@ async def test_agent_run_empty_prompt_returns_error() -> None:
     agent.tapes = MagicMock()  # type: ignore[assignment]
 
     result = await agent.run_stream(session_id="user/s1", prompt="", state={})
-    events = [event async for event in result]
+    events = await _consume_stream(result)
 
-    assert [(event.kind, event.data) for event in events] == [
-        ("text", {"delta": "error: empty prompt"}),
-        ("final", {"ok": False, "text": "error: empty prompt"}),
+    assert events == [
+        {
+            "content": "error: empty prompt",
+            "source": {"kind": "text", "data": {"delta": "error: empty prompt"}},
+        },
+        {"end": True, "source": {"kind": "final", "data": {"ok": False, "text": "error: empty prompt"}}},
     ]
 
 
@@ -212,7 +222,7 @@ async def test_agent_run_model_defaults_to_none() -> None:
     agent.tapes = fake_tapes  # type: ignore[assignment]
 
     result = await agent.run_stream(session_id="user/s1", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
-    [event async for event in result]
+    await _consume_stream(result)
 
     assert agent.completion_kwargs["model"] == "test:model"
 
@@ -243,7 +253,7 @@ async def test_agent_run_resolves_allowed_tool_aliases_and_limits_prompt() -> No
         state={"_runtime_workspace": "/tmp"},  # noqa: S108
         allowed_tools=[" tests_allowed_agent_tool "],
     )
-    [event async for event in result]
+    await _consume_stream(result)
 
     assert agent.completion_kwargs is not None
     assert [tool.name for tool in agent.completion_kwargs["tools"]] == ["tests_allowed_agent_tool"]
@@ -267,4 +277,4 @@ async def test_agent_run_rejects_unknown_allowed_tools() -> None:
     )
 
     with pytest.raises(ValueError, match="tests_missing_agent_tool"):
-        [event async for event in stream]
+        await _consume_stream(stream)

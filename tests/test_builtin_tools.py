@@ -20,7 +20,7 @@ from bub.builtin.tools import (
     render_tools_prompt,
     resolve_tool_names,
 )
-from bub.runtime import ErrorKind
+from bub.errors import ErrorKind
 from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, tool
 
 

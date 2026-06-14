@@ -7,7 +7,7 @@ import typer
 from loguru import logger
 
 from bub import inquirer as bub_inquirer
-from bub.builtin.agent import Agent
+from bub.builtin.agent import Agent, BuiltinModelStream
 from bub.builtin.context import default_tape_context
 from bub.builtin.settings import DEFAULT_MODEL
 from bub.channels.base import Channel
@@ -15,9 +15,8 @@ from bub.channels.message import ChannelMessage, MediaItem
 from bub.envelope import content_of, field_of
 from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
-from bub.runtime import AsyncStreamEvents
 from bub.tape import TapeContext, TapeStore
-from bub.types import Envelope, MessageHandler, State
+from bub.types import Envelope, EnvelopeBinding, MessageHandler, State
 
 AGENTS_FILE_NAME = "AGENTS.md"
 MODEL_PROVIDER_CHOICES: tuple[str, ...] = (
@@ -120,7 +119,7 @@ class BuiltinImpl:
         return state
 
     @hookimpl
-    async def save_state(self, session_id: str, state: State, message: ChannelMessage, model_output: str) -> None:
+    async def save_state(self, session_id: str, state: State, message: ChannelMessage, model_output: Envelope) -> None:
         tp, value, traceback = sys.exc_info()
         lifespan = field_of(message, "lifespan")
         if lifespan is not None:
@@ -156,12 +155,18 @@ class BuiltinImpl:
         return text
 
     @hookimpl
-    async def run_model(self, prompt: str | list[dict], session_id: str, state: State) -> str:
+    async def run_model(self, prompt: str | list[dict], session_id: str, state: State) -> Envelope:
         return await self._get_agent().run(session_id=session_id, prompt=prompt, state=state)
 
     @hookimpl
-    async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> AsyncStreamEvents:
+    async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> Envelope:
         return await self._get_agent().run_stream(session_id=session_id, prompt=prompt, state=state)
+
+    @hookimpl
+    def bind_envelope(self, envelope: Envelope, session_id: str, state: State) -> EnvelopeBinding | None:
+        if isinstance(envelope, BuiltinModelStream):
+            return envelope
+        return None
 
     @hookimpl
     def register_cli_commands(self, app: typer.Typer) -> None:
@@ -273,13 +278,13 @@ class BuiltinImpl:
         message: Envelope,
         session_id: str,
         state: State,
-        model_output: str,
+        model_output: Envelope,
     ) -> list[ChannelMessage]:
         outbound = ChannelMessage(
             session_id=session_id,
             channel=field_of(message, "channel", "default"),
             chat_id=field_of(message, "chat_id", "default"),
-            content=model_output,
+            content=content_of(model_output),
             output_channel=field_of(message, "output_channel", "default"),
             kind=field_of(message, "kind", "normal"),
         )

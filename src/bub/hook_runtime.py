@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import AsyncGenerator
 from typing import Any
 
 import pluggy
 from loguru import logger
 
-from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
-from bub.types import Envelope
+from bub.types import Envelope, EnvelopeBinding
 
 
 class HookRuntime:
@@ -160,41 +158,43 @@ class HookRuntime:
     def _kwargs_for_impl(impl: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
         return {name: kwargs[name] for name in impl.argnames if name in kwargs}
 
-    async def run_model(self, prompt: str | list[dict], session_id: str, state: dict[str, Any]) -> str | None:
+    async def run_model(self, prompt: str | list[dict], session_id: str, state: dict[str, Any]) -> Envelope | None:
         """Run the first `run_model` hook found and return its result."""
         for _, plugin in reversed(self._plugin_manager.list_name_plugin()):
             if hasattr(plugin, "run_model"):
-                output = await self.call_first("run_model", prompt=prompt, session_id=session_id, state=state)
-                if output is None or isinstance(output, str):
-                    return output
-                raise TypeError("hook.run_model must return str or None")
+                return await self.call_first("run_model", prompt=prompt, session_id=session_id, state=state)
             elif hasattr(plugin, "run_model_stream"):
-                stream = await self.call_first("run_model_stream", prompt=prompt, session_id=session_id, state=state)
-                text = ""
-                async for event in stream:
-                    if event.kind == "text":
-                        text += str(event.data.get("delta", ""))
-                return text
+                stream_envelope = await self.run_model_stream(prompt=prompt, session_id=session_id, state=state)
+                binding = await self.bind_envelope(stream_envelope, session_id=session_id, state=state)
+                if binding is None:
+                    return stream_envelope
+                stream = binding.stream()
+                if stream is not None:
+                    async for _event in stream:
+                        pass
+                return binding.output()
         return None
 
     async def run_model_stream(
         self, prompt: str | list[dict], session_id: str, state: dict[str, Any]
-    ) -> AsyncStreamEvents | None:
+    ) -> Envelope | None:
         """Run the first `run_model_stream` hook found and fallback to `run_model` hook."""
         for _, plugin in reversed(self._plugin_manager.list_name_plugin()):
             if hasattr(plugin, "run_model_stream"):
-                stream = await self.call_first("run_model_stream", prompt=prompt, session_id=session_id, state=state)
-                if stream is None or isinstance(stream, AsyncStreamEvents):
-                    return stream
-                raise TypeError("hook.run_model_stream must return AsyncStreamEvents or None")
+                return await self.call_first("run_model_stream", prompt=prompt, session_id=session_id, state=state)
             elif hasattr(plugin, "run_model"):
-
-                async def iterator() -> AsyncGenerator[StreamEvent, None]:
-                    result = await self.call_first("run_model", prompt=prompt, session_id=session_id, state=state)
-                    yield StreamEvent("text", {"delta": result})
-
-                return AsyncStreamEvents(iterator(), state=StreamState())
+                return await self.call_first("run_model", prompt=prompt, session_id=session_id, state=state)
         return None
+
+    async def bind_envelope(
+        self, envelope: Envelope, *, session_id: str, state: dict[str, Any]
+    ) -> EnvelopeBinding | None:
+        if envelope is None:
+            return None
+        binding = await self.call_first("bind_envelope", envelope=envelope, session_id=session_id, state=state)
+        if binding is None or isinstance(binding, EnvelopeBinding):
+            return binding
+        raise TypeError("hook.bind_envelope must return EnvelopeBinding or None")
 
 
 _SKIP_VALUE = object()

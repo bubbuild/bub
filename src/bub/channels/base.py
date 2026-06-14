@@ -4,7 +4,7 @@ from collections.abc import AsyncIterable
 from typing import ClassVar
 
 from bub.channels.message import ChannelMessage
-from bub.runtime import StreamEvent
+from bub.types import Envelope
 
 
 class Channel(ABC):
@@ -35,7 +35,7 @@ class Channel(ABC):
         # Do nothing by default
         return
 
-    def stream_events(self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]) -> AsyncIterable[StreamEvent]:
+    def stream_events(self, message: ChannelMessage, stream: AsyncIterable[Envelope]) -> AsyncIterable[Envelope]:
         """Optionally wrap the output stream for this channel."""
         return stream
 

@@ -6,10 +6,9 @@ from typing import TYPE_CHECKING, Any
 
 import pluggy
 
-from bub.runtime import AsyncStreamEvents
 from bub.tape import AsyncTapeStore, TapeContext, TapeStore
 from bub.turn_admission import AdmitDecision, TurnSnapshot
-from bub.types import Envelope, MessageHandler, State
+from bub.types import Envelope, EnvelopeBinding, MessageHandler, State
 
 if TYPE_CHECKING:
     from bub.channels.base import Channel
@@ -37,13 +36,18 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def run_model(self, prompt: str | list[dict], session_id: str, state: State) -> str:
-        """Run model for one turn and return plain text output. Should not be implemented if `run_model_stream` is implemented."""
+    def run_model(self, prompt: str | list[dict], session_id: str, state: State) -> Envelope:
+        """Run model for one turn and return an output envelope. Should not be implemented if `run_model_stream` is implemented."""
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> AsyncStreamEvents:
-        """Run model for one turn and return a stream of events. Should not be implemented if `run_model` is implemented."""
+    def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> Envelope:
+        """Run model for one turn and return an envelope with stream capabilities."""
+        raise NotImplementedError
+
+    @hookspec(firstresult=True)
+    def bind_envelope(self, envelope: Envelope, session_id: str, state: State) -> EnvelopeBinding | None:
+        """Bind producer-defined capabilities to an envelope."""
         raise NotImplementedError
 
     @hookspec
@@ -57,7 +61,7 @@ class BubHookSpecs:
         session_id: str,
         state: State,
         message: Envelope,
-        model_output: str,
+        model_output: Envelope,
     ) -> None:
         """Persist state updates after one model turn."""
 
@@ -67,7 +71,7 @@ class BubHookSpecs:
         message: Envelope,
         session_id: str,
         state: State,
-        model_output: str,
+        model_output: Envelope,
     ) -> list[Envelope]:
         """Render outbound messages from model output."""
         raise NotImplementedError

@@ -11,7 +11,7 @@ from typing import Any, overload
 from loguru import logger
 from pydantic import BaseModel, TypeAdapter, ValidationError, validate_call
 
-from bub.runtime import BubError, ErrorKind
+from bub.errors import BubError, ErrorKind
 
 
 @dataclass(frozen=True)

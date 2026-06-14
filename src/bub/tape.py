@@ -13,7 +13,7 @@ from typing import Any, NoReturn, Protocol, Self, overload
 
 from typing_extensions import TypeIs
 
-from bub.runtime import BubError, ErrorKind
+from bub.errors import BubError, ErrorKind
 
 
 def utc_now() -> str:

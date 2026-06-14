@@ -14,7 +14,6 @@ from bub.channels.message import ChannelMessage
 from bub.configure import Settings, ensure_config
 from bub.envelope import content_of, field_of
 from bub.framework import BubFramework
-from bub.runtime import StreamEvent
 from bub.turn_admission import AdmitDecision, SessionTurnController
 from bub.types import Envelope, MessageHandler
 from bub.utils import wait_until_stopped
@@ -105,7 +104,7 @@ class ChannelManager:
         await channel.send(outbound)
         return True
 
-    def wrap_stream(self, message: Envelope, stream: AsyncIterable[StreamEvent]) -> AsyncIterable[StreamEvent]:
+    def wrap_stream(self, message: Envelope, stream: AsyncIterable[Envelope]) -> AsyncIterable[Envelope]:
         channel_name = field_of(message, "output_channel", field_of(message, "channel"))
         if channel_name is None:
             return stream

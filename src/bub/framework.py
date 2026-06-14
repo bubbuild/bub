@@ -17,7 +17,6 @@ from bub import configure
 from bub.envelope import content_of, field_of, unpack_batch
 from bub.hook_runtime import _SKIP_VALUE, HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs
-from bub.runtime import BubError, ErrorKind
 from bub.tape import AsyncTapeStore, TapeContext, TapeStore
 from bub.turn_admission import AdmitDecision, SteeringBuffer, TurnSnapshot
 from bub.types import Envelope, MessageHandler, OutboundChannelRouter, TurnResult
@@ -158,7 +157,7 @@ class BubFramework:
         session_id: str,
         state: dict[str, Any],
         stream_output: bool,
-    ) -> str:
+    ) -> Envelope:
         if not stream_output:
             output = await self._hook_runtime.run_model(prompt=prompt, session_id=session_id, state=state)
             if output is None:
@@ -169,28 +168,29 @@ class BubFramework:
                 )
                 return prompt if isinstance(prompt, str) else content_of(inbound)
             return output
-        stream = await self._hook_runtime.run_model_stream(prompt=prompt, session_id=session_id, state=state)
-        if stream is None:
+        stream_envelope = await self._hook_runtime.run_model_stream(prompt=prompt, session_id=session_id, state=state)
+        if stream_envelope is None:
             await self._hook_runtime.notify_error(
                 stage="run_model",
                 error=RuntimeError("no model skill returned output"),
                 message=inbound,
             )
             return prompt if isinstance(prompt, str) else content_of(inbound)
+        binding = await self._hook_runtime.bind_envelope(stream_envelope, session_id=session_id, state=state)
+        if binding is None:
+            return stream_envelope
         else:
-            parts: list[str] = []
-            events = self._outbound_router.wrap_stream(inbound, stream) if self._outbound_router is not None else stream
-            async for event in events:
-                if event.kind == "text":
-                    parts.append(str(event.data.get("delta", "")))
-                elif event.kind == "error":
-                    # Turn "kind" to enum type otherwise BubError's __str__ won't work well.
-                    data = {
-                        **event.data,
-                        "kind": ErrorKind(event.data.get("kind", "unknown")),
-                    }
-                    await self._hook_runtime.notify_error(stage="run_model", error=BubError(**data), message=inbound)
-            return "".join(parts)
+            stream = binding.stream()
+            if stream is not None:
+                events = (
+                    self._outbound_router.wrap_stream(inbound, stream) if self._outbound_router is not None else stream
+                )
+                async for _event in events:
+                    pass
+            output = binding.output()
+            if output is None:
+                return prompt if isinstance(prompt, str) else content_of(inbound)
+            return output
 
     def hook_report(self) -> dict[str, list[str]]:
         """Return hook implementation summary for diagnostics."""
@@ -244,7 +244,7 @@ class BubFramework:
         message: Envelope,
         session_id: str,
         state: dict[str, Any],
-        model_output: str,
+        model_output: Envelope,
     ) -> list[Envelope]:
         batches = await self._hook_runtime.call_many(
             "render_outbound",

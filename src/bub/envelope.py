@@ -19,6 +19,8 @@ def field_of(message: Envelope, key: str, default: Any = None) -> Any:
 def content_of(message: Envelope) -> str:
     """Get textual content from any envelope shape."""
 
+    if isinstance(message, str):
+        return message
     return str(field_of(message, "content", ""))
 
 

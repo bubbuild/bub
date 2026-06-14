@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from bub.builtin.agent import BuiltinModelStream
 from bub.builtin.tools import run_subagent
-from bub.runtime import AsyncStreamEvents, StreamEvent
 from bub.tools import REGISTRY, tool
 
 
@@ -22,11 +22,11 @@ class FakeAgent:
     def __init__(self) -> None:
         self.run_stream = AsyncMock(side_effect=self._run_stream)
 
-    async def _run_stream(self, **kwargs: Any) -> AsyncStreamEvents:
+    async def _run_stream(self, **kwargs: Any) -> BuiltinModelStream:
         async def iterator():
-            yield StreamEvent("text", {"delta": "agent result"})
+            yield {"kind": "text", "data": {"delta": "agent result"}}
 
-        return AsyncStreamEvents(iterator())
+        return BuiltinModelStream(iterator())
 
 
 @pytest.mark.asyncio

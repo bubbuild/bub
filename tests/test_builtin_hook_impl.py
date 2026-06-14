@@ -7,11 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from bub.builtin.agent import BuiltinModelStream
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.builtin.store import FileTapeStore
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
-from bub.runtime import AsyncStreamEvents, StreamEvent
 
 
 class RecordingLifespan:
@@ -36,13 +36,13 @@ class FakeAgent:
         self.run_calls.append((session_id, prompt, state))
         return "agent-output"
 
-    async def run_stream(self, *, session_id: str, prompt: str, state: dict[str, object]) -> AsyncStreamEvents:
+    async def run_stream(self, *, session_id: str, prompt: str, state: dict[str, object]) -> BuiltinModelStream:
         self.run_stream_calls.append((session_id, prompt, state))
 
         async def iterator():
-            yield StreamEvent("text", {"delta": "agent-output"})
+            yield {"kind": "text", "data": {"delta": "agent-output"}}
 
-        return AsyncStreamEvents(iterator())
+        return BuiltinModelStream(iterator())
 
 
 def _raise_value_error() -> None:
@@ -169,9 +169,14 @@ async def test_run_model_stream_delegates_to_agent(tmp_path: Path) -> None:
     state = {"context": "ctx"}
 
     stream = await impl.run_model_stream(prompt="prompt", session_id="session", state=state)
-    events = [event async for event in stream]
+    binding = impl.bind_envelope(stream, session_id="session", state=state)
+    assert binding is stream
+    events = binding.stream()
+    assert events is not None
 
-    assert [(event.kind, event.data) for event in events] == [("text", {"delta": "agent-output"})]
+    assert [event async for event in events] == [
+        {"content": "agent-output", "source": {"kind": "text", "data": {"delta": "agent-output"}}}
+    ]
     assert agent.run_stream_calls == [("session", "prompt", state)]
     assert agent.run_calls == []
 

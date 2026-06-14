@@ -1,9 +1,11 @@
+from collections.abc import AsyncIterable, AsyncIterator
+
 import pluggy
 import pytest
 
 from bub.hook_runtime import HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
-from bub.runtime import AsyncStreamEvents, StreamEvent
+from bub.types import Envelope
 
 
 def _runtime_with_plugins(*plugins: tuple[str, object]) -> HookRuntime:
@@ -12,6 +14,22 @@ def _runtime_with_plugins(*plugins: tuple[str, object]) -> HookRuntime:
     for name, plugin in plugins:
         manager.register(plugin, name=name)
     return HookRuntime(manager)
+
+
+class _BoundEnvelope:
+    def __init__(self, events: list[Envelope], output: Envelope) -> None:
+        self._events = events
+        self._output = output
+
+    def stream(self) -> AsyncIterable[Envelope] | None:
+        async def iterator() -> AsyncIterator[Envelope]:
+            for event in self._events:
+                yield event
+
+        return iterator()
+
+    def output(self) -> Envelope | None:
+        return self._output
 
 
 @pytest.mark.asyncio
@@ -112,11 +130,14 @@ async def test_run_model_uses_streaming_hook_when_plain_hook_absent() -> None:
     class StreamPlugin:
         @hookimpl
         async def run_model_stream(self, prompt, session_id, state):
-            async def iterator():
-                yield StreamEvent("text", {"delta": "stream"})
-                yield StreamEvent("text", {"delta": "ed"})
+            return _BoundEnvelope(
+                [{"content": "stream"}, {"content": "ed"}],
+                "streamed",
+            )
 
-            return AsyncStreamEvents(iterator())
+        @hookimpl
+        def bind_envelope(self, envelope, session_id, state):
+            return envelope if isinstance(envelope, _BoundEnvelope) else None
 
     runtime = _runtime_with_plugins(("stream", StreamPlugin()))
 
@@ -136,6 +157,4 @@ async def test_run_model_stream_falls_back_to_plain_hook() -> None:
 
     stream = await runtime.run_model_stream(prompt="hello", session_id="s", state={})
 
-    assert stream is not None
-    events = [event async for event in stream]
-    assert [(event.kind, event.data) for event in events] == [("text", {"delta": "plain"})]
+    assert stream == "plain"

@@ -23,10 +23,9 @@ from bub.builtin.tape import TapeInfo
 from bub.channels.base import Interface
 from bub.channels.cli.renderer import CliRenderer
 from bub.channels.message import ChannelMessage
-from bub.envelope import field_of
-from bub.runtime import StreamEvent
+from bub.envelope import content_of, field_of
 from bub.tools import REGISTRY
-from bub.types import MessageHandler
+from bub.types import Envelope, MessageHandler
 
 
 class _StreamPrinter:
@@ -39,16 +38,20 @@ class _StreamPrinter:
         self._reasoning_status: Status | None = None
         self.head_printed = False
 
-    def render(self, event: StreamEvent) -> bool:
-        if event.kind == "reasoning":
-            self._record_reasoning(str(event.data.get("delta", "")))
+    def render(self, event: Envelope) -> bool:
+        kind = field_of(event, "kind")
+        data = field_of(event, "data", {})
+        data = data if isinstance(data, dict) else {}
+        if kind == "reasoning":
+            self._record_reasoning(str(data.get("delta", "")))
             return True
 
-        if event.kind == "text":
-            return self._print_content(str(event.data.get("delta", "")))
-        elif event.kind == "tool_call":
+        content = content_of(event)
+        if content:
+            return self._print_content(content)
+        if kind == "tool_call":
             self._print_stream_boundary()
-        elif event.kind == "final":
+        elif kind == "final" or field_of(event, "end"):
             self._print_end()
         return True
 
@@ -236,9 +239,7 @@ class CliChannel(Interface):
         symbol = ">" if self._mode == "agent" else ","
         return FormattedText([("bold", f"{cwd} {symbol} ")])
 
-    async def stream_events(
-        self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]
-    ) -> AsyncIterable[StreamEvent]:
+    async def stream_events(self, message: ChannelMessage, stream: AsyncIterable[Envelope]) -> AsyncIterable[Envelope]:
         console = get_console()
         printer = _StreamPrinter(
             console=console,

@@ -7,7 +7,7 @@ import inspect
 import re
 import shlex
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Collection, Coroutine, Iterable
+from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Callable, Collection, Coroutine, Iterable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -32,8 +32,9 @@ from pydantic import TypeAdapter, ValidationError
 from bub.builtin.settings import ModelCandidate, load_settings
 from bub.builtin.store import ForkTapeStore
 from bub.builtin.tape import TapeService
+from bub.envelope import field_of
+from bub.errors import BubError, ErrorKind
 from bub.framework import BubFramework
-from bub.runtime import AsyncStreamEvents, BubError, ErrorKind, StreamEvent, StreamState
 from bub.skills import discover_skills, render_skills_prompt
 from bub.tape import InMemoryTapeStore, Tape
 from bub.tools import (
@@ -42,7 +43,7 @@ from bub.tools import (
     ToolContext,
     ToolExecutor,
 )
-from bub.types import State
+from bub.types import Envelope, State
 from bub.utils import workspace_from_state
 
 CONTINUE_PROMPT = "Continue the task until all targets are completed."
@@ -53,6 +54,45 @@ _CONTEXT_LENGTH_PATTERNS = re.compile(
 )
 MAX_AUTO_HANDOFF_RETRIES = 1
 TOOL_ARGUMENTS_ADAPTER = TypeAdapter(dict[str, Any])
+
+
+def _stream_event(kind: str, data: dict[str, Any] | None = None) -> Envelope:
+    return {"kind": kind, "data": data or {}}
+
+
+def _event_data(event: Envelope) -> dict[str, Any]:
+    data = field_of(event, "data", {})
+    return data if isinstance(data, dict) else {}
+
+
+class BuiltinModelStream:
+    """Builtin-owned stream envelope and binding."""
+
+    def __init__(self, events: AsyncIterable[Envelope]) -> None:
+        self._events = events
+        self._output_parts: list[str] = []
+        self._stream_started = False
+
+    def stream(self) -> AsyncIterable[Envelope] | None:
+        if self._stream_started:
+            return None
+        self._stream_started = True
+
+        async def iterator() -> AsyncIterator[Envelope]:
+            async for event in self._events:
+                if field_of(event, "kind") == "text":
+                    delta = str(_event_data(event).get("delta", ""))
+                    self._output_parts.append(delta)
+                    yield {"content": delta, "source": event}
+                elif field_of(event, "kind") == "final":
+                    yield {"end": True, "source": event}
+                else:
+                    yield event
+
+        return iterator()
+
+    def output(self) -> Envelope | None:
+        return "".join(self._output_parts)
 
 
 class Agent:
@@ -73,25 +113,25 @@ class Agent:
         return TapeService(bub.home / "tapes", tape_store, self.framework.build_tape_context())
 
     @staticmethod
-    def _events_from_iterable(iterable: Iterable) -> AsyncStreamEvents:
-        async def generator() -> AsyncIterator:
+    def _events_from_iterable(iterable: Iterable[Envelope]) -> AsyncIterable[Envelope]:
+        async def generator() -> AsyncIterator[Envelope]:
             for item in iterable:
                 yield item
 
-        return AsyncStreamEvents(generator())
+        return generator()
 
     @staticmethod
     def _events_with_callback(
-        events: AsyncStreamEvents, callback: Callable[[], Coroutine[Any, Any, Any]]
-    ) -> AsyncStreamEvents:
-        async def generator() -> AsyncIterator[StreamEvent]:
+        events: AsyncIterable[Envelope], callback: Callable[[], Coroutine[Any, Any, Any]]
+    ) -> AsyncIterable[Envelope]:
+        async def generator() -> AsyncIterator[Envelope]:
             try:
                 async for event in events:
                     yield event
             finally:
                 await callback()
 
-        return AsyncStreamEvents(generator(), state=events._state)
+        return generator()
 
     async def run(
         self,
@@ -112,9 +152,12 @@ class Agent:
             allowed_skills=allowed_skills,
             allowed_tools=allowed_tools,
         )
-        async for event in stream:
-            if event.kind == "text":
-                output.append(str(event.data.get("delta", "")))
+        events = stream.stream()
+        if events is not None:
+            async for _event in events:
+                pass
+        if result := stream.output():
+            output.append(str(result))
         return "".join(output)
 
     async def run_stream(
@@ -126,12 +169,14 @@ class Agent:
         model: str | None = None,
         allowed_skills: Collection[str] | None = None,
         allowed_tools: Collection[str] | None = None,
-    ) -> AsyncStreamEvents:
+    ) -> BuiltinModelStream:
         if not prompt:
-            return self._events_from_iterable([
-                StreamEvent("text", {"delta": "error: empty prompt"}),
-                StreamEvent("final", {"text": "error: empty prompt", "ok": False}),
-            ])
+            return BuiltinModelStream(
+                self._events_from_iterable([
+                    _stream_event("text", {"delta": "error: empty prompt"}),
+                    _stream_event("final", {"text": "error: empty prompt", "ok": False}),
+                ])
+            )
 
         tape = self.tapes.session_tape(session_id, workspace_from_state(state))
         tape.context = replace(tape.context, state=state)
@@ -143,8 +188,8 @@ class Agent:
         if isinstance(prompt, str) and prompt.strip().startswith(","):
             result = await self._run_command(tape=tape, line=prompt.strip())
             events = self._events_from_iterable([
-                StreamEvent("text", {"delta": result}),
-                StreamEvent("final", {"text": result, "ok": True}),
+                _stream_event("text", {"delta": result}),
+                _stream_event("final", {"text": result, "ok": True}),
             ])
         else:
             events = await self._agent_loop(
@@ -154,7 +199,7 @@ class Agent:
                 allowed_skills=allowed_skills,
                 allowed_tools=allowed_tools,
             )
-        return self._events_with_callback(events, callback=stack.aclose)
+        return BuiltinModelStream(self._events_with_callback(events, callback=stack.aclose))
 
     async def _run_command(self, tape: Tape, *, line: str) -> str:
         line = line[1:].strip()
@@ -204,7 +249,7 @@ class Agent:
         model: str | None = None,
         allowed_skills: Collection[str] | None = None,
         allowed_tools: Collection[str] | None = None,
-    ) -> AsyncStreamEvents:
+    ) -> AsyncIterable[Envelope]:
         next_prompt: str | list[dict] = prompt
         display_model = model or self.settings.model
         await self.tapes.append_event(
@@ -217,7 +262,7 @@ class Agent:
                 "allowed_tools": list(allowed_tools) if allowed_tools else None,
             },
         )
-        state = StreamState()
+        state: dict[str, Any] = {}
         iterator = self._stream_events_with_auto_handoff(
             tape=tape,
             prompt=next_prompt,
@@ -226,17 +271,17 @@ class Agent:
             allowed_skills=allowed_skills,
             allowed_tools=allowed_tools,
         )
-        return AsyncStreamEvents(iterator, state=state)
+        return iterator
 
     async def _stream_events_with_auto_handoff(
         self,
         tape: Tape,
         prompt: str | list[dict],
-        state: StreamState,
+        state: dict[str, Any],
         model: str | None = None,
         allowed_skills: Collection[str] | None = None,
         allowed_tools: Collection[str] | None = None,
-    ) -> AsyncGenerator[StreamEvent, None]:
+    ) -> AsyncGenerator[Envelope, None]:
         auto_handoff_remaining = MAX_AUTO_HANDOFF_RETRIES
         display_model = model or self.settings.model
         next_prompt = prompt
@@ -255,7 +300,9 @@ class Agent:
                 )
                 async for event in output:
                     yield event
-                    if event.kind == "error":
+                    kind = field_of(event, "kind")
+                    data = _event_data(event)
+                    if kind == "error":
                         elapsed_ms = int((time.monotonic() - start) * 1000)
                         await self.tapes.append_event(
                             tape.name,
@@ -264,12 +311,12 @@ class Agent:
                                 "step": step,
                                 "elapsed_ms": elapsed_ms,
                                 "status": "error",
-                                "error": event.data.get("message", ""),
+                                "error": data.get("message", ""),
                                 "date": datetime.now(UTC).isoformat(),
                             },
                         )
-                    elif event.kind == "final":
-                        should_continue = bool(event.data.get("tool_calls") or event.data.get("tool_results"))
+                    elif kind == "final":
+                        should_continue = bool(data.get("tool_calls") or data.get("tool_results"))
             except Exception as exc:
                 error_message = f"{exc!s}"
                 elapsed_ms = int((time.monotonic() - start) * 1000)
@@ -312,8 +359,6 @@ class Agent:
                 )
                 raise
 
-            state.error = output.error
-            state.usage = output.usage
             elapsed_ms = int((time.monotonic() - start) * 1000)
             if not should_continue:
                 await self.tapes.append_event(
@@ -359,7 +404,7 @@ class Agent:
         model: str | None = None,
         allowed_tools: Collection[str] | None = None,
         allowed_skills: Collection[str] | None = None,
-    ) -> AsyncStreamEvents:
+    ) -> AsyncIterable[Envelope]:
         prompt_text = prompt if isinstance(prompt, str) else _extract_text_from_parts(prompt)
         if allowed_tools is not None:
             from bub.builtin.tools import resolve_tool_names
@@ -390,10 +435,10 @@ class Agent:
         model: str | None,
         allowed_skills: set[str] | None,
         tools: list[Tool],
-    ) -> AsyncStreamEvents:
-        state = StreamState()
+    ) -> AsyncIterable[Envelope]:
+        state: dict[str, Any] = {}
 
-        async def iterator() -> AsyncGenerator[StreamEvent, None]:
+        async def iterator() -> AsyncGenerator[Envelope, None]:
             system_prompt = self._system_prompt(
                 prompt_text, state=tape.context.state, allowed_skills=allowed_skills, tools=tools
             )
@@ -447,7 +492,7 @@ class Agent:
                 tool_invocations = [
                     _tool_invocation_from_native(tool_call, tool_map) for tool_call in native_tool_calls
                 ]
-                yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
+                yield _stream_event("tool_call", {"tool_calls": serialized_tool_calls})
                 context = ToolContext(tape=tape.name, run_id=run_id, state=tape.context.state)
                 execution = await ToolExecutor().execute_async(
                     tool_invocations,
@@ -463,11 +508,12 @@ class Agent:
                     tool_results=execution.tool_results,
                     response=response,
                     model=model or self.settings.model,
-                    usage=state.usage,
+                    usage=state.get("usage"),
                 )
-                yield StreamEvent("tool_result", {"tool_results": execution.tool_results})
-                yield StreamEvent(
-                    "final", {"ok": True, "tool_calls": serialized_tool_calls, "tool_results": execution.tool_results}
+                yield _stream_event("tool_result", {"tool_results": execution.tool_results})
+                yield _stream_event(
+                    "final",
+                    {"ok": True, "tool_calls": serialized_tool_calls, "tool_results": execution.tool_results},
                 )
                 return
 
@@ -479,11 +525,11 @@ class Agent:
                 response_text=text,
                 response=response,
                 model=model or self.settings.model,
-                usage=state.usage,
+                usage=state.get("usage"),
             )
-            yield StreamEvent("final", {"ok": True, "text": text})
+            yield _stream_event("final", {"ok": True, "text": text})
 
-        return AsyncStreamEvents(iterator(), state=state)
+        return iterator()
 
     def _build_llm(self, candidate: ModelCandidate) -> AnyLLM:
         return AnyLLM.create(
@@ -609,13 +655,13 @@ def _parse_native_function_call(tool_call: ChatCompletionMessageToolCall) -> tup
 
 async def _completion_events(
     completion: ChatCompletion | ParsedChatCompletion[Any] | AsyncIterator[ChatCompletionChunk],
-    state: StreamState,
+    state: dict[str, Any],
     text_parts: list[str],
     tool_calls: _ToolCallAccumulator,
-) -> AsyncGenerator[StreamEvent, None]:
+) -> AsyncGenerator[Envelope, None]:
     if isinstance(completion, ChatCompletion):
         if usage := TapeService._extract_usage(completion):
-            state.usage = usage
+            state["usage"] = usage
         message = completion.choices[0].message
         for event in _completion_message_events(message, text_parts, tool_calls):
             yield event
@@ -630,30 +676,30 @@ def _completion_message_events(
     message: ChatCompletionMessage,
     text_parts: list[str],
     tool_calls: _ToolCallAccumulator,
-) -> Iterable[StreamEvent]:
+) -> Iterable[Envelope]:
     if message.reasoning:
-        yield StreamEvent("reasoning", {"delta": _reasoning_text(message.reasoning)})
+        yield _stream_event("reasoning", {"delta": _reasoning_text(message.reasoning)})
     if message.content:
         text_parts.append(message.content)
-        yield StreamEvent("text", {"delta": message.content})
+        yield _stream_event("text", {"delta": message.content})
     tool_calls.add_message_calls(cast("Iterable[ChatCompletionMessageToolCall]", message.tool_calls or []))
 
 
 async def _completion_chunk_events(
     chunk: ChatCompletionChunk,
-    state: StreamState,
+    state: dict[str, Any],
     text_parts: list[str],
     tool_calls: _ToolCallAccumulator,
-) -> AsyncGenerator[StreamEvent, None]:
+) -> AsyncGenerator[Envelope, None]:
     if usage := TapeService._extract_usage(chunk):
-        state.usage = usage
+        state["usage"] = usage
     for choice in chunk.choices:
         delta = choice.delta
         if delta.reasoning:
-            yield StreamEvent("reasoning", {"delta": _reasoning_text(delta.reasoning)})
+            yield _stream_event("reasoning", {"delta": _reasoning_text(delta.reasoning)})
         if delta.content:
             text_parts.append(delta.content)
-            yield StreamEvent("text", {"delta": delta.content})
+            yield _stream_event("text", {"delta": delta.content})
         if delta.tool_calls:
             tool_calls.merge_delta_calls(delta.tool_calls)
 

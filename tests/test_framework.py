@@ -19,7 +19,6 @@ from bub.channels.telegram import TelegramSettings
 from bub.configure import ensure_config
 from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
-from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
 from bub.turn_admission import AdmitDecision, SteeringBuffer, TurnSnapshot
 
 
@@ -40,6 +39,22 @@ def make_named_channel(name: str, label: str) -> Channel:
             return None
 
     return NamedChannelImpl()
+
+
+class _BoundEnvelope:
+    def __init__(self, events: list[dict[str, Any]], output: Any) -> None:
+        self._events = events
+        self._output = output
+
+    def stream(self):
+        async def iterator():
+            for event in self._events:
+                yield event
+
+        return iterator()
+
+    def output(self):
+        return self._output
 
 
 def test_create_cli_app_sets_workspace_and_context(tmp_path: Path) -> None:
@@ -337,7 +352,7 @@ async def test_framework_admit_message_calls_hook_with_snapshot() -> None:
 async def test_process_inbound_streams_when_requested() -> None:  # noqa: C901
     framework = BubFramework()
     stream_calls: list[str] = []
-    wrapped_events: list[str] = []
+    wrapped_events: list[dict[str, Any]] = []
 
     class StreamingPlugin:
         @hookimpl
@@ -355,13 +370,14 @@ async def test_process_inbound_streams_when_requested() -> None:  # noqa: C901
         @hookimpl
         async def run_model_stream(self, prompt, session_id, state):
             stream_calls.append(prompt)
+            return _BoundEnvelope(
+                [{"chunk": "stream"}, {"chunk": "ed"}, {"done": True}],
+                "streamed",
+            )
 
-            async def iterator():
-                yield StreamEvent("text", {"delta": "stream"})
-                yield StreamEvent("text", {"delta": "ed"})
-                yield StreamEvent("final", {"text": "streamed", "ok": True})
-
-            return AsyncStreamEvents(iterator(), state=StreamState())
+        @hookimpl
+        def bind_envelope(self, envelope, session_id, state):
+            return envelope if isinstance(envelope, _BoundEnvelope) else None
 
         @hookimpl
         async def save_state(self, session_id, state, message, model_output) -> None:
@@ -379,7 +395,7 @@ async def test_process_inbound_streams_when_requested() -> None:  # noqa: C901
         def wrap_stream(self, message, stream):
             async def iterator():
                 async for event in stream:
-                    wrapped_events.append(event.kind)
+                    wrapped_events.append(event)
                     yield event
 
             return iterator()
@@ -399,5 +415,5 @@ async def test_process_inbound_streams_when_requested() -> None:  # noqa: C901
     )
 
     assert stream_calls == ["prompt"]
-    assert wrapped_events == ["text", "text", "final"]
+    assert wrapped_events == [{"chunk": "stream"}, {"chunk": "ed"}, {"done": True}]
     assert result.model_output == "streamed"

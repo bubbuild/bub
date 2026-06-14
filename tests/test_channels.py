@@ -15,7 +15,6 @@ from bub.channels.handler import BufferedMessageHandler
 from bub.channels.manager import ChannelManager
 from bub.channels.message import ChannelMessage
 from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMessageParser
-from bub.runtime import StreamEvent
 from bub.turn_admission import AdmitDecision, SessionTurnController, SteeringBuffer
 
 
@@ -674,17 +673,17 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
 
     message = _message("ignored", channel="cli", kind="command", session_id="cli:1")
 
-    async def source() -> asyncio.AsyncIterator[StreamEvent]:
-        yield StreamEvent("text", {"delta": "  "})
-        yield StreamEvent("text", {"delta": "hel"})
-        yield StreamEvent("text", {"delta": "lo"})
-        yield StreamEvent("final", {})
+    async def source() -> asyncio.AsyncIterator[dict[str, str]]:
+        yield {"content": "  "}
+        yield {"content": "hel"}
+        yield {"content": "lo"}
+        yield {"end": True}
 
     yielded = [event async for event in channel.stream_events(message, source())]
 
     assert heads == ["command"]
     assert printed == [("hel", "", False), ("lo", "", False), ("", None, None)]
-    assert [event.kind for event in yielded] == ["text", "text", "final"]
+    assert yielded == [{"content": "  "}, {"content": "hel"}, {"content": "lo"}, {"end": True}]
 
 
 def test_cli_channel_history_file_uses_workspace_hash(tmp_path: Path) -> None:
