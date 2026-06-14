@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bub.builtin.agent import BuiltinModelStream
+from bub.builtin.agent import AsyncStreamEvents, StreamEvent
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.builtin.store import FileTapeStore
 from bub.channels.message import ChannelMessage
@@ -36,13 +36,13 @@ class FakeAgent:
         self.run_calls.append((session_id, prompt, state))
         return "agent-output"
 
-    async def run_stream(self, *, session_id: str, prompt: str, state: dict[str, object]) -> BuiltinModelStream:
+    async def run_stream(self, *, session_id: str, prompt: str, state: dict[str, object]) -> AsyncStreamEvents:
         self.run_stream_calls.append((session_id, prompt, state))
 
         async def iterator():
-            yield {"kind": "text", "data": {"delta": "agent-output"}}
+            yield StreamEvent("text", {"delta": "agent-output"})
 
-        return BuiltinModelStream(iterator())
+        return AsyncStreamEvents(iterator())
 
 
 def _raise_value_error() -> None:
@@ -175,7 +175,7 @@ async def test_run_model_stream_delegates_to_agent(tmp_path: Path) -> None:
     assert events is not None
 
     assert [event async for event in events] == [
-        {"content": "agent-output", "source": {"kind": "text", "data": {"delta": "agent-output"}}}
+        {"content": "agent-output", "source": StreamEvent("text", {"delta": "agent-output"})}
     ]
     assert agent.run_stream_calls == [("session", "prompt", state)]
     assert agent.run_calls == []

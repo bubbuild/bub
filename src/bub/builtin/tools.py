@@ -359,19 +359,20 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
         subagent_session = param.session
     state = {**context.state, "session_id": subagent_session}
     allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"})
-    stream = await agent.run_stream(
+    output = ""
+    async for event in await agent.run_stream(
         session_id=subagent_session,
         prompt=param.prompt,
         state=state,
         model=param.model,
         allowed_tools=allowed_tools,
         allowed_skills=param.allowed_skills,
-    )
-    events = stream.stream()
-    if events is not None:
-        async for _event in events:
-            pass
-    return str(stream.output() or "")
+    ):
+        if event.kind == "error":
+            output += f"[Error: {event.data.get('message', 'unknown error')}]"
+        elif event.kind == "text":
+            output += str(event.data.get("delta", ""))
+    return output
 
 
 @tool(name="help")

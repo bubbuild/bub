@@ -247,8 +247,8 @@ class CliChannel(Interface):
             expand_thinking=self._expand_thinking,
         )
         async for event in stream:
-            if printer.render(event):
-                yield event
+            printer.render(event)
+            yield event
 
     def _build_prompt(self, workspace: Path) -> PromptSession[str]:
         kb = KeyBindings()

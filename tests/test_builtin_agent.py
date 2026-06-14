@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from any_llm.types.completion import ChatCompletionChunk
 
-from bub.builtin.agent import Agent, BuiltinModelStream
+from bub.builtin.agent import Agent, AsyncStreamEvents, StreamEvent, StreamState
 from bub.builtin.settings import AgentSettings
 from bub.errors import BubError
 from bub.tape import Tape, TapeContext
@@ -60,11 +60,8 @@ async def _chat_stream(content: str) -> AsyncIterator[ChatCompletionChunk]:
     yield _chat_chunk(content)
 
 
-async def _consume_stream(stream: BuiltinModelStream) -> list[Any]:
-    events = stream.stream()
-    if events is None:
-        return []
-    return [event async for event in events]
+async def _consume_stream(stream: AsyncStreamEvents) -> list[StreamEvent]:
+    return [event async for event in stream]
 
 
 class _ForkCapture:
@@ -205,12 +202,33 @@ async def test_agent_run_empty_prompt_returns_error() -> None:
     events = await _consume_stream(result)
 
     assert events == [
-        {
-            "content": "error: empty prompt",
-            "source": {"kind": "text", "data": {"delta": "error: empty prompt"}},
-        },
-        {"end": True, "source": {"kind": "final", "data": {"ok": False, "text": "error: empty prompt"}}},
+        StreamEvent("text", {"delta": "error: empty prompt"}),
+        StreamEvent("final", {"ok": False, "text": "error: empty prompt"}),
     ]
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_preserves_run_once_stream_state() -> None:
+    agent = _make_agent()
+    fork_capture = _ForkCapture()
+    fake_tapes = _FakeTapeService(fork_capture)
+    agent.tapes = fake_tapes  # type: ignore[assignment]
+    state = StreamState(usage={"total_tokens": 3})
+
+    async def iterator() -> AsyncIterator[StreamEvent]:
+        yield StreamEvent("text", {"delta": "done"})
+        yield StreamEvent("final", {"ok": True, "text": "done"})
+
+    async def fake_run_once(**kwargs: Any) -> AsyncStreamEvents:
+        return AsyncStreamEvents(iterator(), state=state)
+
+    agent._run_once = fake_run_once  # type: ignore[method-assign]
+    tape = Tape(name="test-tape", context=TapeContext(state={}))
+
+    events = await agent._agent_loop(tape=tape, prompt="hello")
+    [event async for event in events]
+
+    assert events.usage == {"total_tokens": 3}
 
 
 @pytest.mark.asyncio
