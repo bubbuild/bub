@@ -49,7 +49,7 @@ class StreamState:
 
 @dataclass(frozen=True)
 class StreamEvent:
-    kind: Literal["text", "tool_call", "tool_result", "usage", "error", "final"]
+    kind: Literal["text", "reasoning", "tool_call", "tool_result", "usage", "error", "final"]
     data: dict[str, Any]
 
 
