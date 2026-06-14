@@ -82,6 +82,37 @@
           };
         });
 
+      # Editable dev environment: local `bub` installed editable, plus dev and
+      # optional deps (deps.all). devShells.default symlinks it to ./.venv so
+      # IDEs and `uv run` discover .venv/bin/python.
+      editableOverlay = workspace.mkEditablePyprojectOverlay {
+        root = "$REPO_ROOT";
+      };
+
+      devVenvFor =
+        pkgs:
+        let
+          editablePythonSet = (mkPythonSet pkgs).overrideScope (
+            lib.composeManyExtensions [
+              editableOverlay
+              (final: prev: {
+                bub = prev.bub.overrideAttrs (old: {
+                  src = lib.fileset.toSource {
+                    root = old.src;
+                    fileset = lib.fileset.unions [
+                      (old.src + "/pyproject.toml")
+                      (old.src + "/README.md")
+                      (old.src + "/src/bub/__init__.py")
+                    ];
+                  };
+                  nativeBuildInputs = old.nativeBuildInputs ++ final.resolveBuildSystem { editables = [ ]; };
+                });
+              })
+            ]
+          );
+        in
+        editablePythonSet.mkVirtualEnv "bub-dev-env" workspace.deps.all;
+
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -119,24 +150,23 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          python = pythonFor pkgs;
+          devVenv = devVenvFor pkgs;
         in
         {
           default = pkgs.mkShell {
             packages = [
-              python
+              devVenv
               pkgs.uv
             ];
-            env =
-              {
-                UV_PYTHON_DOWNLOADS = "never";
-                UV_PYTHON = python.interpreter;
-              }
-              // lib.optionalAttrs pkgs.stdenv.isLinux {
-                LD_LIBRARY_PATH = lib.makeLibraryPath pkgs.pythonManylinuxPackages.manylinux1;
-              };
+            env = {
+              UV_NO_SYNC = "1";
+              UV_PYTHON = "${devVenv}/bin/python";
+              UV_PYTHON_DOWNLOADS = "never";
+            };
             shellHook = ''
               unset PYTHONPATH
+              export REPO_ROOT=$(git rev-parse --show-toplevel)
+              ln -snf ${devVenv} "$REPO_ROOT/.venv"
             '';
           };
 
