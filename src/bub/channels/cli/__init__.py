@@ -1,6 +1,6 @@
 import asyncio
 import contextlib
-from collections.abc import AsyncGenerator, AsyncIterable
+from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from datetime import datetime
 from hashlib import md5
 from pathlib import Path
@@ -13,6 +13,9 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich import get_console
+from rich.status import Status
+from rich.text import Text
+from rich.tree import Tree
 
 import bub
 from bub.builtin.agent import Agent
@@ -24,6 +27,91 @@ from bub.envelope import field_of
 from bub.runtime import StreamEvent
 from bub.tools import REGISTRY
 from bub.types import MessageHandler
+
+
+class _StreamPrinter:
+    def __init__(self, *, console, print_head: Callable[[], None], expand_reasoning: bool) -> None:
+        self._console = console
+        self._print_head = print_head
+        self._expand_reasoning = expand_reasoning
+        self._reasoning_chars = 0
+        self._reasoning_streaming = False
+        self._reasoning_status: Status | None = None
+        self.head_printed = False
+
+    def render(self, event: StreamEvent) -> bool:
+        if event.kind == "reasoning":
+            self._record_reasoning(str(event.data.get("delta", "")))
+            return True
+
+        if event.kind == "text":
+            return self._print_content(str(event.data.get("delta", "")))
+        elif event.kind == "final":
+            self._print_end()
+        return True
+
+    def _record_reasoning(self, reasoning: str) -> None:
+        if not self._expand_reasoning:
+            if self._reasoning_chars == 0:
+                self._ensure_head()
+                self._start_reasoning_status()
+            self._reasoning_chars += len(reasoning)
+            return
+
+        self._ensure_head()
+        if not self._reasoning_streaming:
+            self._console.print(Text("[-] Thinking", style="bright_black"))
+            self._reasoning_streaming = True
+        self._console.print(Text(reasoning, style="bright_black"), end="", highlight=False)
+
+    def _print_content(self, content: str) -> bool:
+        if not (content.strip() or self.head_printed or self._reasoning_chars or self._reasoning_streaming):
+            return False
+        self._ensure_head()
+        self._close_reasoning_stream()
+        self._flush_reasoning()
+        self._console.print(content, end="", highlight=False)
+        return True
+
+    def _print_end(self) -> None:
+        if self._reasoning_chars:
+            self._ensure_head()
+        self._flush_reasoning()
+        self._console.print("\n")  # ensure the next log or prompt starts on its own line
+
+    def _ensure_head(self) -> None:
+        if self.head_printed:
+            return
+        self._print_head()
+        self.head_printed = True
+
+    def _close_reasoning_stream(self) -> None:
+        if not self._reasoning_streaming:
+            return
+        self._console.print("")
+        self._reasoning_streaming = False
+
+    def _flush_reasoning(self) -> None:
+        if self._reasoning_chars <= 0:
+            return
+        self._stop_reasoning_status()
+        label = Text(f"[+] Thinking ({self._reasoning_chars} chars hidden)", style="bright_black")
+        self._console.print(Tree(label, guide_style="bright_black", expanded=False))
+        self._reasoning_chars = 0
+
+    def _start_reasoning_status(self) -> None:
+        if self._reasoning_status is not None:
+            return
+        self._reasoning_status = self._console.status(
+            Text("Thinking", style="bright_black"), spinner_style="bright_black"
+        )
+        self._reasoning_status.start()
+
+    def _stop_reasoning_status(self) -> None:
+        if self._reasoning_status is None:
+            return
+        self._reasoning_status.stop()
+        self._reasoning_status = None
 
 
 class CliChannel(Interface):
@@ -41,6 +129,7 @@ class CliChannel(Interface):
             "session_id": "cli_session",
         }
         self._mode = "agent"  # or "shell"
+        self._expand_thinking = False
         self._main_task: asyncio.Task | None = None
         self._renderer = CliRenderer(get_console())
         self._last_tape_info: TapeInfo | None = None
@@ -100,6 +189,9 @@ class CliChannel(Interface):
                 continue
             if raw in {",quit", ",exit"}:
                 break
+            if raw == ",thinking":
+                self._toggle_thinking()
+                continue
 
             request = self._normalize_input(raw)
 
@@ -140,21 +232,15 @@ class CliChannel(Interface):
     async def stream_events(
         self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]
     ) -> AsyncIterable[StreamEvent]:
-        head_printed = False
         console = get_console()
+        printer = _StreamPrinter(
+            console=console,
+            print_head=lambda: self._renderer.print_head(message.kind),
+            expand_reasoning=getattr(self, "_expand_thinking", False),
+        )
         async for event in stream:
-            if event.kind == "text":
-                content = str(event.data.get("delta", ""))
-                if not content.strip() and not head_printed:
-                    continue  # skip leading whitespace-only events
-                if not head_printed:
-                    self._renderer.print_head(message.kind)
-                    head_printed = True
-
-                console.print(content, end="", highlight=False)
-            elif event.kind == "final":
-                console.print("\n")  # ensure we end with a newline after the final event
-            yield event
+            if printer.render(event):
+                yield event
 
     def _build_prompt(self, workspace: Path) -> PromptSession[str]:
         kb = KeyBindings()
@@ -171,7 +257,7 @@ class CliChannel(Interface):
         history_file = self._history_file(bub.home, workspace)
         history_file.parent.mkdir(parents=True, exist_ok=True)
         history = FileHistory(str(history_file))
-        tool_names = sorted((f",{name}" for name in REGISTRY), key=_tool_sort_key)
+        tool_names = sorted([*(f",{name}" for name in REGISTRY), ",thinking"], key=_tool_sort_key)
         completer = WordCompleter(tool_names, ignore_case=True, sentence=True)
         return PromptSession(
             completer=completer,
@@ -186,12 +272,18 @@ class CliChannel(Interface):
         now = datetime.now().strftime("%H:%M")
         left = f"{now}  mode:{self._mode}"
         right = (
+            f"thinking:{'expand' if self._expand_thinking else 'collapse'}  "
             f"model:{self._agent.settings.model}  "
             f"entries:{field_of(info, 'entries', '-')} "
             f"anchors:{field_of(info, 'anchors', '-')} "
             f"last:{field_of(info, 'last_anchor', None) or '-'}"
         )
         return FormattedText([("", f"{left}  {right}")])
+
+    def _toggle_thinking(self) -> None:
+        self._expand_thinking = not self._expand_thinking
+        state = "expanded" if self._expand_thinking else "collapsed"
+        self._renderer.info(f"Thinking output is now {state}.")
 
     @staticmethod
     def _history_file(home: Path, workspace: Path) -> Path:
