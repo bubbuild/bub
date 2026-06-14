@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
-from bub.tape import TapeEntryKind
 from bub.tools import REGISTRY, Tool, ToolContext, tool
 
 if TYPE_CHECKING:
@@ -136,7 +135,7 @@ class SearchInput(BaseModel):
     limit: int = Field(20, description="Maximum number of search results to return.")
     start: str | None = Field(None, description="Optional start date to filter entries (ISO format).")
     end: str | None = Field(None, description="Optional end date to filter entries (ISO format).")
-    kinds: list[TapeEntryKind] = Field(
+    kinds: list[str] = Field(
         default=["message", "tool_result"],
         description="Optional list of entry kinds to filter search results. Can include 'event', 'anchor', 'system', 'message', 'tool_call', 'tool_result', 'error'.",
     )

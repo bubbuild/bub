@@ -44,6 +44,6 @@ if TYPE_CHECKING:
 def __getattr__(name: str):
     if name == "home":
         if "BUB_HOME" in os.environ:
-            return Path(os.environ["BUB_HOME"])
+            return Path(os.path.expanduser(os.environ["BUB_HOME"]))
         return DEFAULT_HOME
     raise AttributeError(f"module {__name__} has no attribute {name}")
