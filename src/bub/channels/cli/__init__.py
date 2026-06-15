@@ -30,10 +30,10 @@ from bub.types import MessageHandler
 
 
 class _StreamPrinter:
-    def __init__(self, *, console, print_head: Callable[[], None], expand_reasoning: bool) -> None:
+    def __init__(self, *, console, print_head: Callable[[], None], expand_thinking: bool) -> None:
         self._console = console
         self._print_head = print_head
-        self._expand_reasoning = expand_reasoning
+        self._expand_thinking = expand_thinking
         self._reasoning_chars = 0
         self._reasoning_streaming = False
         self._reasoning_status: Status | None = None
@@ -51,7 +51,7 @@ class _StreamPrinter:
         return True
 
     def _record_reasoning(self, reasoning: str) -> None:
-        if not self._expand_reasoning:
+        if not self._expand_thinking:
             if self._reasoning_chars == 0:
                 self._ensure_head()
                 self._start_reasoning_status()
@@ -60,9 +60,9 @@ class _StreamPrinter:
 
         self._ensure_head()
         if not self._reasoning_streaming:
-            self._console.print(Text("[-] Thinking", style="bright_black"))
+            self._console.print(Text("[-] Thinking", style="dim"))
             self._reasoning_streaming = True
-        self._console.print(Text(reasoning, style="bright_black"), end="", highlight=False)
+        self._console.print(Text(reasoning, style="dim"), end="", highlight=False)
 
     def _print_content(self, content: str) -> bool:
         if not (content.strip() or self.head_printed or self._reasoning_chars or self._reasoning_streaming):
@@ -95,16 +95,14 @@ class _StreamPrinter:
         if self._reasoning_chars <= 0:
             return
         self._stop_reasoning_status()
-        label = Text(f"[+] Thinking ({self._reasoning_chars} chars hidden)", style="bright_black")
-        self._console.print(Tree(label, guide_style="bright_black", expanded=False))
+        label = Text(f"[+] Thinking ({self._reasoning_chars} chars hidden)", style="dim")
+        self._console.print(Tree(label, guide_style="dim", expanded=False))
         self._reasoning_chars = 0
 
     def _start_reasoning_status(self) -> None:
         if self._reasoning_status is not None:
             return
-        self._reasoning_status = self._console.status(
-            Text("Thinking", style="bright_black"), spinner_style="bright_black"
-        )
+        self._reasoning_status = self._console.status(Text("Thinking", style="dim"), spinner_style="dim")
         self._reasoning_status.start()
 
     def _stop_reasoning_status(self) -> None:
@@ -236,7 +234,7 @@ class CliChannel(Interface):
         printer = _StreamPrinter(
             console=console,
             print_head=lambda: self._renderer.print_head(message.kind),
-            expand_reasoning=getattr(self, "_expand_thinking", False),
+            expand_thinking=self._expand_thinking,
         )
         async for event in stream:
             if printer.render(event):

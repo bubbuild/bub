@@ -664,6 +664,7 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
     heads: list[str] = []
     printed: list[tuple[str, str | None, bool | None]] = []
     channel._renderer = SimpleNamespace(print_head=heads.append)
+    channel._expand_thinking = False
     monkeypatch.setattr(
         "bub.channels.cli.get_console",
         lambda: SimpleNamespace(
