@@ -58,4 +58,4 @@ class CliRenderer:
     def log(self, message: object) -> None:
         text = str(message).rstrip()
         if text:
-            self.console.print(text)
+            self.console.print(text, new_line_start=True)

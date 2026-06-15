@@ -683,7 +683,7 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
     yielded = [event async for event in channel.stream_events(message, source())]
 
     assert heads == ["command"]
-    assert printed == [("hel", "", False), ("lo", "", False), ("\n", None, None)]
+    assert printed == [("hel", "", False), ("lo", "", False), ("", None, None)]
     assert [event.kind for event in yielded] == ["text", "text", "final"]
 
 

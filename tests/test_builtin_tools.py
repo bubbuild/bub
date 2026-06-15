@@ -201,15 +201,8 @@ async def test_foreground_bash_terminates_shell_when_cancelled(tmp_path, monkeyp
 async def test_bash_non_zero_exit_is_returned_as_tool_error(tmp_path) -> None:
     command = _python_shell("import sys; print('boom'); sys.exit(7)")
     executor = ToolExecutor()
-    tool_call = {
-        "type": "function",
-        "function": {
-            "name": bash.name,
-            "arguments": {"cmd": command},
-        },
-    }
 
-    result = await executor.execute_async([tool_call], tools=[bash], context=_tool_context(tmp_path))
+    result = await executor.execute_async([(bash, {"cmd": command})], context=_tool_context(tmp_path))
 
     assert result.error is not None
     assert result.error.kind is ErrorKind.TOOL

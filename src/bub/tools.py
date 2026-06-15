@@ -101,32 +101,26 @@ class Tool:
 
 @dataclass(frozen=True)
 class ToolExecution:
-    tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tool_results: list[Any] = field(default_factory=list)
     error: BubError | None = None
 
 
 class ToolExecutor:
-    """Execute model tool calls with predictable validation and serialization."""
+    """Execute already-resolved Bub tool invocations."""
 
     async def execute_async(
         self,
-        response: list[dict[str, Any]] | dict[str, Any] | str,
-        tools: Sequence[Tool] | None = None,
+        invocations: Sequence[tuple[Tool, dict[str, Any]]],
         *,
         context: ToolContext | None = None,
     ) -> ToolExecution:
-        tool_calls = self._normalize_response(response)
-        tool_map = self._build_tool_map(tools)
-        if not tool_map:
-            if tool_calls:
-                raise BubError(ErrorKind.TOOL, "No runnable tools are available.")
-            return ToolExecution(tool_calls=[], tool_results=[])
+        if not invocations:
+            return ToolExecution(tool_results=[])
 
         results: list[Any] = []
         error: BubError | None = None
         gathered = await asyncio.gather(
-            *(self._handle_tool_response_async(tool_response, tool_map, context) for tool_response in tool_calls),
+            *(self._handle_tool_response_async(tool_obj, tool_args, context) for tool_obj, tool_args in invocations),
             return_exceptions=True,
         )
         for result in gathered:
@@ -138,24 +132,7 @@ class ToolExecutor:
             else:
                 results.append(result)
 
-        return ToolExecution(tool_calls=tool_calls, tool_results=results, error=error)
-
-    def _resolve_tool_call(
-        self,
-        tool_response: Any,
-        tool_map: dict[str, Tool],
-    ) -> tuple[str, Tool, dict[str, Any]]:
-        if not isinstance(tool_response, dict):
-            raise BubError(ErrorKind.INVALID_INPUT, "Each tool call must be an object.")
-        tool_name = tool_response.get("function", {}).get("name")
-        if not tool_name:
-            raise BubError(ErrorKind.INVALID_INPUT, "Tool call is missing name.")
-        tool_obj = tool_map.get(tool_name)
-        if tool_obj is None:
-            raise BubError(ErrorKind.TOOL, f"Unknown tool name: {tool_name}.")
-        tool_args = tool_response.get("function", {}).get("arguments", {})
-        tool_args = self._normalize_tool_args(str(tool_name), tool_args)
-        return str(tool_name), tool_obj, tool_args
+        return ToolExecution(tool_results=results, error=error)
 
     def _invoke_tool(
         self,
@@ -173,11 +150,11 @@ class ToolExecutor:
 
     async def _handle_tool_response_async(
         self,
-        tool_response: Any,
-        tool_map: dict[str, Tool],
+        tool_obj: Tool,
+        tool_args: dict[str, Any],
         context: ToolContext | None,
     ) -> Any:
-        tool_name, tool_obj, tool_args = self._resolve_tool_call(tool_response, tool_map)
+        tool_name = tool_obj.name
         try:
             result = self._invoke_tool(
                 tool_name=tool_name,
@@ -203,40 +180,6 @@ class ToolExecutor:
             ) from exc
         else:
             return result
-
-    def _normalize_response(
-        self,
-        response: list[dict[str, Any]] | dict[str, Any] | str,
-    ) -> list[dict[str, Any]]:
-        if isinstance(response, str):
-            try:
-                response = json.loads(response)
-            except json.JSONDecodeError as exc:
-                raise BubError(
-                    ErrorKind.INVALID_INPUT,
-                    "Tool response is not a valid JSON string.",
-                    details={"error": str(exc)},
-                ) from exc
-        if isinstance(response, dict):
-            response = [response]
-        if not isinstance(response, list):
-            raise BubError(ErrorKind.INVALID_INPUT, "Tool response must be a list of objects.")
-        return response
-
-    def _build_tool_map(self, tools: Sequence[Tool] | None) -> dict[str, Tool]:
-        if tools is None:
-            raise BubError(ErrorKind.INVALID_INPUT, "No tools provided.")
-        return {tool_obj.name: tool_obj for tool_obj in tools}
-
-    def _normalize_tool_args(self, tool_name: str, tool_args: Any) -> dict[str, Any]:
-        if isinstance(tool_args, str):
-            try:
-                tool_args = json.loads(tool_args)
-            except json.JSONDecodeError as exc:
-                raise BubError(ErrorKind.INVALID_INPUT, f"Tool '{tool_name}' arguments are not valid JSON.") from exc
-        if isinstance(tool_args, dict):
-            return dict(tool_args)
-        raise BubError(ErrorKind.INVALID_INPUT, f"Tool '{tool_name}' arguments must be an object.")
 
 
 # Central registry for tools. Tools defined with the @tool decorator are automatically added here.

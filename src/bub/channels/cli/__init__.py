@@ -46,6 +46,8 @@ class _StreamPrinter:
 
         if event.kind == "text":
             return self._print_content(str(event.data.get("delta", "")))
+        elif event.kind == "tool_call":
+            self._print_stream_boundary()
         elif event.kind == "final":
             self._print_end()
         return True
@@ -77,7 +79,14 @@ class _StreamPrinter:
         if self._reasoning_chars:
             self._ensure_head()
         self._flush_reasoning()
-        self._console.print("\n")  # ensure the next log or prompt starts on its own line
+        if self.head_printed:
+            self._console.print("")
+
+    def _print_stream_boundary(self) -> None:
+        self._close_reasoning_stream()
+        self._flush_reasoning()
+        if self.head_printed:
+            self._console.print("")
 
     def _ensure_head(self) -> None:
         if self.head_printed:

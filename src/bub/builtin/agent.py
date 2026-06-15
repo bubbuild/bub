@@ -13,22 +13,27 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import cached_property
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from any_llm import AnyLLM
 from any_llm.types.completion import (
     ChatCompletion,
     ChatCompletionChunk,
     ChatCompletionMessage,
+    ChatCompletionMessageFunctionToolCall,
+    ChatCompletionMessageToolCall,
+    ChoiceDeltaToolCall,
+    Function,
     ParsedChatCompletion,
 )
 from loguru import logger
+from pydantic import TypeAdapter, ValidationError
 
 from bub.builtin.settings import ModelCandidate, load_settings
 from bub.builtin.store import ForkTapeStore
 from bub.builtin.tape import TapeService
 from bub.framework import BubFramework
-from bub.runtime import AsyncStreamEvents, BubError, StreamEvent, StreamState
+from bub.runtime import AsyncStreamEvents, BubError, ErrorKind, StreamEvent, StreamState
 from bub.skills import discover_skills, render_skills_prompt
 from bub.tape import InMemoryTapeStore, Tape
 from bub.tools import (
@@ -47,6 +52,7 @@ _CONTEXT_LENGTH_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 MAX_AUTO_HANDOFF_RETRIES = 1
+TOOL_ARGUMENTS_ADAPTER = TypeAdapter(dict[str, Any])
 
 
 class Agent:
@@ -415,6 +421,7 @@ class Agent:
 
             model_tools_for_call = model_tools(tools)
             text_parts: list[str] = []
+            tool_calls = _ToolCallAccumulator()
             response: ChatCompletion | ParsedChatCompletion[Any] | None = None
             async with asyncio.timeout(self.settings.model_timeout_seconds):
                 completion = await self._completion_response(
@@ -424,7 +431,7 @@ class Agent:
                 )
                 if isinstance(completion, ChatCompletion):
                     response = completion
-                async for event in _completion_events(completion, state, text_parts):
+                async for event in _completion_events(completion, state, text_parts, tool_calls):
                     yield event
 
             assistant_message = response.choices[0].message if response is not None else None
@@ -433,12 +440,17 @@ class Agent:
                 if assistant_message and assistant_message.content is not None
                 else "".join(text_parts)
             )
-            resolved_tool_calls = _message_tool_calls(assistant_message) if assistant_message is not None else []
-            if resolved_tool_calls:
+            native_tool_calls = tool_calls.as_native()
+            if native_tool_calls:
+                tool_map = {tool_item.name: tool_item for tool_item in model_tools_for_call}
+                serialized_tool_calls = [tool_call.model_dump(exclude_none=True) for tool_call in native_tool_calls]
+                tool_invocations = [
+                    _tool_invocation_from_native(tool_call, tool_map) for tool_call in native_tool_calls
+                ]
+                yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
                 context = ToolContext(tape=tape.name, run_id=run_id, state=tape.context.state)
                 execution = await ToolExecutor().execute_async(
-                    resolved_tool_calls,
-                    tools=model_tools_for_call,
+                    tool_invocations,
                     context=context,
                 )
                 await self.tapes.record_chat(
@@ -447,16 +459,15 @@ class Agent:
                     system_prompt=system_prompt,
                     new_messages=[prompt_message],
                     response_text=None,
-                    tool_calls=execution.tool_calls,
+                    tool_calls=serialized_tool_calls,
                     tool_results=execution.tool_results,
                     response=response,
                     model=model or self.settings.model,
                     usage=state.usage,
                 )
-                yield StreamEvent("tool_call", {"tool_calls": execution.tool_calls})
                 yield StreamEvent("tool_result", {"tool_results": execution.tool_results})
                 yield StreamEvent(
-                    "final", {"ok": True, "tool_calls": execution.tool_calls, "tool_results": execution.tool_results}
+                    "final", {"ok": True, "tool_calls": serialized_tool_calls, "tool_results": execution.tool_results}
                 )
                 return
 
@@ -527,46 +538,124 @@ class Agent:
         return CONTINUE_PROMPT
 
 
+@dataclass
+class _StreamToolCall:
+    id: str | None = None
+    type: Literal["function"] | None = None
+    name: str | None = None
+    arguments: str = ""
+
+    def merge(self, delta: ChoiceDeltaToolCall) -> None:
+        if delta.id:
+            self.id = delta.id
+        if delta.type:
+            self.type = delta.type
+        if delta.function is None:
+            return
+        if delta.function.name:
+            if self.name is None or self.name == delta.function.name:
+                self.name = delta.function.name
+            else:
+                self.name += delta.function.name
+        if delta.function.arguments:
+            self.arguments += delta.function.arguments
+
+    def as_tool_call(self, index: int) -> ChatCompletionMessageFunctionToolCall:
+        return ChatCompletionMessageFunctionToolCall(
+            id=self.id or f"call_{index}",
+            type=self.type or "function",
+            function=Function(name=self.name or "", arguments=self.arguments or "{}"),
+        )
+
+
+class _ToolCallAccumulator:
+    def __init__(self) -> None:
+        self._message_calls: list[ChatCompletionMessageToolCall] = []
+        self._stream_calls: dict[int, _StreamToolCall] = {}
+
+    def add_message_calls(self, calls: Iterable[ChatCompletionMessageToolCall]) -> None:
+        self._message_calls.extend(calls)
+
+    def merge_delta_calls(self, deltas: Iterable[ChoiceDeltaToolCall]) -> None:
+        for delta in deltas:
+            self._stream_calls.setdefault(delta.index, _StreamToolCall()).merge(delta)
+
+    def as_native(self) -> list[ChatCompletionMessageToolCall]:
+        if self._message_calls:
+            return list(self._message_calls)
+        return [self._stream_calls[index].as_tool_call(index) for index in sorted(self._stream_calls)]
+
+
+def _tool_invocation_from_native(
+    tool_call: ChatCompletionMessageToolCall,
+    tool_map: dict[str, Tool],
+) -> tuple[Tool, dict[str, Any]]:
+    tool_name, arguments = _parse_native_function_call(tool_call)
+    tool_obj = tool_map.get(tool_name)
+    if tool_obj is None:
+        raise BubError(ErrorKind.TOOL, f"Unknown tool name: {tool_name}.")
+    return tool_obj, arguments
+
+
+def _parse_native_function_call(tool_call: ChatCompletionMessageToolCall) -> tuple[str, dict[str, Any]]:
+    if not isinstance(tool_call, ChatCompletionMessageFunctionToolCall):
+        raise BubError(ErrorKind.INVALID_INPUT, "Expected a function tool call with JSON object arguments.")
+    try:
+        arguments = TOOL_ARGUMENTS_ADAPTER.validate_json(tool_call.function.arguments or "{}")
+    except ValidationError as exc:
+        raise BubError(ErrorKind.INVALID_INPUT, "Expected a function tool call with JSON object arguments.") from exc
+    return tool_call.function.name, arguments
+
+
 async def _completion_events(
     completion: ChatCompletion | ParsedChatCompletion[Any] | AsyncIterator[ChatCompletionChunk],
     state: StreamState,
     text_parts: list[str],
+    tool_calls: _ToolCallAccumulator,
 ) -> AsyncGenerator[StreamEvent, None]:
     if isinstance(completion, ChatCompletion):
         if usage := TapeService._extract_usage(completion):
             state.usage = usage
         message = completion.choices[0].message
-        if message.reasoning:
-            yield StreamEvent("reasoning", {"delta": _reasoning_text(message.reasoning)})
-        if message.content:
-            text_parts.append(message.content)
-            yield StreamEvent("text", {"delta": message.content})
+        for event in _completion_message_events(message, text_parts, tool_calls):
+            yield event
         return
 
     async for chunk in completion:
-        if usage := TapeService._extract_usage(chunk):
-            state.usage = usage
-        for choice in chunk.choices:
-            delta = choice.delta
-            if delta.reasoning:
-                yield StreamEvent("reasoning", {"delta": _reasoning_text(delta.reasoning)})
-            if delta.content:
-                text_parts.append(delta.content)
-                yield StreamEvent("text", {"delta": delta.content})
+        async for event in _completion_chunk_events(chunk, state, text_parts, tool_calls):
+            yield event
 
 
-def _message_tool_calls(message: ChatCompletionMessage) -> list[dict[str, Any]]:
-    return [_model_dump(tool_call) for tool_call in message.tool_calls or []]
+def _completion_message_events(
+    message: ChatCompletionMessage,
+    text_parts: list[str],
+    tool_calls: _ToolCallAccumulator,
+) -> Iterable[StreamEvent]:
+    if message.reasoning:
+        yield StreamEvent("reasoning", {"delta": _reasoning_text(message.reasoning)})
+    if message.content:
+        text_parts.append(message.content)
+        yield StreamEvent("text", {"delta": message.content})
+    tool_calls.add_message_calls(cast("Iterable[ChatCompletionMessageToolCall]", message.tool_calls or []))
 
 
-def _model_dump(value: Any) -> dict[str, Any]:
-    if hasattr(value, "model_dump"):
-        payload = value.model_dump(exclude_none=True)
-        if isinstance(payload, dict):
-            return payload
-    if isinstance(value, dict):
-        return value
-    raise TypeError(f"expected model or dict, got {type(value).__name__}")
+async def _completion_chunk_events(
+    chunk: ChatCompletionChunk,
+    state: StreamState,
+    text_parts: list[str],
+    tool_calls: _ToolCallAccumulator,
+) -> AsyncGenerator[StreamEvent, None]:
+    if usage := TapeService._extract_usage(chunk):
+        state.usage = usage
+    for choice in chunk.choices:
+        delta = choice.delta
+        if delta.reasoning:
+            yield StreamEvent("reasoning", {"delta": _reasoning_text(delta.reasoning)})
+        if delta.content:
+            text_parts.append(delta.content)
+            yield StreamEvent("text", {"delta": delta.content})
+        if delta.tool_calls:
+            tool_calls.merge_delta_calls(delta.tool_calls)
 
 
 def _reasoning_text(reasoning: object) -> str:
