@@ -152,18 +152,6 @@ async def test_build_prompt_uses_system_timezone_for_context_date(
 
 
 @pytest.mark.asyncio
-async def test_run_model_delegates_to_agent(tmp_path: Path) -> None:
-    _, impl, agent = _build_impl(tmp_path)
-    state = {"context": "ctx"}
-
-    result = await impl.run_model(prompt="prompt", session_id="session", state=state)
-
-    assert result == "agent-output"
-    assert agent.run_calls == [("session", "prompt", state)]
-    assert agent.run_stream_calls == []
-
-
-@pytest.mark.asyncio
 async def test_run_model_stream_delegates_to_agent(tmp_path: Path) -> None:
     _, impl, agent = _build_impl(tmp_path)
     state = {"context": "ctx"}

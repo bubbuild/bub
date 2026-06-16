@@ -93,30 +93,6 @@ class Agent:
 
         return AsyncStreamEvents(generator(), state=events._state)
 
-    async def run(
-        self,
-        *,
-        session_id: str,
-        prompt: str | list[dict],
-        state: State,
-        model: str | None = None,
-        allowed_skills: Collection[str] | None = None,
-        allowed_tools: Collection[str] | None = None,
-    ) -> str:
-        output: list[str] = []
-        stream = await self.run_stream(
-            session_id=session_id,
-            prompt=prompt,
-            state=state,
-            model=model,
-            allowed_skills=allowed_skills,
-            allowed_tools=allowed_tools,
-        )
-        async for event in stream:
-            if event.kind == "text":
-                output.append(str(event.data.get("delta", "")))
-        return "".join(output)
-
     async def run_stream(
         self,
         *,

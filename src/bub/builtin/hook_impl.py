@@ -156,10 +156,6 @@ class BuiltinImpl:
         return text
 
     @hookimpl
-    async def run_model(self, prompt: str | list[dict], session_id: str, state: State) -> str:
-        return await self._get_agent().run(session_id=session_id, prompt=prompt, state=state)
-
-    @hookimpl
     async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> AsyncStreamEvents:
         return await self._get_agent().run_stream(session_id=session_id, prompt=prompt, state=state)
 
