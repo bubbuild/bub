@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 import typer
@@ -14,11 +15,18 @@ def _instrument_bub() -> None:
 
     from bub.builtin import telemetry
 
+    level = os.environ.get("BUB_LOG_LEVEL", "WARNING").upper()
     logger.remove()
-    logger.add(sys.stderr, colorize=True)
 
     telemetry.configure_telemetry()
-    logger.configure(handlers=[{"sink": sys.stderr, "colorize": True}, telemetry.loguru_handler()])
+    logfire_handler = telemetry.loguru_handler()
+    logfire_handler["level"] = "INFO"
+    logger.configure(
+        handlers=[
+            {"sink": sys.stderr, "colorize": True, "level": level},
+            logfire_handler,
+        ]
+    )
 
 
 def create_cli_app() -> typer.Typer:

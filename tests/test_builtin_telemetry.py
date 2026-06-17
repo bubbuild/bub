@@ -1,71 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
-
 import pytest
 
 from bub.builtin.store import ForkTapeStore
-from bub.builtin.telemetry import (
-    BUB_TAPE_ENTRY_KIND,
-    BUB_TAPE_ENTRY_META,
-    BUB_TAPE_ENTRY_PAYLOAD,
-    BUB_TAPE_NAME,
-    TapeSpanExporter,
-    record_tape_entry,
-    span_to_tape_entry,
-)
-from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore
-
-
-@dataclass(frozen=True)
-class FakeSpan:
-    attributes: dict[str, Any]
-
-
-def test_span_to_tape_entry_projects_tape_entry_span_without_routing_meta() -> None:
-    span = FakeSpan(
-        attributes={
-            BUB_TAPE_NAME: "ops",
-            BUB_TAPE_ENTRY_KIND: "message",
-            BUB_TAPE_ENTRY_PAYLOAD: '{"role": "user", "content": "hello"}',
-            BUB_TAPE_ENTRY_META: '{"run_id": "run-1"}',
-        },
-    )
-
-    entry = span_to_tape_entry(span)
-
-    assert entry is not None
-    assert entry.kind == "message"
-    assert entry.payload == {"role": "user", "content": "hello"}
-    assert entry.meta == {"run_id": "run-1"}
-
-
-def test_regular_observability_span_is_not_projected_to_tape() -> None:
-    span = FakeSpan(attributes={BUB_TAPE_NAME: "ops", "gen_ai.operation.name": "chat"})
-
-    assert span_to_tape_entry(span) is None
+from bub.builtin.telemetry import TapeSpanExporter, record_tape_entry
+from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeEntry
 
 
 @pytest.mark.asyncio
-async def test_tape_span_exporter_writes_tape_entry_span_to_span_tape() -> None:
+async def test_tape_span_exporter_writes_entry_to_tape() -> None:
     parent = InMemoryTapeStore()
     store = ForkTapeStore(AsyncTapeStoreAdapter(parent), "ops")
-    span = FakeSpan(
-        attributes={
-            BUB_TAPE_NAME: "ops",
-            BUB_TAPE_ENTRY_KIND: "event",
-            BUB_TAPE_ENTRY_PAYLOAD: '{"name": "step", "data": {"value": 1}}',
-            BUB_TAPE_ENTRY_META: '{"run_id": "run-1"}',
-        },
-    )
+    entry = TapeEntry(id=0, kind="event", payload={"name": "step", "data": {"value": 1}}, meta={"run_id": "run-1"})
 
-    TapeSpanExporter(store).export_span(span)
+    TapeSpanExporter(store).export_entry("ops", entry)
 
     await store.merge_back()
 
     entries = parent.read("ops") or []
-    assert [(entry.kind, entry.payload, entry.meta) for entry in entries] == [
+    assert [(item.kind, item.payload, item.meta) for item in entries] == [
         ("event", {"name": "step", "data": {"value": 1}}, {"run_id": "run-1"})
     ]
 
@@ -86,18 +39,18 @@ async def test_record_tape_entry_writes_stream_entry_through_logfire_processor()
 
 
 @pytest.mark.asyncio
-async def test_tape_span_exporter_ignores_span_without_tape_name() -> None:
+async def test_tape_entry_payload_is_not_scrubbed_by_logfire_attributes() -> None:
     parent = InMemoryTapeStore()
     store = ForkTapeStore(AsyncTapeStoreAdapter(parent), "ops")
-    span = FakeSpan(
-        attributes={
-            BUB_TAPE_ENTRY_KIND: "event",
-            BUB_TAPE_ENTRY_PAYLOAD: '{"name": "step"}',
-        },
-    )
 
-    TapeSpanExporter(store).export_span(span)
+    record_tape_entry(
+        store,
+        "ops",
+        "event",
+        {"name": "command", "data": {"output": "session id and secret must stay in tape"}},
+    )
 
     await store.merge_back()
 
-    assert parent.read("ops") is None
+    entries = parent.read("ops") or []
+    assert entries[0].payload["data"]["output"] == "session id and secret must stay in tape"

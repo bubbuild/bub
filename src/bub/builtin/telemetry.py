@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from functools import cache
@@ -28,24 +27,33 @@ GEN_AI_SYSTEM_INSTRUCTIONS = "gen_ai.system_instructions"
 GEN_AI_TOOL_NAME = "gen_ai.tool.name"
 GEN_AI_TOOL_CALL_ID = "gen_ai.tool.call.id"
 BUB_TAPE_ENTRY_KIND = "bub.tape.entry.kind"
-BUB_TAPE_ENTRY_PAYLOAD = "bub.tape.entry.payload_json"
-BUB_TAPE_ENTRY_META = "bub.tape.entry.meta_json"
 
 _TAPE_STORE_KEY = otel_context.create_key("bub.tape.store")
+_TAPE_ENTRY_KEY = otel_context.create_key("bub.tape.entry")
 
 
 class BubSpanContext:
-    def __init__(self, name: str, attributes: dict[str, Any], store: object | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        attributes: dict[str, Any],
+        store: object | None = None,
+        entry: TapeEntry | None = None,
+    ) -> None:
         self._name = name
         self._attributes = attributes
         self._store = store
+        self._entry = entry
         self._manager: AbstractContextManager[Any] | None = None
         self._store_token: Any = None
 
     def __enter__(self) -> Any:
         ensure_telemetry_configured()
-        if self._store is not None:
-            self._store_token = otel_context.attach(otel_context.set_value(_TAPE_STORE_KEY, self._store))
+        span_context = otel_context.get_current()
+        if self._store is not None and self._entry is not None:
+            span_context = otel_context.set_value(_TAPE_STORE_KEY, self._store, span_context)
+            span_context = otel_context.set_value(_TAPE_ENTRY_KEY, self._entry, span_context)
+            self._store_token = otel_context.attach(span_context)
         self._manager = logfire.span(self._name, _span_name=self._name, **self._attributes)
         return self._manager.__enter__()
 
@@ -70,12 +78,7 @@ class TapeSpanExporter:
     def __init__(self, store: object) -> None:
         self._store = store
 
-    def export_span(self, span: object) -> None:
-        tape = _span_tape_name(span)
-        entry = span_to_tape_entry(span)
-        if tape is None or entry is None:
-            return
-
+    def export_entry(self, tape: str, entry: TapeEntry) -> None:
         append_nowait = getattr(self._store, "append_nowait", None)
         if callable(append_nowait):
             append_nowait(tape, entry)
@@ -86,12 +89,13 @@ def bub_span(
     *,
     tape: str | None = None,
     store: object | None = None,
+    entry: TapeEntry | None = None,
     attributes: dict[str, Any] | None = None,
 ) -> BubSpanContext:
     span_attributes = dict(attributes or {})
     if tape:
         span_attributes[BUB_TAPE_NAME] = tape
-    return BubSpanContext(name, span_attributes, store=store)
+    return BubSpanContext(name, span_attributes, store=store, entry=entry)
 
 
 def tape_span_processor() -> SpanProcessor:
@@ -105,8 +109,10 @@ def tape_span_processor() -> SpanProcessor:
 
         def on_end(self, span: ReadableSpan) -> None:
             store = otel_context.get_value(_TAPE_STORE_KEY)
-            if store is not None:
-                TapeSpanExporter(store).export_span(span)
+            entry = otel_context.get_value(_TAPE_ENTRY_KEY)
+            tape = _span_tape_name(span)
+            if store is not None and isinstance(entry, TapeEntry) and tape is not None:
+                TapeSpanExporter(store).export_entry(tape, entry)
 
         def shutdown(self) -> None:
             return
@@ -123,6 +129,7 @@ def configure_telemetry() -> None:
 
     logfire.configure(
         send_to_logfire="if-token-present",
+        console=False,
         inspect_arguments=False,
         additional_span_processors=[tape_span_processor()],
     )
@@ -143,29 +150,14 @@ def record_tape_entry(
     payload: dict[str, Any] | None = None,
     **meta: Any,
 ) -> None:
+    entry = TapeEntry(id=0, kind=kind, payload=dict(payload or {}), meta=dict(meta))
     attributes: dict[str, Any] = {
         BUB_TAPE_ENTRY_KIND: kind,
-        BUB_TAPE_ENTRY_PAYLOAD: json.dumps(payload or {}, ensure_ascii=False, default=str),
-        BUB_TAPE_ENTRY_META: json.dumps(meta, ensure_ascii=False, default=str),
     }
     if run_id := meta.get("run_id"):
         attributes[BUB_RUN_ID] = str(run_id)
-    with bub_span(f"bub.tape.{kind}", tape=tape, store=store, attributes=attributes):
+    with bub_span(f"bub.tape.{kind}", tape=tape, store=store, entry=entry, attributes=attributes):
         return
-
-
-def span_to_tape_entry(span: object) -> TapeEntry | None:
-    attributes = getattr(span, "attributes", {})
-    if not isinstance(attributes, Mapping):
-        return None
-    kind = attributes.get(BUB_TAPE_ENTRY_KIND)
-    if not isinstance(kind, str) or not kind:
-        return None
-    payload_json = attributes.get(BUB_TAPE_ENTRY_PAYLOAD)
-    meta_json = attributes.get(BUB_TAPE_ENTRY_META)
-    payload = json.loads(payload_json) if isinstance(payload_json, str) else {}
-    meta = json.loads(meta_json) if isinstance(meta_json, str) else {}
-    return TapeEntry(id=0, kind=kind, payload=payload, meta=meta)
 
 
 def _span_tape_name(span: object) -> str | None:
