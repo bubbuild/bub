@@ -43,6 +43,48 @@ class AnchorSummary:
     state: dict[str, object]
 
 
+class BuiltinTapeEntry(TapeEntry):
+    """Builtin runtime entry constructors built on the stream entry envelope."""
+
+    @classmethod
+    def stream(cls, kind: str, payload: dict[str, Any] | None = None, **meta: Any) -> BuiltinTapeEntry:
+        return cls(id=0, kind=kind, payload=dict(payload or {}), meta=dict(meta))
+
+    @classmethod
+    def message(cls, message: dict[str, Any], **meta: Any) -> BuiltinTapeEntry:
+        return cls.stream("message", message, **meta)
+
+    @classmethod
+    def system(cls, content: str, **meta: Any) -> BuiltinTapeEntry:
+        return cls.stream("system", {"content": content}, **meta)
+
+    @classmethod
+    def anchor(cls, name: str, state: dict[str, Any] | None = None, **meta: Any) -> BuiltinTapeEntry:
+        payload: dict[str, Any] = {"name": name}
+        if state is not None:
+            payload["state"] = dict(state)
+        return cls.stream("anchor", payload, **meta)
+
+    @classmethod
+    def tool_call(cls, calls: list[dict[str, Any]], **meta: Any) -> BuiltinTapeEntry:
+        return cls.stream("tool_call", {"calls": calls}, **meta)
+
+    @classmethod
+    def tool_result(cls, results: list[Any], **meta: Any) -> BuiltinTapeEntry:
+        return cls.stream("tool_result", {"results": results}, **meta)
+
+    @classmethod
+    def error(cls, error: BubError, **meta: Any) -> BuiltinTapeEntry:
+        return cls.stream("error", error.as_dict(), **meta)
+
+    @classmethod
+    def event(cls, name: str, data: dict[str, Any] | None = None, **meta: Any) -> BuiltinTapeEntry:
+        payload: dict[str, Any] = {"name": name}
+        if data is not None:
+            payload["data"] = dict(data)
+        return cls.stream("event", payload, **meta)
+
+
 @dataclass(frozen=True)
 class Tape:
     """Tape abstraction for recording agent interactions."""
@@ -112,7 +154,7 @@ class Tape:
         return list(await self.store.fetch_all(query))
 
     async def append_event(self, name: str, payload: dict[str, Any], **meta: Any) -> None:
-        await self.store.append(self.name, TapeEntry.event(name, payload, **meta))
+        await self.store.append(self.name, BuiltinTapeEntry.event(name, payload, **meta))
 
     async def read_messages(self) -> list[dict[str, Any]]:
         query = self.context.build_query(self.query())
@@ -130,8 +172,8 @@ class Tape:
         **meta: Any,
     ) -> list[TapeEntry]:
         tape_name = self.name
-        entry = TapeEntry.anchor(name, state=state, **meta)
-        event = TapeEntry.event("handoff", {"name": name, "state": state or {}}, **meta)
+        entry = BuiltinTapeEntry.anchor(name, state=state, **meta)
+        event = BuiltinTapeEntry.event("handoff", {"name": name, "state": state or {}}, **meta)
         await self.store.append(tape_name, entry)
         await self.store.append(tape_name, event)
         return [entry, event]
@@ -155,20 +197,20 @@ class Tape:
         tape_name = self.name
         meta = {"run_id": run_id}
         if system_prompt:
-            await self.store.append(tape_name, TapeEntry.system(system_prompt, **meta))
+            await self.store.append(tape_name, BuiltinTapeEntry.system(system_prompt, **meta))
         if context_error is not None:
-            await self.store.append(tape_name, TapeEntry.error(context_error, **meta))
+            await self.store.append(tape_name, BuiltinTapeEntry.error(context_error, **meta))
         for message in new_messages:
-            await self.store.append(tape_name, TapeEntry.message(message, **meta))
+            await self.store.append(tape_name, BuiltinTapeEntry.message(message, **meta))
         if tool_calls:
-            await self.store.append(tape_name, TapeEntry.tool_call(tool_calls, **meta))
+            await self.store.append(tape_name, BuiltinTapeEntry.tool_call(tool_calls, **meta))
         if tool_results is not None:
-            await self.store.append(tape_name, TapeEntry.tool_result(tool_results, **meta))
+            await self.store.append(tape_name, BuiltinTapeEntry.tool_result(tool_results, **meta))
         if error is not None and error is not context_error:
-            await self.store.append(tape_name, TapeEntry.error(error, **meta))
+            await self.store.append(tape_name, BuiltinTapeEntry.error(error, **meta))
         if response_text is not None:
             await self.store.append(
-                tape_name, TapeEntry.message({"role": "assistant", "content": response_text}, **meta)
+                tape_name, BuiltinTapeEntry.message({"role": "assistant", "content": response_text}, **meta)
             )
 
         data: dict[str, Any] = {"status": "error" if error is not None else "ok"}
@@ -179,7 +221,7 @@ class Tape:
             data["provider"] = provider
         if model:
             data["model"] = model
-        await self.store.append(tape_name, TapeEntry.event("run", data, **meta))
+        await self.store.append(tape_name, BuiltinTapeEntry.event("run", data, **meta))
 
     @staticmethod
     def _extract_usage(response: object) -> dict[str, Any] | None:
