@@ -170,14 +170,6 @@ class TapeContext:
         return query.after_anchor(self.anchor)
 
 
-@dataclass
-class Tape:
-    """A scoped conversation tape used by the agent runtime."""
-
-    name: str
-    context: TapeContext
-
-
 def build_messages(entries: Iterable[TapeEntry], context: TapeContext) -> SelectedMessages:
     if context.select is not None:
         return context.select(entries, context)

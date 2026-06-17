@@ -10,6 +10,7 @@ import pytest
 
 import bub.builtin.tools as builtin_tools
 from bub.builtin.shell_manager import ShellManager
+from bub.builtin.tape import Tape
 from bub.builtin.tools import (
     bash,
     bash_output,
@@ -21,11 +22,13 @@ from bub.builtin.tools import (
     resolve_tool_names,
 )
 from bub.runtime import ErrorKind
+from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
 from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, tool
 
 
 def _tool_context(tmp_path, **state) -> ToolContext:
-    return ToolContext(tape="test-tape", run_id="test-run", state={"_runtime_workspace": str(tmp_path), **state})
+    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+    return ToolContext(tape=tape, run_id="test-run", state={"_runtime_workspace": str(tmp_path), **state})
 
 
 def _python_shell(code: str) -> str:

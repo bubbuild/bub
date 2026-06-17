@@ -24,12 +24,11 @@ from bub.builtin.model_runner import (
     tool_invocation_from_native,
 )
 from bub.builtin.settings import load_settings
-from bub.builtin.store import ForkTapeStore
-from bub.builtin.tape import TapeService
+from bub.builtin.tape import Tape
 from bub.framework import BubFramework
 from bub.runtime import AsyncStreamEvents, BubError, StreamEvent, StreamState
 from bub.skills import discover_skills, render_skills_prompt
-from bub.tape import InMemoryTapeStore, Tape
+from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, is_async_tape_store
 from bub.tools import (
     REGISTRY,
     Tool,
@@ -50,20 +49,18 @@ class Agent:
     def __init__(self, framework: BubFramework) -> None:
         self.settings = load_settings()
         self.framework = framework
+        self.model_runner = ModelRunner(self.settings)
 
     @cached_property
-    def tapes(self) -> TapeService:
+    def tape(self) -> Tape:
         import bub
 
         tape_store = self.framework.get_tape_store()
         if tape_store is None:
             tape_store = InMemoryTapeStore()
-        tape_store = ForkTapeStore(tape_store)
-        return TapeService(bub.home / "tapes", tape_store, self.framework.build_tape_context())
-
-    @cached_property
-    def model_runner(self) -> ModelRunner:
-        return ModelRunner(self.settings)
+        if not is_async_tape_store(tape_store):
+            tape_store = AsyncTapeStoreAdapter(tape_store)
+        return Tape(bub.home / "tapes", tape_store, self.framework.build_tape_context())
 
     @staticmethod
     def _events_from_iterable(iterable: Iterable) -> AsyncStreamEvents:
@@ -102,13 +99,14 @@ class Agent:
                 StreamEvent("final", {"text": "error: empty prompt", "ok": False}),
             ])
 
-        tape = self.tapes.session_tape(session_id, workspace_from_state(state))
-        tape.context = replace(tape.context, state=state)
+        tape = self.tape.session_tape(
+            session_id, workspace_from_state(state), context=replace(self.tape.context, state=state)
+        )
         merge_back = not session_id.startswith("temp/")
         stack = AsyncExitStack()
         # The fork_tape context manager must not be exited until the last chunk of the stream is consumed.
-        await stack.enter_async_context(self.tapes.fork_tape(tape.name, merge_back=merge_back))
-        await self.tapes.ensure_bootstrap_anchor(tape.name)
+        tape = await stack.enter_async_context(tape.fork_tape(merge_back=merge_back))
+        await tape.ensure_bootstrap_anchor()
         if isinstance(prompt, str) and prompt.strip().startswith(","):
             result = await self._run_command(tape=tape, line=prompt.strip())
             events = self._events_from_iterable([
@@ -132,7 +130,7 @@ class Agent:
 
         name, arg_tokens = _parse_internal_command(line)
         start = time.monotonic()
-        context = ToolContext(tape=tape.name, run_id="run_command", state=tape.context.state)
+        context = ToolContext(tape=tape, run_id="run_command", state=tape.context.state)
         output = ""
         status = "ok"
         try:
@@ -163,7 +161,7 @@ class Agent:
                 "output": output_text,
                 "date": datetime.now(UTC).isoformat(),
             }
-            await self.tapes.append_event(tape.name, "command", event_payload)
+            await tape.append_event("command", event_payload)
 
     async def _agent_loop(
         self,
@@ -176,8 +174,7 @@ class Agent:
     ) -> AsyncStreamEvents:
         next_prompt: str | list[dict] = prompt
         display_model = model or self.settings.model
-        await self.tapes.append_event(
-            tape.name,
+        await tape.append_event(
             "loop.start",
             {
                 "model": display_model,
@@ -213,7 +210,7 @@ class Agent:
             start = time.monotonic()
             should_continue = False
             logger.info("loop.step step={} tape={} model={}", step, tape.name, display_model)
-            await self.tapes.append_event(tape.name, "loop.step.start", {"step": step, "prompt": next_prompt})
+            await tape.append_event("loop.step.start", {"step": step, "prompt": next_prompt})
             try:
                 output = await self._run_once(
                     tape=tape,
@@ -226,8 +223,7 @@ class Agent:
                     yield event
                     if event.kind == "error":
                         elapsed_ms = int((time.monotonic() - start) * 1000)
-                        await self.tapes.append_event(
-                            tape.name,
+                        await tape.append_event(
                             "loop.step",
                             {
                                 "step": step,
@@ -249,13 +245,11 @@ class Agent:
                         tape.name,
                         step,
                     )
-                    await self.tapes.handoff(
-                        tape.name,
+                    await tape.handoff(
                         name="auto_handoff/context_overflow",
                         state={"reason": "context_length_exceeded", "error": error_message},
                     )
-                    await self.tapes.append_event(
-                        tape.name,
+                    await tape.append_event(
                         "loop.step",
                         {
                             "step": step,
@@ -268,8 +262,7 @@ class Agent:
                     next_prompt = prompt
                     continue
 
-                await self.tapes.append_event(
-                    tape.name,
+                await tape.append_event(
                     "loop.step",
                     {
                         "step": step,
@@ -285,8 +278,7 @@ class Agent:
             state.usage = output.usage
             elapsed_ms = int((time.monotonic() - start) * 1000)
             if not should_continue:
-                await self.tapes.append_event(
-                    tape.name,
+                await tape.append_event(
                     "loop.step",
                     {
                         "step": step,
@@ -298,8 +290,7 @@ class Agent:
                 return
 
             next_prompt = self._continue_prompt(tape)
-            await self.tapes.append_event(
-                tape.name,
+            await tape.append_event(
                 "loop.step",
                 {
                     "step": step,
@@ -369,10 +360,9 @@ class Agent:
             prompt_message: dict[str, Any] = {"role": "user", "content": prompt}
             run_id = f"run-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}"
             try:
-                messages = await self.tapes.read_messages(tape)
+                messages = await tape.read_messages()
             except BubError as exc:
-                await self.tapes.record_chat(
-                    tape=tape.name,
+                await tape.record_chat(
                     run_id=run_id,
                     system_prompt=system_prompt,
                     context_error=exc,
@@ -407,13 +397,12 @@ class Agent:
                 serialized_tool_calls = [tool_call.model_dump(exclude_none=True) for tool_call in tool_calls]
                 tool_invocations = [tool_invocation_from_native(tool_call, tool_map) for tool_call in tool_calls]
                 yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
-                context = ToolContext(tape=tape.name, run_id=run_id, state=tape.context.state)
+                context = ToolContext(tape=tape, run_id=run_id, state=tape.context.state)
                 execution = await ToolExecutor().execute_async(
                     tool_invocations,
                     context=context,
                 )
-                await self.tapes.record_chat(
-                    tape=tape.name,
+                await tape.record_chat(
                     run_id=run_id,
                     system_prompt=system_prompt,
                     new_messages=[prompt_message],
@@ -430,8 +419,7 @@ class Agent:
                 )
                 return
 
-            await self.tapes.record_chat(
-                tape=tape.name,
+            await tape.record_chat(
                 run_id=run_id,
                 system_prompt=system_prompt,
                 new_messages=[prompt_message],

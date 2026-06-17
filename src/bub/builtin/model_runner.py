@@ -22,7 +22,7 @@ from loguru import logger
 from pydantic import TypeAdapter, ValidationError
 
 from bub.builtin.settings import AgentSettings, ModelCandidate
-from bub.builtin.tape import TapeService
+from bub.builtin.tape import Tape
 from bub.runtime import BubError, ErrorKind, StreamEvent, StreamState
 from bub.tools import Tool
 
@@ -95,7 +95,7 @@ class ModelRunner:
         output: ModelOutputAccumulator,
     ) -> AsyncGenerator[StreamEvent, None]:
         if isinstance(completion, ChatCompletion):
-            if usage := TapeService._extract_usage(completion):
+            if usage := Tape._extract_usage(completion):
                 state.usage = usage
             output.response = completion
             message = completion.choices[0].message
@@ -125,7 +125,7 @@ class ModelRunner:
         state: StreamState,
         output: ModelOutputAccumulator,
     ) -> AsyncGenerator[StreamEvent, None]:
-        if usage := TapeService._extract_usage(chunk):
+        if usage := Tape._extract_usage(chunk):
             state.usage = usage
         for choice in chunk.choices:
             delta = choice.delta

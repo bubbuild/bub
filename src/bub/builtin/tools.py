@@ -272,8 +272,7 @@ def skill_describe(name: str, *, context: ToolContext) -> str:
 @tool(context=True, name="tape.info")
 async def tape_info(context: ToolContext) -> str:
     """Get information about the current tape, such as number of entries and anchors."""
-    agent = _get_agent(context)
-    info = await agent.tapes.info(context.tape or "")
+    info = await context.tape.info()
     return (
         f"name: {info.name}\n"
         f"entries: {info.entries}\n"
@@ -287,12 +286,11 @@ async def tape_info(context: ToolContext) -> str:
 @tool(context=True, name="tape.search", model=SearchInput)
 async def tape_search(param: SearchInput, *, context: ToolContext) -> str:
     """Search for entries in the current tape that match the query. Returns a list of matching entries."""
-    agent = _get_agent(context)
-    query = agent.tapes.query(context.tape or "").query(param.query).kinds(*param.kinds).limit(param.limit)
+    query = context.tape.query().query(param.query).kinds(*param.kinds).limit(param.limit)
     if param.start or param.end:
         query = query.between_dates(param.start or "", param.end or "")
 
-    entries = await agent.tapes.search(query)
+    entries = await context.tape.search(query)
     lines: list[str] = []
     for entry in entries:
         entry_str = json.dumps({"date": entry.date, "content": entry.payload})
@@ -307,24 +305,21 @@ async def tape_search(param: SearchInput, *, context: ToolContext) -> str:
 @tool(context=True, name="tape.reset")
 async def tape_reset(archive: bool = False, *, context: ToolContext) -> str:
     """Reset the current tape, optionally archiving it."""
-    agent = _get_agent(context)
-    result = await agent.tapes.reset(context.tape or "", archive=archive)
+    result = await context.tape.reset(archive=archive)
     return result
 
 
 @tool(context=True, name="tape.handoff")
 async def tape_handoff(name: str = "handoff", summary: str = "", *, context: ToolContext) -> str:
     """Add a handoff anchor to the current tape."""
-    agent = _get_agent(context)
-    await agent.tapes.handoff(context.tape or "", name=name, state={"summary": summary})
+    await context.tape.handoff(name=name, state={"summary": summary})
     return f"anchor added: {name}"
 
 
 @tool(context=True, name="tape.anchors")
 async def tape_anchors(*, context: ToolContext) -> str:
     """List anchors in the current tape."""
-    agent = _get_agent(context)
-    anchors = await agent.tapes.anchors(context.tape or "")
+    anchors = await context.tape.anchors()
     if not anchors:
         return "(no anchors)"
     return "\n".join(f"- {anchor.name}" for anchor in anchors)

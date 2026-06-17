@@ -19,7 +19,10 @@ class _FakeTapes:
     def __init__(self, entries: list[_FakeEntry]) -> None:
         self._entries = entries
 
-    def query(self, _tape: str) -> _FakeQuery:
+    def scoped(self, _tape: str) -> _FakeTapes:
+        return self
+
+    def query(self) -> _FakeQuery:
         return _FakeQuery()
 
     async def search(self, _query: object) -> list[_FakeEntry]:
@@ -53,7 +56,7 @@ async def test_tape_search_reports_shown_matches_and_filtered_count(monkeypatch)
     ]
     monkeypatch.setattr(builtin_tools, "_get_agent", lambda _context: _FakeAgent(entries))
 
-    output = await tape_search.run(query="x", context=ToolContext(tape="tape", run_id="run", state={}))
+    output = await tape_search.run(query="x", context=ToolContext(tape=_FakeTapes(entries), run_id="run", state={}))
 
     assert output.splitlines()[0] == "[tape.search]: 1 matches (1 filtered)"
 
@@ -66,6 +69,6 @@ async def test_tape_search_reports_zero_filtered_explicitly(monkeypatch) -> None
     ]
     monkeypatch.setattr(builtin_tools, "_get_agent", lambda _context: _FakeAgent(entries))
 
-    output = await tape_search.run(query="x", context=ToolContext(tape="tape", run_id="run", state={}))
+    output = await tape_search.run(query="x", context=ToolContext(tape=_FakeTapes(entries), run_id="run", state={}))
 
     assert output.splitlines()[0] == "[tape.search]: 2 matches (0 filtered)"

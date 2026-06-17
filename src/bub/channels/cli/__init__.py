@@ -149,8 +149,8 @@ class CliChannel(Interface):
         return logger.add(self._renderer.log, colorize=False, format="{level:<8} | {message}")
 
     async def _refresh_tape_info(self) -> None:
-        tape = self._agent.tapes.session_tape(self._message_template["session_id"], self._workspace)
-        info = await self._agent.tapes.info(tape.name)
+        tape = self._agent.tape.session_tape(self._message_template["session_id"], self._workspace)
+        info = await tape.info()
         self._last_tape_info = info
 
     def set_metadata(self, session_id: str | None = None, chat_id: str | None = None) -> None:

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import contextlib
-import contextvars
 import itertools
 import json
 import re
 import threading
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import Iterable
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,19 +14,13 @@ from loguru import logger
 
 from bub.tape import (
     AsyncTapeStore,
-    AsyncTapeStoreAdapter,
     InMemoryQueryMixin,
     InMemoryTapeStore,
     TapeEntry,
     TapeQuery,
-    TapeStore,
-    is_async_tape_store,
 )
 from bub.utils import get_entry_text
 
-current_store: contextvars.ContextVar[TapeStore] = contextvars.ContextVar("current_store")
-current_fork_tape: contextvars.ContextVar[str | None] = contextvars.ContextVar("current_fork_tape", default=None)
-current_tape_was_reset: contextvars.ContextVar[bool] = contextvars.ContextVar("current_tape_was_reset", default=False)
 WORD_PATTERN = re.compile(r"[a-z0-9_/-]+")
 MIN_FUZZY_QUERY_LENGTH = 3
 MIN_FUZZY_SCORE = 80
@@ -36,52 +28,39 @@ MAX_FUZZY_CANDIDATES = 128
 
 
 class ForkTapeStore:
-    def __init__(self, parent: AsyncTapeStore | TapeStore) -> None:
-        if is_async_tape_store(parent):
-            self._parent = parent
-        else:
-            self._parent = AsyncTapeStoreAdapter(parent)
-
-    @property
-    def _current(self) -> TapeStore:
-        return current_store.get(_empty_store)
-
-    @property
-    def _fork_tape(self) -> str | None:
-        return current_fork_tape.get()
-
-    @property
-    def _current_was_reset(self) -> bool:
-        return current_tape_was_reset.get()
+    def __init__(self, parent: AsyncTapeStore, tape: str) -> None:
+        self._parent = parent
+        self._store = InMemoryTapeStore()
+        self._tape = tape
+        self._tape_was_reset = False
 
     async def list_tapes(self) -> list[str]:
         return await self._parent.list_tapes()
 
     async def reset(self, tape: str) -> None:
-        self._current.reset(tape)
-        if self._current is _empty_store or self._fork_tape != tape:
+        if tape != self._tape:
             await self._parent.reset(tape)
             return
-        current_tape_was_reset.set(True)
+        self._store.reset(tape)
+        self._tape_was_reset = True
 
     async def fetch_all(self, query: TapeQuery[AsyncTapeStore]) -> Iterable[TapeEntry]:
         parent_entries: Iterable[TapeEntry] = []
-        if not (query.tape == self._fork_tape and self._current_was_reset):
+        if not (query.tape == self._tape and self._tape_was_reset):
             try:
                 parent_entries = await self._parent.fetch_all(query)
             except Exception:
                 parent_entries = []
         this_entries: list[TapeEntry] = []
-        if isinstance(self._current, InMemoryQueryMixin):
-            for entry in self._current.read(query.tape) or []:
-                if query._kinds and entry.kind not in query._kinds:
+        for entry in self._store.read(query.tape) or []:
+            if query._kinds and entry.kind not in query._kinds:
+                continue
+            if entry.kind == "anchor":  # noqa: SIM102
+                if query._after_last or (query._after_anchor and entry.payload.get("name") == query._after_anchor):
+                    this_entries.clear()
+                    parent_entries = []
                     continue
-                if entry.kind == "anchor":  # noqa: SIM102
-                    if query._after_last or (query._after_anchor and entry.payload.get("name") == query._after_anchor):
-                        this_entries.clear()
-                        parent_entries = []
-                        continue
-                this_entries.append(entry)
+            this_entries.append(entry)
         return itertools.chain(parent_entries, this_entries)
 
     @staticmethod
@@ -103,55 +82,18 @@ class ForkTapeStore:
 
     async def append(self, tape: str, entry: TapeEntry) -> None:
         self._redact_payload(entry.payload)
-        self._current.append(tape, entry)
+        self._store.append(tape, entry)
 
-    @contextlib.asynccontextmanager
-    async def fork(self, tape: str, merge_back: bool = True) -> AsyncGenerator[None, None]:
-        store = InMemoryTapeStore()
-        # Save/restore instead of ContextVar.reset(token) to avoid
-        # "Token was created in a different Context" when cleanup
-        # runs in a different asyncio Task (e.g. cancellation, TaskGroup).
-        prev_store = current_store.get(_empty_store)
-        prev_fork_tape = current_fork_tape.get()
-        prev_was_reset = current_tape_was_reset.get()
-        current_store.set(store)
-        current_fork_tape.set(tape)
-        current_tape_was_reset.set(False)
-        try:
-            yield
-        finally:
-            was_reset = current_tape_was_reset.get()
-            current_store.set(prev_store)
-            current_fork_tape.set(prev_fork_tape)
-            current_tape_was_reset.set(prev_was_reset)
-            if merge_back:
-                if was_reset:
-                    await self._parent.reset(tape)
-                entries = store.read(tape)
-                if entries:
-                    count = len(entries)
-                    for entry in entries:
-                        await self._parent.append(tape, entry)
-                    logger.info(f'Merged {count} entries into tape "{tape}"')
-
-
-class EmptyTapeStore:
-    """Sync TapeStore sentinel that always returns empty results."""
-
-    def list_tapes(self) -> list[str]:
-        return []
-
-    def reset(self, tape: str) -> None:
-        pass
-
-    def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]:
-        return []
-
-    def append(self, tape: str, entry: TapeEntry) -> None:
-        pass
-
-
-_empty_store = EmptyTapeStore()
+    async def merge_back(self) -> None:
+        if self._tape_was_reset:
+            await self._parent.reset(self._tape)
+        entries = self._store.read(self._tape)
+        if not entries:
+            return
+        count = len(entries)
+        for entry in entries:
+            await self._parent.append(self._tape, entry)
+        logger.info(f'Merged {count} entries into tape "{self._tape}"')
 
 
 class FileTapeStore(InMemoryQueryMixin):

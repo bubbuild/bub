@@ -9,8 +9,9 @@ from dataclasses import dataclass, field, replace
 from typing import Any, overload
 
 from loguru import logger
-from pydantic import BaseModel, TypeAdapter, ValidationError, validate_call
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
+from bub.builtin.tape import Tape
 from bub.runtime import BubError, ErrorKind
 
 
@@ -18,7 +19,7 @@ from bub.runtime import BubError, ErrorKind
 class ToolContext:
     """Runtime context passed to tools that opt into context."""
 
-    tape: str | None = None
+    tape: Tape
     run_id: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
 
@@ -61,6 +62,23 @@ def _schema_from_signature(signature: inspect.Signature, *, ignore_params: set[s
     return schema
 
 
+def _signature_without_context(signature: inspect.Signature) -> inspect.Signature:
+    parameters = [param for param in signature.parameters.values() if param.name != "context"]
+    return signature.replace(parameters=parameters)
+
+
+def _validate_without_context(func: Callable[..., Any], signature: inspect.Signature) -> Callable[..., Any]:
+    def validate_target(*args: Any, **kwargs: Any) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        return args, kwargs
+
+    validate_target.__name__ = _callable_name(func)
+    validate_target.__qualname__ = getattr(func, "__qualname__", validate_target.__name__)
+    validate_target.__annotations__ = dict(getattr(func, "__annotations__", {}))
+    validate_target.__annotations__.pop("context", None)
+    validate_target.__signature__ = _signature_without_context(signature)  # type: ignore[attr-defined]
+    return validate_call(validate_target)
+
+
 @dataclass(frozen=True)
 class Tool:
     """A callable unit the model can invoke."""
@@ -89,7 +107,16 @@ class Tool:
         tool_name = name or _to_snake_case(_callable_name(func))
         tool_description = description if description is not None else (inspect.getdoc(func) or "")
         parameters = _schema_from_signature(signature, ignore_params={"context"} if context else None)
-        validated = validate_call(func)
+        if context:
+            validate_args = _validate_without_context(func, signature)
+
+            def validated(*args: Any, **kwargs: Any) -> Any:
+                tool_context = kwargs.pop("context")
+                validated_args, validated_kwargs = validate_args(*args, **kwargs)
+                return func(*validated_args, context=tool_context, **validated_kwargs)
+
+        else:
+            validated = validate_call(config=ConfigDict(arbitrary_types_allowed=True))(func)
         return cls(
             name=tool_name,
             description=tool_description,
