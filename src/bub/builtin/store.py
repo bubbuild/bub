@@ -81,6 +81,9 @@ class ForkTapeStore:
             payload["prompt"] = ForkTapeStore._redact_prompt(payload["prompt"])
 
     async def append(self, tape: str, entry: TapeEntry) -> None:
+        self.append_nowait(tape, entry)
+
+    def append_nowait(self, tape: str, entry: TapeEntry) -> None:
         self._redact_payload(entry.payload)
         self._store.append(tape, entry)
 

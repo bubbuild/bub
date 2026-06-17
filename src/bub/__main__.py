@@ -17,10 +17,11 @@ def _instrument_bub() -> None:
 
     try:
         import logfire
-        from logfire.integrations.loguru import LogfireHandler
 
-        logfire.configure()
-        logger.add(LogfireHandler(), format="{message}")
+        from bub.builtin.telemetry import tape_span_processor
+
+        logfire.configure(additional_span_processors=[tape_span_processor()])
+        logger.configure(handlers=[{"sink": sys.stderr, "colorize": True}, logfire.loguru_handler()])
     except Exception as exc:
         logger.debug("logfire instrumentation disabled: {}", exc)
 

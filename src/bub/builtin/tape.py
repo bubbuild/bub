@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from bub.builtin.store import ForkTapeStore
+from bub.builtin.telemetry import bind_tape_writer
 from bub.runtime import BubError
 from bub.tape import (
     AsyncTapeStore,
@@ -267,8 +268,9 @@ class Tape:
     async def fork_tape(self, merge_back: bool = True) -> AsyncGenerator[Tape, None]:
         fork_store = ForkTapeStore(self.store, self.name)
         forked = replace(self, store=fork_store)
-        try:
-            yield forked
-        finally:
-            if merge_back:
-                await fork_store.merge_back()
+        with bind_tape_writer(fork_store, self.name):
+            try:
+                yield forked
+            finally:
+                if merge_back:
+                    await fork_store.merge_back()
