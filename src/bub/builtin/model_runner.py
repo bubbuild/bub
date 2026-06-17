@@ -85,6 +85,7 @@ class ModelRunner:
         tools: list[Tool],
         system_prompt: str | None,
         prompt: str | list[dict],
+        steering_messages: list[list[dict[str, Any]] | str] | None = None,
     ) -> AsyncStreamEvents:
         state = StreamState()
 
@@ -96,6 +97,7 @@ class ModelRunner:
                 system_prompt=system_prompt,
                 prompt=prompt,
                 model=model,
+                steering_messages=steering_messages,
             )
             output = ModelOutputAccumulator()
             async with asyncio.timeout(self.settings.model_timeout_seconds):
@@ -159,6 +161,7 @@ class ModelRunner:
         system_prompt: str | None,
         prompt: str | list[dict],
         model: str,
+        steering_messages: list[list[dict[str, Any]] | str] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         prompt_message: dict[str, Any] = {"role": "user", "content": prompt}
         try:
@@ -172,10 +175,12 @@ class ModelRunner:
                 model=model,
             )
             raise
+        steering_messages_native = [{"role": "user", "content": message} for message in (steering_messages or [])]
         if system_prompt:
             messages = [{"role": "system", "content": system_prompt}, *messages]
-        messages.append(prompt_message)
-        return messages, [prompt_message]
+        new_messages = [*steering_messages_native, prompt_message]
+        messages.extend(new_messages)
+        return messages, new_messages
 
     async def record_context_error(
         self,

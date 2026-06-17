@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+from collections import defaultdict, deque
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -37,12 +38,18 @@ def _make_agent() -> Agent:
     framework.get_tape_store.return_value = None
     framework.get_system_prompt.return_value = ""
 
+    async def build_prompt(message: dict[str, Any], session_id: str, state: dict[str, Any]) -> str:
+        return str(message["content"])
+
+    framework.build_prompt = build_prompt
+
     with patch.object(Agent, "__init__", lambda self, fw: None):
         agent = Agent.__new__(Agent)
 
     agent.settings = AgentSettings.model_construct(model="test:model", api_key="k", api_base="b", client_args={})
     agent.framework = framework
     agent.model_runner = _FakeModelRunner(agent.settings)
+    agent._steering_messages = defaultdict(deque)
     return agent
 
 
@@ -265,12 +272,47 @@ async def test_agent_run_model_override_does_not_mutate_default() -> None:
         state={"_runtime_workspace": "/tmp"},  # noqa: S108
         model="openai:gpt-4o",
     )
+
+
+async def test_agent_run_injects_steering_messages_once_by_tape_name() -> None:
+    agent = _make_agent()
+    fork_capture = _ForkCapture()
+    fake_tapes = _FakeTapeFactory(fork_capture)
+    agent.tape = fake_tapes  # type: ignore[assignment]
+
+    agent._steering_messages["test-tape"] = deque()
+    assert agent.enqueue_steering_message("other-tape", {"role": "user", "content": "ignore me"}) is False
+    assert agent.enqueue_steering_message("test-tape", {"role": "user", "content": "first steer"}) is True
+    assert agent.enqueue_steering_message("test-tape", {"role": "assistant", "content": "second steer"}) is True
+
+    result = await agent.run_stream(session_id="user/s1", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
     [event async for event in result]
 
     completion_kwargs = _model_runner(agent).completion_kwargs
     assert completion_kwargs is not None
     assert completion_kwargs["model"] == "openai:gpt-4o"
     assert agent.settings.model == default_model
+    completion_messages = completion_kwargs["messages"]
+    assert completion_messages[-3:] == [
+        {"role": "user", "content": "first steer"},
+        {"role": "user", "content": "second steer"},
+        {"role": "user", "content": "hello"},
+    ]
+    assert fake_tapes.tape.messages == [
+        {"role": "user", "content": "first steer"},
+        {"role": "user", "content": "second steer"},
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "done"},
+    ]
+
+    result = await agent.run_stream(session_id="user/s1", prompt="again", state={"_runtime_workspace": "/tmp"})  # noqa: S108
+    [event async for event in result]
+
+    completion_kwargs = _model_runner(agent).completion_kwargs
+    assert completion_kwargs is not None
+    completion_messages = completion_kwargs["messages"]
+    assert completion_messages[-1] == {"role": "user", "content": "again"}
+    assert {"role": "user", "content": "ignore me"} not in completion_messages
 
 
 @pytest.mark.asyncio

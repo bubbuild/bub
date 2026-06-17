@@ -53,7 +53,9 @@ class ChannelMessage:
     @property
     def context_str(self) -> str:
         """String representation of the context for prompt building."""
-        return "|".join(f"{key}={value}" for key, value in self.context.items())
+        return "|".join(
+            f"{key}={value}" for key, value in self.context.items() if not key.startswith("_")
+        )  # ignore internal keys
 
     @classmethod
     def from_batch(cls, batch: list[ChannelMessage]) -> ChannelMessage:

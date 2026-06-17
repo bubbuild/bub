@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 import shlex
 import time
+from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Collection, Coroutine, Iterable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, replace
@@ -22,6 +24,7 @@ from bub.builtin.model_runner import (
 )
 from bub.builtin.settings import load_settings
 from bub.builtin.tape import Tape
+from bub.envelope import field_of
 from bub.framework import BubFramework
 from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
 from bub.skills import discover_skills, render_skills_prompt
@@ -46,6 +49,7 @@ class Agent:
         self.settings = load_settings()
         self.framework = framework
         self.model_runner = ModelRunner(self.settings)
+        self._steering_messages: dict[str, deque[dict[str, Any]]] = {}
 
     @cached_property
     def tape(self) -> Tape:
@@ -79,6 +83,21 @@ class Agent:
 
         return AsyncStreamEvents(generator(), state=events._state)
 
+    def enqueue_steering_message(self, thread_id: str, message: dict[str, Any]) -> bool:
+        if thread_id not in self._steering_messages:
+            return False
+        self._steering_messages[thread_id].append(message)
+        return True
+
+    def _drain_steering_messages(self, thread_id: str) -> list[dict[str, Any]]:
+        queue = self._steering_messages.pop(thread_id, None)
+        if queue is None:
+            return []
+        return list(queue)
+
+    def _has_steering_messages(self, thread_id: str) -> bool:
+        return bool(self._steering_messages.get(thread_id))
+
     async def run_stream(
         self,
         *,
@@ -98,6 +117,8 @@ class Agent:
         tape = self.tape.session_tape(
             session_id, workspace_from_state(state), context=replace(self.tape.context, state=state)
         )
+        thread_id = state.get("_runtime_thread_id", tape.name)
+        self._steering_messages.setdefault(thread_id, deque())
         merge_back = not session_id.startswith("temp/")
         stack = AsyncExitStack()
         # The fork_tape context manager must not be exited until the last chunk of the stream is consumed.
@@ -117,6 +138,11 @@ class Agent:
                 allowed_skills=allowed_skills,
                 allowed_tools=allowed_tools,
             )
+
+        @stack.callback
+        def cleanup() -> None:
+            self._steering_messages.pop(thread_id, None)
+
         return self._events_with_callback(events, callback=stack.aclose)
 
     async def _run_command(self, tape: Tape, *, line: str) -> str:
@@ -273,6 +299,8 @@ class Agent:
             state.error = output.error
             state.usage = output.usage
             elapsed_ms = int((time.monotonic() - start) * 1000)
+            thread_id = tape.context.state.get("_runtime_thread_id", tape.name)
+            should_continue = should_continue or self._has_steering_messages(thread_id)
             if not should_continue:
                 await tape.append_event(
                     "loop.step",
@@ -355,12 +383,22 @@ class Agent:
         resolved_model = model or self.settings.model
 
         model_tools_for_call = model_tools(tools)
+        thread_id = tape.context.state.get("_runtime_thread_id", tape.name)
+        steering_messages = list(
+            await asyncio.gather(*[
+                self.framework.build_prompt(
+                    message, session_id=field_of(message, "session_id"), state=tape.context.state
+                )
+                for message in self._drain_steering_messages(thread_id)
+            ])
+        )
         return self.model_runner.run(
             tape=tape,
             model=resolved_model,
             tools=model_tools_for_call,
             system_prompt=system_prompt,
             prompt=prompt,
+            steering_messages=steering_messages,
         )
 
     def _system_prompt(

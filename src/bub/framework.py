@@ -6,7 +6,7 @@ import contextlib
 from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pluggy
 import typer
@@ -105,6 +105,17 @@ class BubFramework:
         self._hook_runtime.call_many_sync("register_cli_commands", app=app)
         return app
 
+    async def build_prompt(
+        self, message: Envelope, session_id: str, state: dict[str, Any]
+    ) -> str | list[dict[str, Any]]:
+        """Build prompt for one message turn."""
+        prompt = await self._hook_runtime.call_first(
+            "build_prompt", message=message, session_id=session_id, state=state
+        )
+        if not prompt:
+            prompt = content_of(message)
+        return cast("str | list[dict[str, Any]]", prompt)
+
     async def process_inbound(self, inbound: Envelope, stream_output: bool = False) -> TurnResult:
         """Run one inbound message through hooks and return turn result."""
 
@@ -118,11 +129,7 @@ class BubFramework:
             ):
                 if isinstance(hook_state, dict):
                     state.update(hook_state)
-            prompt = await self._hook_runtime.call_first(
-                "build_prompt", message=inbound, session_id=session_id, state=state
-            )
-            if not prompt:
-                prompt = content_of(inbound)
+            prompt = await self.build_prompt(inbound, session_id, state)
             model_output = ""
             try:
                 model_output = await self._run_model(inbound, prompt, session_id, state, stream_output)

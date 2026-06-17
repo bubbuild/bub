@@ -34,6 +34,6 @@ class TurnResult:
     """Result of one complete message turn."""
 
     session_id: str
-    prompt: str
+    prompt: str | list[dict[str, Any]]
     model_output: str
     outbounds: list[Envelope] = field(default_factory=list)

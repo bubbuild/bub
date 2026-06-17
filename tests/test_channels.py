@@ -363,7 +363,7 @@ async def test_cli_channel_accepts_input_while_previous_message_is_running() -> 
     channel._renderer = SimpleNamespace(
         welcome=lambda **kwargs: None,
         info=lambda message: None,
-        input_echo=lambda prompt, text: echoed.append((prompt, text)),
+        input_echo=lambda prompt, text, steering=False: echoed.append((prompt, text, steering)),
     )
     channel._refresh_tape_info = _async_return(None)
 
@@ -376,7 +376,7 @@ async def test_cli_channel_accepts_input_while_previous_message_is_running() -> 
     assert channel._prompt.received_callables == [True, True, True]
     assert "Generating\n" not in channel._prompt.messages[0]
     assert "Generating\n" in channel._prompt.messages[1]
-    assert echoed == [(f"{Path.cwd().name} > ", "first"), (f"{Path.cwd().name} > ", "second")]
+    assert echoed == []
     assert all(message.lifespan is not None for message in received)
 
 
@@ -426,8 +426,13 @@ def test_cli_channel_generating_spinner_renders_above_input_not_toolbar(monkeypa
     assert first_frame != second_frame
 
 
-def test_cli_channel_admit_message_queues_follow_up_when_turn_is_running() -> None:
+def test_cli_channel_admit_message_steers_when_turn_is_running() -> None:
     channel = CliChannel.__new__(CliChannel)
+    channel._mode = "agent"
+    echoed: list[tuple[str, str, bool]] = []
+    channel._renderer = SimpleNamespace(
+        input_echo=lambda prompt, text, steering=False: echoed.append((prompt, text, steering)),
+    )
     turn = TurnSnapshot(
         session_id="cli_session",
         is_running=True,
@@ -441,7 +446,8 @@ def test_cli_channel_admit_message_queues_follow_up_when_turn_is_running() -> No
         turn=turn,
     )
 
-    assert decision == AdmitDecision("follow_up", reason="cli session is already generating")
+    assert decision == AdmitDecision("steer", reason="cli session is already generating")
+    assert echoed == [(f"{Path.cwd().name} > ", "second", True)]
 
 
 @pytest.mark.asyncio

@@ -140,6 +140,8 @@ class BuiltinImpl:
         # fresh/unknown session never inherits another session's model.
         if model := await self._recover_session_model(session_id):
             state["model"] = model
+        if thread_id := field_of(message, "context", {}).get("thread_id"):
+            state["_runtime_thread_id"] = thread_id
         return state
 
     @hookimpl
@@ -334,3 +336,11 @@ class BuiltinImpl:
         if outbound_router is None:
             return None
         return outbound_router.admit_channel_message(session_id=session_id, message=message, turn=turn)
+
+    @hookimpl
+    async def handle_steering(self, message: Envelope, reason: str | None) -> bool:
+        """Handle a steering message that is admitted by the `admit_message` hook with action "steer"."""
+        agent = self._get_agent()
+        context = field_of(message, "context", {})
+        thread_id = field_of(context, "thread_id") if isinstance(context, dict) else None
+        return agent.enqueue_steering_message(str(thread_id or field_of(message, "session_id", "")), message)

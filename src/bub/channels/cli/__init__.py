@@ -281,12 +281,12 @@ class CliChannel(Interface):
                 continue
 
             request = self._normalize_input(raw)
-            await self._echo_input(raw)
 
             message = ChannelMessage(
                 session_id=self._message_template["session_id"],
                 channel=self._message_template["channel"],
                 chat_id=self._message_template["chat_id"],
+                context={"thread_id": self._message_template["session_id"]},  # use the same thread_id for all messages
                 content=request,
                 lifespan=self.message_lifespan(),
             )
@@ -422,6 +422,7 @@ class CliChannel(Interface):
         message: Envelope,
         turn: TurnSnapshot,
     ) -> AdmitDecision | None:
+        self._renderer.input_echo(self._prompt_label(), message.content, steering=turn.is_running)
         if not turn.is_running:
             return None
-        return AdmitDecision("follow_up", reason="cli session is already generating")
+        return AdmitDecision("steer", reason="cli session is already generating")
