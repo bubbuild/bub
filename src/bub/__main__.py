@@ -17,16 +17,8 @@ def _instrument_bub() -> None:
     logger.remove()
     logger.add(sys.stderr, colorize=True)
 
-    tape_processor = telemetry.tape_span_processor()
-    try:
-        import logfire
-
-        logfire.configure(additional_span_processors=[tape_processor])
-        telemetry.mark_tape_span_processor_configured()
-        logger.configure(handlers=[{"sink": sys.stderr, "colorize": True}, logfire.loguru_handler()])
-    except Exception as exc:
-        telemetry.configure_telemetry([tape_processor])
-        logger.debug("logfire instrumentation disabled: {}", exc)
+    telemetry.configure_telemetry()
+    logger.configure(handlers=[{"sink": sys.stderr, "colorize": True}, telemetry.loguru_handler()])
 
 
 def create_cli_app() -> typer.Typer:

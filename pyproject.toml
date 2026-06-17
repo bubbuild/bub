@@ -35,8 +35,7 @@ dependencies = [
     "aiohttp>=3.13.3",
     "httpx[socks]>=0.28.1",
     "typing-extensions>=4.13.0",
-    "opentelemetry-api>=1.39.1",
-    "opentelemetry-sdk>=1.39.1",
+    "logfire>=4.31.0",
 ]
 
 [project.urls]
@@ -46,11 +45,6 @@ Documentation = "https://bub.build"
 
 [project.scripts]
 bub = "bub.__main__:app"
-
-[project.optional-dependencies]
-logfire = [
-    "logfire>=4.31.0",
-]
 
 [dependency-groups]
 dev = [
