@@ -319,5 +319,5 @@ class BubFramework:
             configure.merge(current_config, result)
         return configure.validate(current_config)
 
-    async def steer_message(self, message: Envelope, reason: str | None = None) -> bool | None:
+    async def steer_message(self, message: Envelope, reason: str | None = None) -> Any:
         return await self._hook_runtime.call_first("handle_steering", message=message, reason=reason)
