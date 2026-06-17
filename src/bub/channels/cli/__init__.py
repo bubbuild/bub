@@ -4,17 +4,19 @@ from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from datetime import datetime
 from hashlib import md5
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from loguru import logger
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich import get_console
-from rich.status import Status
+from rich.spinner import SPINNERS
 from rich.text import Text
 from rich.tree import Tree
 
@@ -27,7 +29,11 @@ from bub.channels.message import ChannelMessage
 from bub.envelope import field_of
 from bub.runtime import StreamEvent
 from bub.tools import REGISTRY, tool_call_reporter
-from bub.types import MessageHandler
+from bub.turn_admission import AdmitDecision, TurnSnapshot
+from bub.types import Envelope, MessageHandler
+
+_GENERATION_SPINNER: str = SPINNERS["dots"]["frames"]  # type: ignore[assignment]
+_PROMPT_REFRESH_INTERVAL: float = SPINNERS["dots"]["interval"] / 1000.0  # type: ignore[operator]
 
 
 class _StreamPrinter:
@@ -37,89 +43,77 @@ class _StreamPrinter:
         self._expand_thinking = expand_thinking
         self._reasoning_chars = 0
         self._reasoning_streaming = False
-        self._reasoning_status: Status | None = None
         self.head_printed = False
 
-    def render(self, event: StreamEvent) -> bool:
+    async def render(self, event: StreamEvent) -> bool:
         if event.kind == "reasoning":
-            self._record_reasoning(str(event.data.get("delta", "")))
+            await self._record_reasoning(str(event.data.get("delta", "")))
             return True
 
         if event.kind == "text":
-            return self._print_content(str(event.data.get("delta", "")))
+            return await self._print_content(str(event.data.get("delta", "")))
         elif event.kind == "tool_call":
-            self._print_stream_boundary()
+            await self._print_stream_boundary()
         elif event.kind == "final":
-            self._print_end()
+            await self._print_end()
         return True
 
-    def _record_reasoning(self, reasoning: str) -> None:
+    async def _record_reasoning(self, reasoning: str) -> None:
         if not self._expand_thinking:
             if self._reasoning_chars == 0:
-                self._ensure_head()
-                self._start_reasoning_status()
+                await self._ensure_head()
             self._reasoning_chars += len(reasoning)
             return
 
-        self._ensure_head()
+        await self._ensure_head()
         if not self._reasoning_streaming:
-            self._console.print(Text("[-] Thinking", style="dim"))
+            await self._print(Text("[-] Thinking", style="dim"))
             self._reasoning_streaming = True
-        self._console.print(Text(reasoning, style="dim"), end="", highlight=False)
+        await self._print(Text(reasoning, style="dim"), end="", highlight=False)
 
-    def _print_content(self, content: str) -> bool:
+    async def _print_content(self, content: str) -> bool:
         if not (content.strip() or self.head_printed or self._reasoning_chars or self._reasoning_streaming):
             return False
-        self._ensure_head()
-        self._close_reasoning_stream()
-        self._flush_reasoning()
-        self._console.print(content, end="", highlight=False)
+        await self._ensure_head()
+        await self._close_reasoning_stream()
+        await self._flush_reasoning()
+        await self._print(content, end="", highlight=False)
         return True
 
-    def _print_end(self) -> None:
+    async def _print_end(self) -> None:
         if self._reasoning_chars:
-            self._ensure_head()
-        self._flush_reasoning()
+            await self._ensure_head()
+        await self._flush_reasoning()
         if self.head_printed:
-            self._console.print("")
+            await self._print("")
 
-    def _print_stream_boundary(self) -> None:
-        self._close_reasoning_stream()
-        self._flush_reasoning()
+    async def _print_stream_boundary(self) -> None:
+        await self._close_reasoning_stream()
+        await self._flush_reasoning()
         if self.head_printed:
-            self._console.print("")
+            await self._print("")
 
-    def _ensure_head(self) -> None:
+    async def _ensure_head(self) -> None:
         if self.head_printed:
             return
-        self._print_head()
+        await run_in_terminal(self._print_head, render_cli_done=False)
         self.head_printed = True
 
-    def _close_reasoning_stream(self) -> None:
+    async def _close_reasoning_stream(self) -> None:
         if not self._reasoning_streaming:
             return
-        self._console.print("")
+        await self._print("")
         self._reasoning_streaming = False
 
-    def _flush_reasoning(self) -> None:
+    async def _flush_reasoning(self) -> None:
         if self._reasoning_chars <= 0:
             return
-        self._stop_reasoning_status()
         label = Text(f"[+] Thinking ({self._reasoning_chars} chars hidden)", style="dim")
-        self._console.print(Tree(label, guide_style="dim", expanded=False))
+        await self._print(Tree(label, guide_style="dim", expanded=False))
         self._reasoning_chars = 0
 
-    def _start_reasoning_status(self) -> None:
-        if self._reasoning_status is not None:
-            return
-        self._reasoning_status = self._console.status(Text("Thinking", style="dim"), spinner_style="dim")
-        self._reasoning_status.start()
-
-    def _stop_reasoning_status(self) -> None:
-        if self._reasoning_status is None:
-            return
-        self._reasoning_status.stop()
-        self._reasoning_status = None
+    async def _print(self, *args: Any, **kwargs: Any) -> None:
+        await run_in_terminal(lambda: self._console.print(*args, **kwargs), render_cli_done=False)
 
 
 class _CliToolCallReporter:
@@ -152,6 +146,7 @@ class CliChannel(Interface):
         }
         self._mode = "agent"  # or "shell"
         self._expand_thinking = False
+        self._llm_loop_running = False
         self._main_task: asyncio.Task | None = None
         self._renderer = CliRenderer(get_console())
         self._last_tape_info: TapeInfo | None = None
@@ -192,12 +187,16 @@ class CliChannel(Interface):
     async def _main_loop(self) -> None:
         self._renderer.welcome(model=self._agent.settings.model, workspace=str(self._workspace))
         await self._refresh_tape_info()
-        request_completed = asyncio.Event()
 
         while not self._stop_event.is_set():
             try:
                 with patch_stdout(raw=True):
-                    raw = (await self._prompt.prompt_async(self._prompt_message())).strip()
+                    raw = (
+                        await self._prompt.prompt_async(
+                            self._prompt_message,
+                            refresh_interval=_PROMPT_REFRESH_INTERVAL,
+                        )
+                    ).strip()
             except KeyboardInterrupt:
                 self._renderer.info("Interrupted. Use ',quit' to exit.")
                 continue
@@ -209,32 +208,38 @@ class CliChannel(Interface):
             if raw in {",quit", ",exit"}:
                 break
             if raw == ",thinking":
+                self._renderer.input_echo(self._prompt_label(), raw)
                 self._toggle_thinking()
                 continue
 
             request = self._normalize_input(raw)
+            self._renderer.input_echo(self._prompt_label(), raw)
 
             message = ChannelMessage(
                 session_id=self._message_template["session_id"],
                 channel=self._message_template["channel"],
                 chat_id=self._message_template["chat_id"],
                 content=request,
-                lifespan=self.message_lifespan(request_completed),
+                lifespan=self.message_lifespan(),
             )
-            await self._on_receive(message)
-            await request_completed.wait()
-            request_completed.clear()
+            self._set_llm_loop_running(True)
+            try:
+                await self._on_receive(message)
+            except Exception:
+                self._set_llm_loop_running(False)
+                raise
 
         self._renderer.info("Bye.")
         self._stop_event.set()
 
     @contextlib.asynccontextmanager
-    async def message_lifespan(self, request_completed: asyncio.Event) -> AsyncGenerator[None, None]:
+    async def message_lifespan(self) -> AsyncGenerator[None, None]:
+        self._set_llm_loop_running(True)
         try:
             yield
         finally:
             await self._refresh_tape_info()
-            request_completed.set()
+            self._set_llm_loop_running(False)
 
     def _normalize_input(self, raw: str) -> str:
         if self._mode != "shell":
@@ -244,9 +249,20 @@ class CliChannel(Interface):
         return f",{raw}"
 
     def _prompt_message(self) -> FormattedText:
+        prompt = self._prompt_label()
+        if not self._llm_loop_running:
+            return FormattedText([("bold", prompt)])
+        index = int(monotonic() / _PROMPT_REFRESH_INTERVAL) % len(_GENERATION_SPINNER)
+        spinner = _GENERATION_SPINNER[index]
+        return FormattedText([
+            ("blue", f"\n{spinner} Generating\n"),
+            ("bold", prompt),
+        ])
+
+    def _prompt_label(self) -> str:
         cwd = Path.cwd().name
         symbol = ">" if self._mode == "agent" else ","
-        return FormattedText([("bold", f"{cwd} {symbol} ")])
+        return f"{cwd} {symbol} "
 
     async def stream_events(
         self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]
@@ -259,7 +275,7 @@ class CliChannel(Interface):
         )
         with tool_call_reporter(_CliToolCallReporter(self._renderer)):
             async for event in stream:
-                if printer.render(event):
+                if await printer.render(event):
                     yield event
 
     def _build_prompt(self, workspace: Path) -> PromptSession[str]:
@@ -285,6 +301,7 @@ class CliChannel(Interface):
             key_bindings=kb,
             history=history,
             bottom_toolbar=self._render_bottom_toolbar,
+            erase_when_done=True,
         )
 
     def _render_bottom_toolbar(self) -> FormattedText:
@@ -305,7 +322,27 @@ class CliChannel(Interface):
         state = "expanded" if self._expand_thinking else "collapsed"
         self._renderer.info(f"Thinking output is now {state}.")
 
+    def _invalidate_prompt(self) -> None:
+        with contextlib.suppress(Exception):
+            self._prompt.app.invalidate()
+
+    def _set_llm_loop_running(self, running: bool) -> None:
+        if self._llm_loop_running == running:
+            return
+        self._llm_loop_running = running
+        self._invalidate_prompt()
+
     @staticmethod
     def _history_file(home: Path, workspace: Path) -> Path:
         workspace_hash = md5(str(workspace).encode("utf-8"), usedforsecurity=False).hexdigest()
         return home / "history" / f"{workspace_hash}.history"
+
+    def admit_message(
+        self,
+        session_id: str,
+        message: Envelope,
+        turn: TurnSnapshot,
+    ) -> AdmitDecision | None:
+        if not turn.is_running:
+            return None
+        return AdmitDecision("follow_up", reason="cli session is already generating")

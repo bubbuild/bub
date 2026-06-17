@@ -15,7 +15,7 @@ from bub.configure import Settings, ensure_config
 from bub.envelope import content_of, field_of
 from bub.framework import BubFramework
 from bub.runtime import StreamEvent
-from bub.turn_admission import AdmitDecision, SessionTurnController
+from bub.turn_admission import AdmitDecision, SessionTurnController, TurnSnapshot
 from bub.types import Envelope, MessageHandler
 from bub.utils import wait_until_stopped
 
@@ -341,3 +341,17 @@ class ChannelManager:
         logger.info(f"channel.manager cancelled {count} in-flight tasks")
         for channel in self.enabled_channels():
             await channel.stop()
+
+    def admit_channel_message(
+        self,
+        session_id: str,
+        message: Envelope,
+        turn: TurnSnapshot,
+    ) -> AdmitDecision | None:
+        channel_name = field_of(message, "channel")
+        if channel_name is None:
+            return None
+        channel = self.get_channel(str(channel_name))
+        if channel is None:
+            return None
+        return channel.admit_message(session_id=session_id, message=message, turn=turn)

@@ -16,7 +16,7 @@ from bub.channels.manager import ChannelManager
 from bub.channels.message import ChannelMessage
 from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMessageParser
 from bub.runtime import StreamEvent
-from bub.turn_admission import AdmitDecision, SessionTurnController, SteeringBuffer
+from bub.turn_admission import AdmitDecision, SessionTurnController, SteeringBuffer, TurnSnapshot
 
 
 def _load_channel_config(
@@ -290,6 +290,126 @@ def test_channel_manager_selects_real_channel_types(load_config) -> None:
     )
 
     assert [channel.name for channel in manager.enabled_channels()] == ["telegram"]
+
+
+@pytest.mark.asyncio
+async def test_cli_channel_accepts_input_while_previous_message_is_running() -> None:
+    received: list[ChannelMessage] = []
+
+    class FakePrompt:
+        def __init__(self) -> None:
+            self.inputs = iter(["first", "second", ",quit"])
+            self.refresh_intervals: list[float | None] = []
+            self.messages: list[str] = []
+            self.received_callables: list[bool] = []
+
+        async def prompt_async(self, message, *, refresh_interval=None):
+            self.refresh_intervals.append(refresh_interval)
+            self.received_callables.append(callable(message))
+            rendered = message() if callable(message) else message
+            self.messages.append("".join(part for _, part in rendered))
+            return next(self.inputs)
+
+    async def on_receive(message: ChannelMessage) -> None:
+        received.append(message)
+
+    channel = CliChannel.__new__(CliChannel)
+    channel._on_receive = on_receive
+    channel._stop_event = asyncio.Event()
+    channel._message_template = {
+        "chat_id": "cli_chat",
+        "channel": "cli",
+        "session_id": "cli_session",
+    }
+    channel._agent = SimpleNamespace(settings=SimpleNamespace(model="test-model"))
+    channel._workspace = Path.cwd()
+    channel._mode = "agent"
+    channel._llm_loop_running = False
+    channel._prompt = FakePrompt()
+    echoed: list[tuple[str, str]] = []
+    channel._renderer = SimpleNamespace(
+        welcome=lambda **kwargs: None,
+        info=lambda message: None,
+        input_echo=lambda prompt, text: echoed.append((prompt, text)),
+    )
+    channel._refresh_tape_info = _async_return(None)
+
+    await asyncio.wait_for(channel._main_loop(), timeout=1)
+
+    import bub.channels.cli as cli_module
+
+    assert [message.content for message in received] == ["first", "second"]
+    assert channel._prompt.refresh_intervals == [cli_module._PROMPT_REFRESH_INTERVAL] * 3
+    assert channel._prompt.received_callables == [True, True, True]
+    assert "Generating\n" not in channel._prompt.messages[0]
+    assert "Generating\n" in channel._prompt.messages[1]
+    assert echoed == [(f"{Path.cwd().name} > ", "first"), (f"{Path.cwd().name} > ", "second")]
+    assert all(message.lifespan is not None for message in received)
+
+
+def test_cli_channel_build_prompt_erases_submitted_prompt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    class FakePromptSession:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr("bub.channels.cli.PromptSession", FakePromptSession)
+    channel = CliChannel.__new__(CliChannel)
+    channel._mode = "agent"
+    channel._expand_thinking = False
+    channel._agent = SimpleNamespace(settings=SimpleNamespace(model="test-model"))
+    channel._last_tape_info = None
+
+    prompt = channel._build_prompt(tmp_path)
+
+    assert isinstance(prompt, FakePromptSession)
+    assert captured["erase_when_done"] is True
+
+
+def test_cli_channel_generating_spinner_renders_above_input_not_toolbar(monkeypatch: pytest.MonkeyPatch) -> None:
+    channel = CliChannel.__new__(CliChannel)
+    channel._llm_loop_running = True
+    channel._mode = "agent"
+    channel._expand_thinking = False
+    channel._last_tape_info = None
+    channel._agent = SimpleNamespace(settings=SimpleNamespace(model="test-model"))
+
+    prompt_text = "".join(part for _, part in channel._prompt_message())
+    toolbar_text = "".join(part for _, part in channel._render_bottom_toolbar())
+
+    assert "\n" in prompt_text
+    assert "Generating\n" in prompt_text
+    assert prompt_text.endswith(f"{Path.cwd().name} > ")
+    assert "Generating" not in toolbar_text
+
+    import bub.channels.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "monotonic", lambda: 0.0)
+    first_frame = "".join(part for _, part in channel._prompt_message())
+    monkeypatch.setattr(cli_module, "monotonic", lambda: 0.2)
+    second_frame = "".join(part for _, part in channel._prompt_message())
+
+    assert first_frame != second_frame
+
+
+def test_cli_channel_admit_message_queues_follow_up_when_turn_is_running() -> None:
+    channel = CliChannel.__new__(CliChannel)
+    turn = TurnSnapshot(
+        session_id="cli_session",
+        is_running=True,
+        running_count=1,
+        pending_count=0,
+        steering_count=0,
+    )
+
+    decision = channel.admit_message(
+        session_id="cli_session",
+        message=_message("second", channel="cli", session_id="cli_session"),
+        turn=turn,
+    )
+
+    assert decision == AdmitDecision("follow_up", reason="cli session is already generating")
 
 
 @pytest.mark.asyncio
@@ -687,6 +807,40 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
     assert [event.kind for event in yielded] == ["text", "text", "final"]
 
 
+@pytest.mark.asyncio
+async def test_cli_channel_collapsed_reasoning_does_not_start_status_spinner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    channel = CliChannel.__new__(CliChannel)
+    channel._renderer = SimpleNamespace(print_head=lambda kind: None)
+    channel._expand_thinking = False
+    printed: list[object] = []
+
+    def status(*args, **kwargs):
+        raise AssertionError("status spinner should not start while prompt is active")
+
+    monkeypatch.setattr(
+        "bub.channels.cli.get_console",
+        lambda: SimpleNamespace(
+            print=lambda content, end=None, highlight=None: printed.append(content),
+            status=status,
+        ),
+    )
+
+    message = _message("ignored", channel="cli", kind="normal", session_id="cli:1")
+
+    async def source() -> asyncio.AsyncIterator[StreamEvent]:
+        yield StreamEvent("reasoning", {"delta": "hidden"})
+        yield StreamEvent("text", {"delta": "hello"})
+        yield StreamEvent("final", {})
+
+    yielded = [event async for event in channel.stream_events(message, source())]
+
+    assert [event.kind for event in yielded] == ["reasoning", "text", "final"]
+    assert printed
+    assert "hello" in [str(item) for item in printed]
+
+
 def test_cli_channel_history_file_uses_workspace_hash(tmp_path: Path) -> None:
     home = tmp_path / "home"
     workspace = tmp_path / "workspace"
@@ -706,12 +860,16 @@ def test_cli_channel_history_file_uses_workspace_hash(tmp_path: Path) -> None:
     ],
 )
 def test_cli_renderer_print_head_uses_message_kind(kind: str, expected: str) -> None:
-    printed: list[str] = []
-    renderer = CliRenderer(SimpleNamespace(print=printed.append))  # type: ignore[arg-type]
+    printed: list[tuple[str, bool | None]] = []
+
+    def print_message(message: str, *, new_line_start: bool | None = None) -> None:
+        printed.append((message, new_line_start))
+
+    renderer = CliRenderer(SimpleNamespace(print=print_message))  # type: ignore[arg-type]
 
     renderer.print_head(kind)  # type: ignore[arg-type]
 
-    assert printed == [expected]
+    assert printed == [(expected, True)]
 
 
 def test_bub_message_filter_accepts_private_messages() -> None:

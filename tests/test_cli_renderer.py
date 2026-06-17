@@ -19,3 +19,14 @@ def test_tool_call_renderer_uses_compact_claude_style_output() -> None:
     assert '"ok": true' in output
     assert "Tool call:" not in output
     assert "Tool result:" not in output
+
+
+def test_input_echo_prints_submitted_prompt_as_terminal_output() -> None:
+    console = Console(record=True, force_terminal=False, width=120)
+    renderer = CliRenderer(console)
+
+    renderer.input_echo("bub > ", "hello")
+
+    output = console.export_text()
+
+    assert "bub > hello" in output

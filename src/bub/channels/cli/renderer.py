@@ -52,6 +52,11 @@ class CliRenderer:
             return
         self.console.print(f"[red bold]Error >[/]\n{text}")
 
+    def input_echo(self, prompt: str, text: str) -> None:
+        if not text.strip():
+            return
+        self.console.print(f"[bold]{prompt}[/]{text}", new_line_start=True)
+
     def tool_call_start(self, *, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
         self.console.print(Text(_format_tool_call(name, args, kwargs), style="magenta"), new_line_start=True)
 
@@ -65,11 +70,11 @@ class CliRenderer:
 
     def print_head(self, kind: MessageKind) -> None:
         if kind == "command":
-            self.console.print("[cyan bold]Command >[/]")
+            self.console.print("[cyan bold]Command >[/]", new_line_start=True)
         elif kind == "error":
-            self.console.print("[red bold]Error >[/]")
+            self.console.print("[red bold]Error >[/]", new_line_start=True)
         else:
-            self.console.print("[blue bold]Assistant >[/]")
+            self.console.print("[blue bold]Assistant >[/]", new_line_start=True)
 
     def log(self, message: object) -> None:
         text = str(message).rstrip()

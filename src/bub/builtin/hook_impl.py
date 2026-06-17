@@ -17,6 +17,7 @@ from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
 from bub.runtime import AsyncStreamEvents
 from bub.tape import TapeContext, TapeStore
+from bub.turn_admission import AdmitDecision, TurnSnapshot
 from bub.types import Envelope, MessageHandler, State
 
 AGENTS_FILE_NAME = "AGENTS.md"
@@ -291,3 +292,15 @@ class BuiltinImpl:
     @hookimpl
     def build_tape_context(self) -> TapeContext:
         return default_tape_context()
+
+    @hookimpl
+    def admit_message(
+        self,
+        session_id: str,
+        message: Envelope,
+        turn: TurnSnapshot,
+    ) -> AdmitDecision | None:
+        outbound_router = self.framework._outbound_router
+        if outbound_router is None:
+            return None
+        return outbound_router.admit_channel_message(session_id=session_id, message=message, turn=turn)
