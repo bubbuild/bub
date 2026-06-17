@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from datetime import datetime
 from hashlib import md5
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 from prompt_toolkit import PromptSession
@@ -25,7 +26,7 @@ from bub.channels.cli.renderer import CliRenderer
 from bub.channels.message import ChannelMessage
 from bub.envelope import field_of
 from bub.runtime import StreamEvent
-from bub.tools import REGISTRY
+from bub.tools import REGISTRY, tool_call_reporter
 from bub.types import MessageHandler
 
 
@@ -121,6 +122,20 @@ class _StreamPrinter:
         self._reasoning_status = None
 
 
+class _CliToolCallReporter:
+    def __init__(self, renderer: CliRenderer) -> None:
+        self._renderer = renderer
+
+    def start(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+        self._renderer.tool_call_start(name=name, args=args, kwargs=kwargs)
+
+    def success(self, name: str, result: object, elapsed_ms: float) -> None:
+        self._renderer.tool_call_success(name=name, result=result, elapsed_ms=elapsed_ms)
+
+    def error(self, name: str, error: BaseException, elapsed_ms: float) -> None:
+        self._renderer.tool_call_error(name=name, error=error, elapsed_ms=elapsed_ms)
+
+
 class CliChannel(Interface):
     """A simple CLI channel for testing and debugging."""
 
@@ -143,10 +158,9 @@ class CliChannel(Interface):
         self._workspace = self._agent.framework.workspace
         self._prompt = self._build_prompt(self._workspace)
 
-    def _install_log_sink(self) -> int:
+    def _suppress_logs(self) -> None:
         with contextlib.suppress(ValueError):
             logger.remove()
-        return logger.add(self._renderer.log, colorize=False, format="{level:<8} | {message}")
 
     async def _refresh_tape_info(self) -> None:
         tape = self._agent.tape.session_tape(self._message_template["session_id"], self._workspace)
@@ -160,7 +174,7 @@ class CliChannel(Interface):
             self._message_template["chat_id"] = chat_id
 
     async def start(self, stop_event: asyncio.Event) -> None:
-        self._log_handler_id = self._install_log_sink()
+        self._suppress_logs()
         self._stop_event = stop_event
         self._main_task = asyncio.create_task(self._main_loop())
 
@@ -169,8 +183,6 @@ class CliChannel(Interface):
             self._main_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._main_task
-        with contextlib.suppress(ValueError):
-            logger.remove(self._log_handler_id)
 
     async def send(self, message: ChannelMessage) -> None:
         if message.kind != "error":
@@ -245,9 +257,10 @@ class CliChannel(Interface):
             print_head=lambda: self._renderer.print_head(message.kind),
             expand_thinking=self._expand_thinking,
         )
-        async for event in stream:
-            if printer.render(event):
-                yield event
+        with tool_call_reporter(_CliToolCallReporter(self._renderer)):
+            async for event in stream:
+                if printer.render(event):
+                    yield event
 
     def _build_prompt(self, workspace: Path) -> PromptSession[str]:
         kb = KeyBindings()
