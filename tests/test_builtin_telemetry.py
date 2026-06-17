@@ -6,7 +6,17 @@ from typing import Any
 import pytest
 
 from bub.builtin.store import ForkTapeStore
-from bub.builtin.telemetry import BUB_RUN_ID, BUB_TAPE_NAME, TapeSpanExporter, bind_tape_writer, span_to_tape_entry
+from bub.builtin.telemetry import (
+    BUB_RUN_ID,
+    BUB_TAPE_ENTRY_KIND,
+    BUB_TAPE_ENTRY_META,
+    BUB_TAPE_ENTRY_PAYLOAD,
+    BUB_TAPE_NAME,
+    TapeSpanExporter,
+    bind_tape_writer,
+    record_tape_entry,
+    span_to_tape_entry,
+)
 from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore
 
 
@@ -73,6 +83,26 @@ def test_span_to_tape_entry_projects_otel_span_into_stream_record() -> None:
     assert entry.payload["status"] == {"status_code": "OK", "description": None}
 
 
+def test_span_to_tape_entry_projects_tape_entry_span_without_routing_meta() -> None:
+    span = FakeSpan(
+        name="bub.tape.message",
+        context=FakeSpanContext(trace_id=0x1234, span_id=0x5678),
+        attributes={
+            BUB_TAPE_NAME: "ops",
+            BUB_TAPE_ENTRY_KIND: "message",
+            BUB_TAPE_ENTRY_PAYLOAD: '{"role": "user", "content": "hello"}',
+            BUB_TAPE_ENTRY_META: '{"run_id": "run-1"}',
+        },
+    )
+
+    entry = span_to_tape_entry(span)
+
+    assert entry is not None
+    assert entry.kind == "message"
+    assert entry.payload == {"role": "user", "content": "hello"}
+    assert entry.meta == {"run_id": "run-1"}
+
+
 def test_span_without_tape_name_is_not_projected() -> None:
     span = FakeSpan(name="debug", context=FakeSpanContext(trace_id=1, span_id=2), attributes={})
 
@@ -97,6 +127,22 @@ async def test_tape_span_exporter_writes_to_bound_matching_fork() -> None:
     entries = parent.read("ops") or []
     assert [entry.kind for entry in entries] == ["otel.span"]
     assert entries[0].payload["trace_id"] == "00000000000000000000000000000001"
+
+
+@pytest.mark.asyncio
+async def test_record_tape_entry_writes_stream_entry_through_bound_exporter() -> None:
+    parent = InMemoryTapeStore()
+    store = ForkTapeStore(AsyncTapeStoreAdapter(parent), "ops")
+
+    with bind_tape_writer(store, "ops"):
+        record_tape_entry("ops", "event", {"name": "step", "data": {"value": 1}}, run_id="run-1")
+
+    await store.merge_back()
+
+    entries = parent.read("ops") or []
+    assert [(entry.kind, entry.payload, entry.meta) for entry in entries] == [
+        ("event", {"name": "step", "data": {"value": 1}}, {"run_id": "run-1"})
+    ]
 
 
 @pytest.mark.asyncio

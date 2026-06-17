@@ -13,7 +13,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from bub.builtin.store import ForkTapeStore
-from bub.builtin.telemetry import bind_tape_writer
+from bub.builtin.telemetry import bind_tape_writer, record_tape_entry
 from bub.runtime import BubError
 from bub.tape import (
     AsyncTapeStore,
@@ -155,7 +155,7 @@ class Tape:
         return list(await self.store.fetch_all(query))
 
     async def append_event(self, name: str, payload: dict[str, Any], **meta: Any) -> None:
-        await self.store.append(self.name, BuiltinTapeEntry.event(name, payload, **meta))
+        record_tape_entry(self.name, "event", {"name": name, "data": payload}, **meta)
 
     async def read_messages(self) -> list[dict[str, Any]]:
         query = self.context.build_query(self.query())
@@ -172,11 +172,10 @@ class Tape:
         state: dict[str, Any] | None = None,
         **meta: Any,
     ) -> list[TapeEntry]:
-        tape_name = self.name
         entry = BuiltinTapeEntry.anchor(name, state=state, **meta)
         event = BuiltinTapeEntry.event("handoff", {"name": name, "state": state or {}}, **meta)
-        await self.store.append(tape_name, entry)
-        await self.store.append(tape_name, event)
+        record_tape_entry(self.name, entry.kind, entry.payload, **entry.meta)
+        record_tape_entry(self.name, event.kind, event.payload, **event.meta)
         return [entry, event]
 
     async def record_chat(  # noqa: C901
@@ -195,24 +194,21 @@ class Tape:
         model: str | None = None,
         usage: dict[str, Any] | None = None,
     ) -> None:
-        tape_name = self.name
         meta = {"run_id": run_id}
         if system_prompt:
-            await self.store.append(tape_name, BuiltinTapeEntry.system(system_prompt, **meta))
+            record_tape_entry(self.name, "system", {"content": system_prompt}, **meta)
         if context_error is not None:
-            await self.store.append(tape_name, BuiltinTapeEntry.error(context_error, **meta))
+            record_tape_entry(self.name, "error", context_error.as_dict(), **meta)
         for message in new_messages:
-            await self.store.append(tape_name, BuiltinTapeEntry.message(message, **meta))
+            record_tape_entry(self.name, "message", message, **meta)
         if tool_calls:
-            await self.store.append(tape_name, BuiltinTapeEntry.tool_call(tool_calls, **meta))
+            record_tape_entry(self.name, "tool_call", {"calls": tool_calls}, **meta)
         if tool_results is not None:
-            await self.store.append(tape_name, BuiltinTapeEntry.tool_result(tool_results, **meta))
+            record_tape_entry(self.name, "tool_result", {"results": tool_results}, **meta)
         if error is not None and error is not context_error:
-            await self.store.append(tape_name, BuiltinTapeEntry.error(error, **meta))
+            record_tape_entry(self.name, "error", error.as_dict(), **meta)
         if response_text is not None:
-            await self.store.append(
-                tape_name, BuiltinTapeEntry.message({"role": "assistant", "content": response_text}, **meta)
-            )
+            record_tape_entry(self.name, "message", {"role": "assistant", "content": response_text}, **meta)
 
         data: dict[str, Any] = {"status": "error" if error is not None else "ok"}
         resolved_usage = usage or self._extract_usage(response)
@@ -222,7 +218,7 @@ class Tape:
             data["provider"] = provider
         if model:
             data["model"] = model
-        await self.store.append(tape_name, BuiltinTapeEntry.event("run", data, **meta))
+        record_tape_entry(self.name, "event", {"name": "run", "data": data}, **meta)
 
     @staticmethod
     def _extract_usage(response: object) -> dict[str, Any] | None:
