@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 import re
 import shlex
@@ -18,22 +17,19 @@ from typing import Any
 from loguru import logger
 
 from bub.builtin.model_runner import (
-    ModelOutputAccumulator,
     ModelRunner,
     is_context_length_error,
-    tool_invocation_from_native,
 )
 from bub.builtin.settings import load_settings
 from bub.builtin.tape import Tape
 from bub.framework import BubFramework
-from bub.runtime import AsyncStreamEvents, BubError, StreamEvent, StreamState
+from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
 from bub.skills import discover_skills, render_skills_prompt
 from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, is_async_tape_store
 from bub.tools import (
     REGISTRY,
     Tool,
     ToolContext,
-    ToolExecutor,
 )
 from bub.types import State
 from bub.utils import workspace_from_state
@@ -351,86 +347,21 @@ class Agent:
         allowed_skills: set[str] | None,
         tools: list[Tool],
     ) -> AsyncStreamEvents:
-        state = StreamState()
+        from bub.builtin.tools import model_tools
 
-        async def iterator() -> AsyncGenerator[StreamEvent, None]:
-            system_prompt = self._system_prompt(
-                prompt_text, state=tape.context.state, allowed_skills=allowed_skills, tools=tools
-            )
-            prompt_message: dict[str, Any] = {"role": "user", "content": prompt}
-            run_id = f"run-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}"
-            try:
-                messages = await tape.read_messages()
-            except BubError as exc:
-                await tape.record_chat(
-                    run_id=run_id,
-                    system_prompt=system_prompt,
-                    context_error=exc,
-                    new_messages=[],
-                    response_text=None,
-                    error=exc,
-                    model=model or self.settings.model,
-                )
-                raise
-            if system_prompt:
-                messages = [{"role": "system", "content": system_prompt}, *messages]
-            messages.append(prompt_message)
+        system_prompt = self._system_prompt(
+            prompt_text, state=tape.context.state, allowed_skills=allowed_skills, tools=tools
+        )
+        resolved_model = model or self.settings.model
 
-            from bub.builtin.tools import model_tools
-
-            model_tools_for_call = model_tools(tools)
-            output = ModelOutputAccumulator()
-            async with asyncio.timeout(self.settings.model_timeout_seconds):
-                async for event in self.model_runner.run(
-                    model=model or self.settings.model,
-                    messages=messages,
-                    tools=model_tools_for_call,
-                    state=state,
-                    output=output,
-                ):
-                    yield event
-
-            text = output.text
-            tool_calls = output.tool_calls
-            if tool_calls:
-                tool_map = {tool_item.name: tool_item for tool_item in model_tools_for_call}
-                serialized_tool_calls = [tool_call.model_dump(exclude_none=True) for tool_call in tool_calls]
-                tool_invocations = [tool_invocation_from_native(tool_call, tool_map) for tool_call in tool_calls]
-                yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
-                context = ToolContext(tape=tape, run_id=run_id, state=tape.context.state)
-                execution = await ToolExecutor().execute_async(
-                    tool_invocations,
-                    context=context,
-                )
-                await tape.record_chat(
-                    run_id=run_id,
-                    system_prompt=system_prompt,
-                    new_messages=[prompt_message],
-                    response_text=None,
-                    tool_calls=serialized_tool_calls,
-                    tool_results=execution.tool_results,
-                    response=output.response,
-                    model=model or self.settings.model,
-                    usage=state.usage,
-                )
-                yield StreamEvent("tool_result", {"tool_results": execution.tool_results})
-                yield StreamEvent(
-                    "final", {"ok": True, "tool_calls": serialized_tool_calls, "tool_results": execution.tool_results}
-                )
-                return
-
-            await tape.record_chat(
-                run_id=run_id,
-                system_prompt=system_prompt,
-                new_messages=[prompt_message],
-                response_text=text,
-                response=output.response,
-                model=model or self.settings.model,
-                usage=state.usage,
-            )
-            yield StreamEvent("final", {"ok": True, "text": text})
-
-        return AsyncStreamEvents(iterator(), state=state)
+        model_tools_for_call = model_tools(tools)
+        return self.model_runner.run(
+            tape=tape,
+            model=resolved_model,
+            tools=model_tools_for_call,
+            system_prompt=system_prompt,
+            prompt=prompt,
+        )
 
     def _system_prompt(
         self, prompt: str, state: State, allowed_skills: set[str] | None = None, tools: Iterable[Tool] | None = None

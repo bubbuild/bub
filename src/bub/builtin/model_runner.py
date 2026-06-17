@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import AsyncGenerator, AsyncIterator, Iterable, Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
 from any_llm import AnyLLM
@@ -23,8 +25,8 @@ from pydantic import TypeAdapter, ValidationError
 
 from bub.builtin.settings import AgentSettings, ModelCandidate
 from bub.builtin.tape import Tape
-from bub.runtime import BubError, ErrorKind, StreamEvent, StreamState
-from bub.tools import Tool
+from bub.runtime import AsyncStreamEvents, BubError, ErrorKind, StreamEvent, StreamState
+from bub.tools import Tool, ToolContext, ToolExecutor
 
 CONTEXT_LENGTH_PATTERNS = re.compile(
     r"context.{0,20}(?:length|window)|maximum.{0,20}context|token.{0,10}limit|prompt.{0,10}too long|tokens? > \d+ maximum",
@@ -75,18 +77,157 @@ class ModelRunner:
 
         raise RuntimeError("no model candidates available")
 
-    async def run(
+    def run(
         self,
         *,
+        tape: Tape,
         model: str,
-        messages: list[dict[str, Any]],
         tools: list[Tool],
-        state: StreamState,
-        output: ModelOutputAccumulator,
-    ) -> AsyncGenerator[StreamEvent, None]:
-        completion = await self.completion_response(model=model, messages=messages, tools=tools)
-        async for event in self._completion_events(completion, state, output):
-            yield event
+        system_prompt: str | None,
+        prompt: str | list[dict],
+    ) -> AsyncStreamEvents:
+        state = StreamState()
+
+        async def iterator() -> AsyncGenerator[StreamEvent, None]:
+            run_id = self.generate_run_id()
+            messages, new_messages = await self.build_messages(
+                tape=tape,
+                run_id=run_id,
+                system_prompt=system_prompt,
+                prompt=prompt,
+                model=model,
+            )
+            output = ModelOutputAccumulator()
+            async with asyncio.timeout(self.settings.model_timeout_seconds):
+                completion = await self.completion_response(model=model, messages=messages, tools=tools)
+                async for event in self._completion_events(completion, state, output):
+                    yield event
+
+            tool_calls = output.tool_calls
+            if tool_calls:
+                tool_map = {tool_item.name: tool_item for tool_item in tools}
+                serialized_tool_calls = [tool_call.model_dump(exclude_none=True) for tool_call in tool_calls]
+                tool_invocations = [tool_invocation_from_native(tool_call, tool_map) for tool_call in tool_calls]
+                yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
+                context = ToolContext(tape=tape, run_id=run_id, state=tape.context.state)
+                execution = await ToolExecutor().execute_async(
+                    tool_invocations,
+                    context=context,
+                )
+                await self.record_chat(
+                    tape=tape,
+                    run_id=run_id,
+                    system_prompt=system_prompt,
+                    new_messages=new_messages,
+                    response_text=None,
+                    tool_calls=serialized_tool_calls,
+                    tool_results=execution.tool_results,
+                    response=output.response,
+                    model=model,
+                    usage=state.usage,
+                )
+                yield StreamEvent("tool_result", {"tool_results": execution.tool_results})
+                yield StreamEvent(
+                    "final", {"ok": True, "tool_calls": serialized_tool_calls, "tool_results": execution.tool_results}
+                )
+                return
+
+            text = output.text
+            await self.record_chat(
+                tape=tape,
+                run_id=run_id,
+                system_prompt=system_prompt,
+                new_messages=new_messages,
+                response_text=text,
+                response=output.response,
+                model=model,
+                usage=state.usage,
+            )
+            yield StreamEvent("final", {"ok": True, "text": text})
+
+        return AsyncStreamEvents(iterator(), state=state)
+
+    @staticmethod
+    def generate_run_id() -> str:
+        return f"run-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}"
+
+    async def build_messages(
+        self,
+        *,
+        tape: Tape,
+        run_id: str,
+        system_prompt: str | None,
+        prompt: str | list[dict],
+        model: str,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        prompt_message: dict[str, Any] = {"role": "user", "content": prompt}
+        try:
+            messages = await tape.read_messages()
+        except BubError as exc:
+            await self.record_context_error(
+                tape=tape,
+                run_id=run_id,
+                system_prompt=system_prompt,
+                error=exc,
+                model=model,
+            )
+            raise
+        if system_prompt:
+            messages = [{"role": "system", "content": system_prompt}, *messages]
+        messages.append(prompt_message)
+        return messages, [prompt_message]
+
+    async def record_context_error(
+        self,
+        *,
+        tape: Tape,
+        run_id: str,
+        system_prompt: str | None,
+        error: BubError,
+        model: str,
+    ) -> None:
+        await self.record_chat(
+            tape=tape,
+            run_id=run_id,
+            system_prompt=system_prompt,
+            context_error=error,
+            new_messages=[],
+            response_text=None,
+            error=error,
+            model=model,
+        )
+
+    async def record_chat(
+        self,
+        *,
+        tape: Tape,
+        run_id: str,
+        system_prompt: str | None,
+        new_messages: list[dict[str, Any]],
+        response_text: str | None,
+        context_error: BubError | None = None,
+        tool_calls: list[dict[str, Any]] | None = None,
+        tool_results: list[Any] | None = None,
+        error: BubError | None = None,
+        response: Any | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        usage: dict[str, Any] | None = None,
+    ) -> None:
+        await tape.record_chat(
+            run_id=run_id,
+            system_prompt=system_prompt,
+            new_messages=new_messages,
+            response_text=response_text,
+            context_error=context_error,
+            tool_calls=tool_calls,
+            tool_results=tool_results,
+            error=error,
+            response=response,
+            provider=provider,
+            model=model,
+            usage=usage,
+        )
 
     async def _completion_events(
         self,
