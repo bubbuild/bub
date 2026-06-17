@@ -13,13 +13,12 @@ from bub.configure import Settings, config, ensure_config
 from bub.framework import DEFAULT_HOME, BubFramework
 from bub.hookspecs import hookimpl
 from bub.tools import tool
-from bub.turn_admission import AdmitDecision, SteeringBuffer, TurnSnapshot
+from bub.turn_admission import AdmitDecision, TurnSnapshot
 
 __all__ = [
     "AdmitDecision",
     "BubFramework",
     "Settings",
-    "SteeringBuffer",
     "TurnSnapshot",
     "config",
     "ensure_config",

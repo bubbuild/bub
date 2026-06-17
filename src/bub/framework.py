@@ -19,7 +19,7 @@ from bub.hook_runtime import _SKIP_VALUE, HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.runtime import BubError, ErrorKind
 from bub.tape import AsyncTapeStore, TapeContext, TapeStore
-from bub.turn_admission import AdmitDecision, SteeringBuffer, TurnSnapshot
+from bub.turn_admission import AdmitDecision, TurnSnapshot
 from bub.types import Envelope, MessageHandler, OutboundChannelRouter, TurnResult
 
 if TYPE_CHECKING:
@@ -48,7 +48,6 @@ class BubFramework:
         self._hook_runtime = HookRuntime(self._plugin_manager)
         self._plugin_status: dict[str, PluginStatus] = {}
         self._outbound_router: OutboundChannelRouter | None = None
-        self._steering_buffers: dict[str, SteeringBuffer] = {}
         self._tape_store: TapeStore | AsyncTapeStore | None = None
         configure.load(self.config_file)
 
@@ -113,7 +112,7 @@ class BubFramework:
             session_id = await self.resolve_session(inbound)
             if isinstance(inbound, dict):
                 inbound.setdefault("session_id", session_id)
-            state = {"_runtime_workspace": str(self.workspace), "_runtime_steering": self.steering(session_id)}
+            state = {"_runtime_workspace": str(self.workspace)}
             for hook_state in reversed(
                 await self._hook_runtime.call_many("load_state", message=inbound, session_id=session_id)
             ):
@@ -220,16 +219,6 @@ class BubFramework:
             return decision
         raise TypeError("hook.admit_message must return AdmitDecision or None")
 
-    def steering(self, session_id: str) -> SteeringBuffer:
-        buffer = self._steering_buffers.get(session_id)
-        if buffer is None:
-            buffer = SteeringBuffer(session_id=session_id)
-            self._steering_buffers[session_id] = buffer
-        return buffer
-
-    def clear_steering(self, session_id: str) -> None:
-        self._steering_buffers.pop(session_id, None)
-
     @staticmethod
     def _default_session_id(message: Envelope) -> str:
         session_id = field_of(message, "session_id")
@@ -329,3 +318,6 @@ class BubFramework:
                 raise TypeError("hook.onboard_config must return dict or None")
             configure.merge(current_config, result)
         return configure.validate(current_config)
+
+    async def steer_message(self, message: Envelope, reason: str | None = None) -> bool | None:
+        return await self._hook_runtime.call_first("handle_steering", message=message, reason=reason)

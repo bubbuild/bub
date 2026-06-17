@@ -28,38 +28,6 @@ class TurnSnapshot:
     is_running: bool
     running_count: int
     pending_count: int
-    steering_count: int
-
-
-@dataclass
-class SteeringBuffer:
-    """Per-session queue for steering messages offered to active turns."""
-
-    session_id: str
-    _queue: deque[Envelope] = field(default_factory=deque, init=False, repr=False)
-
-    def put_nowait(self, message: Envelope) -> None:
-        """Append one message."""
-
-        self._queue.append(message)
-
-    @property
-    def count(self) -> int:
-        return len(self._queue)
-
-    def get_nowait(self) -> Envelope | None:
-        """Return one queued message without waiting."""
-
-        if not self._queue:
-            return None
-        return self._queue.popleft()
-
-    def drain_nowait(self) -> list[Envelope]:
-        """Drain steering input and acknowledge ownership of those messages."""
-
-        messages = list(self._queue)
-        self._queue.clear()
-        return messages
 
 
 @dataclass
@@ -67,7 +35,6 @@ class SessionTurnController:
     """Per-session runtime queues used by ``ChannelManager``."""
 
     session_id: str
-    steering: SteeringBuffer
     active_tasks: set[asyncio.Task] = field(default_factory=set)
     pending_queue: deque[Envelope] = field(default_factory=deque)
 
@@ -81,15 +48,10 @@ class SessionTurnController:
             is_running=running_count > 0,
             running_count=running_count,
             pending_count=len(self.pending_queue),
-            steering_count=self.steering.count,
         )
 
     def add_pending(self, message: Envelope) -> bool:
         self.pending_queue.append(message)
-        return True
-
-    def add_pending_left(self, message: Envelope) -> bool:
-        self.pending_queue.appendleft(message)
         return True
 
     def pop_pending(self) -> Envelope | None:
@@ -99,7 +61,3 @@ class SessionTurnController:
 
     def clear_pending(self) -> None:
         self.pending_queue.clear()
-
-    def promote_steering_to_pending(self) -> None:
-        for message in reversed(self.steering.drain_nowait()):
-            self.add_pending_left(message)

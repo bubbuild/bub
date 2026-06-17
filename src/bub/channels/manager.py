@@ -120,11 +120,9 @@ class ChannelManager:
     async def quit(self, session_id: str) -> None:
         controller = self._session_controllers.get(session_id)
         if controller is None:
-            self.framework.clear_steering(session_id)
             logger.info(f"channel.manager quit session_id={session_id}, cancelled 0 tasks")
             return
         controller.clear_pending()
-        controller.steering.drain_nowait()
         tasks = set(controller.active_tasks)
         current_task = asyncio.current_task()
         cancelled_count = 0
@@ -177,7 +175,7 @@ class ChannelManager:
     def _controller(self, session_id: str) -> SessionTurnController:
         controller = self._session_controllers.get(session_id)
         if controller is None:
-            controller = SessionTurnController(session_id=session_id, steering=self.framework.steering(session_id))
+            controller = SessionTurnController(session_id=session_id)
             self._session_controllers[session_id] = controller
         return controller
 
@@ -185,10 +183,9 @@ class ChannelManager:
         controller = self._session_controllers.get(session_id)
         if controller is None:
             return
-        if controller.active() or controller.pending_queue or controller.steering.count > 0:
+        if controller.active() or controller.pending_queue:
             return
         self._session_controllers.pop(session_id, None)
-        self.framework.clear_steering(session_id)
 
     def _on_task_done(self, session_id: str, task: asyncio.Task) -> None:
         if task.cancelled():
@@ -199,8 +196,6 @@ class ChannelManager:
         if controller is None:
             return
         controller.active_tasks.discard(task)
-        if not controller.active():
-            controller.promote_steering_to_pending()
         self._schedule_pending(session_id)
         self._drop_empty_controller(session_id)
 
@@ -249,13 +244,7 @@ class ChannelManager:
         if action == "follow_up":
             return self._queue_pending(controller, message, decision.reason)
         if action == "steer":
-            if controller.active():
-                controller.steering.put_nowait(message)
-                logger.info(
-                    "channel.manager admission steer session_id={} reason={}",
-                    message.session_id,
-                    decision.reason,
-                )
+            if await self.framework.steer_message(message, decision.reason):
                 return False
             return self._queue_pending(controller, message, decision.reason)
         logger.warning("channel.manager admission unknown action={} session_id={}", decision.action, message.session_id)
@@ -326,18 +315,14 @@ class ChannelManager:
 
     async def shutdown(self) -> None:
         count = 0
-        session_ids = list(self._session_controllers)
         for controller in list(self._session_controllers.values()):
             controller.clear_pending()
-            controller.steering.drain_nowait()
             for task in set(controller.active_tasks):
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
                 count += 1
         self._session_controllers.clear()
-        for session_id in session_ids:
-            self.framework.clear_steering(session_id)
         logger.info(f"channel.manager cancelled {count} in-flight tasks")
         for channel in self.enabled_channels():
             await channel.stop()

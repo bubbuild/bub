@@ -127,3 +127,8 @@ class BubHookSpecs:
         Return ``None`` to keep Bub's default concurrent scheduling behavior.
         """
         raise NotImplementedError
+
+    @hookspec(firstresult=True)
+    async def handle_steering(self, message: Envelope, reason: str | None) -> bool:
+        """Handle a steering message that is admitted by the `admit_message` hook with action "steer"."""
+        raise NotImplementedError

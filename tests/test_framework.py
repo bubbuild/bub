@@ -20,7 +20,7 @@ from bub.configure import ensure_config
 from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
 from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
-from bub.turn_admission import AdmitDecision, SteeringBuffer, TurnSnapshot
+from bub.turn_admission import AdmitDecision, TurnSnapshot
 
 
 def make_named_channel(name: str, label: str) -> Channel:
@@ -286,26 +286,6 @@ async def test_process_inbound_defaults_to_non_streaming_run_model() -> None:
 
 
 @pytest.mark.asyncio
-async def test_process_inbound_exposes_runtime_steering_handle() -> None:
-    framework = BubFramework()
-    observed_state: dict[str, Any] = {}
-
-    class SteeringAwarePlugin:
-        @hookimpl
-        async def run_model(self, prompt, session_id, state) -> str:
-            observed_state.update(state)
-            return "ok"
-
-    framework._plugin_manager.register(SteeringAwarePlugin(), name="steering-aware")
-
-    result = await framework.process_inbound({"session_id": "session", "content": "hi"})
-
-    assert result.model_output == "ok"
-    assert isinstance(observed_state["_runtime_steering"], SteeringBuffer)
-    assert observed_state["_runtime_steering"].session_id == "session"
-
-
-@pytest.mark.asyncio
 async def test_framework_admit_message_calls_hook_with_snapshot() -> None:
     framework = BubFramework()
 
@@ -326,7 +306,6 @@ async def test_framework_admit_message_calls_hook_with_snapshot() -> None:
             is_running=True,
             running_count=1,
             pending_count=1,
-            steering_count=0,
         ),
     )
 
