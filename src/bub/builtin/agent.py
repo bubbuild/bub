@@ -107,6 +107,7 @@ class Agent:
             telemetry.bub_span(
                 "bub.agent.run",
                 tape=tape.name,
+                store=getattr(tape, "store", None),
                 attributes={
                     telemetry.GEN_AI_OPERATION_NAME: "invoke_agent",
                     telemetry.GEN_AI_AGENT_NAME: telemetry.BUB_AGENT_NAME,
@@ -146,6 +147,7 @@ class Agent:
         with telemetry.bub_span(
             "bub.command",
             tape=tape.name,
+            store=getattr(tape, "store", None),
             attributes={
                 telemetry.GEN_AI_OPERATION_NAME: "command",
                 telemetry.BUB_RUN_ID: "run_command",
@@ -235,6 +237,7 @@ class Agent:
             with telemetry.bub_span(
                 "bub.agent.step",
                 tape=tape.name,
+                store=getattr(tape, "store", None),
                 attributes={
                     telemetry.GEN_AI_OPERATION_NAME: "agent_step",
                     telemetry.GEN_AI_REQUEST_MODEL: display_model,

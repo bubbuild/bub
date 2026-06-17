@@ -13,7 +13,6 @@ from bub.builtin.telemetry import (
     BUB_TAPE_ENTRY_PAYLOAD,
     BUB_TAPE_NAME,
     TapeSpanExporter,
-    bind_tape_writer,
     record_tape_entry,
     span_to_tape_entry,
 )
@@ -110,7 +109,7 @@ def test_span_without_tape_name_is_not_projected() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tape_span_exporter_writes_to_bound_matching_fork() -> None:
+async def test_tape_span_exporter_writes_to_span_tape() -> None:
     parent = InMemoryTapeStore()
     store = ForkTapeStore(AsyncTapeStoreAdapter(parent), "ops")
     span = FakeSpan(
@@ -119,8 +118,7 @@ async def test_tape_span_exporter_writes_to_bound_matching_fork() -> None:
         attributes={BUB_TAPE_NAME: "ops"},
     )
 
-    with bind_tape_writer(store, "ops"):
-        TapeSpanExporter().export_span(span)
+    TapeSpanExporter(store).export_span(span)
 
     await store.merge_back()
 
@@ -130,12 +128,11 @@ async def test_tape_span_exporter_writes_to_bound_matching_fork() -> None:
 
 
 @pytest.mark.asyncio
-async def test_record_tape_entry_writes_stream_entry_through_bound_exporter() -> None:
+async def test_record_tape_entry_writes_stream_entry_through_otel_processor() -> None:
     parent = InMemoryTapeStore()
     store = ForkTapeStore(AsyncTapeStoreAdapter(parent), "ops")
 
-    with bind_tape_writer(store, "ops"):
-        record_tape_entry("ops", "event", {"name": "step", "data": {"value": 1}}, run_id="run-1")
+    record_tape_entry(store, "ops", "event", {"name": "step", "data": {"value": 1}}, run_id="run-1")
 
     await store.merge_back()
 
@@ -146,17 +143,16 @@ async def test_record_tape_entry_writes_stream_entry_through_bound_exporter() ->
 
 
 @pytest.mark.asyncio
-async def test_tape_span_exporter_ignores_unbound_tape() -> None:
+async def test_tape_span_exporter_ignores_span_without_tape_name() -> None:
     parent = InMemoryTapeStore()
     store = ForkTapeStore(AsyncTapeStoreAdapter(parent), "ops")
     span = FakeSpan(
         name="chat model",
         context=FakeSpanContext(trace_id=1, span_id=2),
-        attributes={BUB_TAPE_NAME: "other"},
+        attributes={},
     )
 
-    with bind_tape_writer(store, "ops"):
-        TapeSpanExporter().export_span(span)
+    TapeSpanExporter(store).export_span(span)
 
     await store.merge_back()
 

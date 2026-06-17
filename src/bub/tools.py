@@ -208,13 +208,14 @@ class ToolExecutor:
     ) -> Any:
         tool_name = tool_obj.name
         tape_name = context.tape.name if context is not None else None
+        tape_store = context.tape.store if context is not None else None
         span_attributes: dict[str, object] = {
             telemetry.GEN_AI_OPERATION_NAME: "execute_tool",
             telemetry.GEN_AI_TOOL_NAME: tool_name,
         }
         if context is not None and context.run_id:
             span_attributes[telemetry.BUB_RUN_ID] = context.run_id
-        with telemetry.bub_span("bub.tool.execute", tape=tape_name, attributes=span_attributes) as span:
+        with telemetry.bub_span("bub.tool.execute", tape=tape_name, store=tape_store, attributes=span_attributes) as span:
             try:
                 result = self._invoke_tool(
                     tool_name=tool_name,

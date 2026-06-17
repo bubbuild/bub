@@ -1,16 +1,19 @@
-"""OpenTelemetry adapters for writing selected spans into tape streams."""
+"""Telemetry adapters for projecting runtime spans into tape streams."""
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
+import inspect
 import json
-from collections.abc import Mapping
+from collections.abc import Coroutine, Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager
-from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Any, Literal, Protocol, cast
 
 from bub.tape import TapeEntry
+
+SpanAttributeValue = str | bool | int | float | Sequence[str] | Sequence[bool] | Sequence[int] | Sequence[float]
 
 BUB_TAPE_NAME = "bub.tape.name"
 BUB_RUN_ID = "bub.run.id"
@@ -26,11 +29,13 @@ OTEL_SPAN_ENTRY_KIND = "otel.span"
 BUB_TAPE_ENTRY_KIND = "bub.tape.entry.kind"
 BUB_TAPE_ENTRY_PAYLOAD = "bub.tape.entry.payload_json"
 BUB_TAPE_ENTRY_META = "bub.tape.entry.meta_json"
-_tape_processor_installed = False
 
-
-class TapeStreamWriter(Protocol):
-    def append_nowait(self, tape: str, entry: TapeEntry) -> None: ...
+_current_tape_store: contextvars.ContextVar[object | None] = contextvars.ContextVar(
+    "bub_tape_store",
+    default=None,
+)
+_tape_span_processor_configured = False
+_pending_append_tasks: set[asyncio.Task[Any]] = set()
 
 
 class RuntimeSpan(Protocol):
@@ -39,208 +44,12 @@ class RuntimeSpan(Protocol):
     def record_exception(self, exception: BaseException) -> None: ...
 
 
-@dataclass(frozen=True)
-class SpanContextSnapshot:
-    trace_id: int | None = None
-    span_id: int | None = None
-
-
-@dataclass(frozen=True)
-class SpanEventSnapshot:
-    name: str
-    timestamp: int | None = None
-    attributes: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class SpanStatusSnapshot:
-    status_code: str = ""
-    description: str | None = None
-
-
-@dataclass(frozen=True)
-class SpanSnapshot:
-    name: str
-    context: SpanContextSnapshot
-    attributes: dict[str, Any]
-    parent: SpanContextSnapshot | None = None
-    events: tuple[SpanEventSnapshot, ...] = ()
-    status: SpanStatusSnapshot | None = None
-    start_time: int | None = None
-    end_time: int | None = None
-
-
-_current_writer: contextvars.ContextVar[TapeStreamWriter | None] = contextvars.ContextVar(
-    "bub_tape_stream_writer",
-    default=None,
-)
-_current_tape: contextvars.ContextVar[str | None] = contextvars.ContextVar("bub_tape_name", default=None)
-
-
 class NoopSpan:
     def set_attribute(self, key: str, value: object) -> None:
         return
 
     def record_exception(self, exception: BaseException) -> None:
         return
-
-
-class RecordingSpan:
-    def __init__(self, name: str, span: RuntimeSpan, attributes: dict[str, object]) -> None:
-        self._name = name
-        self._span = span
-        self._attributes: dict[str, Any] = {}
-        self._events: list[SpanEventSnapshot] = []
-        self._status: SpanStatusSnapshot | None = None
-        for key, value in attributes.items():
-            self.set_attribute(key, value)
-
-    def set_attribute(self, key: str, value: object) -> None:
-        if not _is_span_attribute(value):
-            return
-        self._attributes[key] = value
-        self._span.set_attribute(key, value)
-
-    def record_exception(self, exception: BaseException) -> None:
-        self._events.append(
-            SpanEventSnapshot(
-                "exception",
-                attributes={
-                    "exception.type": exception.__class__.__name__,
-                    "exception.message": str(exception),
-                },
-            )
-        )
-        self._status = SpanStatusSnapshot("ERROR", str(exception))
-        self._span.record_exception(exception)
-
-    def snapshot(self) -> SpanSnapshot:
-        span_context = _span_context_snapshot(self._span)
-        return SpanSnapshot(
-            name=self._name,
-            context=span_context,
-            attributes=dict(self._attributes),
-            events=tuple(self._events),
-            status=self._status,
-        )
-
-
-class TapeWriterBinding:
-    def __init__(self, writer: TapeStreamWriter, tape: str) -> None:
-        self._writer = writer
-        self._tape = tape
-        self._previous_writer: TapeStreamWriter | None = None
-        self._previous_tape: str | None = None
-
-    def __enter__(self) -> None:
-        self._previous_writer = _current_writer.get()
-        self._previous_tape = _current_tape.get()
-        _current_writer.set(self._writer)
-        _current_tape.set(self._tape)
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> Literal[False]:
-        _current_tape.set(self._previous_tape)
-        _current_writer.set(self._previous_writer)
-        return False
-
-
-def bind_tape_writer(writer: TapeStreamWriter, tape: str) -> TapeWriterBinding:
-    return TapeWriterBinding(writer, tape)
-
-
-class BubSpanContext:
-    def __init__(self, name: str, attributes: dict[str, object]) -> None:
-        self._name = name
-        self._manager = _start_span(name)
-        self._attributes = attributes
-        self._span: RecordingSpan | None = None
-
-    def __enter__(self) -> RecordingSpan:
-        self._span = RecordingSpan(self._name, self._manager.__enter__(), self._attributes)
-        return self._span
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> Literal[False]:
-        if exc is not None and self._span is not None:
-            _record_span_exception(self._span, exc)
-        self._manager.__exit__(None, None, None)
-        if self._span is not None and not _tape_processor_installed:
-            TapeSpanExporter().export_span(self._span.snapshot())
-        return False
-
-
-def bub_span(
-    name: str,
-    *,
-    tape: str | None = None,
-    attributes: dict[str, object] | None = None,
-) -> BubSpanContext:
-    span_attributes = dict(attributes or {})
-    if tape_name := tape or _current_tape.get():
-        span_attributes[BUB_TAPE_NAME] = tape_name
-    return BubSpanContext(name, span_attributes)
-
-
-class TapeSpanExporter:
-    """Project selected OTel spans into the currently bound tape stream."""
-
-    def export_span(self, span: object) -> None:
-        writer = _current_writer.get()
-        if writer is None:
-            return
-
-        attributes = _mapping(getattr(span, "attributes", {}))
-        tape = attributes.get(BUB_TAPE_NAME)
-        if not isinstance(tape, str) or tape != _current_tape.get():
-            return
-
-        entry = span_to_tape_entry(span)
-        if entry is None:
-            return
-
-        writer.append_nowait(tape, entry)
-
-
-def tape_span_processor() -> object:
-    """Return an OpenTelemetry span processor for Logfire configuration."""
-
-    from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
-
-    exporter = TapeSpanExporter()
-
-    class TapeSpanProcessor(SpanProcessor):
-        def on_start(self, span: object, parent_context: object | None = None) -> None:
-            global _tape_processor_installed
-            _tape_processor_installed = True
-            return
-
-        def on_end(self, span: ReadableSpan) -> None:
-            exporter.export_span(span)
-
-        def shutdown(self) -> None:
-            return
-
-        def force_flush(self, timeout_millis: int = 30000) -> bool:
-            return True
-
-    return TapeSpanProcessor()
-
-
-def _start_span(name: str) -> AbstractContextManager[RuntimeSpan]:
-    try:
-        from opentelemetry import trace
-    except Exception:
-        return NoopSpanContext()
-    return cast(AbstractContextManager[RuntimeSpan], trace.get_tracer("bub.agent").start_as_current_span(name))
 
 
 class NoopSpanContext:
@@ -256,30 +65,142 @@ class NoopSpanContext:
         return False
 
 
-def _set_span_attributes(span: RuntimeSpan, attributes: dict[str, object]) -> None:
-    set_attribute = getattr(span, "set_attribute", None)
-    if not callable(set_attribute):
+class BubSpanContext:
+    def __init__(self, name: str, attributes: dict[str, object], store: object | None = None) -> None:
+        self._name = name
+        self._attributes = attributes
+        self._store = store
+        self._manager: AbstractContextManager[RuntimeSpan] | None = None
+        self._store_token: contextvars.Token[object | None] | None = None
+        self._span: RuntimeSpan | None = None
+
+    def __enter__(self) -> RuntimeSpan:
+        ensure_telemetry_configured()
+        if self._store is not None:
+            self._store_token = _current_tape_store.set(self._store)
+        self._manager = _start_span(self._name, self._attributes)
+        self._span = self._manager.__enter__()
+        return self._span
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> Literal[False]:
+        if exc is not None and self._span is not None:
+            _record_span_exception(self._span, exc)
+        if self._manager is not None:
+            self._manager.__exit__(None, None, None)
+        if self._store_token is not None:
+            _current_tape_store.reset(self._store_token)
+        return False
+
+
+def bub_span(
+    name: str,
+    *,
+    tape: str | None = None,
+    store: object | None = None,
+    attributes: dict[str, object] | None = None,
+) -> BubSpanContext:
+    span_attributes = dict(attributes or {})
+    if tape:
+        span_attributes[BUB_TAPE_NAME] = tape
+    return BubSpanContext(name, span_attributes, store=store)
+
+
+class TapeSpanExporter:
+    """Project selected telemetry spans into a tape store."""
+
+    def __init__(self, store: object) -> None:
+        self._store = store
+
+    def export_span(self, span: object) -> None:
+        entry = span_to_tape_entry(span)
+        if entry is None:
+            return
+
+        tape = _span_tape_name(span)
+        if tape is None:
+            return
+
+        _append_entry(self._store, tape, entry)
+
+
+def tape_span_processor() -> object:
+    """Return an OpenTelemetry span processor that writes selected spans into tapes."""
+
+    from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
+
+    class TapeSpanProcessor(SpanProcessor):
+        def on_start(self, span: object, parent_context: object | None = None) -> None:
+            return
+
+        def on_end(self, span: ReadableSpan) -> None:
+            store = _current_tape_store.get()
+            if store is not None:
+                TapeSpanExporter(store).export_span(span)
+
+        def shutdown(self) -> None:
+            return
+
+        def force_flush(self, timeout_millis: int = 30000) -> bool:
+            return True
+
+    return TapeSpanProcessor()
+
+
+def configure_telemetry(additional_span_processors: Iterable[object] = ()) -> None:
+    """Install Bub's default tape span processor on the active OTel provider."""
+
+    provider = _ensure_tracer_provider()
+    if provider is None:
         return
-    for key, value in attributes.items():
-        if _is_span_attribute(value):
-            set_attribute(key, value)
+
+    global _tape_span_processor_configured
+    add_span_processor = getattr(provider, "add_span_processor", None)
+    if not callable(add_span_processor):
+        return
+
+    processors = list(additional_span_processors)
+    if not _tape_span_processor_configured:
+        processors = processors or [tape_span_processor()]
+        for processor in processors:
+            add_span_processor(processor)
+        _tape_span_processor_configured = True
+        return
+
+    for processor in processors:
+        add_span_processor(processor)
 
 
-def _record_span_exception(span: RuntimeSpan, exc: BaseException) -> None:
-    record_exception = getattr(span, "record_exception", None)
-    if callable(record_exception):
-        record_exception(exc)
-    set_attribute = getattr(span, "set_attribute", None)
-    if callable(set_attribute):
-        set_attribute("error.type", exc.__class__.__name__)
+def mark_tape_span_processor_configured() -> None:
+    global _tape_span_processor_configured
+    _tape_span_processor_configured = True
 
 
-def _is_span_attribute(value: object) -> bool:
-    if isinstance(value, bool | str | bytes | int | float):
-        return True
-    if isinstance(value, list | tuple):
-        return all(isinstance(item, bool | str | bytes | int | float) for item in value)
-    return False
+def ensure_telemetry_configured() -> None:
+    if not _tape_span_processor_configured:
+        configure_telemetry()
+
+
+def record_tape_entry(
+    store: object,
+    tape: str,
+    kind: str,
+    payload: dict[str, Any] | None = None,
+    **meta: Any,
+) -> None:
+    attributes: dict[str, object] = {
+        BUB_TAPE_ENTRY_KIND: kind,
+        BUB_TAPE_ENTRY_PAYLOAD: json.dumps(payload or {}, ensure_ascii=False, default=str),
+        BUB_TAPE_ENTRY_META: json.dumps(meta, ensure_ascii=False, default=str),
+    }
+    if run_id := meta.get("run_id"):
+        attributes[BUB_RUN_ID] = str(run_id)
+    with bub_span(f"bub.tape.{kind}", tape=tape, store=store, attributes=attributes):
+        return
 
 
 def span_to_tape_entry(span: object) -> TapeEntry | None:
@@ -314,16 +235,73 @@ def span_to_tape_entry(span: object) -> TapeEntry | None:
     return TapeEntry(id=0, kind=OTEL_SPAN_ENTRY_KIND, payload=payload, meta=meta)
 
 
-def record_tape_entry(tape: str, kind: str, payload: dict[str, Any] | None = None, **meta: Any) -> None:
-    attributes: dict[str, object] = {
-        BUB_TAPE_ENTRY_KIND: kind,
-        BUB_TAPE_ENTRY_PAYLOAD: json.dumps(payload or {}, ensure_ascii=False, default=str),
-        BUB_TAPE_ENTRY_META: json.dumps(meta, ensure_ascii=False, default=str),
-    }
-    if run_id := meta.get("run_id"):
-        attributes[BUB_RUN_ID] = str(run_id)
-    with bub_span(f"bub.tape.{kind}", tape=tape, attributes=attributes):
+def _start_span(name: str, attributes: dict[str, object]) -> AbstractContextManager[RuntimeSpan]:
+    try:
+        from opentelemetry import trace
+    except Exception:
+        return NoopSpanContext()
+    return cast(
+        AbstractContextManager[RuntimeSpan],
+        trace.get_tracer("bub.agent").start_as_current_span(name, attributes=_span_attributes(attributes)),
+    )
+
+
+def _ensure_tracer_provider() -> object | None:
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.trace import TracerProvider
+    except Exception:
+        return None
+
+    provider = trace.get_tracer_provider()
+    if callable(getattr(provider, "add_span_processor", None)):
+        return provider
+
+    try:
+        provider = TracerProvider()
+        trace.set_tracer_provider(provider)
+    except Exception:
+        provider = trace.get_tracer_provider()
+    return provider if callable(getattr(provider, "add_span_processor", None)) else None
+
+
+def _record_span_exception(span: RuntimeSpan, exc: BaseException) -> None:
+    record_exception = getattr(span, "record_exception", None)
+    if callable(record_exception):
+        record_exception(exc)
+    set_attribute = getattr(span, "set_attribute", None)
+    if callable(set_attribute):
+        set_attribute("error.type", exc.__class__.__name__)
+
+
+def _append_entry(store: object, tape: str, entry: TapeEntry) -> None:
+    append_nowait = getattr(store, "append_nowait", None)
+    if callable(append_nowait):
+        append_nowait(tape, entry)
         return
+
+    append = getattr(store, "append", None)
+    if not callable(append):
+        return
+
+    result = append(tape, entry)
+    if not inspect.isawaitable(result):
+        return
+
+    coro = cast(Coroutine[Any, Any, Any], result)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(coro)
+    else:
+        task: asyncio.Task[Any] = loop.create_task(coro)
+        _pending_append_tasks.add(task)
+        task.add_done_callback(_pending_append_tasks.discard)
+
+
+def _span_tape_name(span: object) -> str | None:
+    tape = _mapping(getattr(span, "attributes", None)).get(BUB_TAPE_NAME)
+    return tape if isinstance(tape, str) and tape else None
 
 
 def _stream_entry_from_span_attributes(attributes: dict[str, Any]) -> TapeEntry | None:
@@ -345,21 +323,36 @@ def _json_mapping(value: object) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _span_context_snapshot(span: RuntimeSpan) -> SpanContextSnapshot:
-    get_span_context = getattr(span, "get_span_context", None)
-    if not callable(get_span_context):
-        return SpanContextSnapshot()
-    context = get_span_context()
-    return SpanContextSnapshot(
-        trace_id=getattr(context, "trace_id", None),
-        span_id=getattr(context, "span_id", None),
-    )
-
-
 def _mapping(value: object) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         return {}
     return {str(key): item for key, item in value.items()}
+
+
+def _span_attributes(attributes: dict[str, object]) -> dict[str, SpanAttributeValue]:
+    result: dict[str, SpanAttributeValue] = {}
+    for key, value in attributes.items():
+        if isinstance(value, str | bool | int | float):
+            result[key] = value
+            continue
+        sequence = _span_sequence_attribute(value)
+        if sequence is not None:
+            result[key] = sequence
+    return result
+
+
+def _span_sequence_attribute(value: object) -> SpanAttributeValue | None:
+    if not isinstance(value, list | tuple):
+        return None
+    if all(isinstance(item, str) for item in value):
+        return list(value)
+    if all(isinstance(item, bool) for item in value):
+        return list(value)
+    if all(isinstance(item, int) for item in value):
+        return list(value)
+    if all(isinstance(item, float) for item in value):
+        return list(value)
+    return None
 
 
 def _span_event(event: object) -> dict[str, Any]:

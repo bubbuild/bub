@@ -12,17 +12,20 @@ from bub.framework import BubFramework
 def _instrument_bub() -> None:
     from loguru import logger
 
+    from bub.builtin import telemetry
+
     logger.remove()
     logger.add(sys.stderr, colorize=True)
 
+    tape_processor = telemetry.tape_span_processor()
     try:
         import logfire
 
-        from bub.builtin.telemetry import tape_span_processor
-
-        logfire.configure(additional_span_processors=[tape_span_processor()])
+        logfire.configure(additional_span_processors=[tape_processor])
+        telemetry.mark_tape_span_processor_configured()
         logger.configure(handlers=[{"sink": sys.stderr, "colorize": True}, logfire.loguru_handler()])
     except Exception as exc:
+        telemetry.configure_telemetry([tape_processor])
         logger.debug("logfire instrumentation disabled: {}", exc)
 
 

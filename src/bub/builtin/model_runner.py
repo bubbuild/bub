@@ -102,6 +102,7 @@ class ModelRunner:
             with telemetry.bub_span(
                 "bub.model.request",
                 tape=tape.name,
+                store=getattr(tape, "store", None),
                 attributes={
                     telemetry.BUB_RUN_ID: run_id,
                     telemetry.GEN_AI_OPERATION_NAME: "chat",
