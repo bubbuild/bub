@@ -23,6 +23,7 @@ from any_llm.types.completion import (
 from loguru import logger
 from pydantic import TypeAdapter, ValidationError
 
+from bub.builtin import telemetry
 from bub.builtin.settings import AgentSettings, ModelCandidate
 from bub.builtin.tape import Tape
 from bub.runtime import AsyncStreamEvents, BubError, ErrorKind, StreamEvent, StreamState
@@ -98,10 +99,23 @@ class ModelRunner:
                 model=model,
             )
             output = ModelOutputAccumulator()
-            async with asyncio.timeout(self.settings.model_timeout_seconds):
-                completion = await self.completion_response(model=model, messages=messages, tools=tools)
-                async for event in self._completion_events(completion, state, output):
-                    yield event
+            with telemetry.bub_span(
+                "bub.model.request",
+                tape=tape.name,
+                attributes={
+                    telemetry.BUB_RUN_ID: run_id,
+                    telemetry.GEN_AI_OPERATION_NAME: "chat",
+                    telemetry.GEN_AI_REQUEST_MODEL: model,
+                    telemetry.GEN_AI_SYSTEM_INSTRUCTIONS: system_prompt or "",
+                },
+            ) as span:
+                async with asyncio.timeout(self.settings.model_timeout_seconds):
+                    completion = await self.completion_response(model=model, messages=messages, tools=tools)
+                    async for event in self._completion_events(completion, state, output):
+                        yield event
+                span.set_attribute(telemetry.GEN_AI_RESPONSE_MODEL, model)
+                if state.usage and isinstance(state.usage.get("total_tokens"), int):
+                    span.set_attribute("gen_ai.usage.total_tokens", state.usage["total_tokens"])
 
             tool_calls = output.tool_calls
             if tool_calls:

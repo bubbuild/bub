@@ -16,6 +16,7 @@ from typing import Any
 
 from loguru import logger
 
+from bub.builtin import telemetry
 from bub.builtin.model_runner import (
     ModelRunner,
     is_context_length_error,
@@ -102,6 +103,19 @@ class Agent:
         stack = AsyncExitStack()
         # The fork_tape context manager must not be exited until the last chunk of the stream is consumed.
         tape = await stack.enter_async_context(tape.fork_tape(merge_back=merge_back))
+        stack.enter_context(
+            telemetry.bub_span(
+                "bub.agent.run",
+                tape=tape.name,
+                attributes={
+                    telemetry.GEN_AI_OPERATION_NAME: "invoke_agent",
+                    telemetry.GEN_AI_AGENT_NAME: telemetry.BUB_AGENT_NAME,
+                    telemetry.GEN_AI_REQUEST_MODEL: model or self.settings.model,
+                    "bub.session.id": session_id,
+                    "bub.tape.merge_back": merge_back,
+                },
+            )
+        )
         await tape.ensure_bootstrap_anchor()
         if isinstance(prompt, str) and prompt.strip().startswith(","):
             result = await self._run_command(tape=tape, line=prompt.strip())
@@ -129,35 +143,47 @@ class Agent:
         context = ToolContext(tape=tape, run_id="run_command", state=tape.context.state)
         output = ""
         status = "ok"
-        try:
-            if name not in REGISTRY:
-                output = await REGISTRY["bash"].run(context=context, cmd=line)
+        with telemetry.bub_span(
+            "bub.command",
+            tape=tape.name,
+            attributes={
+                telemetry.GEN_AI_OPERATION_NAME: "command",
+                telemetry.BUB_RUN_ID: "run_command",
+                "bub.command.name": name,
+            },
+        ) as span:
+            try:
+                if name not in REGISTRY:
+                    output = await REGISTRY["bash"].run(context=context, cmd=line)
+                else:
+                    args = _parse_args(arg_tokens)
+                    if REGISTRY[name].context:
+                        args.kwargs["context"] = context
+                    output = REGISTRY[name].run(*args.positional, **args.kwargs)
+                    if inspect.isawaitable(output):
+                        output = await output
+            except Exception as exc:
+                status = "error"
+                output = f"{exc!s}"
+                raise
             else:
-                args = _parse_args(arg_tokens)
-                if REGISTRY[name].context:
-                    args.kwargs["context"] = context
-                output = REGISTRY[name].run(*args.positional, **args.kwargs)
-                if inspect.isawaitable(output):
-                    output = await output
-        except Exception as exc:
-            status = "error"
-            output = f"{exc!s}"
-            raise
-        else:
-            return output if isinstance(output, str) else str(output)
-        finally:
-            elapsed_ms = int((time.monotonic() - start) * 1000)
-            output_text = output if isinstance(output, str) else str(output)
+                return output if isinstance(output, str) else str(output)
+            finally:
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                output_text = output if isinstance(output, str) else str(output)
+                span.set_attribute("bub.command.status", status)
+                span.set_attribute("bub.command.elapsed_ms", elapsed_ms)
 
-            event_payload = {
-                "raw": line,
-                "name": name,
-                "status": status,
-                "elapsed_ms": elapsed_ms,
-                "output": output_text,
-                "date": datetime.now(UTC).isoformat(),
-            }
-            await tape.append_event("command", event_payload)
+                event_payload = {
+                    "raw": line,
+                    "name": name,
+                    "status": status,
+                    "elapsed_ms": elapsed_ms,
+                    "output": output_text,
+                    "date": datetime.now(UTC).isoformat(),
+                }
+                await tape.append_event("command", event_payload)
+        raise RuntimeError("command execution did not produce a result")
 
     async def _agent_loop(
         self,
@@ -206,95 +232,112 @@ class Agent:
             start = time.monotonic()
             should_continue = False
             logger.info("loop.step step={} tape={} model={}", step, tape.name, display_model)
-            await tape.append_event("loop.step.start", {"step": step, "prompt": next_prompt})
-            try:
-                output = await self._run_once(
-                    tape=tape,
-                    prompt=next_prompt,
-                    model=model,
-                    allowed_skills=allowed_skills,
-                    allowed_tools=allowed_tools,
-                )
-                async for event in output:
-                    yield event
-                    if event.kind == "error":
-                        elapsed_ms = int((time.monotonic() - start) * 1000)
+            with telemetry.bub_span(
+                "bub.agent.step",
+                tape=tape.name,
+                attributes={
+                    telemetry.GEN_AI_OPERATION_NAME: "agent_step",
+                    telemetry.GEN_AI_REQUEST_MODEL: display_model,
+                    "bub.loop.step": step,
+                },
+            ) as span:
+                await tape.append_event("loop.step.start", {"step": step, "prompt": next_prompt})
+                try:
+                    output = await self._run_once(
+                        tape=tape,
+                        prompt=next_prompt,
+                        model=model,
+                        allowed_skills=allowed_skills,
+                        allowed_tools=allowed_tools,
+                    )
+                    async for event in output:
+                        yield event
+                        if event.kind == "error":
+                            elapsed_ms = int((time.monotonic() - start) * 1000)
+                            span.set_attribute("bub.loop.status", "error")
+                            span.set_attribute("bub.loop.elapsed_ms", elapsed_ms)
+                            await tape.append_event(
+                                "loop.step",
+                                {
+                                    "step": step,
+                                    "elapsed_ms": elapsed_ms,
+                                    "status": "error",
+                                    "error": event.data.get("message", ""),
+                                    "date": datetime.now(UTC).isoformat(),
+                                },
+                            )
+                        elif event.kind == "final":
+                            should_continue = bool(event.data.get("tool_calls") or event.data.get("tool_results"))
+                except Exception as exc:
+                    error_message = f"{exc!s}"
+                    elapsed_ms = int((time.monotonic() - start) * 1000)
+                    span.set_attribute("bub.loop.elapsed_ms", elapsed_ms)
+                    if auto_handoff_remaining > 0 and is_context_length_error(error_message):
+                        auto_handoff_remaining -= 1
+                        span.set_attribute("bub.loop.status", "auto_handoff")
+                        logger.warning(
+                            "auto_handoff: context length exceeded, performing automatic handoff. tape={} step={}",
+                            tape.name,
+                            step,
+                        )
+                        await tape.handoff(
+                            name="auto_handoff/context_overflow",
+                            state={"reason": "context_length_exceeded", "error": error_message},
+                        )
                         await tape.append_event(
                             "loop.step",
                             {
                                 "step": step,
                                 "elapsed_ms": elapsed_ms,
-                                "status": "error",
-                                "error": event.data.get("message", ""),
+                                "status": "auto_handoff",
+                                "error": error_message,
                                 "date": datetime.now(UTC).isoformat(),
                             },
                         )
-                    elif event.kind == "final":
-                        should_continue = bool(event.data.get("tool_calls") or event.data.get("tool_results"))
-            except Exception as exc:
-                error_message = f"{exc!s}"
-                elapsed_ms = int((time.monotonic() - start) * 1000)
-                if auto_handoff_remaining > 0 and is_context_length_error(error_message):
-                    auto_handoff_remaining -= 1
-                    logger.warning(
-                        "auto_handoff: context length exceeded, performing automatic handoff. tape={} step={}",
-                        tape.name,
-                        step,
-                    )
-                    await tape.handoff(
-                        name="auto_handoff/context_overflow",
-                        state={"reason": "context_length_exceeded", "error": error_message},
-                    )
+                        next_prompt = prompt
+                        continue
+
+                    span.set_attribute("bub.loop.status", "error")
                     await tape.append_event(
                         "loop.step",
                         {
                             "step": step,
                             "elapsed_ms": elapsed_ms,
-                            "status": "auto_handoff",
+                            "status": "error",
                             "error": error_message,
                             "date": datetime.now(UTC).isoformat(),
                         },
                     )
-                    next_prompt = prompt
-                    continue
+                    raise
 
+                state.error = output.error
+                state.usage = output.usage
+                elapsed_ms = int((time.monotonic() - start) * 1000)
+                span.set_attribute("bub.loop.elapsed_ms", elapsed_ms)
+                if not should_continue:
+                    span.set_attribute("bub.loop.status", "ok")
+                    await tape.append_event(
+                        "loop.step",
+                        {
+                            "step": step,
+                            "elapsed_ms": elapsed_ms,
+                            "status": "ok",
+                            "date": datetime.now(UTC).isoformat(),
+                        },
+                    )
+                    return
+
+                next_prompt = self._continue_prompt(tape)
+                span.set_attribute("bub.loop.status", "continue")
                 await tape.append_event(
                     "loop.step",
                     {
                         "step": step,
                         "elapsed_ms": elapsed_ms,
-                        "status": "error",
-                        "error": error_message,
+                        "status": "continue",
                         "date": datetime.now(UTC).isoformat(),
                     },
                 )
-                raise
-
-            state.error = output.error
-            state.usage = output.usage
-            elapsed_ms = int((time.monotonic() - start) * 1000)
-            if not should_continue:
-                await tape.append_event(
-                    "loop.step",
-                    {
-                        "step": step,
-                        "elapsed_ms": elapsed_ms,
-                        "status": "ok",
-                        "date": datetime.now(UTC).isoformat(),
-                    },
-                )
-                return
-
-            next_prompt = self._continue_prompt(tape)
-            await tape.append_event(
-                "loop.step",
-                {
-                    "step": step,
-                    "elapsed_ms": elapsed_ms,
-                    "status": "continue",
-                    "date": datetime.now(UTC).isoformat(),
-                },
-            )
 
         raise RuntimeError(f"max_steps_reached={self.settings.max_steps}")
 

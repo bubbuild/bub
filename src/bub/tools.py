@@ -13,6 +13,7 @@ from typing import Any, Protocol, overload
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
+from bub.builtin import telemetry
 from bub.builtin.tape import Tape
 from bub.runtime import BubError, ErrorKind
 
@@ -206,31 +207,48 @@ class ToolExecutor:
         context: ToolContext | None,
     ) -> Any:
         tool_name = tool_obj.name
-        try:
-            result = self._invoke_tool(
-                tool_name=tool_name,
-                tool_obj=tool_obj,
-                tool_args=tool_args,
-                context=context,
-            )
-            if inspect.isawaitable(result):
-                return await result
-        except BubError:
-            raise
-        except ValidationError as exc:
-            raise BubError(
-                ErrorKind.INVALID_INPUT,
-                f"Tool '{tool_name}' argument validation failed.",
-                details={"errors": json.loads(exc.json())},
-            ) from exc
-        except Exception as exc:
-            raise BubError(
-                ErrorKind.TOOL,
-                f"Tool '{tool_name}' execution failed.",
-                details={"error": repr(exc)},
-            ) from exc
-        else:
-            return result
+        tape_name = context.tape.name if context is not None else None
+        span_attributes: dict[str, object] = {
+            telemetry.GEN_AI_OPERATION_NAME: "execute_tool",
+            telemetry.GEN_AI_TOOL_NAME: tool_name,
+        }
+        if context is not None and context.run_id:
+            span_attributes[telemetry.BUB_RUN_ID] = context.run_id
+        with telemetry.bub_span("bub.tool.execute", tape=tape_name, attributes=span_attributes) as span:
+            try:
+                result = self._invoke_tool(
+                    tool_name=tool_name,
+                    tool_obj=tool_obj,
+                    tool_args=tool_args,
+                    context=context,
+                )
+                if inspect.isawaitable(result):
+                    result = await result
+            except BubError as exc:
+                span.record_exception(exc)
+                span.set_attribute("bub.tool.status", "error")
+                raise
+            except ValidationError as exc:
+                error = BubError(
+                    ErrorKind.INVALID_INPUT,
+                    f"Tool '{tool_name}' argument validation failed.",
+                    details={"errors": json.loads(exc.json())},
+                )
+                span.record_exception(error)
+                span.set_attribute("bub.tool.status", "error")
+                raise error from exc
+            except Exception as exc:
+                error = BubError(
+                    ErrorKind.TOOL,
+                    f"Tool '{tool_name}' execution failed.",
+                    details={"error": repr(exc)},
+                )
+                span.record_exception(error)
+                span.set_attribute("bub.tool.status", "error")
+                raise error from exc
+            else:
+                span.set_attribute("bub.tool.status", "ok")
+                return result
 
 
 # Central registry for tools. Tools defined with the @tool decorator are automatically added here.
