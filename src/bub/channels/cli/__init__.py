@@ -15,6 +15,7 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.utils import get_cwidth
 from rich import get_console
 from rich.spinner import SPINNERS
 from rich.text import Text
@@ -43,6 +44,9 @@ class _StreamPrinter:
         self._expand_thinking = expand_thinking
         self._reasoning_chars = 0
         self._reasoning_streaming = False
+        self._current_text_line = ""
+        self._rendered_text_line: str | None = None
+        self._live_text_rows = 0
         self.head_printed = False
 
     async def render(self, event: StreamEvent) -> bool:
@@ -77,19 +81,23 @@ class _StreamPrinter:
         await self._ensure_head()
         await self._close_reasoning_stream()
         await self._flush_reasoning()
-        await self._print(content, end="", highlight=False)
+        await self._write_text(content)
         return True
 
     async def _print_end(self) -> None:
         if self._reasoning_chars:
             await self._ensure_head()
         await self._flush_reasoning()
-        if self.head_printed:
+        if self._current_text_line:
+            await self._commit_text_line()
+        elif self.head_printed and not self._live_text_rows:
             await self._print("")
 
     async def _print_stream_boundary(self) -> None:
         await self._close_reasoning_stream()
         await self._flush_reasoning()
+        if self._current_text_line or self._live_text_rows:
+            await self._commit_text_line()
         if self.head_printed:
             await self._print("")
 
@@ -111,6 +119,65 @@ class _StreamPrinter:
         label = Text(f"[+] Thinking ({self._reasoning_chars} chars hidden)", style="dim")
         await self._print(Tree(label, guide_style="dim", expanded=False))
         self._reasoning_chars = 0
+
+    async def _write_text(self, text: str) -> None:
+        parts = text.split("\n")
+        for index, part in enumerate(parts):
+            self._current_text_line += part
+            if index < len(parts) - 1:
+                await self._commit_text_line()
+
+        if self._current_text_line:
+            await self._render_live_text_line()
+
+    async def _commit_text_line(self) -> None:
+        if self._live_text_rows and self._rendered_text_line == self._current_text_line:
+            self._current_text_line = ""
+            self._rendered_text_line = None
+            self._live_text_rows = 0
+            return
+        self._live_text_rows = await self._render_text_line(self._current_text_line)
+        self._current_text_line = ""
+        self._rendered_text_line = None
+        self._live_text_rows = 0
+
+    async def commit_live_text(self) -> None:
+        if self._current_text_line or self._live_text_rows:
+            await self._commit_text_line()
+
+    async def _render_live_text_line(self) -> None:
+        self._live_text_rows = await self._render_text_line(self._current_text_line)
+        self._rendered_text_line = self._current_text_line
+
+    async def _render_text_line(self, text: str) -> int:
+        previous_rows = self._live_text_rows
+        rows = self._display_rows(text)
+
+        def render() -> None:
+            self._rewind_live_text(previous_rows)
+            self._console.print(f"{text}\n", end="", highlight=False)
+
+        await run_in_terminal(render, render_cli_done=False)
+        return rows
+
+    def _display_rows(self, text: str) -> int:
+        columns = max(1, int(getattr(self._console, "width", 80) or 80))
+        return max(1, (get_cwidth(text) + columns - 1) // columns)
+
+    def _rewind_live_text(self, rows: int) -> None:
+        if rows <= 0:
+            return
+        output = getattr(self._console, "file", None)
+        if output is None:
+            return
+        output.write(f"\x1b[{rows}A\r")
+        for row in range(rows):
+            output.write("\x1b[2K")
+            if row < rows - 1:
+                output.write("\x1b[1B\r")
+        if rows > 1:
+            output.write(f"\x1b[{rows - 1}A\r")
+        output.flush()
 
     async def _print(self, *args: Any, **kwargs: Any) -> None:
         await run_in_terminal(lambda: self._console.print(*args, **kwargs), render_cli_done=False)
@@ -148,6 +215,7 @@ class CliChannel(Interface):
         self._expand_thinking = False
         self._llm_loop_running = False
         self._main_task: asyncio.Task | None = None
+        self._stream_printer: _StreamPrinter | None = None
         self._renderer = CliRenderer(get_console())
         self._last_tape_info: TapeInfo | None = None
         self._workspace = self._agent.framework.workspace
@@ -208,12 +276,12 @@ class CliChannel(Interface):
             if raw in {",quit", ",exit"}:
                 break
             if raw == ",thinking":
-                self._renderer.input_echo(self._prompt_label(), raw)
+                await self._echo_input(raw)
                 self._toggle_thinking()
                 continue
 
             request = self._normalize_input(raw)
-            self._renderer.input_echo(self._prompt_label(), raw)
+            await self._echo_input(raw)
 
             message = ChannelMessage(
                 session_id=self._message_template["session_id"],
@@ -264,6 +332,12 @@ class CliChannel(Interface):
         symbol = ">" if self._mode == "agent" else ","
         return f"{cwd} {symbol} "
 
+    async def _echo_input(self, raw: str) -> None:
+        stream_printer = getattr(self, "_stream_printer", None)
+        if stream_printer is not None:
+            await stream_printer.commit_live_text()
+        self._renderer.input_echo(self._prompt_label(), raw)
+
     async def stream_events(
         self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]
     ) -> AsyncIterable[StreamEvent]:
@@ -273,10 +347,15 @@ class CliChannel(Interface):
             print_head=lambda: self._renderer.print_head(message.kind),
             expand_thinking=self._expand_thinking,
         )
-        with tool_call_reporter(_CliToolCallReporter(self._renderer)):
-            async for event in stream:
-                if await printer.render(event):
-                    yield event
+        self._stream_printer = printer
+        try:
+            with tool_call_reporter(_CliToolCallReporter(self._renderer)):
+                async for event in stream:
+                    if await printer.render(event):
+                        yield event
+        finally:
+            if self._stream_printer is printer:
+                self._stream_printer = None
 
     def _build_prompt(self, workspace: Path) -> PromptSession[str]:
         kb = KeyBindings()

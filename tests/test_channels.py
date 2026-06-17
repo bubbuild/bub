@@ -2,6 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
+import pty
+import re
+import select
+import subprocess
+import sys
+import textwrap
+import time
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +26,8 @@ from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMes
 from bub.runtime import StreamEvent
 from bub.turn_admission import AdmitDecision, SessionTurnController, SteeringBuffer, TurnSnapshot
 
+ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[()][A-Za-z])")
+
 
 def _load_channel_config(
     load_config,
@@ -33,6 +43,32 @@ telegram:
   token: {telegram_value!r}
 """.strip()
     load_config(content)
+
+
+def _read_pty_until_exit(master_fd: int, process: subprocess.Popen[bytes], *, timeout: float = 3.0) -> bytes:
+    chunks: list[bytes] = []
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            with contextlib.suppress(OSError):
+                chunks.append(os.read(master_fd, 65536))
+            break
+        readable, _, _ = select.select([master_fd], [], [], 0.05)
+        if not readable:
+            continue
+        try:
+            chunk = os.read(master_fd, 65536)
+        except OSError:
+            break
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _plain_terminal_text(raw: bytes) -> str:
+    text = raw.decode(errors="replace")
+    return ANSI_RE.sub("", text).replace("\r", "\n")
 
 
 class _FakeChannelMixin:
@@ -803,8 +839,116 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
     yielded = [event async for event in channel.stream_events(message, source())]
 
     assert heads == ["command"]
-    assert printed == [("hel", "", False), ("lo", "", False), ("", None, None)]
+    assert printed == [("hel\n", "", False), ("hello\n", "", False)]
     assert [event.kind for event in yielded] == ["text", "text", "final"]
+
+
+def test_cli_stream_output_does_not_overlap_active_pty_prompt() -> None:
+    script = textwrap.dedent(
+        """
+        import asyncio
+
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.patch_stdout import patch_stdout
+        from rich.console import Console
+
+        from bub.channels.cli import _StreamPrinter
+        from bub.runtime import StreamEvent
+
+
+        async def main():
+            console = Console(force_terminal=True, color_system=None, width=80)
+            printer = _StreamPrinter(
+                console=console,
+                print_head=lambda: console.print("Assistant >"),
+                expand_thinking=False,
+            )
+            session = PromptSession(erase_when_done=True)
+
+            async def stream():
+                chunks = [
+                    "春风一夜入江城\\n",
+                    "细雨无声湿客",
+                    "程\\n",
+                    "莫问归帆何处",
+                    "去\\n",
+                    "明朝山色满",
+                    "前庭",
+                ]
+                for index, chunk in enumerate(chunks):
+                    await asyncio.sleep(0.03)
+                    await printer.render(StreamEvent("text", {"delta": chunk}))
+                    if index == 3:
+                        await printer.commit_live_text()
+                        console.print("bub > steer now")
+                await asyncio.sleep(0.03)
+                await printer.render(StreamEvent("final", {}))
+
+            task = asyncio.create_task(stream())
+            with patch_stdout(raw=True):
+                await session.prompt_async(
+                    lambda: [("", "\\n* Generating\\nbub > ")],
+                    refresh_interval=0.02,
+                )
+            await task
+
+
+        asyncio.run(main())
+        """
+    )
+    master_fd, slave_fd = pty.openpty()
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{Path.cwd() / 'src'}{os.pathsep}{env.get('PYTHONPATH', '')}"
+    process = subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        cwd=Path.cwd(),
+        env=env,
+        close_fds=True,
+    )
+    os.close(slave_fd)
+    try:
+        time.sleep(0.25)
+        os.write(master_fd, b"next\n")
+        raw_output = _read_pty_until_exit(master_fd, process)
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=1)
+        os.close(master_fd)
+
+    assert process.wait(timeout=1) == 0, raw_output.decode(errors="replace")
+    output = _plain_terminal_text(raw_output)
+
+    assert "春风一夜入江城" in output
+    assert "细雨无声湿客程" in output
+    assert "莫问归帆何处" in output
+    assert "去" in output
+    assert "明朝山色满前庭" in output
+    assert "bub > steer now" in output
+    assert "明朝山色满前庭bub >" not in output
+    assert "明朝山色满前庭* Generating" not in output
+
+
+@pytest.mark.asyncio
+async def test_cli_channel_input_echo_commits_active_stream_line() -> None:
+    channel = CliChannel.__new__(CliChannel)
+    calls: list[str] = []
+
+    class FakeStreamPrinter:
+        async def commit_live_text(self) -> None:
+            calls.append("commit")
+
+    channel._stream_printer = FakeStreamPrinter()
+    channel._mode = "agent"
+    channel._renderer = SimpleNamespace(input_echo=lambda prompt, text: calls.append(f"echo:{text}"))
+
+    await channel._echo_input("steer now")
+
+    assert calls == ["commit", "echo:steer now"]
 
 
 @pytest.mark.asyncio
@@ -838,7 +982,7 @@ async def test_cli_channel_collapsed_reasoning_does_not_start_status_spinner(
 
     assert [event.kind for event in yielded] == ["reasoning", "text", "final"]
     assert printed
-    assert "hello" in [str(item) for item in printed]
+    assert any("hello" in str(item) for item in printed)
 
 
 def test_cli_channel_history_file_uses_workspace_hash(tmp_path: Path) -> None:
