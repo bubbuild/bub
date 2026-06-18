@@ -30,14 +30,21 @@ class FakeAgent:
     def __init__(self, home: Path) -> None:
         self.settings = SimpleNamespace(home=home)
         self.run_calls: list[tuple[str, str, dict[str, object]]] = []
-        self.run_stream_calls: list[tuple[str, str, dict[str, object]]] = []
+        self.run_stream_calls: list[tuple[str, str, dict[str, object], str | None]] = []
 
     async def run(self, *, session_id: str, prompt: str, state: dict[str, object]) -> str:
         self.run_calls.append((session_id, prompt, state))
         return "agent-output"
 
-    async def run_stream(self, *, session_id: str, prompt: str, state: dict[str, object]) -> AsyncStreamEvents:
-        self.run_stream_calls.append((session_id, prompt, state))
+    async def run_stream(
+        self,
+        *,
+        session_id: str,
+        prompt: str,
+        state: dict[str, object],
+        model: str | None = None,
+    ) -> AsyncStreamEvents:
+        self.run_stream_calls.append((session_id, prompt, state, model))
 
         async def iterator():
             yield StreamEvent("text", {"delta": "agent-output"})
@@ -49,8 +56,8 @@ def _raise_value_error() -> None:
     raise ValueError("boom")
 
 
-def _build_impl(tmp_path: Path) -> tuple[BubFramework, BuiltinImpl, FakeAgent]:
-    framework = BubFramework()
+def _build_impl(tmp_path: Path, config_file: Path | None = None) -> tuple[BubFramework, BuiltinImpl, FakeAgent]:
+    framework = BubFramework(config_file=config_file) if config_file is not None else BubFramework()
     impl = BuiltinImpl(framework)
     agent = FakeAgent(tmp_path)
     impl._agent = agent
@@ -160,8 +167,48 @@ async def test_run_model_stream_delegates_to_agent(tmp_path: Path) -> None:
     events = [event async for event in stream]
 
     assert [(event.kind, event.data) for event in events] == [("text", {"delta": "agent-output"})]
-    assert agent.run_stream_calls == [("session", "prompt", state)]
+    assert agent.run_stream_calls == [("session", "prompt", state, None)]
     assert agent.run_calls == []
+
+
+@pytest.mark.asyncio
+async def test_runtime_model_override_is_passed_to_agent(tmp_path: Path) -> None:
+    _, impl, agent = _build_impl(tmp_path)
+    message = ChannelMessage(
+        session_id="session",
+        channel="cli",
+        chat_id="room",
+        content="hello",
+        runtime={"model": "anthropic:claude-sonnet-4-5"},
+    )
+
+    state = await impl.load_state(message=message, session_id="session")
+    stream = await impl.run_model_stream(prompt="prompt", session_id="session", state=state)
+    events = [event async for event in stream]
+
+    assert [(event.kind, event.data) for event in events] == [("text", {"delta": "agent-output"})]
+    assert agent.run_stream_calls == [("session", "prompt", state, "anthropic:claude-sonnet-4-5")]
+
+
+def test_builtin_provides_model_runtime_options(tmp_path: Path, load_config) -> None:
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.delenv("BUB_MODEL", raising=False)
+        monkeypatch.delenv("BUB_FALLBACK_MODELS", raising=False)
+        config_file = load_config(
+            """
+model: openai:gpt-5
+fallback_models:
+  - anthropic:claude-sonnet-4-5
+  - openai:gpt-5
+""".strip()
+        )
+        _, impl, _ = _build_impl(tmp_path, config_file=config_file)
+
+        options = impl.provide_runtime_options(session_id="session")
+
+        assert options is not None
+        assert options.current_model == "openai:gpt-5"
+        assert [item.id for item in options.models] == ["openai:gpt-5", "anthropic:claude-sonnet-4-5"]
 
 
 def test_system_prompt_appends_workspace_agents_file(tmp_path: Path) -> None:

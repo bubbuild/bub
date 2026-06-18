@@ -9,13 +9,14 @@ from loguru import logger
 from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context
-from bub.builtin.settings import DEFAULT_MODEL
+from bub.builtin.settings import DEFAULT_MODEL, load_settings
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.envelope import content_of, field_of
 from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
 from bub.runtime import AsyncStreamEvents
+from bub.runtime_options import RuntimeChoice, RuntimeOptions
 from bub.tape import TapeContext, TapeStore
 from bub.turn_admission import AdmitDecision, TurnSnapshot
 from bub.types import Envelope, MessageHandler, State
@@ -101,6 +102,12 @@ class BuiltinImpl:
             return selected
         return available_channels
 
+    @staticmethod
+    def _configured_models() -> list[str]:
+        settings = load_settings()
+        models = [settings.model, *(settings.fallback_models or [])]
+        return list(dict.fromkeys(model for model in models if model))
+
     @hookimpl
     def resolve_session(self, message: ChannelMessage) -> str:
         session_id = field_of(message, "session_id")
@@ -118,6 +125,8 @@ class BuiltinImpl:
         state = {"session_id": session_id, "_runtime_agent": self._get_agent()}
         if context := field_of(message, "context_str"):
             state["context"] = context
+        if model := field_of(message, "runtime", {}).get("model"):
+            state["_runtime_model"] = model
         return state
 
     @hookimpl
@@ -158,7 +167,12 @@ class BuiltinImpl:
 
     @hookimpl
     async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> AsyncStreamEvents:
-        return await self._get_agent().run_stream(session_id=session_id, prompt=prompt, state=state)
+        return await self._get_agent().run_stream(
+            session_id=session_id,
+            prompt=prompt,
+            state=state,
+            model=state.get("_runtime_model"),
+        )
 
     @hookimpl
     def register_cli_commands(self, app: typer.Typer) -> None:
@@ -218,6 +232,22 @@ class BuiltinImpl:
         if api_base:
             config["api_base"] = api_base
         return config
+
+    @hookimpl
+    def provide_runtime_options(
+        self,
+        session_id: str,
+        workspace: Path | None = None,
+    ) -> RuntimeOptions | None:
+        del session_id, workspace
+        models = self._configured_models()
+        if not models:
+            return None
+
+        return RuntimeOptions(
+            models=[RuntimeChoice(id=model, name=model) for model in models],
+            current_model=models[0],
+        )
 
     def _read_agents_file(self, state: State) -> str:
         workspace = state.get("_runtime_workspace", str(Path.cwd()))
