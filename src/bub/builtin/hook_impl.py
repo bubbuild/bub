@@ -9,6 +9,7 @@ from loguru import logger
 from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context
+from bub.builtin.session_state import SessionStateStore
 from bub.builtin.settings import DEFAULT_MODEL
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage, MediaItem
@@ -64,11 +65,17 @@ class BuiltinImpl:
 
         self.framework = framework
         self._agent: Agent | None = None
+        self._session_state_store: SessionStateStore | None = None
 
     def _get_agent(self) -> Agent:
         if self._agent is None:
             self._agent = Agent(self.framework)
         return self._agent
+
+    def _get_session_state_store(self) -> SessionStateStore:
+        if self._session_state_store is None:
+            self._session_state_store = SessionStateStore()
+        return self._session_state_store
 
     @staticmethod
     async def _discard_message(_: ChannelMessage) -> None:
@@ -118,6 +125,11 @@ class BuiltinImpl:
         state = {"session_id": session_id, "_runtime_agent": self._get_agent()}
         if context := field_of(message, "context_str"):
             state["context"] = context
+        # Carry over a previously persisted per-session model override. Only set
+        # when something was actually stored, so a fresh/unknown session never
+        # inherits another session's model.
+        if model := self._get_session_state_store().load(session_id).get("model"):
+            state["model"] = model
         return state
 
     @hookimpl
@@ -126,6 +138,13 @@ class BuiltinImpl:
         lifespan = field_of(message, "lifespan")
         if lifespan is not None:
             await lifespan.__aexit__(tp, value, traceback)
+        # Persist (or clear) the per-session model override so it survives
+        # restarts. An empty/unset value removes any prior override.
+        store = self._get_session_state_store()
+        if model := state.get("model"):
+            store.save(session_id, {"model": model})
+        else:
+            store.delete(session_id)
 
     @hookimpl
     async def build_prompt(self, message: ChannelMessage, session_id: str, state: State) -> str | list[dict]:
@@ -158,7 +177,12 @@ class BuiltinImpl:
 
     @hookimpl
     async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> AsyncStreamEvents:
-        return await self._get_agent().run_stream(session_id=session_id, prompt=prompt, state=state)
+        return await self._get_agent().run_stream(
+            session_id=session_id,
+            prompt=prompt,
+            state=state,
+            model=state.get("model"),
+        )
 
     @hookimpl
     def register_cli_commands(self, app: typer.Typer) -> None:

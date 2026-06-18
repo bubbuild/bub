@@ -20,6 +20,7 @@ from bub.builtin.tools import (
     quit_tool,
     render_tools_prompt,
     resolve_tool_names,
+    set_model,
 )
 from bub.runtime import ErrorKind
 from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
@@ -149,6 +150,38 @@ def test_resolve_tool_names_rejects_unknown_names() -> None:
 
     with pytest.raises(ValueError, match="tests_missing_tool"):
         resolve_tool_names(None, exclude={" tests_missing_tool "})
+
+
+def test_set_model_is_registered_with_context() -> None:
+    assert "model" in REGISTRY
+    tool_obj = REGISTRY["model"]
+    assert tool_obj.context is True
+    assert tool_obj.parameters == {
+        "type": "object",
+        "properties": {"model_id": {"type": "string"}},
+        "required": ["model_id"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_set_model_writes_model_into_session_state(tmp_path) -> None:
+    context = _tool_context(tmp_path)
+    assert "model" not in context.state
+
+    result = await set_model.run(model_id="openai:gpt-4o", context=context)
+
+    assert context.state["model"] == "openai:gpt-4o"
+    assert "openai:gpt-4o" in result
+    assert "next turn" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_set_model_overwrites_previous_model(tmp_path) -> None:
+    context = _tool_context(tmp_path, model="openai:gpt-4o")
+
+    await set_model.run(model_id="anthropic:claude-3", context=context)
+
+    assert context.state["model"] == "anthropic:claude-3"
 
 
 @pytest.mark.asyncio

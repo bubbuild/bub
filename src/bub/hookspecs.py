@@ -43,7 +43,13 @@ class BubHookSpecs:
 
     @hookspec(firstresult=True)
     def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> AsyncStreamEvents:
-        """Run model for one turn and return a stream of events. Should not be implemented if `run_model` is implemented."""
+        """Run model for one turn and return a stream of events. Should not be implemented if `run_model` is implemented.
+
+        Implementations may honor a runtime model override by reading
+        ``state["model"]`` (any ``provider:model`` string). The value takes
+        effect on the turn in which it is read, so a model switched mid-turn via
+        the `,model <id>` command applies from the *next* turn.
+        """
         raise NotImplementedError
 
     @hookspec

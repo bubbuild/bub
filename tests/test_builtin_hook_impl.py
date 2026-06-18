@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
+from bub.builtin.session_state import SessionStateStore
 from bub.builtin.store import FileTapeStore
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
@@ -30,14 +31,21 @@ class FakeAgent:
     def __init__(self, home: Path) -> None:
         self.settings = SimpleNamespace(home=home)
         self.run_calls: list[tuple[str, str, dict[str, object]]] = []
-        self.run_stream_calls: list[tuple[str, str, dict[str, object]]] = []
+        self.run_stream_calls: list[tuple[str, str, dict[str, object], str | None]] = []
 
     async def run(self, *, session_id: str, prompt: str, state: dict[str, object]) -> str:
         self.run_calls.append((session_id, prompt, state))
         return "agent-output"
 
-    async def run_stream(self, *, session_id: str, prompt: str, state: dict[str, object]) -> AsyncStreamEvents:
-        self.run_stream_calls.append((session_id, prompt, state))
+    async def run_stream(
+        self,
+        *,
+        session_id: str,
+        prompt: str,
+        state: dict[str, object],
+        model: str | None = None,
+    ) -> AsyncStreamEvents:
+        self.run_stream_calls.append((session_id, prompt, state, model))
 
         async def iterator():
             yield StreamEvent("text", {"delta": "agent-output"})
@@ -109,6 +117,60 @@ async def test_load_state_and_save_state_manage_lifespan_and_context(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_load_state_injects_persisted_model(tmp_path: Path) -> None:
+    _, impl, _ = _build_impl(tmp_path)
+    store = SessionStateStore(tmp_path)
+    store.save("resolved-session", {"model": "openai:gpt-4o"})
+    impl._session_state_store = store
+
+    message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
+
+    state = await impl.load_state(message=message, session_id="resolved-session")
+
+    assert state["model"] == "openai:gpt-4o"
+
+
+@pytest.mark.asyncio
+async def test_load_state_does_not_inject_model_for_unknown_session(tmp_path: Path) -> None:
+    """A session with nothing persisted must not inherit any model (no leakage)."""
+    _, impl, _ = _build_impl(tmp_path)
+    impl._session_state_store = SessionStateStore(tmp_path)
+
+    message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
+
+    state = await impl.load_state(message=message, session_id="fresh-session")
+
+    assert "model" not in state
+
+
+@pytest.mark.asyncio
+async def test_save_state_persists_model_choice(tmp_path: Path) -> None:
+    _, impl, _ = _build_impl(tmp_path)
+    impl._session_state_store = SessionStateStore(tmp_path)
+    message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
+    state = {"session_id": "resolved-session", "model": "anthropic:claude-3"}
+
+    await impl.save_state(session_id="resolved-session", state=state, message=message, model_output="ok")
+
+    assert SessionStateStore(tmp_path).load("resolved-session") == {"model": "anthropic:claude-3"}
+
+
+@pytest.mark.asyncio
+async def test_save_state_clears_persisted_model_when_unset(tmp_path: Path) -> None:
+    _, impl, _ = _build_impl(tmp_path)
+    store = SessionStateStore(tmp_path)
+    store.save("resolved-session", {"model": "openai:gpt-4o"})
+    impl._session_state_store = store
+    message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
+    state = {"session_id": "resolved-session"}  # no model key -> cleared
+
+    await impl.save_state(session_id="resolved-session", state=state, message=message, model_output="ok")
+
+    assert SessionStateStore(tmp_path).load("resolved-session") == {}
+    assert not store._path("resolved-session").is_file()
+
+
+@pytest.mark.asyncio
 async def test_build_prompt_marks_commands_and_prefixes_context(tmp_path: Path) -> None:
     _, impl, _ = _build_impl(tmp_path)
     command = ChannelMessage(session_id="s", channel="cli", chat_id="room", content=",help")
@@ -160,8 +222,30 @@ async def test_run_model_stream_delegates_to_agent(tmp_path: Path) -> None:
     events = [event async for event in stream]
 
     assert [(event.kind, event.data) for event in events] == [("text", {"delta": "agent-output"})]
-    assert agent.run_stream_calls == [("session", "prompt", state)]
+    assert agent.run_stream_calls == [("session", "prompt", state, None)]
     assert agent.run_calls == []
+
+
+@pytest.mark.asyncio
+async def test_run_model_stream_forwards_state_model_override(tmp_path: Path) -> None:
+    """state['model'] must be forwarded as the per-call model override."""
+    _, impl, agent = _build_impl(tmp_path)
+    state = {"model": "openai:gpt-4o"}
+
+    await impl.run_model_stream(prompt="prompt", session_id="session", state=state)
+
+    assert agent.run_stream_calls == [("session", "prompt", state, "openai:gpt-4o")]
+
+
+@pytest.mark.asyncio
+async def test_run_model_stream_passes_none_when_state_has_no_model(tmp_path: Path) -> None:
+    """Without state['model'] the agent must fall back to its configured model."""
+    _, impl, agent = _build_impl(tmp_path)
+    state = {"context": "ctx"}
+
+    await impl.run_model_stream(prompt="prompt", session_id="session", state=state)
+
+    assert agent.run_stream_calls[-1][3] is None
 
 
 def test_system_prompt_appends_workspace_agents_file(tmp_path: Path) -> None:

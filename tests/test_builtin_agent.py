@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from any_llm.types.completion import ChatCompletionChunk
 
+import bub.builtin.tools  # noqa: F401  — registers builtin tools (incl. `model`)
 from bub.builtin.agent import Agent
 from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
@@ -244,6 +245,35 @@ async def test_agent_run_model_defaults_to_none() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_run_model_override_does_not_mutate_default() -> None:
+    """A per-call model override must not leak into the agent's configured model.
+
+    The override is resolved per turn (``model or self.settings.model``) and
+    forwarded to any-llm; it must never be written back to ``settings.model``.
+    This is the agent-layer half of the guarantee that a session-scoped model
+    switch (state['model'] -> run_stream(model=...)) cannot bleed across
+    sessions the way a process-global env var would.
+    """
+    agent = _make_agent()
+    fork_capture = _ForkCapture()
+    agent.tape = _FakeTapeFactory(fork_capture)  # type: ignore[assignment]
+    default_model = agent.settings.model
+
+    result = await agent.run_stream(
+        session_id="user/s1",
+        prompt="hello",
+        state={"_runtime_workspace": "/tmp"},  # noqa: S108
+        model="openai:gpt-4o",
+    )
+    [event async for event in result]
+
+    completion_kwargs = _model_runner(agent).completion_kwargs
+    assert completion_kwargs is not None
+    assert completion_kwargs["model"] == "openai:gpt-4o"
+    assert agent.settings.model == default_model
+
+
+@pytest.mark.asyncio
 async def test_agent_run_resolves_allowed_tool_aliases_and_limits_prompt() -> None:
     allowed_name = "tests.allowed_agent_tool"
     denied_name = "tests.denied_agent_tool"
@@ -295,3 +325,26 @@ async def test_agent_run_rejects_unknown_allowed_tools() -> None:
 
     with pytest.raises(ValueError, match="tests_missing_agent_tool"):
         [event async for event in stream]
+
+
+@pytest.mark.asyncio
+async def test_run_command_model_switches_session_model_directly() -> None:
+    """,model <model_id> runs the `model` builtin as a chat command with no LLM call.
+
+    The command writes state['model'] on the same state object the framework
+    hands to run_stream, so the override is picked up by run_model_stream on the
+    next turn and persisted by save_state.
+    """
+    agent = _make_agent()
+    fork_capture = _ForkCapture()
+    agent.tape = _FakeTapeFactory(fork_capture)  # type: ignore[assignment]
+    state: dict[str, Any] = {"_runtime_workspace": "/tmp"}  # noqa: S108
+    assert "model" not in REGISTRY or REGISTRY["model"].context is True
+
+    stream = await agent.run_stream(session_id="user/s1", prompt=",model openai:gpt-4o", state=state)
+    events = [event async for event in stream]
+
+    # state["model"] is mutated in place (tool context shares the framework state).
+    assert state["model"] == "openai:gpt-4o"
+    deltas = [event.data.get("delta", "") for event in events if event.kind == "text"]
+    assert any("Session model set to openai:gpt-4o" in delta for delta in deltas)
