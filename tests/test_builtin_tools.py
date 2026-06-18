@@ -164,7 +164,7 @@ def test_set_model_is_registered_with_context() -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_model_writes_model_into_session_state(tmp_path) -> None:
+async def test_set_model_writes_model_into_state_and_records_on_tape(tmp_path) -> None:
     context = _tool_context(tmp_path)
     assert "model" not in context.state
 
@@ -173,6 +173,12 @@ async def test_set_model_writes_model_into_session_state(tmp_path) -> None:
     assert context.state["model"] == "openai:gpt-4o"
     assert "openai:gpt-4o" in result
     assert "next turn" in result.lower()
+    # The switch is also persisted as a `model_switch` event on the session
+    # tape, which load_state recovers on the next turn / after restart.
+    entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
+    switches = [entry for entry in entries if entry.kind == "event" and entry.payload.get("name") == "model_switch"]
+    assert len(switches) == 1
+    assert switches[0].payload.get("data") == {"model": "openai:gpt-4o"}
 
 
 @pytest.mark.asyncio

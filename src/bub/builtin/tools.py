@@ -413,6 +413,9 @@ async def set_model(model_id: str, *, context: ToolContext) -> str:
     next turn — run `,model <valid_id>` again to recover.
     """
     context.state["model"] = model_id
+    # Persist on the session tape (merged back at end of turn); load_state
+    # recovers the latest `model_switch` event next turn / after restart.
+    await context.tape.append_event("model_switch", {"model": model_id})
     return f"Session model set to {model_id} (applies from the next turn)."
 
 

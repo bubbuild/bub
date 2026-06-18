@@ -333,7 +333,8 @@ async def test_run_command_model_switches_session_model_directly() -> None:
 
     The command writes state['model'] on the same state object the framework
     hands to run_stream, so the override is picked up by run_model_stream on the
-    next turn and persisted by save_state.
+    next turn. Persistence is a `model_switch` event the tool records on the
+    session tape (merged back at end of turn), not a side effect of save_state.
     """
     agent = _make_agent()
     fork_capture = _ForkCapture()

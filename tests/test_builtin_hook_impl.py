@@ -8,11 +8,12 @@ from types import SimpleNamespace
 import pytest
 
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
-from bub.builtin.session_state import SessionStateStore
 from bub.builtin.store import FileTapeStore
+from bub.builtin.tape import Tape
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
 from bub.runtime import AsyncStreamEvents, StreamEvent
+from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
 
 
 class RecordingLifespan:
@@ -27,9 +28,20 @@ class RecordingLifespan:
         self.exit_args = (exc_type, exc, traceback)
 
 
+def _fake_tape(home: Path) -> Tape:
+    return Tape(
+        archive_path=home / "tapes",
+        store=AsyncTapeStoreAdapter(InMemoryTapeStore()),
+        context=TapeContext(),
+    )
+
+
 class FakeAgent:
-    def __init__(self, home: Path) -> None:
+    def __init__(self, home: Path, *, tape: Tape | None = None) -> None:
         self.settings = SimpleNamespace(home=home)
+        # A real in-memory async tape so load_state's recovery path runs against
+        # the same store the tests write `model_switch` events to.
+        self.tape = tape if tape is not None else _fake_tape(home)
         self.run_calls: list[tuple[str, str, dict[str, object]]] = []
         self.run_stream_calls: list[tuple[str, str, dict[str, object], str | None]] = []
 
@@ -117,11 +129,11 @@ async def test_load_state_and_save_state_manage_lifespan_and_context(tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_load_state_injects_persisted_model(tmp_path: Path) -> None:
-    _, impl, _ = _build_impl(tmp_path)
-    store = SessionStateStore(tmp_path)
-    store.save("resolved-session", {"model": "openai:gpt-4o"})
-    impl._session_state_store = store
+async def test_load_state_injects_model_recorded_on_session_tape(tmp_path: Path) -> None:
+    """A model_switch event recorded on the session tape is restored into state on load."""
+    _, impl, agent = _build_impl(tmp_path)
+    session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
+    await session.append_event("model_switch", {"model": "openai:gpt-4o"})
 
     message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
 
@@ -132,9 +144,8 @@ async def test_load_state_injects_persisted_model(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_load_state_does_not_inject_model_for_unknown_session(tmp_path: Path) -> None:
-    """A session with nothing persisted must not inherit any model (no leakage)."""
+    """A session with nothing recorded on its tape must not inherit any model (no leakage)."""
     _, impl, _ = _build_impl(tmp_path)
-    impl._session_state_store = SessionStateStore(tmp_path)
 
     message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
 
@@ -144,30 +155,14 @@ async def test_load_state_does_not_inject_model_for_unknown_session(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_save_state_persists_model_choice(tmp_path: Path) -> None:
-    _, impl, _ = _build_impl(tmp_path)
-    impl._session_state_store = SessionStateStore(tmp_path)
-    message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
-    state = {"session_id": "resolved-session", "model": "anthropic:claude-3"}
+async def test_recover_session_model_returns_latest_recorded(tmp_path: Path) -> None:
+    """When several switches were recorded, the most recent one wins."""
+    _, impl, agent = _build_impl(tmp_path)
+    session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
+    await session.append_event("model_switch", {"model": "openai:gpt-4o"})
+    await session.append_event("model_switch", {"model": "anthropic:claude-3"})
 
-    await impl.save_state(session_id="resolved-session", state=state, message=message, model_output="ok")
-
-    assert SessionStateStore(tmp_path).load("resolved-session") == {"model": "anthropic:claude-3"}
-
-
-@pytest.mark.asyncio
-async def test_save_state_clears_persisted_model_when_unset(tmp_path: Path) -> None:
-    _, impl, _ = _build_impl(tmp_path)
-    store = SessionStateStore(tmp_path)
-    store.save("resolved-session", {"model": "openai:gpt-4o"})
-    impl._session_state_store = store
-    message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
-    state = {"session_id": "resolved-session"}  # no model key -> cleared
-
-    await impl.save_state(session_id="resolved-session", state=state, message=message, model_output="ok")
-
-    assert SessionStateStore(tmp_path).load("resolved-session") == {}
-    assert not store._path("resolved-session").is_file()
+    assert await impl._recover_session_model("resolved-session") == "anthropic:claude-3"
 
 
 @pytest.mark.asyncio

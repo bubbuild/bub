@@ -9,7 +9,6 @@ from loguru import logger
 from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context
-from bub.builtin.session_state import SessionStateStore
 from bub.builtin.settings import DEFAULT_MODEL
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage, MediaItem
@@ -65,17 +64,28 @@ class BuiltinImpl:
 
         self.framework = framework
         self._agent: Agent | None = None
-        self._session_state_store: SessionStateStore | None = None
 
     def _get_agent(self) -> Agent:
         if self._agent is None:
             self._agent = Agent(self.framework)
         return self._agent
 
-    def _get_session_state_store(self) -> SessionStateStore:
-        if self._session_state_store is None:
-            self._session_state_store = SessionStateStore()
-        return self._session_state_store
+    async def _recover_session_model(self, session_id: str) -> str | None:
+        """Recover the latest per-session model override recorded on the session tape.
+
+        The ``model`` tool records each switch as a ``model_switch`` event on the
+        session's tape. Scanning that tape here (before the per-turn fork exists)
+        reads the persisted store, so a choice from a prior turn or restart is
+        restored. Returns ``None`` when nothing was recorded, so a fresh session
+        never inherits another session's model.
+        """
+        session = self._get_agent().tape.session_tape(session_id, self.framework.workspace)
+        entries = list(await session.store.fetch_all(session.query().kinds("event")))
+        for entry in reversed(entries):
+            if entry.kind == "event" and entry.payload.get("name") == "model_switch":
+                model = (entry.payload.get("data") or {}).get("model")
+                return str(model) if model else None
+        return None
 
     @staticmethod
     async def _discard_message(_: ChannelMessage) -> None:
@@ -125,10 +135,10 @@ class BuiltinImpl:
         state = {"session_id": session_id, "_runtime_agent": self._get_agent()}
         if context := field_of(message, "context_str"):
             state["context"] = context
-        # Carry over a previously persisted per-session model override. Only set
-        # when something was actually stored, so a fresh/unknown session never
-        # inherits another session's model.
-        if model := self._get_session_state_store().load(session_id).get("model"):
+        # Carry over a previously recorded per-session model override from the
+        # session tape. Only set when a prior turn actually recorded one, so a
+        # fresh/unknown session never inherits another session's model.
+        if model := await self._recover_session_model(session_id):
             state["model"] = model
         return state
 
@@ -138,13 +148,9 @@ class BuiltinImpl:
         lifespan = field_of(message, "lifespan")
         if lifespan is not None:
             await lifespan.__aexit__(tp, value, traceback)
-        # Persist (or clear) the per-session model override so it survives
-        # restarts. An empty/unset value removes any prior override.
-        store = self._get_session_state_store()
-        if model := state.get("model"):
-            store.save(session_id, {"model": model})
-        else:
-            store.delete(session_id)
+        # The per-session model override is persisted on the session tape by the
+        # ``model`` tool itself (a ``model_switch`` event, merged back at end of
+        # turn), so nothing to write here — this hook only closes the lifespan.
 
     @hookimpl
     async def build_prompt(self, message: ChannelMessage, session_id: str, state: State) -> str | list[dict]:
