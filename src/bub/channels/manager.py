@@ -327,7 +327,7 @@ class ChannelManager:
         for channel in self.enabled_channels():
             await channel.stop()
 
-    def admit_channel_message(
+    async def admit_channel_message(
         self,
         session_id: str,
         message: Envelope,
@@ -339,4 +339,4 @@ class ChannelManager:
         channel = self.get_channel(str(channel_name))
         if channel is None:
             return None
-        return channel.admit_message(session_id=session_id, message=message, turn=turn)
+        return await channel.admit_message(session_id=session_id, message=message, turn=turn)

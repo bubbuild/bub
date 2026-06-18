@@ -272,8 +272,15 @@ async def test_agent_run_model_override_does_not_mutate_default() -> None:
         state={"_runtime_workspace": "/tmp"},  # noqa: S108
         model="openai:gpt-4o",
     )
+    [event async for event in result]
+
+    completion_kwargs = _model_runner(agent).completion_kwargs
+    assert completion_kwargs is not None
+    assert completion_kwargs["model"] == "openai:gpt-4o"
+    assert agent.settings.model == default_model
 
 
+@pytest.mark.asyncio
 async def test_agent_run_injects_steering_messages_once_by_tape_name() -> None:
     agent = _make_agent()
     fork_capture = _ForkCapture()
@@ -290,8 +297,6 @@ async def test_agent_run_injects_steering_messages_once_by_tape_name() -> None:
 
     completion_kwargs = _model_runner(agent).completion_kwargs
     assert completion_kwargs is not None
-    assert completion_kwargs["model"] == "openai:gpt-4o"
-    assert agent.settings.model == default_model
     completion_messages = completion_kwargs["messages"]
     assert completion_messages[-3:] == [
         {"role": "user", "content": "first steer"},

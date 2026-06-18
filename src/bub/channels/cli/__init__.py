@@ -332,11 +332,11 @@ class CliChannel(Interface):
         symbol = ">" if self._mode == "agent" else ","
         return f"{cwd} {symbol} "
 
-    async def _echo_input(self, raw: str) -> None:
+    async def _echo_input(self, raw: str, steering: bool = False) -> None:
         stream_printer = getattr(self, "_stream_printer", None)
         if stream_printer is not None:
             await stream_printer.commit_live_text()
-        self._renderer.input_echo(self._prompt_label(), raw)
+        self._renderer.input_echo(self._prompt_label(), raw, steering=steering)
 
     async def stream_events(
         self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]
@@ -416,13 +416,13 @@ class CliChannel(Interface):
         workspace_hash = md5(str(workspace).encode("utf-8"), usedforsecurity=False).hexdigest()
         return home / "history" / f"{workspace_hash}.history"
 
-    def admit_message(
+    async def admit_message(
         self,
         session_id: str,
         message: Envelope,
         turn: TurnSnapshot,
     ) -> AdmitDecision | None:
-        self._renderer.input_echo(self._prompt_label(), message.content, steering=turn.is_running)
+        await self._echo_input(message.content, steering=turn.is_running)
         if not turn.is_running:
             return None
         return AdmitDecision("steer", reason="cli session is already generating")

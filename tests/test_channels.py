@@ -426,7 +426,8 @@ def test_cli_channel_generating_spinner_renders_above_input_not_toolbar(monkeypa
     assert first_frame != second_frame
 
 
-def test_cli_channel_admit_message_steers_when_turn_is_running() -> None:
+@pytest.mark.asyncio
+async def test_cli_channel_admit_message_steers_when_turn_is_running() -> None:
     channel = CliChannel.__new__(CliChannel)
     channel._mode = "agent"
     echoed: list[tuple[str, str, bool]] = []
@@ -440,7 +441,7 @@ def test_cli_channel_admit_message_steers_when_turn_is_running() -> None:
         pending_count=0,
     )
 
-    decision = channel.admit_message(
+    decision = await channel.admit_message(
         session_id="cli_session",
         message=_message("second", channel="cli", session_id="cli_session"),
         turn=turn,
@@ -957,7 +958,7 @@ async def test_cli_channel_input_echo_commits_active_stream_line() -> None:
 
     channel._stream_printer = FakeStreamPrinter()
     channel._mode = "agent"
-    channel._renderer = SimpleNamespace(input_echo=lambda prompt, text: calls.append(f"echo:{text}"))
+    channel._renderer = SimpleNamespace(input_echo=lambda prompt, text, steering=False: calls.append(f"echo:{text}"))
 
     await channel._echo_input("steer now")
 

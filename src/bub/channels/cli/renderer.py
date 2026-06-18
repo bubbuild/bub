@@ -55,7 +55,7 @@ class CliRenderer:
     def input_echo(self, prompt: str, text: str, steering: bool = False) -> None:
         if not text.strip():
             return
-        mid = " (steering)" if steering else ""
+        mid = "[grey](steering)[/] " if steering else ""
         self.console.print(f"[dim][bold]{prompt}[/]{mid}{text}[/]", new_line_start=True)
 
     def tool_call_start(self, *, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:

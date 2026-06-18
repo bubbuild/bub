@@ -326,7 +326,7 @@ class BuiltinImpl:
         return default_tape_context()
 
     @hookimpl
-    def admit_message(
+    async def admit_message(
         self,
         session_id: str,
         message: Envelope,
@@ -335,7 +335,7 @@ class BuiltinImpl:
         outbound_router = self.framework._outbound_router
         if outbound_router is None:
             return None
-        return outbound_router.admit_channel_message(session_id=session_id, message=message, turn=turn)
+        return await outbound_router.admit_channel_message(session_id=session_id, message=message, turn=turn)
 
     @hookimpl
     async def handle_steering(self, message: Envelope, reason: str | None) -> bool:

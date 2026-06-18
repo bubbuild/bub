@@ -41,7 +41,7 @@ class Channel(ABC):
         """Optionally wrap the output stream for this channel."""
         return stream
 
-    def admit_message(
+    async def admit_message(
         self,
         session_id: str,
         message: Envelope,
