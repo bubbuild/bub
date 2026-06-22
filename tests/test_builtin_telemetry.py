@@ -28,7 +28,7 @@ async def test_record_tape_entry_writes_stream_entry_through_logfire_processor()
     parent = InMemoryTapeStore()
     store = ForkTapeStore(AsyncTapeStoreAdapter(parent), "ops")
 
-    record_tape_entry(store, "ops", "event", {"name": "step", "data": {"value": 1}}, run_id="run-1")
+    await record_tape_entry(store, "ops", "event", {"name": "step", "data": {"value": 1}}, run_id="run-1")
 
     await store.merge_back()
 
@@ -43,7 +43,7 @@ async def test_tape_entry_payload_is_not_scrubbed_by_logfire_attributes() -> Non
     parent = InMemoryTapeStore()
     store = ForkTapeStore(AsyncTapeStoreAdapter(parent), "ops")
 
-    record_tape_entry(
+    await record_tape_entry(
         store,
         "ops",
         "event",

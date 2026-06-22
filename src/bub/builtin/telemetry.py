@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from functools import cache
@@ -30,6 +32,7 @@ BUB_TAPE_ENTRY_KIND = "bub.tape.entry.kind"
 
 _TAPE_STORE_KEY = otel_context.create_key("bub.tape.store")
 _TAPE_ENTRY_KEY = otel_context.create_key("bub.tape.entry")
+_pending_tape_writes: set[asyncio.Future[Any]] = set()
 
 
 class BubSpanContext:
@@ -82,6 +85,17 @@ class TapeSpanExporter:
         append_nowait = getattr(self._store, "append_nowait", None)
         if callable(append_nowait):
             append_nowait(tape, entry)
+            return
+
+        append = getattr(self._store, "append", None)
+        if not callable(append):
+            return
+
+        result = append(tape, entry)
+        if inspect.isawaitable(result):
+            task: asyncio.Future[Any] = asyncio.ensure_future(result)
+            _pending_tape_writes.add(task)
+            task.add_done_callback(_pending_tape_writes.discard)
 
 
 def bub_span(
@@ -143,7 +157,7 @@ def loguru_handler() -> Any:
     return logfire.loguru_handler()
 
 
-def record_tape_entry(
+async def record_tape_entry(
     store: object,
     tape: str,
     kind: str,
@@ -157,7 +171,13 @@ def record_tape_entry(
     if run_id := meta.get("run_id"):
         attributes[BUB_RUN_ID] = str(run_id)
     with bub_span(f"bub.tape.{kind}", tape=tape, store=store, entry=entry, attributes=attributes):
-        return
+        pass
+    await drain_tape_writes()
+
+
+async def drain_tape_writes() -> None:
+    if _pending_tape_writes:
+        await asyncio.gather(*list(_pending_tape_writes))
 
 
 def _span_tape_name(span: object) -> str | None:
