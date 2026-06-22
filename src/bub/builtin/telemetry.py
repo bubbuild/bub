@@ -175,6 +175,34 @@ async def record_tape_entry(
     await drain_tape_writes()
 
 
+async def record_tape_event(
+    store: object,
+    tape: str,
+    name: str,
+    data: dict[str, Any] | None = None,
+    **meta: Any,
+) -> None:
+    payload: dict[str, Any] = {"name": name}
+    if data is not None:
+        payload["data"] = dict(data)
+    await record_tape_entry(store, tape, "event", payload, **meta)
+
+
+async def record_tape_handoff(
+    store: object,
+    tape: str,
+    *,
+    name: str,
+    state: dict[str, Any] | None = None,
+    **meta: Any,
+) -> None:
+    anchor_payload: dict[str, Any] = {"name": name}
+    if state is not None:
+        anchor_payload["state"] = dict(state)
+    await record_tape_entry(store, tape, "anchor", anchor_payload, **meta)
+    await record_tape_event(store, tape, "handoff", {"name": name, "state": state or {}}, **meta)
+
+
 async def drain_tape_writes() -> None:
     if _pending_tape_writes:
         await asyncio.gather(*list(_pending_tape_writes))

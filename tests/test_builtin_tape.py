@@ -6,6 +6,7 @@ import pytest
 
 from bub.builtin.store import ForkTapeStore
 from bub.builtin.tape import Tape
+from bub.builtin.telemetry import record_tape_event
 from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
 
 
@@ -20,14 +21,14 @@ async def test_tape_fork_binds_temporary_fork_store_to_scoped_tape(tmp_path: Pat
         assert isinstance(first_store, ForkTapeStore)
         assert first_store is not root.store
 
-        await forked.append_event("step", {"value": 1})
+        await record_tape_event(forked.store, forked.name, "step", {"value": 1})
         assert parent.read("test-tape") is None
 
     assert [entry.payload["name"] for entry in parent.read("test-tape") or []] == ["step"]
 
     async with root.fork_tape(merge_back=False) as forked:
         second_store = forked.store
-        await forked.append_event("step", {"value": 2})
+        await record_tape_event(forked.store, forked.name, "step", {"value": 2})
 
     assert isinstance(second_store, ForkTapeStore)
     assert second_store is not first_store

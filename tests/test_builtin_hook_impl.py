@@ -10,6 +10,7 @@ import pytest
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.builtin.store import FileTapeStore
 from bub.builtin.tape import Tape
+from bub.builtin.telemetry import record_tape_event
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
 from bub.runtime import AsyncStreamEvents, StreamEvent
@@ -133,7 +134,7 @@ async def test_load_state_injects_model_recorded_on_session_tape(tmp_path: Path)
     """A model_switch event recorded on the session tape is restored into state on load."""
     _, impl, agent = _build_impl(tmp_path)
     session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
-    await session.append_event("model_switch", {"model": "openai:gpt-4o"})
+    await record_tape_event(session.store, session.name, "model_switch", {"model": "openai:gpt-4o"})
 
     message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
 
@@ -159,8 +160,8 @@ async def test_recover_session_model_returns_latest_recorded(tmp_path: Path) -> 
     """When several switches were recorded, the most recent one wins."""
     _, impl, agent = _build_impl(tmp_path)
     session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
-    await session.append_event("model_switch", {"model": "openai:gpt-4o"})
-    await session.append_event("model_switch", {"model": "anthropic:claude-3"})
+    await record_tape_event(session.store, session.name, "model_switch", {"model": "openai:gpt-4o"})
+    await record_tape_event(session.store, session.name, "model_switch", {"model": "anthropic:claude-3"})
 
     assert await impl._recover_session_model("resolved-session") == "anthropic:claude-3"
 

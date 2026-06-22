@@ -117,7 +117,7 @@ class Agent:
                 },
             )
         )
-        await tape.ensure_bootstrap_anchor()
+        await self._ensure_bootstrap_anchor(tape)
         if isinstance(prompt, str) and prompt.strip().startswith(","):
             result = await self._run_command(tape=tape, line=prompt.strip())
             events = self._events_from_iterable([
@@ -184,8 +184,14 @@ class Agent:
                     "output": output_text,
                     "date": datetime.now(UTC).isoformat(),
                 }
-                await tape.append_event("command", event_payload)
+                await telemetry.record_tape_event(tape.store, tape.name, "command", event_payload)
         raise RuntimeError("command execution did not produce a result")
+
+    @staticmethod
+    async def _ensure_bootstrap_anchor(tape: Tape) -> None:
+        anchors = list(await tape.store.fetch_all(tape.query().kinds("anchor")))
+        if not anchors:
+            await telemetry.record_tape_handoff(tape.store, tape.name, name="session/start", state={"owner": "human"})
 
     async def _agent_loop(
         self,
@@ -198,7 +204,9 @@ class Agent:
     ) -> AsyncStreamEvents:
         next_prompt: str | list[dict] = prompt
         display_model = model or self.settings.model
-        await tape.append_event(
+        await telemetry.record_tape_event(
+            tape.store,
+            tape.name,
             "loop.start",
             {
                 "model": display_model,
@@ -244,7 +252,9 @@ class Agent:
                     "bub.loop.step": step,
                 },
             ) as span:
-                await tape.append_event("loop.step.start", {"step": step, "prompt": next_prompt})
+                await telemetry.record_tape_event(
+                    tape.store, tape.name, "loop.step.start", {"step": step, "prompt": next_prompt}
+                )
                 try:
                     output = await self._run_once(
                         tape=tape,
@@ -259,7 +269,9 @@ class Agent:
                             elapsed_ms = int((time.monotonic() - start) * 1000)
                             span.set_attribute("bub.loop.status", "error")
                             span.set_attribute("bub.loop.elapsed_ms", elapsed_ms)
-                            await tape.append_event(
+                            await telemetry.record_tape_event(
+                                tape.store,
+                                tape.name,
                                 "loop.step",
                                 {
                                     "step": step,
@@ -283,11 +295,15 @@ class Agent:
                             tape.name,
                             step,
                         )
-                        await tape.handoff(
+                        await telemetry.record_tape_handoff(
+                            tape.store,
+                            tape.name,
                             name="auto_handoff/context_overflow",
                             state={"reason": "context_length_exceeded", "error": error_message},
                         )
-                        await tape.append_event(
+                        await telemetry.record_tape_event(
+                            tape.store,
+                            tape.name,
                             "loop.step",
                             {
                                 "step": step,
@@ -301,7 +317,9 @@ class Agent:
                         continue
 
                     span.set_attribute("bub.loop.status", "error")
-                    await tape.append_event(
+                    await telemetry.record_tape_event(
+                        tape.store,
+                        tape.name,
                         "loop.step",
                         {
                             "step": step,
@@ -319,7 +337,9 @@ class Agent:
                 span.set_attribute("bub.loop.elapsed_ms", elapsed_ms)
                 if not should_continue:
                     span.set_attribute("bub.loop.status", "ok")
-                    await tape.append_event(
+                    await telemetry.record_tape_event(
+                        tape.store,
+                        tape.name,
                         "loop.step",
                         {
                             "step": step,
@@ -332,7 +352,9 @@ class Agent:
 
                 next_prompt = self._continue_prompt(tape)
                 span.set_attribute("bub.loop.status", "continue")
-                await tape.append_event(
+                await telemetry.record_tape_event(
+                    tape.store,
+                    tape.name,
                     "loop.step",
                     {
                         "step": step,

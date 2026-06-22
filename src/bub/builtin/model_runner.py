@@ -21,7 +21,7 @@ from any_llm.types.completion import (
     ParsedChatCompletion,
 )
 from loguru import logger
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from bub.builtin import telemetry
 from bub.builtin.settings import AgentSettings, ModelCandidate
@@ -229,8 +229,8 @@ class ModelRunner:
         model: str | None = None,
         usage: dict[str, Any] | None = None,
     ) -> None:
-        await tape.record_chat(
-            run_id=run_id,
+        meta = {"run_id": run_id}
+        for kind, payload in _iter_chat_entries(
             system_prompt=system_prompt,
             new_messages=new_messages,
             response_text=response_text,
@@ -238,10 +238,14 @@ class ModelRunner:
             tool_calls=tool_calls,
             tool_results=tool_results,
             error=error,
-            response=response,
-            provider=provider,
-            model=model,
-            usage=usage,
+        ):
+            await telemetry.record_tape_entry(tape.store, tape.name, kind, payload, **meta)
+        await telemetry.record_tape_event(
+            tape.store,
+            tape.name,
+            "run",
+            _run_event_data(error=error, response=response, provider=provider, model=model, usage=usage),
+            **meta,
         )
 
     async def _completion_events(
@@ -251,7 +255,7 @@ class ModelRunner:
         output: ModelOutputAccumulator,
     ) -> AsyncGenerator[StreamEvent, None]:
         if isinstance(completion, ChatCompletion):
-            if usage := Tape._extract_usage(completion):
+            if usage := _extract_usage(completion):
                 state.usage = usage
             output.response = completion
             message = completion.choices[0].message
@@ -281,7 +285,7 @@ class ModelRunner:
         state: StreamState,
         output: ModelOutputAccumulator,
     ) -> AsyncGenerator[StreamEvent, None]:
-        if usage := Tape._extract_usage(chunk):
+        if usage := _extract_usage(chunk):
             state.usage = usage
         for choice in chunk.choices:
             delta = choice.delta
@@ -297,6 +301,63 @@ class ModelRunner:
     def reasoning_text(reasoning: object) -> str:
         content = getattr(reasoning, "content", reasoning)
         return "" if content is None else str(content)
+
+
+def _extract_usage(response: object) -> dict[str, Any] | None:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    if isinstance(usage, dict):
+        return usage
+    if isinstance(usage, BaseModel):
+        payload = usage.model_dump(exclude_none=True)
+        return payload if isinstance(payload, dict) else None
+    return None
+
+
+def _iter_chat_entries(
+    *,
+    system_prompt: str | None,
+    new_messages: list[dict[str, Any]],
+    response_text: str | None,
+    context_error: BubError | None = None,
+    tool_calls: list[dict[str, Any]] | None = None,
+    tool_results: list[Any] | None = None,
+    error: BubError | None = None,
+) -> Iterator[tuple[str, dict[str, Any]]]:
+    if system_prompt:
+        yield "system", {"content": system_prompt}
+    if context_error is not None:
+        yield "error", context_error.as_dict()
+    for message in new_messages:
+        yield "message", message
+    if tool_calls:
+        yield "tool_call", {"calls": tool_calls}
+    if tool_results is not None:
+        yield "tool_result", {"results": tool_results}
+    if error is not None and error is not context_error:
+        yield "error", error.as_dict()
+    if response_text is not None:
+        yield "message", {"role": "assistant", "content": response_text}
+
+
+def _run_event_data(
+    *,
+    error: BubError | None,
+    response: Any | None,
+    provider: str | None,
+    model: str | None,
+    usage: dict[str, Any] | None,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {"status": "error" if error is not None else "ok"}
+    resolved_usage = usage or _extract_usage(response)
+    if resolved_usage is not None:
+        data["usage"] = resolved_usage
+    if provider:
+        data["provider"] = provider
+    if model:
+        data["model"] = model
+    return data
 
 
 @dataclass

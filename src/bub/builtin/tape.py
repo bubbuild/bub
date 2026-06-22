@@ -10,11 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
-
 from bub.builtin.store import ForkTapeStore
-from bub.builtin.telemetry import record_tape_entry
-from bub.runtime import BubError
 from bub.tape import (
     AsyncTapeStore,
     TapeContext,
@@ -44,51 +40,9 @@ class AnchorSummary:
     state: dict[str, object]
 
 
-class BuiltinTapeEntry(TapeEntry):
-    """Builtin runtime entry constructors built on the stream entry envelope."""
-
-    @classmethod
-    def stream(cls, kind: str, payload: dict[str, Any] | None = None, **meta: Any) -> BuiltinTapeEntry:
-        return cls(id=0, kind=kind, payload=dict(payload or {}), meta=dict(meta))
-
-    @classmethod
-    def message(cls, message: dict[str, Any], **meta: Any) -> BuiltinTapeEntry:
-        return cls.stream("message", message, **meta)
-
-    @classmethod
-    def system(cls, content: str, **meta: Any) -> BuiltinTapeEntry:
-        return cls.stream("system", {"content": content}, **meta)
-
-    @classmethod
-    def anchor(cls, name: str, state: dict[str, Any] | None = None, **meta: Any) -> BuiltinTapeEntry:
-        payload: dict[str, Any] = {"name": name}
-        if state is not None:
-            payload["state"] = dict(state)
-        return cls.stream("anchor", payload, **meta)
-
-    @classmethod
-    def tool_call(cls, calls: list[dict[str, Any]], **meta: Any) -> BuiltinTapeEntry:
-        return cls.stream("tool_call", {"calls": calls}, **meta)
-
-    @classmethod
-    def tool_result(cls, results: list[Any], **meta: Any) -> BuiltinTapeEntry:
-        return cls.stream("tool_result", {"results": results}, **meta)
-
-    @classmethod
-    def error(cls, error: BubError, **meta: Any) -> BuiltinTapeEntry:
-        return cls.stream("error", error.as_dict(), **meta)
-
-    @classmethod
-    def event(cls, name: str, data: dict[str, Any] | None = None, **meta: Any) -> BuiltinTapeEntry:
-        payload: dict[str, Any] = {"name": name}
-        if data is not None:
-            payload["data"] = dict(data)
-        return cls.stream("event", payload, **meta)
-
-
 @dataclass(frozen=True)
 class Tape:
-    """Tape abstraction for recording agent interactions."""
+    """Scoped tape store view for querying and session management."""
 
     archive_path: Path
     store: AsyncTapeStore
@@ -136,11 +90,6 @@ class Tape:
             last_token_usage=last_token_usage,
         )
 
-    async def ensure_bootstrap_anchor(self) -> None:
-        anchors = list(await self.store.fetch_all(self.query().kinds("anchor")))
-        if not anchors:
-            await self.handoff(name="session/start", state={"owner": "human"})
-
     async def anchors(self, limit: int = 20) -> list[AnchorSummary]:
         entries = list(await self.store.fetch_all(self.query().kinds("anchor")))
         results: list[AnchorSummary] = []
@@ -154,9 +103,6 @@ class Tape:
     async def search(self, query: TapeQuery[AsyncTapeStore]) -> list[TapeEntry]:
         return list(await self.store.fetch_all(query))
 
-    async def append_event(self, name: str, payload: dict[str, Any], **meta: Any) -> None:
-        await record_tape_entry(self.store, self.name, "event", {"name": name, "data": payload}, **meta)
-
     async def read_messages(self) -> list[dict[str, Any]]:
         query = self.context.build_query(self.query())
         entries = await self.store.fetch_all(query)
@@ -164,73 +110,6 @@ class Tape:
         if inspect.isawaitable(messages):
             messages = await messages
         return messages
-
-    async def handoff(
-        self,
-        *,
-        name: str,
-        state: dict[str, Any] | None = None,
-        **meta: Any,
-    ) -> list[TapeEntry]:
-        entry = BuiltinTapeEntry.anchor(name, state=state, **meta)
-        event = BuiltinTapeEntry.event("handoff", {"name": name, "state": state or {}}, **meta)
-        await record_tape_entry(self.store, self.name, entry.kind, entry.payload, **entry.meta)
-        await record_tape_entry(self.store, self.name, event.kind, event.payload, **event.meta)
-        return [entry, event]
-
-    async def record_chat(  # noqa: C901
-        self,
-        *,
-        run_id: str,
-        system_prompt: str | None,
-        new_messages: list[dict[str, Any]],
-        response_text: str | None,
-        context_error: BubError | None = None,
-        tool_calls: list[dict[str, Any]] | None = None,
-        tool_results: list[Any] | None = None,
-        error: BubError | None = None,
-        response: Any | None = None,
-        provider: str | None = None,
-        model: str | None = None,
-        usage: dict[str, Any] | None = None,
-    ) -> None:
-        meta = {"run_id": run_id}
-        if system_prompt:
-            await record_tape_entry(self.store, self.name, "system", {"content": system_prompt}, **meta)
-        if context_error is not None:
-            await record_tape_entry(self.store, self.name, "error", context_error.as_dict(), **meta)
-        for message in new_messages:
-            await record_tape_entry(self.store, self.name, "message", message, **meta)
-        if tool_calls:
-            await record_tape_entry(self.store, self.name, "tool_call", {"calls": tool_calls}, **meta)
-        if tool_results is not None:
-            await record_tape_entry(self.store, self.name, "tool_result", {"results": tool_results}, **meta)
-        if error is not None and error is not context_error:
-            await record_tape_entry(self.store, self.name, "error", error.as_dict(), **meta)
-        if response_text is not None:
-            await record_tape_entry(self.store, self.name, "message", {"role": "assistant", "content": response_text}, **meta)
-
-        data: dict[str, Any] = {"status": "error" if error is not None else "ok"}
-        resolved_usage = usage or self._extract_usage(response)
-        if resolved_usage is not None:
-            data["usage"] = resolved_usage
-        if provider:
-            data["provider"] = provider
-        if model:
-            data["model"] = model
-        await record_tape_entry(self.store, self.name, "event", {"name": "run", "data": data}, **meta)
-
-    @staticmethod
-    def _extract_usage(response: object) -> dict[str, Any] | None:
-        usage = getattr(response, "usage", None)
-        if usage is None:
-            return None
-        if isinstance(usage, dict):
-            return usage
-        if isinstance(usage, BaseModel):
-            payload = usage.model_dump(exclude_none=True)
-            return payload if isinstance(payload, dict) else None
-        return None
 
     async def _archive(self) -> Path:
         tape_name = self.name
@@ -242,16 +121,12 @@ class Tape:
                 f.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
         return archive_path
 
-    async def reset(self, *, archive: bool = False) -> str:
+    async def reset(self, *, archive: bool = False) -> Path | None:
         archive_path: Path | None = None
         if archive:
             archive_path = await self._archive()
         await self.store.reset(self.name)
-        state = {"owner": "human"}
-        if archive_path is not None:
-            state["archived"] = str(archive_path)
-        await self.handoff(name="session/start", state=state)
-        return f"Archived: {archive_path}" if archive_path else "ok"
+        return archive_path
 
     def session_tape(self, session_id: str, workspace: Path, context: TapeContext | None = None) -> Tape:
         workspace_hash = hashlib.md5(str(workspace.resolve()).encode("utf-8"), usedforsecurity=False).hexdigest()[:16]

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, cast
 from openai.types.chat import ChatCompletionToolParam
 from pydantic import BaseModel, Field
 
+from bub.builtin import telemetry
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
 from bub.tools import REGISTRY, Tool, ToolContext, tool
@@ -305,14 +306,18 @@ async def tape_search(param: SearchInput, *, context: ToolContext) -> str:
 @tool(context=True, name="tape.reset")
 async def tape_reset(archive: bool = False, *, context: ToolContext) -> str:
     """Reset the current tape, optionally archiving it."""
-    result = await context.tape.reset(archive=archive)
-    return result
+    archive_path = await context.tape.reset(archive=archive)
+    state = {"owner": "human"}
+    if archive_path is not None:
+        state["archived"] = str(archive_path)
+    await telemetry.record_tape_handoff(context.tape.store, context.tape.name, name="session/start", state=state)
+    return f"Archived: {archive_path}" if archive_path else "ok"
 
 
 @tool(context=True, name="tape.handoff")
 async def tape_handoff(name: str = "handoff", summary: str = "", *, context: ToolContext) -> str:
     """Add a handoff anchor to the current tape."""
-    await context.tape.handoff(name=name, state={"summary": summary})
+    await telemetry.record_tape_handoff(context.tape.store, context.tape.name, name=name, state={"summary": summary})
     return f"anchor added: {name}"
 
 
@@ -415,7 +420,7 @@ async def set_model(model_id: str, *, context: ToolContext) -> str:
     context.state["model"] = model_id
     # Persist on the session tape (merged back at end of turn); load_state
     # recovers the latest `model_switch` event next turn / after restart.
-    await context.tape.append_event("model_switch", {"model": model_id})
+    await telemetry.record_tape_event(context.tape.store, context.tape.name, "model_switch", {"model": model_id})
     return f"Session model set to {model_id} (applies from the next turn)."
 
 

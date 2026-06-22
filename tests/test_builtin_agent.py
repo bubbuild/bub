@@ -12,8 +12,7 @@ import bub.builtin.tools  # noqa: F401  — registers builtin tools (incl. `mode
 from bub.builtin.agent import Agent
 from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
-from bub.runtime import BubError
-from bub.tape import TapeContext
+from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext, TapeQuery
 from bub.tools import REGISTRY, tool
 
 # ---------------------------------------------------------------------------
@@ -93,12 +92,13 @@ class _FakeTape:
     def __init__(self, fork_capture: _ForkCapture) -> None:
         self._fork = fork_capture
         self.name = "test-tape"
+        self.store = AsyncTapeStoreAdapter(InMemoryTapeStore())
         self.context = TapeContext(state={})
         self.messages: list[dict[str, Any]] = []
         self.events: list[tuple[str, str, dict[str, Any]]] = []
 
-    async def ensure_bootstrap_anchor(self) -> None:
-        pass
+    def query(self) -> TapeQuery:
+        return TapeQuery(tape=self.name, store=self.store)
 
     @contextlib.asynccontextmanager
     async def fork_tape(self, merge_back: bool = True) -> AsyncGenerator[_FakeTape, None]:
@@ -107,40 +107,6 @@ class _FakeTape:
 
     async def read_messages(self) -> list[dict[str, Any]]:
         return list(self.messages)
-
-    async def append_event(self, name: str, payload: dict[str, Any], **meta: Any) -> None:
-        self.events.append((self.name, name, payload))
-
-    async def record_chat(
-        self,
-        *,
-        run_id: str,
-        system_prompt: str | None,
-        new_messages: list[dict[str, Any]],
-        response_text: str | None,
-        context_error: BubError | None = None,
-        tool_calls: list[dict[str, Any]] | None = None,
-        tool_results: list[Any] | None = None,
-        error: BubError | None = None,
-        response: Any | None = None,
-        provider: str | None = None,
-        model: str | None = None,
-        usage: dict[str, Any] | None = None,
-    ) -> None:
-        if system_prompt:
-            self.events.append((self.name, "system", {"content": system_prompt}))
-        if context_error is not None:
-            self.events.append((self.name, "error", context_error.as_dict()))
-        self.messages.extend(new_messages)
-        if tool_calls:
-            self.events.append((self.name, "tool_call", {"calls": tool_calls}))
-        if tool_results is not None:
-            self.events.append((self.name, "tool_result", {"results": tool_results}))
-        if error is not None and error is not context_error:
-            self.events.append((self.name, "error", error.as_dict()))
-        if response_text is not None:
-            self.messages.append({"role": "assistant", "content": response_text})
-        self.events.append((self.name, "run", {"run_id": run_id, "model": model, "error": error is not None}))
 
 
 class _FakeTapeFactory:
