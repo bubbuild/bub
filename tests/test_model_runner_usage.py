@@ -1,9 +1,12 @@
-"""Regression: streaming completions must request token usage.
+"""Regression: streaming completions must request token usage — but only from
+providers that accept the field.
 
 OpenAI-style streaming responses omit the `usage` block unless the request sets
-`stream_options.include_usage`. Without it every streamed run records zero
-tokens (and zero cost) in the tape. The field is only valid for OpenAI-compatible
-providers, so it must be gated on the provider base class.
+`stream_options.include_usage`; without it every streamed run records zero
+tokens. The field is only valid for OpenAI-compatible providers, so it must be
+gated on the provider base class — passing it to e.g. anthropic would break the
+request. This test guards that gate (the non-obvious part); the trivial
+"streaming openai gets the field" path is covered implicitly.
 """
 
 from __future__ import annotations
@@ -14,28 +17,14 @@ from any_llm import AnyLLM
 from bub.builtin.model_runner import _stream_usage_options
 
 
-def _provider(name: str) -> AnyLLM:
-    return AnyLLM.create(name, api_key="test-key")
-
-
-def test_openai_streaming_requests_usage() -> None:
-    assert _stream_usage_options(_provider("openai"), stream=True) == {"include_usage": True}
-
-
-def test_openai_compatible_provider_streaming_requests_usage() -> None:
-    # openrouter (and other OpenAI-compatible providers) subclass BaseOpenAIProvider.
-    assert _stream_usage_options(_provider("openrouter"), stream=True) == {"include_usage": True}
-
-
-def test_non_streaming_does_not_set_options() -> None:
-    # Non-streaming completions already carry usage in the response body.
-    assert _stream_usage_options(_provider("openai"), stream=False) is None
-
-
-def test_non_openai_provider_is_not_offered_the_field() -> None:
-    # anthropic is not a BaseOpenAIProvider and rejects stream_options.
-    assert _stream_usage_options(_provider("anthropic"), stream=True) is None
-
-
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(pytest.main([__file__, "-q"]))
+@pytest.mark.parametrize(
+    ("provider", "stream", "expected"),
+    [
+        ("openai", True, {"include_usage": True}),  # primary path: usage must be requested
+        ("openai", False, None),  # non-streaming already carries usage in the body
+        ("anthropic", True, None),  # not OpenAI-compatible: must not receive the field
+    ],
+)
+def test_stream_usage_options_gate(provider: str, stream: bool, expected: dict | None) -> None:
+    llm = AnyLLM.create(provider, api_key="test-key")
+    assert _stream_usage_options(llm, stream=stream) == expected
