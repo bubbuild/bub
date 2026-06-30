@@ -26,11 +26,12 @@ from pydantic import TypeAdapter, ValidationError
 
 from bub.builtin.settings import AgentSettings, ModelCandidate
 from bub.builtin.tape import Tape
+from bub.builtin.tool_output import cap_tool_result
 from bub.runtime import AsyncStreamEvents, BubError, ErrorKind, StreamEvent, StreamState
 from bub.tools import Tool, ToolContext, ToolExecutor
 
 CONTEXT_LENGTH_PATTERNS = re.compile(
-    r"context.{0,20}(?:length|window)|maximum.{0,20}context|token.{0,10}limit|prompt.{0,10}too long|tokens? > \d+ maximum",
+    r"context.{0,20}(?:length|window)|maximum.{0,20}context|token.{0,10}limit|prompt.{0,10}too long|tokens? > \d+ maximum|request entity too large",
     re.IGNORECASE,
 )
 TOOL_ARGUMENTS_ADAPTER = TypeAdapter(dict[str, Any])
@@ -130,6 +131,7 @@ class ModelRunner:
                     tool_invocations,
                     context=context,
                 )
+                tool_results = self._cap_tool_results(execution.tool_results, run_id=run_id)
                 await self.record_chat(
                     tape=tape,
                     run_id=run_id,
@@ -137,14 +139,14 @@ class ModelRunner:
                     new_messages=new_messages,
                     response_text=None,
                     tool_calls=serialized_tool_calls,
-                    tool_results=execution.tool_results,
+                    tool_results=tool_results,
                     response=output.response,
                     model=model,
                     usage=state.usage,
                 )
-                yield StreamEvent("tool_result", {"tool_results": execution.tool_results})
+                yield StreamEvent("tool_result", {"tool_results": tool_results})
                 yield StreamEvent(
-                    "final", {"ok": True, "tool_calls": serialized_tool_calls, "tool_results": execution.tool_results}
+                    "final", {"ok": True, "tool_calls": serialized_tool_calls, "tool_results": tool_results}
                 )
                 return
 
@@ -162,6 +164,21 @@ class ModelRunner:
             yield StreamEvent("final", {"ok": True, "text": text})
 
         return AsyncStreamEvents(iterator(), state=state)
+
+    def _cap_tool_results(self, results: list[Any], *, run_id: str) -> list[Any]:
+        """Bound each tool result so a single oversized one cannot trigger a 413.
+
+        Runs once per tool execution (before the results hit the tape, the trace,
+        or the next request), spilling overflow to ``<bub.home>/tool-output``.
+        """
+        import bub
+
+        limit = self.settings.max_tool_result_bytes
+        spill_dir = bub.home / "tool-output"
+        return [
+            cap_tool_result(result, run_id=run_id, index=index, limit=limit, spill_dir=spill_dir)
+            for index, result in enumerate(results)
+        ]
 
     @staticmethod
     def generate_run_id() -> str:

@@ -13,6 +13,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from bub import Settings, config, ensure_config
+from bub.builtin.tool_output import DEFAULT_MAX_TOOL_RESULT_BYTES
 
 DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 16384
@@ -58,6 +59,14 @@ class AgentSettings(Settings):
     api_base: str | dict[str, str] | None = None
     max_steps: int = 50
     max_tokens: int = DEFAULT_MAX_TOKENS
+    max_tool_result_bytes: int = Field(
+        default=DEFAULT_MAX_TOOL_RESULT_BYTES,
+        description=(
+            "Max UTF-8 bytes of a single tool result kept inline. Larger results are "
+            "truncated and spilled to <bub.home>/tool-output to avoid 413 errors. "
+            "Set to 0 to disable."
+        ),
+    )
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] = Field(default_factory=dict)
     verbose: int = Field(default=0, description="Verbosity level for logging. Higher means more verbose.", ge=0, le=2)

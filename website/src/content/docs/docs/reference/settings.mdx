@@ -47,6 +47,7 @@ class AgentSettings(Settings):
     api_format: Literal["completion", "responses", "messages"] = "completion"
     max_steps: int = 50
     max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
+    max_tool_result_bytes: int = DEFAULT_MAX_TOOL_RESULT_BYTES  # 131072
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] | None = None
     verbose: int = Field(default=0, ge=0, le=2)
@@ -65,6 +66,7 @@ Loaded under the YAML root section.
 | `BUB_API_FORMAT` | `completion` | `api_format` | One of `completion`, `responses`, `messages`. |
 | `BUB_MAX_STEPS` | `50` | `max_steps` | Maximum agent loop iterations per turn. |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Maximum tokens per model call. |
+| `BUB_MAX_TOOL_RESULT_BYTES` | `131072` | `max_tool_result_bytes` | Max UTF-8 bytes of a single tool result kept inline. Larger output is truncated and spilled to `<bub.home>/tool-output` to avoid `413` errors. `0` disables. |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | Per-call timeout in seconds. |
 | `BUB_CLIENT_ARGS` | `null` | `client_args` | Extra kwargs passed to the underlying model client (JSON / dict). |
 | `BUB_VERBOSE` | `0` | `verbose` | Logging verbosity level (`0`–`2`). |
