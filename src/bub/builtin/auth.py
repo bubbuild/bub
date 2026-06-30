@@ -271,11 +271,11 @@ def _parse_tokens(payload: dict[str, Any]) -> OpenAICodexOAuthTokens | None:
 
 
 def _parse_expiry(expires_raw: object, last_refresh_raw: object) -> int:
-    if isinstance(expires_raw, (int, float)):
+    if isinstance(expires_raw, int | float):
         return int(expires_raw)
     if isinstance(expires_raw, str):
         return _rfc3339_to_unix(expires_raw)
-    if isinstance(last_refresh_raw, (int, float)):
+    if isinstance(last_refresh_raw, int | float):
         return int(last_refresh_raw) + 3600
     if isinstance(last_refresh_raw, str):
         return _rfc3339_to_unix(last_refresh_raw) + 3600
@@ -288,7 +288,7 @@ def _tokens_from_token_payload(payload: dict[str, Any], *, account_id: str | Non
     expires_in = payload.get("expires_in")
     if not isinstance(access_token, str) or not isinstance(refresh_token, str):
         raise CodexOAuthResponseError
-    if not isinstance(expires_in, (int, float)):
+    if not isinstance(expires_in, int | float):
         raise CodexOAuthResponseError
 
     access = access_token.strip()
