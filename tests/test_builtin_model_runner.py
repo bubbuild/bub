@@ -26,21 +26,19 @@ class _FakeStreamingOpenAIProvider(BaseOpenAIProvider):
         include_usage = kwargs.get("stream_options") == {"include_usage": True}
 
         async def stream() -> AsyncIterator[ChatCompletionChunk]:
-            yield ChatCompletionChunk.model_validate(
-                {
-                    "id": "chatcmpl_test",
-                    "object": "chat.completion.chunk",
-                    "created": 0,
-                    "model": "gpt-test",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "finish_reason": None,
-                            "delta": {"role": "assistant", "content": "done"},
-                        }
-                    ],
-                }
-            )
+            yield ChatCompletionChunk.model_validate({
+                "id": "chatcmpl_test",
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": "gpt-test",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": None,
+                        "delta": {"role": "assistant", "content": "done"},
+                    }
+                ],
+            })
             final_chunk: dict[str, Any] = {
                 "id": "chatcmpl_test",
                 "object": "chat.completion.chunk",
@@ -76,8 +74,7 @@ async def test_streaming_openai_usage_is_requested_and_recorded_in_tape(tmp_path
 
     await tape.ensure_bootstrap_anchor()
     events = [
-        event
-        async for event in runner.run(tape=tape, model="gpt-test", tools=[], system_prompt=None, prompt="hello")
+        event async for event in runner.run(tape=tape, model="gpt-test", tools=[], system_prompt=None, prompt="hello")
     ]
 
     assert llm.completion_kwargs is not None
@@ -88,9 +85,7 @@ async def test_streaming_openai_usage_is_requested_and_recorded_in_tape(tmp_path
         ("final", {"ok": True, "text": "done"}),
     ]
     run_events = [
-        entry
-        for entry in store.read("test-tape") or []
-        if entry.kind == "event" and entry.payload.get("name") == "run"
+        entry for entry in store.read("test-tape") or [] if entry.kind == "event" and entry.payload.get("name") == "run"
     ]
     assert len(run_events) == 1
     assert run_events[0].payload["data"]["usage"] == {
