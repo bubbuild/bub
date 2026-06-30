@@ -11,6 +11,7 @@ from inquirer_textual.common.InquirerResult import InquirerResult
 from inquirer_textual.common.PromptSettings import PromptSettings
 from typer.testing import CliRunner
 
+import bub.builtin.auth as auth
 import bub.builtin.cli as cli
 import bub.configure as configure
 import bub.inquirer as bub_inquirer
@@ -348,13 +349,13 @@ def test_onboard_collects_builtin_runtime_config_with_custom_provider(tmp_path: 
 
 
 def test_login_openai_command_runs_codex_oauth(tmp_path: Path) -> None:
-    tokens = cli.OpenAICodexOAuthTokens(
+    tokens = auth.OpenAICodexOAuthTokens(
         access_token=TEST_ACCESS_TOKEN,
         refresh_token=TEST_REFRESH_TOKEN,
         expires_at=1_900_000_000,
         account_id="acct_123",
     )
-    login = patch("bub.builtin.cli.login_openai_codex_oauth", return_value=tokens)
+    login = patch("bub.builtin.auth.login_openai_codex_oauth", return_value=tokens)
 
     with login as login_mock:
         result = CliRunner().invoke(
@@ -369,14 +370,14 @@ def test_login_openai_command_runs_codex_oauth(tmp_path: Path) -> None:
     login_mock.assert_called_once()
     assert login_mock.call_args.kwargs["codex_home"] == tmp_path
     assert login_mock.call_args.kwargs["open_browser"] is False
-    assert login_mock.call_args.kwargs["prompt_for_redirect"] is cli._prompt_for_codex_redirect
+    assert login_mock.call_args.kwargs["prompt_for_redirect"] is auth._prompt_for_codex_redirect
 
 
 def test_login_rejects_unknown_provider() -> None:
     result = CliRunner().invoke(_create_app(), ["login", "github"])
 
-    assert result.exit_code == 1
-    assert "Unsupported auth provider: github" in result.stderr
+    assert result.exit_code == 2
+    assert "No such command 'github'" in result.stderr
 
 
 def test_build_bub_requirement_uses_direct_url_json(monkeypatch) -> None:

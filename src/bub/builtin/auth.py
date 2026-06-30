@@ -1,5 +1,6 @@
 """Authentication helpers for builtin providers."""
 
+# ruff: noqa: B008
 from __future__ import annotations
 
 import json
@@ -18,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import typer
 from authlib.integrations.httpx_client import OAuth2Client
 
 CODEX_PROVIDER = "openai"
@@ -28,6 +30,8 @@ _CODEX_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"  # noqa: S105
 _CODEX_OAUTH_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
 _CODEX_OAUTH_SCOPE = "openid profile email offline_access"
 _CODEX_OAUTH_ORIGINATOR = "codex_cli_rs"
+
+app = typer.Typer(name="login", help="Authentication related commands")
 
 
 class CodexOAuthLoginError(RuntimeError):
@@ -223,6 +227,51 @@ def login_openai_codex_oauth(
     )
     save_openai_codex_oauth_tokens(tokens, codex_home)
     return tokens
+
+
+def _prompt_for_codex_redirect(authorize_url: str) -> str:
+    typer.echo("Open this URL in your browser and complete the Codex sign-in flow:\n")
+    typer.echo(authorize_url)
+    typer.echo("\nPaste the full callback URL or the authorization code.")
+    return str(typer.prompt("callback")).strip()
+
+
+def _render_codex_login_result(tokens: OpenAICodexOAuthTokens, auth_path: Path) -> None:
+    typer.echo("login: ok")
+    typer.echo(f"account_id: {tokens.account_id or '-'}")
+    typer.echo(f"auth_file: {auth_path}")
+    typer.echo("usage: set BUB_MODEL=openai:<codex-model> and omit BUB_API_KEY")
+
+
+@app.command()
+def openai(
+    codex_home: Path | None = typer.Option(None, "--codex-home", help="Directory to store Codex OAuth credentials"),
+    open_browser: bool = typer.Option(True, "--browser/--no-browser", help="Open the OAuth URL in a browser"),
+    manual: bool = typer.Option(
+        False,
+        "--manual",
+        help="Paste the callback URL or code instead of waiting for a local callback server",
+    ),
+    timeout_seconds: float = typer.Option(300.0, "--timeout", help="OAuth wait timeout in seconds"),
+) -> None:
+    """Login with OpenAI OAuth."""
+
+    resolved_codex_home = resolve_codex_home(codex_home)
+    prompt_for_redirect = _prompt_for_codex_redirect if manual or not open_browser else None
+
+    try:
+        tokens = login_openai_codex_oauth(
+            codex_home=resolved_codex_home,
+            prompt_for_redirect=prompt_for_redirect,
+            open_browser=open_browser,
+            redirect_uri=DEFAULT_CODEX_REDIRECT_URI,
+            timeout_seconds=timeout_seconds,
+        )
+    except CodexOAuthLoginError as exc:
+        typer.echo(f"Codex login failed: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    _render_codex_login_result(tokens, resolved_codex_home / "auth.json")
 
 
 def extract_openai_codex_account_id(access_token: str) -> str | None:
