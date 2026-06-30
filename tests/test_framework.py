@@ -160,7 +160,7 @@ def test_builtin_cli_exposes_gateway_command(write_config) -> None:
         gateway_result = runner.invoke(app, ["gateway", "--help"])
 
     assert help_result.exit_code == 0
-    assert "login" not in help_result.stdout
+    assert "login" in help_result.stdout
     assert "gateway" in help_result.stdout
     assert "onboard" in help_result.stdout
     assert "│ message" not in help_result.stdout
