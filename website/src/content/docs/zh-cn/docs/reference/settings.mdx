@@ -47,6 +47,7 @@ class AgentSettings(Settings):
     api_format: Literal["completion", "responses", "messages"] = "completion"
     max_steps: int = 50
     max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
+    max_tool_result_bytes: int = DEFAULT_MAX_TOOL_RESULT_BYTES  # 131072
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] | None = None
     verbose: int = Field(default=0, ge=0, le=2)
@@ -65,6 +66,7 @@ class AgentSettings(Settings):
 | `BUB_API_FORMAT` | `completion` | `api_format` | `completion`、`responses`、`messages` 之一。 |
 | `BUB_MAX_STEPS` | `50` | `max_steps` | 单次 turn 内 agent 循环的最大步数。 |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | 单次模型调用的最大 token 数。 |
+| `BUB_MAX_TOOL_RESULT_BYTES` | `131072` | `max_tool_result_bytes` | 单个工具结果保留为 inline 的最大 UTF-8 字节数。超出部分会被截断并落盘到 `<bub.home>/tool-output`,避免触发 `413`。设为 `0` 关闭。 |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | 单次调用的超时秒数。 |
 | `BUB_CLIENT_ARGS` | `null` | `client_args` | 传递给底层模型 client 的额外 kwargs(JSON / dict)。 |
 | `BUB_VERBOSE` | `0` | `verbose` | 日志详细级别(`0`–`2`)。 |
