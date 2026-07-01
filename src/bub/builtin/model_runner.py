@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
 from any_llm import AnyLLM
+from any_llm.constants import LLMProvider
 from any_llm.providers.openai.base import BaseOpenAIProvider
 from any_llm.types.completion import (
     ChatCompletion,
@@ -24,6 +25,7 @@ from any_llm.types.completion import (
 from loguru import logger
 from pydantic import TypeAdapter, ValidationError
 
+from bub.builtin.codex_provider import OpenaiCodexProvider, should_use_openai_codex_provider
 from bub.builtin.settings import AgentSettings, ModelCandidate
 from bub.builtin.tape import Tape
 from bub.runtime import AsyncStreamEvents, BubError, ErrorKind, StreamEvent, StreamState
@@ -56,13 +58,22 @@ class ModelRunner:
 
     def iter_llm_clients(self, model: str) -> Iterator[tuple[ModelCandidate, AnyLLM]]:
         for candidate in self.settings.model_candidates(model):
+            client_kwargs = self.settings.model_client_kwargs(candidate.provider)
             yield (
                 candidate,
-                AnyLLM.create(
-                    candidate.provider,
-                    **self.settings.model_client_kwargs(candidate.provider),
-                ),
+                self.create_llm_client(candidate, client_kwargs),
             )
+
+    @staticmethod
+    def create_llm_client(candidate: ModelCandidate, client_kwargs: dict[str, Any]) -> AnyLLM:
+        if candidate.provider == LLMProvider.OPENAI and should_use_openai_codex_provider(
+            candidate.provider.value,
+            candidate.model_id,
+            api_key=client_kwargs.get("api_key"),
+            api_base=client_kwargs.get("api_base"),
+        ):
+            return OpenaiCodexProvider(**client_kwargs)
+        return AnyLLM.create(candidate.provider, **client_kwargs)
 
     async def completion_response(
         self, *, model: str, messages: list[dict[str, Any]], tools: list[Tool]
