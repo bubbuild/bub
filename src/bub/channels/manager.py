@@ -16,7 +16,7 @@ from bub.envelope import content_of, field_of
 from bub.framework import BubFramework
 from bub.runtime import StreamEvent
 from bub.turn_admission import AdmitDecision, SessionTurnController, TurnSnapshot
-from bub.types import Envelope, MessageHandler
+from bub.types import Envelope, MessageHandler, State
 from bub.utils import wait_until_stopped
 
 
@@ -175,7 +175,7 @@ class ChannelManager:
     def _controller(self, session_id: str) -> SessionTurnController:
         controller = self._session_controllers.get(session_id)
         if controller is None:
-            controller = SessionTurnController(session_id=session_id)
+            controller = SessionTurnController(session_id, self.framework.get_steering_inbox())
             self._session_controllers[session_id] = controller
         return controller
 
@@ -207,11 +207,12 @@ class ChannelManager:
             await self.framework._hook_runtime.notify_error(stage="resolve_session", error=exc, message=message)
             return False
         controller = self._controller(session_id)
+        state = await self.framework.build_state(message, session_id)
         try:
             decision = await self.framework.admit_message(
                 session_id=session_id,
                 message=message,
-                turn=controller.snapshot(),
+                turn=controller.snapshot(state),
             )
         except Exception as exc:
             logger.exception("channel.manager admission hook failed")
@@ -220,7 +221,7 @@ class ChannelManager:
         if decision is None:
             self._drop_empty_controller(session_id)
             return True
-        admitted = await self._apply_admission_decision(controller, message, decision)
+        admitted = await self._apply_admission_decision(controller, message, decision, state)
         if not admitted or not controller.active():
             self._drop_empty_controller(session_id)
         return admitted
@@ -230,6 +231,7 @@ class ChannelManager:
         controller: SessionTurnController,
         message: ChannelMessage,
         decision: AdmitDecision,
+        state: State,
     ) -> bool:
         action = decision.action
         if action == "process":
@@ -244,7 +246,12 @@ class ChannelManager:
         if action == "follow_up":
             return self._queue_pending(controller, message, decision.reason)
         if action == "steer":
-            if await self.framework.steer_message(message, decision.reason):
+            if controller.active() and await self.framework.steer_message(
+                message=message,
+                session_id=controller.session_id,
+                state=state,
+                reason=decision.reason,
+            ):
                 return False
             return self._queue_pending(controller, message, decision.reason)
         logger.warning("channel.manager admission unknown action={} session_id={}", decision.action, message.session_id)
@@ -288,7 +295,26 @@ class ChannelManager:
         return session_id
 
     async def _run_message(self, message: ChannelMessage) -> None:
-        await self.framework.process_inbound(message, self._stream_output)
+        result = await self.framework.process_inbound(message, self._stream_output)
+        state = getattr(result, "state", {"session_id": message.session_id})
+        await self._promote_steering_to_pending(message.session_id, state)
+
+    async def _promote_steering_to_pending(self, session_id: str, state: State) -> None:
+        steering_inbox = self.framework.get_steering_inbox()
+        if steering_inbox is None:
+            return
+        messages = await steering_inbox.drain_messages(state)
+        if not messages:
+            return
+        controller = self._controller(session_id)
+        for message in messages:
+            controller.add_pending(message)
+        logger.info(
+            "channel.manager queued remaining steering session_id={} pending_count={} steering_count={}",
+            session_id,
+            len(controller.pending_queue),
+            len(messages),
+        )
 
     async def listen_and_run(self) -> None:
         stop_event = asyncio.Event()

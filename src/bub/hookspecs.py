@@ -9,7 +9,7 @@ import pluggy
 from bub.runtime import AsyncStreamEvents
 from bub.tape import AsyncTapeStore, TapeContext, TapeStore
 from bub.turn_admission import AdmitDecision, TurnSnapshot
-from bub.types import Envelope, MessageHandler, State
+from bub.types import Envelope, MessageHandler, State, SteeringInboxProtocol
 
 if TYPE_CHECKING:
     from bub.channels.base import Channel
@@ -101,7 +101,7 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def provide_tape_store(self) -> TapeStore | AsyncTapeStore:
+    def provide_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         """Provide a tape store instance for Bub's conversation recording feature."""
         raise NotImplementedError
 
@@ -129,6 +129,6 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    async def handle_steering(self, message: Envelope, reason: str | None) -> bool:
-        """Handle a steering message that is admitted by the `admit_message` hook with action "steer"."""
+    def provide_steering_inbox(self) -> SteeringInboxProtocol | None:
+        """Provide a steering inbox for the current session, to be used to queue and drain messages."""
         raise NotImplementedError

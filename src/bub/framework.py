@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncGenerator, AsyncIterator, Iterator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -20,7 +20,8 @@ from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.runtime import BubError, ErrorKind
 from bub.tape import AsyncTapeStore, TapeContext, TapeStore
 from bub.turn_admission import AdmitDecision, TurnSnapshot
-from bub.types import Envelope, MessageHandler, OutboundChannelRouter, TurnResult
+from bub.types import Envelope, MessageHandler, OutboundChannelRouter, State, SteeringInboxProtocol, TurnResult
+from bub.utils import maybe_context_manager
 
 if TYPE_CHECKING:
     from bub.channels.base import Channel
@@ -49,6 +50,7 @@ class BubFramework:
         self._plugin_status: dict[str, PluginStatus] = {}
         self._outbound_router: OutboundChannelRouter | None = None
         self._tape_store: TapeStore | AsyncTapeStore | None = None
+        self._steering_inbox: SteeringInboxProtocol | None = None
         configure.load(self.config_file)
 
     def _load_builtin_hooks(self) -> None:
@@ -116,6 +118,15 @@ class BubFramework:
             prompt = content_of(message)
         return cast("str | list[dict[str, Any]]", prompt)
 
+    async def build_state(self, message: Envelope, session_id: str) -> State:
+        state = {"_runtime_workspace": str(self.workspace), "_runtime_steering_inbox": self.get_steering_inbox()}
+        for hook_state in reversed(
+            await self._hook_runtime.call_many("load_state", message=message, session_id=session_id)
+        ):
+            if isinstance(hook_state, dict):
+                state.update(hook_state)
+        return state
+
     async def process_inbound(self, inbound: Envelope, stream_output: bool = False) -> TurnResult:
         """Run one inbound message through hooks and return turn result."""
 
@@ -123,12 +134,7 @@ class BubFramework:
             session_id = await self.resolve_session(inbound)
             if isinstance(inbound, dict):
                 inbound.setdefault("session_id", session_id)
-            state = {"_runtime_workspace": str(self.workspace)}
-            for hook_state in reversed(
-                await self._hook_runtime.call_many("load_state", message=inbound, session_id=session_id)
-            ):
-                if isinstance(hook_state, dict):
-                    state.update(hook_state)
+            state = await self.build_state(inbound, session_id)
             prompt = await self.build_prompt(inbound, session_id, state)
             model_output = ""
             try:
@@ -145,7 +151,13 @@ class BubFramework:
             outbounds = await self._collect_outbounds(inbound, session_id, state, model_output)
             for outbound in outbounds:
                 await self._hook_runtime.call_many("dispatch_outbound", message=outbound)
-            return TurnResult(session_id=session_id, prompt=prompt, model_output=model_output, outbounds=outbounds)
+            return TurnResult(
+                session_id=session_id,
+                prompt=prompt,
+                model_output=model_output,
+                outbounds=outbounds,
+                state=state,
+            )
         except Exception as exc:
             logger.exception("Error processing inbound message")
             await self._hook_runtime.notify_error(stage="turn", error=exc, message=inbound)
@@ -226,6 +238,24 @@ class BubFramework:
             return decision
         raise TypeError("hook.admit_message must return AdmitDecision or None")
 
+    async def steer_message(
+        self,
+        *,
+        message: Envelope,
+        session_id: str,
+        state: State,
+        reason: str | None = None,
+    ) -> bool:
+        inbox = self.get_steering_inbox()
+        if inbox is None:
+            return False
+        state.setdefault("session_id", session_id)
+        if reason is not None:
+            with contextlib.suppress(AttributeError):
+                message.context = {**field_of(message, "context", {}), "steering_reason": reason}
+        await inbox.enqueue_message(message, state)
+        return True
+
     @staticmethod
     def _default_session_id(message: Envelope) -> str:
         session_id = field_of(message, "session_id")
@@ -281,18 +311,21 @@ class BubFramework:
             tape_store = self._hook_runtime.call_first_sync("provide_tape_store")
             # Allow plugins to return either TapeStore/AsyncTapeStore instances or context managers for them
             # This benefits plugins that need to initialize and clean up resources with the tape store.
-            if isinstance(tape_store, AsyncIterator):
-                tape_store = await stack.enter_async_context(contextlib.asynccontextmanager(lambda: tape_store)())
-            elif isinstance(tape_store, Iterator):
-                tape_store = stack.enter_context(contextlib.contextmanager(lambda: tape_store)())
-            self._tape_store = tape_store
+            self._tape_store = await maybe_context_manager(tape_store, stack)
+
+            steering_inbox = self._hook_runtime.call_first_sync("provide_steering_inbox")
+            self._steering_inbox = await maybe_context_manager(steering_inbox, stack)
             try:
                 yield stack
             finally:
                 self._tape_store = None
+                self._steering_inbox = None
 
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         return self._tape_store
+
+    def get_steering_inbox(self) -> SteeringInboxProtocol | None:
+        return self._steering_inbox
 
     def get_system_prompt(self, prompt: str | list[dict], state: dict[str, Any]) -> str:
         return "\n\n".join(
@@ -325,6 +358,3 @@ class BubFramework:
                 raise TypeError("hook.onboard_config must return dict or None")
             configure.merge(current_config, result)
         return configure.validate(current_config)
-
-    async def steer_message(self, message: Envelope, reason: str | None = None) -> Any:
-        return await self._hook_runtime.call_first("handle_steering", message=message, reason=reason)

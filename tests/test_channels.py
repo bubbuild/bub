@@ -16,6 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from bub.builtin.steering import InMemorySteeringInbox
 from bub.channels.base import Channel, Interface, Lifecycle
 from bub.channels.cli import CliChannel
 from bub.channels.cli.renderer import CliRenderer
@@ -25,6 +26,7 @@ from bub.channels.message import ChannelMessage
 from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMessageParser
 from bub.runtime import StreamEvent
 from bub.turn_admission import AdmitDecision, SessionTurnController, TurnSnapshot
+from bub.types import TurnResult
 
 ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[()][A-Za-z])")
 
@@ -117,9 +119,10 @@ class FakeFramework:
         self.process_calls: list[tuple[ChannelMessage, bool]] = []
         self.admission_decisions: list[AdmitDecision | None] = []
         self.admission_calls: list[tuple[str, ChannelMessage, object]] = []
-        self.steering_calls: list[tuple[ChannelMessage, str | None]] = []
+        self.steering_calls: list[tuple[ChannelMessage, str, dict, str | None]] = []
         self.steering_results: list[bool | None] = []
         self.resolved_sessions: dict[str, str] = {}
+        self.steering_inbox = None
         self._hook_runtime = SimpleNamespace(notify_error=self._notify_error)
         self.running_entries = 0
         self.running_exits = 0
@@ -144,7 +147,12 @@ class FakeFramework:
         stop_event = getattr(self, "_stop_event", None)
         if stop_event is not None:
             stop_event.set()
-        return None
+        return TurnResult(
+            session_id=message.session_id,
+            prompt=message.content,
+            model_output="",
+            state={"session_id": message.session_id},
+        )
 
     async def admit_message(self, *, session_id: str, message: ChannelMessage, turn):
         self.admission_calls.append((session_id, message, turn))
@@ -152,11 +160,24 @@ class FakeFramework:
             return self.admission_decisions.pop(0)
         return None
 
+    async def build_state(self, message: ChannelMessage, session_id: str):
+        return {"session_id": session_id}
+
+    def get_steering_inbox(self):
+        return self.steering_inbox
+
     async def resolve_session(self, message: ChannelMessage) -> str:
         return self.resolved_sessions.get(message.session_id, message.session_id)
 
-    async def steer_message(self, message: ChannelMessage, reason: str | None = None) -> bool | None:
-        self.steering_calls.append((message, reason))
+    async def steer_message(
+        self,
+        *,
+        message: ChannelMessage,
+        session_id: str,
+        state: dict,
+        reason: str | None = None,
+    ) -> bool | None:
+        self.steering_calls.append((message, session_id, state, reason))
         if self.steering_results:
             return self.steering_results.pop(0)
         return False
@@ -743,7 +764,9 @@ async def test_channel_manager_admission_steer_temporarily_queues_pending_messag
     admitted = await manager._admit_message(_message("steer me"))
 
     assert admitted is False
-    assert [(message.content, reason) for message, reason in framework.steering_calls] == [("steer me", "correction")]
+    assert [(message.content, reason) for message, _, _, reason in framework.steering_calls] == [
+        ("steer me", "correction")
+    ]
     assert [message.content for message in manager._session_controllers["telegram:chat"].pending_queue] == ["steer me"]
 
     active.cancel()
@@ -768,7 +791,9 @@ async def test_channel_manager_admission_steer_handler_takes_ownership(load_conf
     admitted = await manager._admit_message(_message("steer me"))
 
     assert admitted is False
-    assert [(message.content, reason) for message, reason in framework.steering_calls] == [("steer me", "correction")]
+    assert [(message.content, reason) for message, _, _, reason in framework.steering_calls] == [
+        ("steer me", "correction")
+    ]
     assert not manager._session_controllers["telegram:chat"].pending_queue
 
     active.cancel()
@@ -807,6 +832,23 @@ async def test_channel_manager_admission_follow_up_preserves_pending_order(load_
         "actually do this",
         "then this",
     ]
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_run_message_moves_remaining_steering_to_pending(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    framework.steering_inbox = InMemorySteeringInbox()
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+
+    await framework.steering_inbox.enqueue_message(_message("first steer"), {"session_id": "telegram:chat"})
+    await framework.steering_inbox.enqueue_message(_message("second steer"), {"session_id": "telegram:chat"})
+
+    await manager._run_message(_message("active turn"))
+
+    controller = manager._session_controllers["telegram:chat"]
+    assert [message.content for message in controller.pending_queue] == ["first steer", "second steer"]
+    assert framework.steering_inbox.message_count({"session_id": "telegram:chat"}) == 0
 
 
 def test_turn_admission_queues_preserve_messages_without_capacity_policy() -> None:

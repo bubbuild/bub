@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-from collections import defaultdict, deque
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -13,6 +12,7 @@ import bub.builtin.tools  # noqa: F401  — registers builtin tools (incl. `mode
 from bub.builtin.agent import Agent
 from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
+from bub.builtin.steering import InMemorySteeringInbox
 from bub.runtime import BubError
 from bub.tape import TapeContext
 from bub.tools import REGISTRY, tool
@@ -36,6 +36,7 @@ def _make_agent() -> Agent:
     """Build an Agent with a mocked framework, bypassing real LLM/tape init."""
     framework = MagicMock()
     framework.get_tape_store.return_value = None
+    framework.get_steering_inbox.return_value = None
     framework.get_system_prompt.return_value = ""
 
     async def build_prompt(message: dict[str, Any], session_id: str, state: dict[str, Any]) -> str:
@@ -49,7 +50,6 @@ def _make_agent() -> Agent:
     agent.settings = AgentSettings.model_construct(model="test:model", api_key="k", api_base="b", client_args={})
     agent.framework = framework
     agent.model_runner = _FakeModelRunner(agent.settings)
-    agent._steering_messages = defaultdict(deque)
     return agent
 
 
@@ -281,16 +281,21 @@ async def test_agent_run_model_override_does_not_mutate_default() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_run_injects_steering_messages_once_by_tape_name() -> None:
+async def test_agent_run_injects_steering_messages_once_by_session() -> None:
     agent = _make_agent()
     fork_capture = _ForkCapture()
     fake_tapes = _FakeTapeFactory(fork_capture)
     agent.tape = fake_tapes  # type: ignore[assignment]
+    steering_inbox = InMemorySteeringInbox()
+    agent.framework.get_steering_inbox.return_value = steering_inbox
 
-    agent._steering_messages["test-tape"] = deque()
-    assert agent.enqueue_steering_message("other-tape", {"role": "user", "content": "ignore me"}) is False
-    assert agent.enqueue_steering_message("test-tape", {"role": "user", "content": "first steer"}) is True
-    assert agent.enqueue_steering_message("test-tape", {"role": "assistant", "content": "second steer"}) is True
+    await steering_inbox.enqueue_message(
+        {"session_id": "other-session", "content": "ignore me"}, {"session_id": "other-session"}
+    )
+    await steering_inbox.enqueue_message({"session_id": "user/s1", "content": "first steer"}, {"session_id": "user/s1"})
+    await steering_inbox.enqueue_message(
+        {"session_id": "user/s1", "content": "second steer"}, {"session_id": "user/s1"}
+    )
 
     result = await agent.run_stream(session_id="user/s1", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
     [event async for event in result]

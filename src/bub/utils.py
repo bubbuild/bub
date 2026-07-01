@@ -1,5 +1,6 @@
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import AsyncIterator, Coroutine, Iterator
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -37,3 +38,12 @@ def get_entry_text(entry: TapeEntry) -> str:
     import yaml
 
     return yaml.safe_dump(entry.payload)
+
+
+async def maybe_context_manager(obj: Any, stack: AsyncExitStack) -> Any:
+    """Enter the context manager if the obj is any kind of iterator, otherwise return the obj as is."""
+    if isinstance(obj, AsyncIterator):
+        obj = await stack.enter_async_context(asynccontextmanager(lambda: obj)())
+    elif isinstance(obj, Iterator):
+        obj = stack.enter_context(contextmanager(lambda: obj)())
+    return obj

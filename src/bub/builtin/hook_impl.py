@@ -10,6 +10,7 @@ from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context
 from bub.builtin.settings import DEFAULT_MODEL
+from bub.builtin.steering import InMemorySteeringInbox
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.envelope import content_of, field_of
@@ -18,7 +19,7 @@ from bub.hookspecs import hookimpl
 from bub.runtime import AsyncStreamEvents
 from bub.tape import TapeContext, TapeStore
 from bub.turn_admission import AdmitDecision, TurnSnapshot
-from bub.types import Envelope, MessageHandler, State
+from bub.types import Envelope, MessageHandler, State, SteeringInboxProtocol
 
 AGENTS_FILE_NAME = "AGENTS.md"
 MODEL_PROVIDER_CHOICES: tuple[str, ...] = (
@@ -326,6 +327,10 @@ class BuiltinImpl:
         return default_tape_context()
 
     @hookimpl
+    def provide_steering_inbox(self) -> SteeringInboxProtocol:
+        return InMemorySteeringInbox()
+
+    @hookimpl
     async def admit_message(
         self,
         session_id: str,
@@ -336,11 +341,3 @@ class BuiltinImpl:
         if outbound_router is None:
             return None
         return await outbound_router.admit_channel_message(session_id=session_id, message=message, turn=turn)
-
-    @hookimpl
-    async def handle_steering(self, message: Envelope, reason: str | None) -> bool:
-        """Handle a steering message that is admitted by the `admit_message` hook with action "steer"."""
-        agent = self._get_agent()
-        context = field_of(message, "context", {})
-        thread_id = field_of(context, "thread_id") if isinstance(context, dict) else None
-        return agent.enqueue_steering_message(str(thread_id or field_of(message, "session_id", "")), message)

@@ -37,3 +37,10 @@ class TurnResult:
     prompt: str | list[dict[str, Any]]
     model_output: str
     outbounds: list[Envelope] = field(default_factory=list)
+    state: State = field(default_factory=dict)
+
+
+class SteeringInboxProtocol(Protocol):
+    async def enqueue_message(self, message: Envelope, state: State) -> None: ...
+    async def drain_messages(self, state: State) -> list[Envelope]: ...
+    def message_count(self, state: State) -> int: ...
