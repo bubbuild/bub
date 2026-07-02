@@ -20,6 +20,7 @@ from bub.configure import ensure_config
 from bub.framework import BubFramework
 from bub.hookspecs import hookimpl
 from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
+from bub.runtime_options import RuntimeChoice, RuntimeOptions
 from bub.turn_admission import AdmitDecision, TurnSnapshot
 
 
@@ -310,6 +311,43 @@ async def test_framework_admit_message_calls_hook_with_snapshot() -> None:
     )
 
     assert decision == AdmitDecision("follow_up", reason="busy")
+
+
+@pytest.mark.asyncio
+async def test_get_runtime_options_collects_models_by_priority(tmp_path: Path) -> None:
+    framework = BubFramework()
+
+    class LowPriorityPlugin:
+        @hookimpl
+        def provide_runtime_options(self, session_id, workspace):
+            assert session_id == "session"
+            assert workspace == tmp_path.resolve()
+            return RuntimeOptions(
+                models=[RuntimeChoice(id="low", name="Low")],
+                current_model="low",
+            )
+
+    class HighPriorityPlugin:
+        @hookimpl
+        def provide_runtime_options(self, session_id, workspace):
+            assert session_id == "session"
+            assert workspace == tmp_path.resolve()
+            return RuntimeOptions(
+                models=[RuntimeChoice(id="high", name="High"), RuntimeChoice(id="mid", name="Mid")],
+                current_model="high",
+            )
+
+    framework._plugin_manager.register(LowPriorityPlugin(), name="low")
+    framework._plugin_manager.register(HighPriorityPlugin(), name="high")
+
+    options = await framework.get_runtime_options(session_id="session", workspace=tmp_path)
+
+    assert [(choice.id, choice.name) for choice in options.models] == [
+        ("high", "High"),
+        ("mid", "Mid"),
+        ("low", "Low"),
+    ]
+    assert options.current_model == "high"
 
 
 @pytest.mark.asyncio

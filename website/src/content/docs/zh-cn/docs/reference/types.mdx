@@ -95,6 +95,28 @@ class TurnResult:
 
 `BubFramework.process_inbound` 的返回值。`prompt` 是解析后的 prompt。源码标注当前仍是 `str`，但 `build_prompt` hook 可以返回多模态内容片段列表，运行时会保留这个 list。`outbounds` 是所有 `render_outbound` 实现结果的扁平拼接。
 
+## Runtime Option 类型
+
+这些 dataclass 位于 `src/bub/runtime_options.py`，并从 `bub` 导出。它们描述协议无关的运行时选择项，供 channel 或 adapter 展示给用户。
+
+```python
+@dataclass(frozen=True)
+class RuntimeChoice:
+    id: str
+    name: str | None = None
+    description: str | None = None
+    meta: dict[str, Any] | None = None
+```
+
+```python
+@dataclass(frozen=True)
+class RuntimeOptions:
+    models: list[RuntimeChoice] = field(default_factory=list)
+    current_model: str | None = None
+```
+
+`id` 是 adapter 应用运行时选择时可使用的稳定值。Bub 不持有这些选项的 UI 状态；调用方保存用户选择，并通过自己的集成方式应用选择。
+
 ## Turn Admission 类型
 
 这些类型从 `bub` 导出,定义在 `src/bub/turn_admission.py`。
@@ -189,6 +211,9 @@ class BubFramework:
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None: ...
     def get_system_prompt(self, prompt: str | list[dict], state: dict[str, Any]) -> str: ...
     def hook_report(self) -> dict[str, list[str]]: ...
+    async def get_runtime_options(
+        self, *, session_id: str, workspace: str | Path | None = None
+    ) -> RuntimeOptions: ...
     async def admit_message(
         self, *, session_id: str, message: Envelope, turn: TurnSnapshot
     ) -> AdmitDecision | None: ...
@@ -212,6 +237,7 @@ class BubFramework:
 | `get_tape_store()` | 返回 `running()` 中启用的 tape store;在作用域之外返回 `None`。 |
 | `get_system_prompt(prompt, state)` | 同步调用 `system_prompt` 实现,反转后用 `\n\n` 拼接非空片段。 |
 | `hook_report()` | 返回 hook 名 → 已发现的 adapter 列表。`bub hooks` 的数据来源；不要只根据该输出顺序推断运行时优先级。 |
+| `get_runtime_options(...)` | 从 hooks 收集协议无关的运行时选择项，并按 hook 优先级顺序追加模型选项。 |
 | `admit_message(...)` | 调用 `admit_message` hook 并返回选中的 decision。由 `ChannelManager` 使用。 |
 | `running()` | 异步 context manager;一次性解析 `provide_tape_store` 并在作用域内绑定 tape store。 |
 | `bind_outbound_router(router)` | 绑定(或传 `None` 解绑)`OutboundChannelRouter`。`ChannelManager` 在启停时调用。 |
@@ -228,6 +254,8 @@ class BubFramework:
 | --- | --- | --- |
 | `BubFramework` | class | 框架运行时(见上)。 |
 | `AdmitDecision` | dataclass | `admit_message` 返回的 decision。 |
+| `RuntimeChoice` | dataclass | 一个可选择的运行时值。 |
+| `RuntimeOptions` | dataclass | 可用模型运行时选择项。 |
 | `Settings` | class | 插件配置基类(从 `bub.configure` 重新导出)。 |
 | `TurnSnapshot` | dataclass | 传给 `admit_message` 的快照。 |
 | `config` | decorator | `@config(name="...")` 注册一个用于 YAML/env 验证的配置类。 |

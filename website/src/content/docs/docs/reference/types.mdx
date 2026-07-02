@@ -95,6 +95,28 @@ class TurnResult:
 
 Returned by `BubFramework.process_inbound`. `prompt` is the resolved prompt. The source annotation is currently `str`, but a `build_prompt` hook may return multimodal content parts and the runtime preserves that list. `outbounds` is the flattened result of every `render_outbound` impl.
 
+## Runtime Option Types
+
+These dataclasses live in `src/bub/runtime_options.py` and are exported from `bub`. They describe protocol-neutral runtime choices that a channel or adapter may present to a user.
+
+```python
+@dataclass(frozen=True)
+class RuntimeChoice:
+    id: str
+    name: str | None = None
+    description: str | None = None
+    meta: dict[str, Any] | None = None
+```
+
+```python
+@dataclass(frozen=True)
+class RuntimeOptions:
+    models: list[RuntimeChoice] = field(default_factory=list)
+    current_model: str | None = None
+```
+
+`id` is the stable value an adapter may use when applying a runtime choice. Bub does not own UI state for these choices; callers store selections and apply them through their own integration.
+
 ## Turn Admission Types
 
 These types are exported from `bub` and defined in `src/bub/turn_admission.py`.
@@ -189,6 +211,9 @@ class BubFramework:
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None: ...
     def get_system_prompt(self, prompt: str | list[dict], state: dict[str, Any]) -> str: ...
     def hook_report(self) -> dict[str, list[str]]: ...
+    async def get_runtime_options(
+        self, *, session_id: str, workspace: str | Path | None = None
+    ) -> RuntimeOptions: ...
     async def admit_message(
         self, *, session_id: str, message: Envelope, turn: TurnSnapshot
     ) -> AdmitDecision | None: ...
@@ -212,6 +237,7 @@ class BubFramework:
 | `get_tape_store()` | Return the tape store entered by `running()`, or `None` outside the scope. |
 | `get_system_prompt(prompt, state)` | Run `system_prompt` impls (sync), reverse, and join non-empty results with `\n\n`. |
 | `hook_report()` | Map hook name → discovered adapter names. Backs `bub hooks`; read the hook reference before treating this order as runtime precedence. |
+| `get_runtime_options(...)` | Collect protocol-neutral runtime choices from hooks, appending model choices in hook priority order. |
 | `admit_message(...)` | Call the `admit_message` hook and return the selected decision. Used by `ChannelManager`. |
 | `running()` | Async context manager; resolves `provide_tape_store` once and binds the resulting store for the duration. |
 | `bind_outbound_router(router)` | Attach (or detach with `None`) the `OutboundChannelRouter`. The `ChannelManager` calls this on start/stop. |
@@ -228,6 +254,8 @@ From `src/bub/__init__.py`:
 | --- | --- | --- |
 | `BubFramework` | class | Framework runtime (above). |
 | `AdmitDecision` | dataclass | Decision returned by `admit_message`. |
+| `RuntimeChoice` | dataclass | One selectable runtime value. |
+| `RuntimeOptions` | dataclass | Available runtime choices for models. |
 | `Settings` | class | Base class for plugin settings (re-exported from `bub.configure`). |
 | `TurnSnapshot` | dataclass | Snapshot passed to `admit_message`. |
 | `config` | decorator | `@config(name="...")` registers a settings class for YAML/env validation. |

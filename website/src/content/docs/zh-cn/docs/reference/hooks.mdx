@@ -25,6 +25,7 @@ description: BubHookSpecs 中每个钩子的类型、签名、返回值与调用
 | `dispatch_outbound` | broadcast | `(message: Envelope) -> bool` | sent flag | `process_inbound` per outbound | 每个 outbound 都会广播给所有实现。 |
 | `register_cli_commands` | sync-only consumer | `(app: typer.Typer) -> None` | none | `BubFramework.create_cli_app` (`call_many_sync`) | 仅用于启动期;async 实现会被跳过并产生告警。 |
 | `onboard_config` | sync-only consumer (custom merge) | `(current_config: dict) -> dict \| None` | config fragment | `BubFramework.collect_onboard_config` | 按优先级遍历;每个返回值通过 `configure.merge` 合并;非 dict 返回会抛出 `TypeError`。 |
+| `provide_runtime_options` | broadcast | `(session_id: str, workspace: Path \| None) -> RuntimeOptions \| None` | runtime choices | `BubFramework.get_runtime_options` | 模型选项会按 hook 优先级顺序追加。选择状态由调用方或 adapter 自己持有。 |
 | `on_error` | observer | `(stage: str, error: Exception, message: Envelope \| None) -> None` | none | `HookRuntime.notify_error` / `notify_error_sync` | `on_error` 实现内部抛出的异常会被吞掉并写日志,确保其他观察者继续运行。 |
 | `system_prompt` | broadcast (joined) | `(prompt, state) -> str` | prompt fragment | `BubFramework.get_system_prompt` (`call_many_sync`) | 结果先反转再用 `\n\n` 拼接,只保留真值片段。 |
 | `provide_tape_store` | firstresult | `() -> TapeStore \| AsyncTapeStore` | tape store | `BubFramework.running()` | 仅在 runtime 作用域开启时解析一次;返回同步或异步迭代器时会被作为 context manager 进入。 |

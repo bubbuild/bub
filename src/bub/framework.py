@@ -18,6 +18,7 @@ from bub.envelope import content_of, field_of, unpack_batch
 from bub.hook_runtime import _SKIP_VALUE, HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.runtime import BubError, ErrorKind
+from bub.runtime_options import RuntimeOptions
 from bub.tape import AsyncTapeStore, TapeContext, TapeStore
 from bub.turn_admission import AdmitDecision, TurnSnapshot
 from bub.types import Envelope, MessageHandler, OutboundChannelRouter, State, SteeringInboxProtocol, TurnResult
@@ -237,6 +238,38 @@ class BubFramework:
         if decision is None or isinstance(decision, AdmitDecision):
             return decision
         raise TypeError("hook.admit_message must return AdmitDecision or None")
+
+    async def get_runtime_options(
+        self,
+        *,
+        session_id: str,
+        workspace: str | Path | None = None,
+    ) -> RuntimeOptions:
+        """Collect protocol-neutral runtime choices for one session."""
+
+        resolved_workspace = self._resolve_workspace(workspace)
+        results = await self._hook_runtime.call_many(
+            "provide_runtime_options",
+            session_id=session_id,
+            workspace=resolved_workspace,
+        )
+
+        merged = RuntimeOptions()
+        for result in results:
+            if result is None:
+                continue
+            if not isinstance(result, RuntimeOptions):
+                raise TypeError("hook.provide_runtime_options must return RuntimeOptions or None")
+            merged = RuntimeOptions(
+                models=[*merged.models, *result.models],
+                current_model=merged.current_model or result.current_model,
+            )
+        return merged
+
+    def _resolve_workspace(self, workspace: str | Path | None) -> Path:
+        if workspace is None:
+            return self.workspace
+        return Path(workspace).expanduser().resolve()
 
     async def steer_message(
         self,

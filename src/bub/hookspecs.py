@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pluggy
 
 from bub.runtime import AsyncStreamEvents
+from bub.runtime_options import RuntimeOptions
 from bub.tape import AsyncTapeStore, TapeContext, TapeStore
 from bub.turn_admission import AdmitDecision, TurnSnapshot
 from bub.types import Envelope, MessageHandler, State, SteeringInboxProtocol
@@ -90,6 +92,14 @@ class BubHookSpecs:
     @hookspec
     def onboard_config(self, current_config: dict[str, Any]) -> dict[str, Any] | None:
         """Collect a plugin config fragment for the interactive onboarding command."""
+
+    @hookspec
+    def provide_runtime_options(
+        self,
+        session_id: str,
+        workspace: Path | None,
+    ) -> RuntimeOptions | None:
+        """Provide protocol-neutral runtime choices for a session."""
 
     @hookspec
     def on_error(self, stage: str, error: Exception, message: Envelope | None) -> None:
