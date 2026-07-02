@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
 from any_llm import AnyLLM
+from any_llm.providers.openai.base import BaseOpenAIProvider
 from any_llm.types.completion import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -34,6 +35,19 @@ CONTEXT_LENGTH_PATTERNS = re.compile(
 )
 TOOL_ARGUMENTS_ADAPTER = TypeAdapter(dict[str, Any])
 CompletionResult = ChatCompletion | ParsedChatCompletion[Any] | AsyncIterator[ChatCompletionChunk]
+
+
+def _stream_usage_options(llm: AnyLLM, *, stream: bool) -> dict[str, Any] | None:
+    """Make streaming completions report token usage.
+
+    OpenAI-style streaming responses omit the `usage` block unless the request
+    sets `stream_options.include_usage`; without it every streamed run records
+    zero tokens (and zero cost). Only OpenAI-compatible providers accept the
+    field, so gate on the provider base class — anthropic/gemini reject it.
+    """
+    if stream and isinstance(llm, BaseOpenAIProvider):
+        return {"include_usage": True}
+    return None
 
 
 class ModelRunner:
@@ -61,12 +75,14 @@ class ModelRunner:
         completion_error: Exception | None = None
         for index, (candidate, llm) in enumerate(clients):
             try:
+                streaming = llm.SUPPORTS_COMPLETION_STREAMING
                 return await llm.acompletion(
                     model=candidate.model_id,
                     messages=completion_messages,
                     tools=tool_payloads,
                     max_tokens=self.settings.max_tokens,
-                    stream=llm.SUPPORTS_COMPLETION_STREAMING,
+                    stream=streaming,
+                    stream_options=_stream_usage_options(llm, stream=streaming),
                 )
             except Exception as exc:
                 if completion_error is None:
@@ -85,6 +101,7 @@ class ModelRunner:
         tools: list[Tool],
         system_prompt: str | None,
         prompt: str | list[dict],
+        steering_messages: list[list[dict[str, Any]] | str] | None = None,
     ) -> AsyncStreamEvents:
         state = StreamState()
 
@@ -96,6 +113,7 @@ class ModelRunner:
                 system_prompt=system_prompt,
                 prompt=prompt,
                 model=model,
+                steering_messages=steering_messages,
             )
             output = ModelOutputAccumulator()
             async with asyncio.timeout(self.settings.model_timeout_seconds):
@@ -159,6 +177,7 @@ class ModelRunner:
         system_prompt: str | None,
         prompt: str | list[dict],
         model: str,
+        steering_messages: list[list[dict[str, Any]] | str] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         prompt_message: dict[str, Any] = {"role": "user", "content": prompt}
         try:
@@ -172,10 +191,12 @@ class ModelRunner:
                 model=model,
             )
             raise
+        steering_messages_native = [{"role": "user", "content": message} for message in (steering_messages or [])]
         if system_prompt:
             messages = [{"role": "system", "content": system_prompt}, *messages]
-        messages.append(prompt_message)
-        return messages, [prompt_message]
+        new_messages = [*steering_messages_native, prompt_message]
+        messages.extend(new_messages)
+        return messages, new_messages
 
     async def record_context_error(
         self,

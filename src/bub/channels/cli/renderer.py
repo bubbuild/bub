@@ -52,10 +52,11 @@ class CliRenderer:
             return
         self.console.print(f"[red bold]Error >[/]\n{text}")
 
-    def input_echo(self, prompt: str, text: str) -> None:
+    def input_echo(self, prompt: str, text: str, steering: bool = False) -> None:
         if not text.strip():
             return
-        self.console.print(f"[bold]{prompt}[/]{text}", new_line_start=True)
+        mid = "[grey](steering)[/] " if steering else ""
+        self.console.print(f"[dim][bold]{prompt}[/]{mid}{text}[/]", new_line_start=True)
 
     def tool_call_start(self, *, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
         self.console.print(Text(_format_tool_call(name, args, kwargs), style="magenta"), new_line_start=True)

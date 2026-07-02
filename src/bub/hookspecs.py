@@ -11,7 +11,7 @@ from bub.runtime import AsyncStreamEvents
 from bub.runtime_options import RuntimeOptions
 from bub.tape import AsyncTapeStore, TapeContext, TapeStore
 from bub.turn_admission import AdmitDecision, TurnSnapshot
-from bub.types import Envelope, MessageHandler, State
+from bub.types import Envelope, MessageHandler, State, SteeringInboxProtocol
 
 if TYPE_CHECKING:
     from bub.channels.base import Channel
@@ -45,7 +45,13 @@ class BubHookSpecs:
 
     @hookspec(firstresult=True)
     def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> AsyncStreamEvents:
-        """Run model for one turn and return a stream of events. Should not be implemented if `run_model` is implemented."""
+        """Run model for one turn and return a stream of events. Should not be implemented if `run_model` is implemented.
+
+        Implementations may honor a runtime model override by reading
+        ``state["model"]`` (any ``provider:model`` string). The value takes
+        effect on the turn in which it is read, so a model switched mid-turn via
+        the `,model <id>` command applies from the *next* turn.
+        """
         raise NotImplementedError
 
     @hookspec
@@ -105,7 +111,7 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def provide_tape_store(self) -> TapeStore | AsyncTapeStore:
+    def provide_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         """Provide a tape store instance for Bub's conversation recording feature."""
         raise NotImplementedError
 
@@ -130,4 +136,9 @@ class BubHookSpecs:
 
         Return ``None`` to keep Bub's default concurrent scheduling behavior.
         """
+        raise NotImplementedError
+
+    @hookspec(firstresult=True)
+    def provide_steering_inbox(self) -> SteeringInboxProtocol | None:
+        """Provide a steering inbox for the current session, to be used to queue and drain messages."""
         raise NotImplementedError

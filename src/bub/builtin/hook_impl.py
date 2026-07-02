@@ -10,6 +10,7 @@ from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context
 from bub.builtin.settings import DEFAULT_MODEL, load_settings
+from bub.builtin.steering import InMemorySteeringInbox
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.envelope import content_of, field_of
@@ -19,7 +20,7 @@ from bub.runtime import AsyncStreamEvents
 from bub.runtime_options import RuntimeChoice, RuntimeOptions
 from bub.tape import TapeContext, TapeStore
 from bub.turn_admission import AdmitDecision, TurnSnapshot
-from bub.types import Envelope, MessageHandler, State
+from bub.types import Envelope, MessageHandler, State, SteeringInboxProtocol
 
 AGENTS_FILE_NAME = "AGENTS.md"
 MODEL_PROVIDER_CHOICES: tuple[str, ...] = (
@@ -70,6 +71,23 @@ class BuiltinImpl:
         if self._agent is None:
             self._agent = Agent(self.framework)
         return self._agent
+
+    async def _recover_session_model(self, session_id: str) -> str | None:
+        """Recover the latest per-session model override recorded on the session tape.
+
+        The ``model`` tool records each switch as a ``model_switch`` event on the
+        session's tape. Scanning that tape here (before the per-turn fork exists)
+        reads the persisted store, so a choice from a prior turn or restart is
+        restored. Returns ``None`` when nothing was recorded, so a fresh session
+        never inherits another session's model.
+        """
+        session = self._get_agent().tape.session_tape(session_id, self.framework.workspace)
+        entries = list(await session.store.fetch_all(session.query().kinds("event")))
+        for entry in reversed(entries):
+            if entry.kind == "event" and entry.payload.get("name") == "model_switch":
+                model = (entry.payload.get("data") or {}).get("model")
+                return str(model) if model else None
+        return None
 
     @staticmethod
     async def _discard_message(_: ChannelMessage) -> None:
@@ -125,8 +143,15 @@ class BuiltinImpl:
         state = {"session_id": session_id, "_runtime_agent": self._get_agent()}
         if context := field_of(message, "context_str"):
             state["context"] = context
+        # Carry over a previously recorded per-session model override from the
+        # session tape. Only set when a prior turn actually recorded one, so a
+        # fresh/unknown session never inherits another session's model.
+        if model := await self._recover_session_model(session_id):
+            state["model"] = model
         if model := field_of(message, "runtime", {}).get("model"):
-            state["_runtime_model"] = model
+            state["model"] = model
+        if thread_id := field_of(message, "context", {}).get("thread_id"):
+            state["_runtime_thread_id"] = thread_id
         return state
 
     @hookimpl
@@ -135,6 +160,9 @@ class BuiltinImpl:
         lifespan = field_of(message, "lifespan")
         if lifespan is not None:
             await lifespan.__aexit__(tp, value, traceback)
+        # The per-session model override is persisted on the session tape by the
+        # ``model`` tool itself (a ``model_switch`` event, merged back at end of
+        # turn), so nothing to write here — this hook only closes the lifespan.
 
     @hookimpl
     async def build_prompt(self, message: ChannelMessage, session_id: str, state: State) -> str | list[dict]:
@@ -171,7 +199,7 @@ class BuiltinImpl:
             session_id=session_id,
             prompt=prompt,
             state=state,
-            model=state.get("_runtime_model"),
+            model=state.get("model"),
         )
 
     @hookimpl
@@ -324,7 +352,11 @@ class BuiltinImpl:
         return default_tape_context()
 
     @hookimpl
-    def admit_message(
+    def provide_steering_inbox(self) -> SteeringInboxProtocol:
+        return InMemorySteeringInbox()
+
+    @hookimpl
+    async def admit_message(
         self,
         session_id: str,
         message: Envelope,
@@ -333,4 +365,4 @@ class BuiltinImpl:
         outbound_router = self.framework._outbound_router
         if outbound_router is None:
             return None
-        return outbound_router.admit_channel_message(session_id=session_id, message=message, turn=turn)
+        return await outbound_router.admit_channel_message(session_id=session_id, message=message, turn=turn)

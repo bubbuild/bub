@@ -403,6 +403,22 @@ async def quit_tool(*, context: ToolContext) -> str:
     return "Session tasks stopped."
 
 
+@tool(name="model", context=True)
+async def set_model(model_id: str, *, context: ToolContext) -> str:
+    """Switch the model for THIS session. Invoke as the `,model <model_id>` command.
+
+    Takes effect on the NEXT turn and persists across restarts. Pass any
+    ``provider:model`` string (for example ``openai:gpt-4o`` or
+    ``openrouter:openrouter/free``). An invalid model surfaces as an error on the
+    next turn — run `,model <valid_id>` again to recover.
+    """
+    context.state["model"] = model_id
+    # Persist on the session tape (merged back at end of turn); load_state
+    # recovers the latest `model_switch` event next turn / after restart.
+    await context.tape.append_event("model_switch", {"model": model_id})
+    return f"Session model set to {model_id} (applies from the next turn)."
+
+
 def _resolve_path(context: ToolContext, raw_path: str) -> Path:
     workspace = context.state.get("_runtime_workspace")
     path = Path(raw_path).expanduser()

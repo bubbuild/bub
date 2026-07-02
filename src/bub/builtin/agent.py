@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 import shlex
@@ -22,6 +23,7 @@ from bub.builtin.model_runner import (
 )
 from bub.builtin.settings import load_settings
 from bub.builtin.tape import Tape
+from bub.envelope import field_of
 from bub.framework import BubFramework
 from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
 from bub.skills import discover_skills, render_skills_prompt
@@ -95,6 +97,7 @@ class Agent:
                 StreamEvent("final", {"text": "error: empty prompt", "ok": False}),
             ])
 
+        state.setdefault("session_id", session_id)
         tape = self.tape.session_tape(
             session_id, workspace_from_state(state), context=replace(self.tape.context, state=state)
         )
@@ -117,6 +120,7 @@ class Agent:
                 allowed_skills=allowed_skills,
                 allowed_tools=allowed_tools,
             )
+
         return self._events_with_callback(events, callback=stack.aclose)
 
     async def _run_command(self, tape: Tape, *, line: str) -> str:
@@ -273,6 +277,7 @@ class Agent:
             state.error = output.error
             state.usage = output.usage
             elapsed_ms = int((time.monotonic() - start) * 1000)
+            should_continue = should_continue or self._has_steering_messages(tape.context.state)
             if not should_continue:
                 await tape.append_event(
                     "loop.step",
@@ -355,12 +360,23 @@ class Agent:
         resolved_model = model or self.settings.model
 
         model_tools_for_call = model_tools(tools)
+        steering_inbox = self.framework.get_steering_inbox()
+        steering_envelopes = await steering_inbox.drain_messages(tape.context.state) if steering_inbox else []
+        steering_messages = list(
+            await asyncio.gather(*[
+                self.framework.build_prompt(
+                    message, session_id=field_of(message, "session_id"), state=tape.context.state
+                )
+                for message in steering_envelopes
+            ])
+        )
         return self.model_runner.run(
             tape=tape,
             model=resolved_model,
             tools=model_tools_for_call,
             system_prompt=system_prompt,
             prompt=prompt,
+            steering_messages=steering_messages,
         )
 
     def _system_prompt(
@@ -383,6 +399,10 @@ class Agent:
         if "context" in tape.context.state:
             return f"{CONTINUE_PROMPT} [context: {tape.context.state['context']}]"
         return CONTINUE_PROMPT
+
+    def _has_steering_messages(self, state: State) -> bool:
+        steering_inbox = self.framework.get_steering_inbox()
+        return bool(steering_inbox and steering_inbox.message_count(state) > 0)
 
 
 @dataclass(frozen=True)

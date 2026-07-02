@@ -21,7 +21,7 @@ class OutboundChannelRouter(Protocol):
     async def dispatch_output(self, message: Envelope) -> bool: ...
     def wrap_stream(self, message: Envelope, stream: AsyncIterable[StreamEvent]) -> AsyncIterable[StreamEvent]: ...
     async def quit(self, session_id: str) -> None: ...
-    def admit_channel_message(
+    async def admit_channel_message(
         self,
         session_id: str,
         message: Envelope,
@@ -34,6 +34,13 @@ class TurnResult:
     """Result of one complete message turn."""
 
     session_id: str
-    prompt: str
+    prompt: str | list[dict[str, Any]]
     model_output: str
     outbounds: list[Envelope] = field(default_factory=list)
+    state: State = field(default_factory=dict)
+
+
+class SteeringInboxProtocol(Protocol):
+    async def enqueue_message(self, message: Envelope, state: State) -> None: ...
+    async def drain_messages(self, state: State) -> list[Envelope]: ...
+    def message_count(self, state: State) -> int: ...
