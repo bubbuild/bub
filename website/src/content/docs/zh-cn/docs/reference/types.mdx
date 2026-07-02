@@ -115,7 +115,7 @@ class RuntimeOptions:
     current_model: str | None = None
 ```
 
-`id` 是 turn 运行时由 channel 或 adapter 传回的稳定值。Bub 不持有这些选项的 UI 状态；调用方保存用户选择，并在 inbound message 的 runtime metadata 中传入。
+`id` 是 adapter 应用运行时选择时可使用的稳定值。Bub 不持有这些选项的 UI 状态；调用方保存用户选择，并通过自己的集成方式应用选择。
 
 ## Turn Admission 类型
 

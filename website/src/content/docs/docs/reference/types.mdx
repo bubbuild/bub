@@ -115,7 +115,7 @@ class RuntimeOptions:
     current_model: str | None = None
 ```
 
-`id` is the stable value passed back through the channel or adapter when a turn runs. Bub does not own UI state for these choices; callers store selections and pass them on inbound messages as runtime metadata.
+`id` is the stable value an adapter may use when applying a runtime choice. Bub does not own UI state for these choices; callers store selections and apply them through their own integration.
 
 ## Turn Admission Types
 

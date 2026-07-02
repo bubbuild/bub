@@ -229,8 +229,8 @@ async def test_runtime_model_override_is_passed_to_agent(tmp_path: Path) -> None
         channel="cli",
         chat_id="room",
         content="hello",
-        runtime={"model": "anthropic:claude-sonnet-4-5"},
     )
+    message.runtime = {"model": "anthropic:claude-sonnet-4-5"}
 
     state = await impl.load_state(message=message, session_id="session")
     stream = await impl.run_model_stream(prompt="prompt", session_id="session", state=state)

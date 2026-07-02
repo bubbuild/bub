@@ -41,7 +41,6 @@ class ChannelMessage:
     is_active: bool = False
     kind: MessageKind = "normal"
     context: dict[str, Any] = field(default_factory=dict)
-    runtime: dict[str, Any] = field(default_factory=dict)
     media: list[MediaItem] = field(default_factory=list)
     lifespan: contextlib.AbstractAsyncContextManager | None = None
     output_channel: str = ""
