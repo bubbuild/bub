@@ -207,7 +207,7 @@ class ChannelManager:
             await self.framework._hook_runtime.notify_error(stage="resolve_session", error=exc, message=message)
             return False
         controller = self._controller(session_id)
-        state = await self.framework.build_state(message, session_id)
+        state = self._admission_state(message, session_id)
         try:
             decision = await self.framework.admit_message(
                 session_id=session_id,
@@ -293,6 +293,14 @@ class ChannelManager:
         session_id = await self.framework.resolve_session(message)
         message.session_id = session_id
         return session_id
+
+    @staticmethod
+    def _admission_state(message: Envelope, session_id: str) -> State:
+        state: State = {"session_id": session_id}
+        context = field_of(message, "context", {})
+        if isinstance(context, dict) and (thread_id := context.get("thread_id")):
+            state["_runtime_thread_id"] = thread_id
+        return state
 
     async def _run_message(self, message: ChannelMessage) -> None:
         result = await self.framework.process_inbound(message, self._stream_output)

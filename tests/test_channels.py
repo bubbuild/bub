@@ -194,6 +194,7 @@ def _message(
     chat_id: str = "chat",
     is_active: bool = False,
     kind: str = "normal",
+    lifespan: contextlib.AbstractAsyncContextManager | None = None,
 ) -> ChannelMessage:
     return ChannelMessage(
         session_id=session_id,
@@ -202,6 +203,7 @@ def _message(
         content=content,
         is_active=is_active,
         kind=kind,
+        lifespan=lifespan,
     )
 
 
@@ -742,6 +744,38 @@ async def test_channel_manager_admission_follow_up_queues_pending_message(load_c
 
     assert admitted is False
     assert [message.content for message in manager._session_controllers["telegram:chat"].pending_queue] == ["queued"]
+
+    active.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await active
+
+
+@pytest.mark.asyncio
+async def test_channel_manager_admission_does_not_enter_message_lifespan(load_config) -> None:
+    _load_channel_config(load_config, enabled_channels="telegram")
+    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    framework.admission_decisions.append(AdmitDecision("follow_up", reason="serial"))
+    manager = ChannelManager(framework, enabled_channels=["telegram"])
+    events: list[str] = []
+
+    @contextlib.asynccontextmanager
+    async def lifespan():
+        events.append("enter")
+        try:
+            yield
+        finally:
+            events.append("exit")
+
+    async def never_finish() -> None:
+        await asyncio.sleep(10)
+
+    active = asyncio.create_task(never_finish())
+    manager._controller("telegram:chat").active_tasks = {active}
+
+    admitted = await manager._admit_message(_message("queued", lifespan=lifespan()))
+
+    assert admitted is False
+    assert events == []
 
     active.cancel()
     with contextlib.suppress(asyncio.CancelledError):
