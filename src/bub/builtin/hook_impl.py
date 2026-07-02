@@ -148,7 +148,7 @@ class BuiltinImpl:
         # fresh/unknown session never inherits another session's model.
         if model := await self._recover_session_model(session_id):
             state["model"] = model
-        if model := field_of(message, "runtime", {}).get("model"):
+        if model := field_of(message, "context", {}).get("model"):
             state["model"] = model
         if thread_id := field_of(message, "context", {}).get("thread_id"):
             state["_runtime_thread_id"] = thread_id
