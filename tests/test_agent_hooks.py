@@ -265,7 +265,7 @@ class TestWrapToolCall:
         assert execution.tool_results == ["cached"]
 
     @pytest.mark.asyncio
-    async def test_wrappers_nest_first_registered_outermost(self) -> None:
+    async def test_wrappers_nest_last_registered_outermost(self) -> None:
         order: list[str] = []
 
         class Outer:
@@ -312,3 +312,143 @@ class TestBeforeLlmCallFinish:
         _req, decision = await hooks.before_llm_call(request(), state={})
         assert decision is not None
         assert decision.text == "call budget exhausted"
+
+
+class TestModelRunnerHookIntegration:
+    """Regression tests for PR #255 review findings (effective request, exactly-once)."""
+
+    def _runner_and_tape(self, hooks: AgentHooks, captured: dict):
+        import bub
+        from bub.builtin.model_runner import ModelRunner
+        from bub.builtin.settings import AgentSettings
+        from bub.builtin.tape import Tape
+        from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
+
+        class FakeRunner(ModelRunner):
+            async def completion_response(self, *, model, messages, tools, max_tokens=None):
+                captured.update(model=model, max_tokens=max_tokens)
+
+                async def chunks():
+                    return
+                    yield  # pragma: no cover
+
+                return chunks()
+
+        settings = AgentSettings.model_construct(model="openai:orig", max_tokens=100, model_timeout_seconds=None)
+        runner = FakeRunner(settings, hooks=hooks)
+        store = AsyncTapeStoreAdapter(InMemoryTapeStore())
+        tape = Tape(bub.home / "tapes", store, TapeContext(anchor=None)).scoped("t1")
+        return runner, tape
+
+    @pytest.mark.asyncio
+    async def test_rewritten_model_and_max_tokens_reach_provider_and_tape(self) -> None:
+        class Reroute:
+            @hookimpl
+            def before_llm_call(self, request: LlmCallRequest, state: dict) -> LlmCallRequest:
+                return replace(request, model="anthropic:new", max_tokens=42)
+
+        captured: dict = {}
+        runner, tape = self._runner_and_tape(make_hooks(Reroute()), captured)
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+        async for _ in events:
+            pass
+        assert captured == {"model": "anthropic:new", "max_tokens": 42}
+        entries = list(await tape.store.fetch_all(tape.query().kinds("event")))
+        run_events = [e for e in entries if e.payload.get("name") == "run"]
+        assert run_events[-1].payload["data"]["model"] == "anthropic:new"
+
+    @pytest.mark.asyncio
+    async def test_after_llm_call_fires_exactly_once_on_early_close(self) -> None:
+        observed: list[LlmCallResult] = []
+
+        class Observe:
+            @hookimpl
+            def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
+                observed.append(result)
+
+        captured: dict = {}
+        runner, tape = self._runner_and_tape(make_hooks(Observe()), captured)
+
+        from bub.builtin.model_runner import ModelRunner  # noqa: F401
+
+        async def fake_events(completion, state, output):
+            from bub.runtime import StreamEvent
+
+            yield StreamEvent("text", {"delta": "a"})
+            yield StreamEvent("text", {"delta": "b"})
+
+        runner._completion_events = fake_events  # type: ignore[method-assign]
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+        iterator = events.__aiter__()
+        await iterator.__anext__()
+        await iterator.aclose()
+        assert len(observed) == 1
+        assert observed[0].error is not None  # closed before completion = abnormal terminal
+
+    @pytest.mark.asyncio
+    async def test_after_llm_call_fires_exactly_once_on_success(self) -> None:
+        observed: list[LlmCallResult] = []
+
+        class Observe:
+            @hookimpl
+            def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
+                observed.append(result)
+
+        captured: dict = {}
+        runner, tape = self._runner_and_tape(make_hooks(Observe()), captured)
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+        async for _ in events:
+            pass
+        assert len(observed) == 1
+        assert observed[0].error is None
+
+
+class TestWrapperEffectiveCall:
+    @pytest.mark.asyncio
+    async def test_after_tool_call_observes_wrapper_rewritten_arguments(self) -> None:
+        observed: list[ToolCallResult] = []
+
+        class Rewrite:
+            @hookimpl
+            async def wrap_tool_call(self, call: ToolCall, call_next, state: dict) -> Any:
+                return await call_next(replace(call, arguments={"cmd": "rewritten"}))
+
+        class Observe:
+            @hookimpl
+            def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict) -> None:
+                observed.append(result)
+
+        def handler(cmd: str) -> str:
+            return f"ran:{cmd}"
+
+        executor = ToolExecutor(hooks=make_hooks(Observe(), Rewrite()))
+        execution = await executor.execute_async([
+            (Tool(name="t", handler=handler, description="", parameters={}), {"cmd": "original"})
+        ])
+        assert execution.tool_results == ["ran:rewritten"]
+        assert observed[0].arguments == {"cmd": "rewritten"}
+        assert observed[0].result == "ran:rewritten"
+
+    @pytest.mark.asyncio
+    async def test_after_tool_call_uses_prewrap_call_when_next_never_invoked(self) -> None:
+        observed: list[ToolCallResult] = []
+
+        class Cache:
+            @hookimpl
+            async def wrap_tool_call(self, call: ToolCall, call_next, state: dict) -> Any:
+                return "cached"
+
+        class Observe:
+            @hookimpl
+            def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict) -> None:
+                observed.append(result)
+
+        def handler(cmd: str) -> str:
+            raise AssertionError("must not run")
+
+        executor = ToolExecutor(hooks=make_hooks(Observe(), Cache()))
+        await executor.execute_async([
+            (Tool(name="t", handler=handler, description="", parameters={}), {"cmd": "original"})
+        ])
+        assert observed[0].arguments == {"cmd": "original"}
+        assert observed[0].result == "cached"

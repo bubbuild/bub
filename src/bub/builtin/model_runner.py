@@ -79,7 +79,7 @@ class ModelRunner:
         return AnyLLM.create(candidate.provider, **client_kwargs)
 
     async def completion_response(
-        self, *, model: str, messages: list[dict[str, Any]], tools: list[Tool]
+        self, *, model: str, messages: list[dict[str, Any]], tools: list[Tool], max_tokens: int | None = None
     ) -> CompletionResult:
         from bub.builtin.tools import completion_tools
 
@@ -94,7 +94,7 @@ class ModelRunner:
                     model=candidate.model_id,
                     messages=completion_messages,
                     tools=tool_payloads,
-                    max_tokens=self.settings.max_tokens,
+                    max_tokens=max_tokens if max_tokens is not None else self.settings.max_tokens,
                     stream=streaming,
                     stream_options=_stream_usage_options(llm, stream=streaming),
                 )
@@ -153,17 +153,33 @@ class ModelRunner:
                 yield StreamEvent("final", {"ok": True, "text": decision.text})
                 return
             llm_started = datetime.now(UTC)
+            after_fired = False
+
+            async def fire_after(error: BaseException | None = None) -> None:
+                """Fire after_llm_call exactly once per call, on every exit path."""
+
+                nonlocal after_fired
+                if after_fired:
+                    return
+                after_fired = True
+                await self._fire_after_llm_call(request, output, state, llm_started, tape, error=error)
+
             try:
                 async with asyncio.timeout(self.settings.model_timeout_seconds):
                     completion = await self.completion_response(
-                        model=request.model, messages=list(request.messages), tools=tools
+                        model=request.model,
+                        messages=list(request.messages),
+                        tools=tools,
+                        max_tokens=request.max_tokens,
                     )
                     async for event in self._completion_events(completion, state, output):
                         yield event
-            except Exception as exc:
-                await self._fire_after_llm_call(request, output, state, llm_started, tape, error=exc)
+            except BaseException as exc:
+                # BaseException so consumer aclose()/cancellation (GeneratorExit,
+                # CancelledError) still produce a terminal after_llm_call.
+                await fire_after(exc)
                 raise
-            await self._fire_after_llm_call(request, output, state, llm_started, tape)
+            await fire_after()
 
             tool_calls = output.tool_calls
             if tool_calls:
@@ -185,7 +201,7 @@ class ModelRunner:
                     tool_calls=serialized_tool_calls,
                     tool_results=execution.tool_results,
                     response=output.response,
-                    model=model,
+                    model=request.model,
                     usage=state.usage,
                 )
                 yield StreamEvent("tool_result", {"tool_results": execution.tool_results})
@@ -202,7 +218,7 @@ class ModelRunner:
                 new_messages=new_messages,
                 response_text=text,
                 response=output.response,
-                model=model,
+                model=request.model,
                 usage=state.usage,
             )
             yield StreamEvent("final", {"ok": True, "text": text})
@@ -220,7 +236,7 @@ class ModelRunner:
         state: StreamState,
         started: datetime,
         tape: Tape,
-        error: Exception | None = None,
+        error: BaseException | None = None,
     ) -> None:
         if self.hooks is None:
             return

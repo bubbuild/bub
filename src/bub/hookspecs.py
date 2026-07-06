@@ -118,7 +118,8 @@ class BubHookSpecs:
     def before_llm_call(self, request: LlmCallRequest, state: State) -> LlmCallRequest | LlmCallDecision | None:
         """Observe, modify or short-circuit an outgoing agent-loop LLM request.
 
-        Implementations are chained in pluggy's LIFO order (last registered\n        runs first): each receives the
+        Implementations are chained in pluggy's LIFO order (last registered
+        runs first): each receives the
         request as modified by earlier implementations, and may return a
         modified copy (``dataclasses.replace``), ``None`` to leave it
         unchanged, or ``LlmCallDecision.finish(text)`` to skip the provider
@@ -162,8 +163,11 @@ class BubHookSpecs:
 
         Middleware-style continuation hook: implementations may call
         ``call_next(call)`` zero, one or multiple times (caching, retry with
-        backoff, human-in-the-loop pauses). Implementations nest in
-        registration order (first registered = outermost). Runs inside the
+        backoff, human-in-the-loop pauses). Implementations nest per pluggy's
+        LIFO convention (last registered = outermost, runs first).
+        ``after_tool_call`` observes the most recent call passed to
+        ``call_next`` (the effective invocation); wrappers that never invoke
+        ``call_next`` are observed with the pre-wrap call. Runs inside the
         ``before_tool_call`` decision (a denied call never reaches wrappers)
         and inside ``after_tool_call`` observation. Unlike observer hooks,
         wrapper exceptions surface as tool errors.

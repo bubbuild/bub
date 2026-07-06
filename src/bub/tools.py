@@ -225,7 +225,13 @@ class ToolExecutor:
             if short_circuit is not None:
                 return short_circuit()
 
+        # Track the "effective call": the most recent ToolCall a wrapper passed
+        # to call_next. after_tool_call must observe what actually ran, not the
+        # pre-wrap call (wrappers may rewrite arguments or retry).
+        effective = {"call": call}
+
         async def invoke(current: ToolCall) -> Any:
+            effective["call"] = current
             return await self._invoke_normalized(tool_obj, current, context)
 
         handler: ToolCallHandler = invoke
@@ -234,7 +240,7 @@ class ToolExecutor:
         try:
             result = await handler(call)
         except BubError as exc:
-            await self._fire_after_tool_call(call, hook_state, started, error=exc)
+            await self._fire_after_tool_call(effective["call"], hook_state, started, error=exc)
             raise
         except Exception as exc:
             error = BubError(
@@ -242,10 +248,10 @@ class ToolExecutor:
                 f"Tool '{tool_name}' hook wrapper failed.",
                 details={"error": repr(exc)},
             )
-            await self._fire_after_tool_call(call, hook_state, started, error=error)
+            await self._fire_after_tool_call(effective["call"], hook_state, started, error=error)
             raise error from exc
         else:
-            await self._fire_after_tool_call(call, hook_state, started, result=result)
+            await self._fire_after_tool_call(effective["call"], hook_state, started, result=result)
             return result
 
     async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:
