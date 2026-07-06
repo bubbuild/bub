@@ -246,7 +246,7 @@ class ModelRunner:
             text=output.text or None,
             tool_calls=[call.model_dump(exclude_none=True) for call in output.tool_calls],
             usage=state.usage,
-            error=repr(error) if error is not None else None,
+            error=error,
             duration_ms=duration_ms,
         )
         await self.hooks.after_llm_call(request, result, state=tape.context.state)

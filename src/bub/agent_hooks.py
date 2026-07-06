@@ -37,15 +37,16 @@ class LlmCallResult:
     """Terminal outcome of one LLM call, as seen by ``after_llm_call``.
 
     For streaming completions this is the fully-accumulated final state,
-    not a per-chunk view. ``error`` is set (and other fields best-effort)
-    when the call raised.
+    not a per-chunk view. ``error`` is the original raised exception (and
+    other fields best-effort) when the call failed — including
+    ``GeneratorExit`` / ``CancelledError`` for consumer close/cancellation.
     """
 
     run_id: str
     text: str | None = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, Any] | None = None
-    error: str | None = None
+    error: BaseException | None = None
     duration_ms: int = 0
 
 
@@ -110,13 +111,13 @@ class ToolCallDecision:
 class ToolCallResult:
     """Terminal outcome of one tool invocation, as seen by ``after_tool_call``.
 
-    ``error`` is the stringified tool failure when the invocation raised or
-    was denied; ``result`` is unset in that case.
+    ``error`` is the original ``BubError`` when the invocation raised or was
+    denied (kind/message/details preserved); ``result`` is unset in that case.
     """
 
     run_id: str
     tool: str
     arguments: dict[str, Any]
     result: Any = None
-    error: str | None = None
+    error: Exception | None = None
     duration_ms: int = 0

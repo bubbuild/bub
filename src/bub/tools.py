@@ -307,7 +307,7 @@ class ToolExecutor:
             tool=call.tool,
             arguments=call.arguments,
             result=None if error is not None else result,
-            error=error.message if error is not None else None,
+            error=error,
             duration_ms=duration_ms,
         )
         await self._hooks.after_tool_call(call, outcome, state=state)

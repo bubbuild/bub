@@ -179,7 +179,8 @@ class TestToolExecutorIntegration:
         await executor.execute_async([(Tool(name="bad", handler=failing, description="", parameters={}), {"cmd": "x"})])
         assert observed[0].result == "ran:ls"
         assert observed[0].error is None
-        assert observed[1].error is not None
+        assert isinstance(observed[1].error, BubError)  # original error object, kind/details preserved
+        assert observed[1].error.kind is not None
         assert "bad" in observed[1].tool
 
     @pytest.mark.asyncio
@@ -310,7 +311,8 @@ class TestModelRunnerHookIntegration:
         await iterator.__anext__()
         await iterator.aclose()
         assert len(observed) == 1
-        assert observed[0].error is not None  # closed before completion = abnormal terminal
+        # original exception object preserved: consumer close surfaces as GeneratorExit
+        assert isinstance(observed[0].error, GeneratorExit)
 
     @pytest.mark.asyncio
     async def test_after_llm_call_fires_exactly_once_on_success(self) -> None:
