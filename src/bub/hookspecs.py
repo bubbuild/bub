@@ -13,7 +13,6 @@ from bub.agent_hooks import (
     LlmCallResult,
     ToolCall,
     ToolCallDecision,
-    ToolCallHandler,
     ToolCallResult,
 )
 from bub.runtime import AsyncStreamEvents
@@ -155,22 +154,6 @@ class BubHookSpecs:
 
         Fires for success, failure (``result.error`` set), denial and
         replacement. Return values are ignored; exceptions are logged.
-        """
-
-    @hookspec
-    def wrap_tool_call(self, call: ToolCall, call_next: ToolCallHandler, state: State) -> Any:
-        """Wrap one tool invocation with full control over its execution.
-
-        Middleware-style continuation hook: implementations may call
-        ``call_next(call)`` zero, one or multiple times (caching, retry with
-        backoff, human-in-the-loop pauses). Implementations nest per pluggy's
-        LIFO convention (last registered = outermost, runs first).
-        ``after_tool_call`` observes the most recent call passed to
-        ``call_next`` (the effective invocation); wrappers that never invoke
-        ``call_next`` are observed with the pre-wrap call. Runs inside the
-        ``before_tool_call`` decision (a denied call never reaches wrappers)
-        and inside ``after_tool_call`` observation. Unlike observer hooks,
-        wrapper exceptions surface as tool errors.
         """
 
     @hookspec

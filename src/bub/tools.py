@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Protocol, overload
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
-from bub.agent_hooks import ToolCall, ToolCallHandler, ToolCallResult
+from bub.agent_hooks import ToolCall, ToolCallResult
 from bub.builtin.tape import Tape
 from bub.runtime import BubError, ErrorKind
 
@@ -225,41 +225,17 @@ class ToolExecutor:
             if short_circuit is not None:
                 return short_circuit()
 
-        # Track the "effective call": the most recent ToolCall a wrapper passed
-        # to call_next. after_tool_call must observe what actually ran, not the
-        # pre-wrap call (wrappers may rewrite arguments or retry).
-        effective = {"call": call}
-
-        async def invoke(current: ToolCall) -> Any:
-            effective["call"] = current
-            return await self._invoke_normalized(tool_obj, current, context)
-
-        handler: ToolCallHandler = invoke
-        if self._hooks is not None:
-            handler = self._hooks.wrap_tool_call_chain(invoke, state=hook_state)
         try:
-            result = await handler(call)
+            result = await self._invoke_normalized(tool_obj, call, context)
         except BubError as exc:
-            await self._fire_after_tool_call(effective["call"], hook_state, started, error=exc)
+            await self._fire_after_tool_call(call, hook_state, started, error=exc)
             raise
-        except Exception as exc:
-            error = BubError(
-                ErrorKind.TOOL,
-                f"Tool '{tool_name}' hook wrapper failed.",
-                details={"error": repr(exc)},
-            )
-            await self._fire_after_tool_call(effective["call"], hook_state, started, error=error)
-            raise error from exc
         else:
-            await self._fire_after_tool_call(effective["call"], hook_state, started, result=result)
+            await self._fire_after_tool_call(call, hook_state, started, result=result)
             return result
 
     async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:
-        """Run the tool with errors normalized to BubError.
-
-        Normalizing inside the continuation gives ``wrap_tool_call``
-        middleware a stable exception type to catch (retry/fallback).
-        """
+        """Run the tool with errors normalized to BubError."""
 
         tool_name = tool_obj.name
         try:

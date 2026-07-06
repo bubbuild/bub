@@ -15,7 +15,6 @@ from bub.agent_hooks import (
     LlmCallResult,
     ToolCall,
     ToolCallDecision,
-    ToolCallHandler,
     ToolCallResult,
 )
 from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
@@ -275,31 +274,6 @@ class AgentHooks:
         """Observe-only; return values are ignored."""
 
         await self._safe_calls("after_tool_call", lambda: {"call": call, "state": state, "result": result})
-
-    def wrap_tool_call_chain(self, base: ToolCallHandler, state: dict[str, Any]) -> ToolCallHandler:
-        """Compose ``wrap_tool_call`` impls into an onion around ``base``.
-
-        Consistent with pluggy's LIFO convention, the LAST-registered
-        implementation becomes the outermost layer (it runs first).
-        Unlike observer hooks, wrappers own the execution path and are NOT
-        fault-isolated: a raising wrapper surfaces as a tool error.
-        """
-
-        handler = base
-        for impl in reversed(self._runtime._iter_hookimpls("wrap_tool_call")):
-            handler = self._wrap_one(impl, handler, state)
-        return handler
-
-    def _wrap_one(self, impl: Any, call_next: ToolCallHandler, state: dict[str, Any]) -> ToolCallHandler:
-        async def wrapped(call: ToolCall) -> Any:
-            kwargs = {"call": call, "call_next": call_next, "state": state}
-            call_kwargs = self._runtime._kwargs_for_impl(impl, kwargs)
-            value = impl.function(**call_kwargs)
-            if inspect.isawaitable(value):
-                value = await value
-            return value
-
-        return wrapped
 
     async def _safe_calls(self, hook_name: str, kwargs_factory: Any) -> list[tuple[Any, Any]]:
         outcomes: list[tuple[Any, Any]] = []

@@ -17,7 +17,6 @@ from bub.agent_hooks import (
 )
 from bub.hook_runtime import AgentHooks, HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
-from bub.runtime import BubError
 from bub.tools import Tool, ToolExecutor
 
 
@@ -221,78 +220,6 @@ class TestAfterLlmCall:
         assert observed == [result]
 
 
-class TestWrapToolCall:
-    def tool(self) -> Tool:
-        calls = {"n": 0}
-
-        def handler(cmd: str) -> str:
-            calls["n"] += 1
-            if calls["n"] == 1:
-                raise ValueError("transient")
-            return f"ok:{cmd}:attempt{calls['n']}"
-
-        return Tool(name="flaky", handler=handler, description="", parameters={})
-
-    @pytest.mark.asyncio
-    async def test_retry_wrapper_can_call_next_twice(self) -> None:
-        class Retry:
-            @hookimpl
-            async def wrap_tool_call(self, call: ToolCall, call_next, state: dict) -> Any:
-                try:
-                    return await call_next(call)
-                except BubError:
-                    return await call_next(call)
-
-        executor = ToolExecutor(hooks=make_hooks(Retry()))
-        execution = await executor.execute_async([(self.tool(), {"cmd": "x"})])
-        assert execution.error is None
-        assert execution.tool_results == ["ok:x:attempt2"]
-
-    @pytest.mark.asyncio
-    async def test_cache_wrapper_can_skip_call_next(self) -> None:
-        class Cache:
-            @hookimpl
-            async def wrap_tool_call(self, call: ToolCall, call_next, state: dict) -> Any:
-                return "cached"
-
-        def never(cmd: str) -> str:
-            raise AssertionError("handler must not run")
-
-        executor = ToolExecutor(hooks=make_hooks(Cache()))
-        execution = await executor.execute_async([
-            (Tool(name="t", handler=never, description="", parameters={}), {"cmd": "x"})
-        ])
-        assert execution.tool_results == ["cached"]
-
-    @pytest.mark.asyncio
-    async def test_wrappers_nest_last_registered_outermost(self) -> None:
-        order: list[str] = []
-
-        class Outer:
-            @hookimpl
-            async def wrap_tool_call(self, call: ToolCall, call_next, state: dict) -> Any:
-                order.append("outer-in")
-                value = await call_next(call)
-                order.append("outer-out")
-                return value
-
-        class Inner:
-            @hookimpl
-            async def wrap_tool_call(self, call: ToolCall, call_next, state: dict) -> Any:
-                order.append("inner-in")
-                value = await call_next(call)
-                order.append("inner-out")
-                return value
-
-        def handler(cmd: str) -> str:
-            order.append("handler")
-            return "done"
-
-        executor = ToolExecutor(hooks=make_hooks(Inner(), Outer()))  # LIFO: Outer outermost
-        await executor.execute_async([(Tool(name="t", handler=handler, description="", parameters={}), {"cmd": "x"})])
-        assert order == ["outer-in", "inner-in", "handler", "inner-out", "outer-out"]
-
-
 class TestBeforeLlmCallFinish:
     @pytest.mark.asyncio
     async def test_finish_decision_short_circuits(self) -> None:
@@ -401,54 +328,3 @@ class TestModelRunnerHookIntegration:
             pass
         assert len(observed) == 1
         assert observed[0].error is None
-
-
-class TestWrapperEffectiveCall:
-    @pytest.mark.asyncio
-    async def test_after_tool_call_observes_wrapper_rewritten_arguments(self) -> None:
-        observed: list[ToolCallResult] = []
-
-        class Rewrite:
-            @hookimpl
-            async def wrap_tool_call(self, call: ToolCall, call_next, state: dict) -> Any:
-                return await call_next(replace(call, arguments={"cmd": "rewritten"}))
-
-        class Observe:
-            @hookimpl
-            def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict) -> None:
-                observed.append(result)
-
-        def handler(cmd: str) -> str:
-            return f"ran:{cmd}"
-
-        executor = ToolExecutor(hooks=make_hooks(Observe(), Rewrite()))
-        execution = await executor.execute_async([
-            (Tool(name="t", handler=handler, description="", parameters={}), {"cmd": "original"})
-        ])
-        assert execution.tool_results == ["ran:rewritten"]
-        assert observed[0].arguments == {"cmd": "rewritten"}
-        assert observed[0].result == "ran:rewritten"
-
-    @pytest.mark.asyncio
-    async def test_after_tool_call_uses_prewrap_call_when_next_never_invoked(self) -> None:
-        observed: list[ToolCallResult] = []
-
-        class Cache:
-            @hookimpl
-            async def wrap_tool_call(self, call: ToolCall, call_next, state: dict) -> Any:
-                return "cached"
-
-        class Observe:
-            @hookimpl
-            def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict) -> None:
-                observed.append(result)
-
-        def handler(cmd: str) -> str:
-            raise AssertionError("must not run")
-
-        executor = ToolExecutor(hooks=make_hooks(Observe(), Cache()))
-        await executor.execute_async([
-            (Tool(name="t", handler=handler, description="", parameters={}), {"cmd": "original"})
-        ])
-        assert observed[0].arguments == {"cmd": "original"}
-        assert observed[0].result == "cached"

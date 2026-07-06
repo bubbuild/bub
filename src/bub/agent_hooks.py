@@ -12,7 +12,6 @@ observations with tape entries (which carry the same ``run_id`` meta).
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -65,10 +64,6 @@ class LlmCallDecision:
     @classmethod
     def finish(cls, text: str) -> LlmCallDecision:
         return cls(action="finish", text=text)
-
-
-ToolCallHandler = Callable[["ToolCall"], Awaitable[Any]]
-"""Continuation passed to ``wrap_tool_call`` implementations."""
 
 
 @dataclass(frozen=True)
