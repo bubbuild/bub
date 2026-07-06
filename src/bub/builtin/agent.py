@@ -47,7 +47,7 @@ class Agent:
     def __init__(self, framework: BubFramework) -> None:
         self.settings = load_settings()
         self.framework = framework
-        self.model_runner = ModelRunner(self.settings)
+        self.model_runner = ModelRunner(self.settings, hooks=framework.get_agent_hooks())
 
     @cached_property
     def tape(self) -> Tape:

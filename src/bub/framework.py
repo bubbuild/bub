@@ -15,7 +15,7 @@ from loguru import logger
 
 from bub import configure
 from bub.envelope import content_of, field_of, unpack_batch
-from bub.hook_runtime import _SKIP_VALUE, HookRuntime
+from bub.hook_runtime import _SKIP_VALUE, AgentHooks, HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.runtime import BubError, ErrorKind
 from bub.runtime_options import RuntimeOptions
@@ -48,6 +48,7 @@ class BubFramework:
         self._plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
         self._plugin_manager.add_hookspecs(BubHookSpecs)
         self._hook_runtime = HookRuntime(self._plugin_manager)
+        self._agent_hooks = AgentHooks(self._hook_runtime)
         self._plugin_status: dict[str, PluginStatus] = {}
         self._outbound_router: OutboundChannelRouter | None = None
         self._tape_store: TapeStore | AsyncTapeStore | None = None
@@ -359,6 +360,9 @@ class BubFramework:
 
     def get_steering_inbox(self) -> SteeringInboxProtocol | None:
         return self._steering_inbox
+
+    def get_agent_hooks(self) -> AgentHooks:
+        return self._agent_hooks
 
     def get_system_prompt(self, prompt: str | list[dict], state: dict[str, Any]) -> str:
         return "\n\n".join(

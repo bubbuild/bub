@@ -7,6 +7,15 @@ from typing import TYPE_CHECKING, Any
 
 import pluggy
 
+from bub.agent_hooks import (
+    LlmCallDecision,
+    LlmCallRequest,
+    LlmCallResult,
+    ToolCall,
+    ToolCallDecision,
+    ToolCallHandler,
+    ToolCallResult,
+)
 from bub.runtime import AsyncStreamEvents
 from bub.runtime_options import RuntimeOptions
 from bub.tape import AsyncTapeStore, TapeContext, TapeStore
@@ -104,6 +113,61 @@ class BubHookSpecs:
     @hookspec
     def on_error(self, stage: str, error: Exception, message: Envelope | None) -> None:
         """Observe framework errors from any stage."""
+
+    @hookspec
+    def before_llm_call(self, request: LlmCallRequest, state: State) -> LlmCallRequest | LlmCallDecision | None:
+        """Observe, modify or short-circuit an outgoing agent-loop LLM request.
+
+        Implementations are chained in pluggy's LIFO order (last registered\n        runs first): each receives the
+        request as modified by earlier implementations, and may return a
+        modified copy (``dataclasses.replace``), ``None`` to leave it
+        unchanged, or ``LlmCallDecision.finish(text)`` to skip the provider
+        call and emit ``text`` as the final output (cost guards / call
+        limits). Exceptions are logged and skipped, never fatal.
+        """
+
+    @hookspec
+    def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: State) -> None:
+        """Observe the terminal outcome of one agent-loop LLM call.
+
+        Fires exactly once per call — for streaming completions after the
+        stream is fully consumed, and also on error (``result.error`` set).
+        Return values are ignored; exceptions are logged and skipped.
+        """
+
+    @hookspec
+    def before_tool_call(self, call: ToolCall, state: State) -> ToolCallDecision | None:
+        """Decide whether/how one tool invocation runs.
+
+        Return ``None`` or ``ToolCallDecision.proceed(...)`` to continue
+        (optionally with modified arguments, visible to later
+        implementations), ``ToolCallDecision.replace(result)`` to skip the
+        tool and use ``result``, or ``ToolCallDecision.deny(message)`` to
+        surface a tool error instead. ``replace``/``deny`` short-circuit
+        remaining implementations. Blocking is only possible via the
+        decision object — exceptions are logged and skipped.
+        """
+
+    @hookspec
+    def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: State) -> None:
+        """Observe the terminal outcome of one tool invocation.
+
+        Fires for success, failure (``result.error`` set), denial and
+        replacement. Return values are ignored; exceptions are logged.
+        """
+
+    @hookspec
+    def wrap_tool_call(self, call: ToolCall, call_next: ToolCallHandler, state: State) -> Any:
+        """Wrap one tool invocation with full control over its execution.
+
+        Middleware-style continuation hook: implementations may call
+        ``call_next(call)`` zero, one or multiple times (caching, retry with
+        backoff, human-in-the-loop pauses). Implementations nest in
+        registration order (first registered = outermost). Runs inside the
+        ``before_tool_call`` decision (a denied call never reaches wrappers)
+        and inside ``after_tool_call`` observation. Unlike observer hooks,
+        wrapper exceptions surface as tool errors.
+        """
 
     @hookspec
     def system_prompt(self, prompt: str | list[dict], state: State) -> str:

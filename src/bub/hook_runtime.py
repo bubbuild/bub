@@ -9,6 +9,15 @@ from typing import Any
 import pluggy
 from loguru import logger
 
+from bub.agent_hooks import (
+    LlmCallDecision,
+    LlmCallRequest,
+    LlmCallResult,
+    ToolCall,
+    ToolCallDecision,
+    ToolCallHandler,
+    ToolCallResult,
+)
 from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
 from bub.types import Envelope
 
@@ -195,6 +204,135 @@ class HookRuntime:
 
                 return AsyncStreamEvents(iterator(), state=StreamState())
         return None
+
+
+class AgentHooks:
+    """Narrow facade for agent-loop interception hooks (issue #253).
+
+    Unlike ``call_first``/``call_many``, every implementation call here is
+    fault-isolated: a raising plugin is logged and skipped, never fatal to
+    the turn. Blocking a tool call is only possible through a returned
+    :class:`~bub.agent_hooks.ToolCallDecision` (``deny``/``replace``) — an
+    exception inside ``before_tool_call`` is treated as a broken plugin,
+    not as a veto.
+    """
+
+    def __init__(self, runtime: HookRuntime) -> None:
+        self._runtime = runtime
+
+    async def before_llm_call(
+        self, request: LlmCallRequest, state: dict[str, Any]
+    ) -> tuple[LlmCallRequest, LlmCallDecision | None]:
+        """Chain ``before_llm_call`` impls; each sees the previous impl's request.
+
+        The first ``LlmCallDecision`` (``finish``) short-circuits remaining
+        implementations and the provider call itself.
+        """
+
+        for impl in self._runtime._iter_hookimpls("before_llm_call"):
+            value = await self._safe_call_one("before_llm_call", impl, {"request": request, "state": state})
+            if value is None or value is _SKIP_VALUE:
+                continue
+            if isinstance(value, LlmCallRequest):
+                request = value
+            elif isinstance(value, LlmCallDecision):
+                return request, value
+            else:
+                self._warn_bad_return(
+                    "before_llm_call", impl, value, expected="LlmCallRequest | LlmCallDecision | None"
+                )
+        return request, None
+
+    async def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict[str, Any]) -> None:
+        """Observe-only; return values are ignored."""
+
+        await self._safe_calls("after_llm_call", lambda: {"request": request, "result": result, "state": state})
+
+    async def before_tool_call(self, call: ToolCall, state: dict[str, Any]) -> tuple[ToolCall, ToolCallDecision]:
+        """Chain ``before_tool_call`` impls.
+
+        ``proceed`` decisions fold argument changes into the call visible to
+        later impls; the first ``replace``/``deny`` decision short-circuits.
+        """
+
+        from dataclasses import replace as dc_replace
+
+        for impl in self._runtime._iter_hookimpls("before_tool_call"):
+            value = await self._safe_call_one("before_tool_call", impl, {"call": call, "state": state})
+            if value is None or value is _SKIP_VALUE:
+                continue
+            if not isinstance(value, ToolCallDecision):
+                self._warn_bad_return("before_tool_call", impl, value, expected="ToolCallDecision | None")
+                continue
+            if value.action == "proceed":
+                if value.arguments is not None:
+                    call = dc_replace(call, arguments=dict(value.arguments))
+                continue
+            return call, value
+        return call, ToolCallDecision.proceed()
+
+    async def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict[str, Any]) -> None:
+        """Observe-only; return values are ignored."""
+
+        await self._safe_calls("after_tool_call", lambda: {"call": call, "state": state, "result": result})
+
+    def wrap_tool_call_chain(self, base: ToolCallHandler, state: dict[str, Any]) -> ToolCallHandler:
+        """Compose ``wrap_tool_call`` impls into an onion around ``base``.
+
+        Consistent with pluggy's LIFO convention, the LAST-registered
+        implementation becomes the outermost layer (it runs first).
+        Unlike observer hooks, wrappers own the execution path and are NOT
+        fault-isolated: a raising wrapper surfaces as a tool error.
+        """
+
+        handler = base
+        for impl in reversed(self._runtime._iter_hookimpls("wrap_tool_call")):
+            handler = self._wrap_one(impl, handler, state)
+        return handler
+
+    def _wrap_one(self, impl: Any, call_next: ToolCallHandler, state: dict[str, Any]) -> ToolCallHandler:
+        async def wrapped(call: ToolCall) -> Any:
+            kwargs = {"call": call, "call_next": call_next, "state": state}
+            call_kwargs = self._runtime._kwargs_for_impl(impl, kwargs)
+            value = impl.function(**call_kwargs)
+            if inspect.isawaitable(value):
+                value = await value
+            return value
+
+        return wrapped
+
+    async def _safe_calls(self, hook_name: str, kwargs_factory: Any) -> list[tuple[Any, Any]]:
+        outcomes: list[tuple[Any, Any]] = []
+        for impl in self._runtime._iter_hookimpls(hook_name):
+            value = await self._safe_call_one(hook_name, impl, kwargs_factory())
+            if value is _SKIP_VALUE:
+                continue
+            outcomes.append((impl, value))
+        return outcomes
+
+    async def _safe_call_one(self, hook_name: str, impl: Any, kwargs: dict[str, Any]) -> Any:
+        call_kwargs = self._runtime._kwargs_for_impl(impl, kwargs)
+        try:
+            return await self._runtime._invoke_impl_async(
+                hook_name=hook_name, impl=impl, call_kwargs=call_kwargs, kwargs=kwargs
+            )
+        except Exception:
+            logger.opt(exception=True).warning(
+                "hook.agent_hook_failed hook={} adapter={}",
+                hook_name,
+                impl.plugin_name or "<unknown>",
+            )
+            return _SKIP_VALUE
+
+    @staticmethod
+    def _warn_bad_return(hook_name: str, impl: Any, value: Any, *, expected: str) -> None:
+        logger.warning(
+            "hook.agent_hook_bad_return hook={} adapter={} got={} expected={}",
+            hook_name,
+            impl.plugin_name or "<unknown>",
+            type(value).__name__,
+            expected,
+        )
 
 
 _SKIP_VALUE = object()

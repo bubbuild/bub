@@ -8,13 +8,17 @@ import json
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Protocol, overload
+from typing import TYPE_CHECKING, Any, Protocol, overload
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
+from bub.agent_hooks import ToolCall, ToolCallHandler, ToolCallResult
 from bub.builtin.tape import Tape
 from bub.runtime import BubError, ErrorKind
+
+if TYPE_CHECKING:
+    from bub.hook_runtime import AgentHooks
 
 
 @dataclass(frozen=True)
@@ -159,6 +163,9 @@ def tool_call_reporter(reporter: ToolCallReporter):
 class ToolExecutor:
     """Execute already-resolved Bub tool invocations."""
 
+    def __init__(self, hooks: AgentHooks | None = None) -> None:
+        self._hooks = hooks
+
     async def execute_async(
         self,
         invocations: Sequence[tuple[Tool, dict[str, Any]]],
@@ -206,15 +213,58 @@ class ToolExecutor:
         context: ToolContext | None,
     ) -> Any:
         tool_name = tool_obj.name
+        call = ToolCall(
+            run_id=(context.run_id if context is not None else None) or "",
+            tool=tool_name,
+            arguments=dict(tool_args),
+        )
+        hook_state = context.state if context is not None else {}
+        started = time.monotonic()
+        if self._hooks is not None:
+            call, short_circuit = await self._apply_before_tool_call(call, hook_state, started)
+            if short_circuit is not None:
+                return short_circuit()
+
+        async def invoke(current: ToolCall) -> Any:
+            return await self._invoke_normalized(tool_obj, current, context)
+
+        handler: ToolCallHandler = invoke
+        if self._hooks is not None:
+            handler = self._hooks.wrap_tool_call_chain(invoke, state=hook_state)
         try:
-            result = self._invoke_tool(
+            result = await handler(call)
+        except BubError as exc:
+            await self._fire_after_tool_call(call, hook_state, started, error=exc)
+            raise
+        except Exception as exc:
+            error = BubError(
+                ErrorKind.TOOL,
+                f"Tool '{tool_name}' hook wrapper failed.",
+                details={"error": repr(exc)},
+            )
+            await self._fire_after_tool_call(call, hook_state, started, error=error)
+            raise error from exc
+        else:
+            await self._fire_after_tool_call(call, hook_state, started, result=result)
+            return result
+
+    async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:
+        """Run the tool with errors normalized to BubError.
+
+        Normalizing inside the continuation gives ``wrap_tool_call``
+        middleware a stable exception type to catch (retry/fallback).
+        """
+
+        tool_name = tool_obj.name
+        try:
+            value = self._invoke_tool(
                 tool_name=tool_name,
                 tool_obj=tool_obj,
-                tool_args=tool_args,
+                tool_args=call.arguments,
                 context=context,
             )
-            if inspect.isawaitable(result):
-                return await result
+            if inspect.isawaitable(value):
+                value = await value
         except BubError:
             raise
         except ValidationError as exc:
@@ -229,8 +279,56 @@ class ToolExecutor:
                 f"Tool '{tool_name}' execution failed.",
                 details={"error": repr(exc)},
             ) from exc
-        else:
-            return result
+        return value
+
+    async def _apply_before_tool_call(
+        self,
+        call: ToolCall,
+        hook_state: dict[str, Any],
+        started: float,
+    ) -> tuple[ToolCall, Callable[[], Any] | None]:
+        """Run before_tool_call and translate deny/replace into a short-circuit thunk."""
+
+        if self._hooks is None:
+            return call, None
+        call, decision = await self._hooks.before_tool_call(call, state=hook_state)
+        if decision.action == "deny":
+            error = BubError(
+                ErrorKind.TOOL,
+                decision.message or f"Tool '{call.tool}' call denied by policy hook.",
+            )
+            await self._fire_after_tool_call(call, hook_state, started, error=error)
+
+            def raise_denied() -> Any:
+                raise error
+
+            return call, raise_denied
+        if decision.action == "replace":
+            await self._fire_after_tool_call(call, hook_state, started, result=decision.result)
+            return call, lambda: decision.result
+        return call, None
+
+    async def _fire_after_tool_call(
+        self,
+        call: ToolCall,
+        state: dict[str, Any],
+        started: float,
+        *,
+        result: Any = None,
+        error: BubError | None = None,
+    ) -> None:
+        if self._hooks is None:
+            return
+        duration_ms = int((time.monotonic() - started) * 1000)
+        outcome = ToolCallResult(
+            run_id=call.run_id,
+            tool=call.tool,
+            arguments=call.arguments,
+            result=None if error is not None else result,
+            error=error.message if error is not None else None,
+            duration_ms=duration_ms,
+        )
+        await self._hooks.after_tool_call(call, outcome, state=state)
 
 
 # Central registry for tools. Tools defined with the @tool decorator are automatically added here.
