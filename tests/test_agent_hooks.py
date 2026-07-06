@@ -331,3 +331,37 @@ class TestModelRunnerHookIntegration:
             pass
         assert len(observed) == 1
         assert observed[0].error is None
+
+
+class TestToolCancellation:
+    @pytest.mark.asyncio
+    async def test_after_tool_call_fires_exactly_once_on_cancel(self) -> None:
+        import asyncio
+
+        observed: list[ToolCallResult] = []
+
+        class Observe:
+            @hookimpl
+            def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict) -> None:
+                observed.append(result)
+
+        started = asyncio.Event()
+
+        async def blocking(cmd: str) -> str:
+            started.set()
+            await asyncio.Event().wait()  # blocks until cancelled
+            return "unreachable"
+
+        executor = ToolExecutor(hooks=make_hooks(Observe()))
+        task = asyncio.create_task(
+            executor.execute_async([
+                (Tool(name="block", handler=blocking, description="", parameters={}), {"cmd": "x"})
+            ])
+        )
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert len(observed) == 1
+        # original exception preserved, re-raised unwrapped
+        assert isinstance(observed[0].error, asyncio.CancelledError)

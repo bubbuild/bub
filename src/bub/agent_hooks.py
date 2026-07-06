@@ -111,13 +111,15 @@ class ToolCallDecision:
 class ToolCallResult:
     """Terminal outcome of one tool invocation, as seen by ``after_tool_call``.
 
-    ``error`` is the original ``BubError`` when the invocation raised or was
-    denied (kind/message/details preserved); ``result`` is unset in that case.
+    ``error`` is the original exception when the invocation failed: a
+    ``BubError`` for tool failures/denials (kind/message/details preserved),
+    or the raw ``BaseException`` for cancellation (``CancelledError``),
+    which is re-raised unwrapped. ``result`` is unset in that case.
     """
 
     run_id: str
     tool: str
     arguments: dict[str, Any]
     result: Any = None
-    error: Exception | None = None
+    error: BaseException | None = None
     duration_ms: int = 0
