@@ -17,6 +17,7 @@ from bub.agent_hooks import (
 )
 from bub.hook_runtime import AgentHooks, HookRuntime
 from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
+from bub.runtime import BubError
 from bub.tools import Tool, ToolExecutor
 
 
