@@ -32,6 +32,10 @@ For the *why* and *how* of each stage see [Turn pipeline](/docs/concepts/turn-pi
 | `provide_channels` | sync-only consumer (deduped) | `(message_handler: MessageHandler) -> list[Channel]` | channels | `BubFramework.get_channels` (`call_many_sync`) | Channels are deduplicated by `Channel.name`; the first channel seen in hook priority order wins. |
 | `build_tape_context` | firstresult | `() -> TapeContext` | tape context | `BubFramework.build_tape_context` (`call_first_sync`) | Sync-only; awaitable returns are skipped. |
 | `admit_message` | firstresult | `(session_id, message, turn) -> AdmitDecision \| None` | turn admission decision | `ChannelManager` | Runs before channel scheduling. `None` keeps default concurrent scheduling; decision types are listed in [Types](/docs/reference/types/#turn-admission-types). |
+| `before_llm_call` | chained | `(request: LlmCallRequest, state: State) -> LlmCallRequest \| LlmCallDecision \| None` | modified request or finish decision | `ModelRunner.run` via `AgentHooks` | Impls chain in LIFO order; each sees the previous impl's request. `LlmCallDecision.finish(text)` skips the provider call. Raising impls are logged and skipped. |
+| `after_llm_call` | observer | `(request: LlmCallRequest, result: LlmCallResult, state: State) -> None` | none | `ModelRunner.run` via `AgentHooks` | Fires exactly once per call: success, error, consumer `aclose()` and cancellation. `result.error` is the original `BaseException`. |
+| `before_tool_call` | chained | `(call: ToolCall, state: State) -> ToolCallDecision \| None` | decision | `ToolExecutor` via `AgentHooks` | Per tool invocation. `proceed(arguments=…)` folds argument changes; `replace(result)` / `deny(message)` short-circuit. Veto only via the decision object — exceptions are logged and skipped. |
+| `after_tool_call` | observer | `(call: ToolCall, result: ToolCallResult, state: State) -> None` | none | `ToolExecutor` via `AgentHooks` | Fires for success, failure, deny/replace and cancellation. `result.error` is the original exception (`BubError`, or `CancelledError` re-raised unwrapped). |
 
 ## How hooks are invoked
 
@@ -92,5 +96,17 @@ Each impl receives only the kwargs it declares. You can omit unused parameters f
 ### `on_error` observer safety
 
 `notify_error` and `notify_error_sync` wrap each impl in a `try`/`except`; observer failures are logged (`hook.on_error_failed stage=… adapter=…`) but never propagate. This guarantees one broken observer does not block the others, and prevents an `on_error` from masking the original exception.
+
+### Agent-loop hooks (`AgentHooks`)
+
+The four `*_llm_call` / `*_tool_call` hooks are dispatched through the `AgentHooks` facade (`src/bub/hook_runtime.py`), not `call_first`/`call_many`, with three deliberate differences:
+
+- **Chaining** — `before_llm_call` and `before_tool_call` run every implementation in LIFO order and *fold* modifications: each impl receives the request/call as modified by the impls before it. The first short-circuiting decision (`LlmCallDecision.finish`, `ToolCallDecision.replace`/`deny`) stops the chain.
+- **Fault isolation** — a raising implementation is logged (`hook.agent_hook_failed`) and skipped, never fatal to the turn. Blocking is only expressible through decision objects, so a broken policy plugin cannot veto by crashing.
+- **Exactly-once terminal observation** — `after_llm_call` and `after_tool_call` fire exactly once per call on *every* exit path, including consumer `aclose()` (`GeneratorExit`) and task cancellation (`CancelledError`). `result.error` carries the **original exception object** (a `BubError` for tool failures with `kind`/`details` intact); cancellation is re-raised unwrapped after the observation.
+
+Payload dataclasses (`LlmCallRequest`, `LlmCallResult`, `ToolCall`, `ToolCallDecision`, `ToolCallResult`, `LlmCallDecision`) live in `src/bub/agent_hooks.py`. Every payload carries `run_id`, matching the `run_id` meta on tape entries, so observers can correlate hook events with the tape. Rewritten `model`/`max_tokens` from `before_llm_call` are honored end-to-end: the provider receives them and the tape records the effective model.
+
+A continuation-style `wrap_tool_call` (retry / human-in-the-loop / caching) was prototyped in the original PR and removed by review direction; if those use cases materialize it will return as a separate proposal.
 
 For the runtime contract behind every signature, read `src/bub/hookspecs.py`. To verify what is registered in your environment, run `bub hooks` (see [CLI › hooks](/docs/reference/cli/#hooks)).

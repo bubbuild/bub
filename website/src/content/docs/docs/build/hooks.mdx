@@ -218,6 +218,70 @@ class WeatherPlugin:
 
 Return `None` to skip without changing accumulated config. Returning a non-dict value raises `TypeError` and aborts onboarding. Verify by running `uv run bub onboard` and inspecting the saved config file.
 
+## 9. Intercept agent-loop LLM and tool calls
+
+The agent loop exposes four interception hooks (see [Reference › Hooks](/docs/reference/hooks/#agent-loop-hooks-agenthooks) for the full contract). `before_*` hooks chain in LIFO order and can modify or short-circuit; `after_*` hooks observe the terminal outcome exactly once, including error and cancellation paths.
+
+Route models, cap spend, and redact — `before_llm_call`:
+
+```python
+from dataclasses import replace
+
+from bub import hookimpl
+from bub.agent_hooks import LlmCallDecision, LlmCallRequest
+
+
+class RouteAndBudget:
+    @hookimpl
+    def before_llm_call(self, request: LlmCallRequest, state):
+        calls = state.get("llm_calls", 0)
+        state["llm_calls"] = calls + 1
+        if calls >= 10:
+            # Skip the provider entirely; this text becomes the final output.
+            return LlmCallDecision.finish("Call budget exhausted for this turn.")
+        # Rewrites are honored end-to-end: the provider receives this model
+        # and max_tokens, and the tape records the effective model.
+        return replace(request, model="openai:gpt-4o-mini", max_tokens=512)
+```
+
+Guard tool calls — `before_tool_call` returns a decision, never raises to veto:
+
+```python
+from bub import hookimpl
+from bub.agent_hooks import ToolCall, ToolCallDecision
+
+
+class ShellPolicy:
+    @hookimpl
+    def before_tool_call(self, call: ToolCall, state):
+        if call.tool == "shell" and "rm -rf" in str(call.arguments):
+            return ToolCallDecision.deny("Destructive shell commands are blocked.")
+        if call.tool == "web_search":
+            # Serve from cache without running the tool.
+            if cached := state.get("search_cache", {}).get(str(call.arguments)):
+                return ToolCallDecision.replace(cached)
+        return None  # proceed unchanged
+```
+
+Observe terminal outcomes — `after_llm_call` / `after_tool_call` receive the original exception object on failure (`result.error`), including `CancelledError` when a call is cancelled mid-flight:
+
+```python
+from bub import hookimpl
+
+
+class Metrics:
+    @hookimpl
+    def after_llm_call(self, request, result, state):
+        usage = result.usage or {}
+        print(f"llm {request.model} {result.duration_ms}ms tokens={usage.get('total_tokens')} error={result.error!r}")
+
+    @hookimpl
+    def after_tool_call(self, call, result, state):
+        print(f"tool {call.tool} {result.duration_ms}ms error={result.error!r}")
+```
+
+All payloads carry `run_id`, matching the tape entry meta, so metrics can be joined against the recorded conversation.
+
 ## Next steps
 
 - [Hook reference](/docs/reference/hooks/) — full signature table, precedence, and sync/async rules

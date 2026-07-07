@@ -218,6 +218,70 @@ class WeatherPlugin:
 
 返回 `None` 表示跳过且不修改累积配置。返回非 dict 会抛 `TypeError` 并中止引导。运行 `uv run bub onboard` 并查看保存的配置文件来验证。
 
+## 9. 拦截 agent loop 的 LLM 与工具调用
+
+agent loop 暴露四个拦截钩子(完整契约见 [参考 › 钩子](/zh-cn/docs/reference/hooks/))。`before_*` 按 LIFO 链式执行,可修改或短路;`after_*` 观察终态,每次调用恰好一次,覆盖异常与取消路径。
+
+模型路由、限次、脱敏 —— `before_llm_call`:
+
+```python
+from dataclasses import replace
+
+from bub import hookimpl
+from bub.agent_hooks import LlmCallDecision, LlmCallRequest
+
+
+class RouteAndBudget:
+    @hookimpl
+    def before_llm_call(self, request: LlmCallRequest, state):
+        calls = state.get("llm_calls", 0)
+        state["llm_calls"] = calls + 1
+        if calls >= 10:
+            # Skip the provider entirely; this text becomes the final output.
+            return LlmCallDecision.finish("Call budget exhausted for this turn.")
+        # Rewrites are honored end-to-end: the provider receives this model
+        # and max_tokens, and the tape records the effective model.
+        return replace(request, model="openai:gpt-4o-mini", max_tokens=512)
+```
+
+工具策略 —— `before_tool_call` 用 decision 表达否决,不要抛异常:
+
+```python
+from bub import hookimpl
+from bub.agent_hooks import ToolCall, ToolCallDecision
+
+
+class ShellPolicy:
+    @hookimpl
+    def before_tool_call(self, call: ToolCall, state):
+        if call.tool == "shell" and "rm -rf" in str(call.arguments):
+            return ToolCallDecision.deny("Destructive shell commands are blocked.")
+        if call.tool == "web_search":
+            # Serve from cache without running the tool.
+            if cached := state.get("search_cache", {}).get(str(call.arguments)):
+                return ToolCallDecision.replace(cached)
+        return None  # proceed unchanged
+```
+
+观察终态 —— `after_llm_call` / `after_tool_call` 在失败时拿到**原始异常对象**(`result.error`),调用中途被取消时是 `CancelledError`:
+
+```python
+from bub import hookimpl
+
+
+class Metrics:
+    @hookimpl
+    def after_llm_call(self, request, result, state):
+        usage = result.usage or {}
+        print(f"llm {request.model} {result.duration_ms}ms tokens={usage.get('total_tokens')} error={result.error!r}")
+
+    @hookimpl
+    def after_tool_call(self, call, result, state):
+        print(f"tool {call.tool} {result.duration_ms}ms error={result.error!r}")
+```
+
+所有载荷携带 `run_id`,与 tape 条目 meta 对应,指标可与记录的会话对齐。
+
 ## 下一步
 
 - [钩子参考](/zh-cn/docs/reference/hooks/) —— 完整签名表、优先级与同步/异步规则
