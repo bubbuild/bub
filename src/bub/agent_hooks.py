@@ -38,15 +38,16 @@ class LlmCallResult:
 
     For streaming completions this is the fully-accumulated final state,
     not a per-chunk view. ``error`` is the original raised exception (and
-    other fields best-effort) when the call failed — including
-    ``GeneratorExit`` / ``CancelledError`` for consumer close/cancellation.
+    other fields best-effort) when the call failed. Cancellation and
+    consumer close are not observed: after hooks fire only for real
+    completions and ``Exception`` failures.
     """
 
     run_id: str
     text: str | None = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, Any] | None = None
-    error: BaseException | None = None
+    error: Exception | None = None
     duration_ms: int = 0
 
 
@@ -111,15 +112,14 @@ class ToolCallDecision:
 class ToolCallResult:
     """Terminal outcome of one tool invocation, as seen by ``after_tool_call``.
 
-    ``error`` is the original exception when the invocation failed: a
-    ``BubError`` for tool failures/denials (kind/message/details preserved),
-    or the raw ``BaseException`` for cancellation (``CancelledError``),
-    which is re-raised unwrapped. ``result`` is unset in that case.
+    ``error`` is the original ``BubError`` when the invocation raised or was
+    denied (kind/message/details preserved); ``result`` is unset in that
+    case. Cancellation is not observed by after hooks.
     """
 
     run_id: str
     tool: str
     arguments: dict[str, Any]
     result: Any = None
-    error: BaseException | None = None
+    error: Exception | None = None
     duration_ms: int = 0

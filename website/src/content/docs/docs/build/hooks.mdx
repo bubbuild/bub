@@ -220,7 +220,7 @@ Return `None` to skip without changing accumulated config. Returning a non-dict 
 
 ## 9. Intercept agent-loop LLM and tool calls
 
-The agent loop exposes four interception hooks (see [Reference › Hooks](/docs/reference/hooks/#agent-loop-hooks-agenthooks) for the full contract). `before_*` hooks chain in LIFO order and can modify or short-circuit; `after_*` hooks observe the terminal outcome exactly once, including error and cancellation paths.
+The agent loop exposes four interception hooks (see [Reference › Hooks](/docs/reference/hooks/#agent-loop-hooks-agenthooks) for the full contract). `before_*` hooks chain in LIFO order and can modify or short-circuit; `after_*` hooks observe the terminal outcome exactly once on success and `Exception` failure (cancellation is not observed).
 
 Route models, cap spend, and redact — `before_llm_call`:
 
@@ -266,7 +266,7 @@ class ShellPolicy:
         return None  # proceed unchanged
 ```
 
-Observe terminal outcomes — `after_llm_call` / `after_tool_call` receive the original exception object on failure (`result.error`), including `CancelledError` when a call is cancelled mid-flight:
+Observe terminal outcomes — `after_llm_call` / `after_tool_call` receive the original exception object on failure (`result.error`); cancelled calls do not produce an observation:
 
 ```python
 from bub import hookimpl

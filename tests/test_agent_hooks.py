@@ -287,7 +287,7 @@ class TestModelRunnerHookIntegration:
         assert run_events[-1].payload["data"]["model"] == "anthropic:new"
 
     @pytest.mark.asyncio
-    async def test_after_llm_call_fires_exactly_once_on_early_close(self) -> None:
+    async def test_after_llm_call_not_fired_on_early_close(self) -> None:
         observed: list[LlmCallResult] = []
 
         class Observe:
@@ -311,9 +311,9 @@ class TestModelRunnerHookIntegration:
         iterator = events.__aiter__()
         await iterator.__anext__()
         await iterator.aclose()
-        assert len(observed) == 1
-        # original exception object preserved: consumer close surfaces as GeneratorExit
-        assert isinstance(observed[0].error, GeneratorExit)
+        # Consumer close is intentionally NOT a terminal observation:
+        # after_llm_call fires only for real completions and Exception failures.
+        assert observed == []
 
     @pytest.mark.asyncio
     async def test_after_llm_call_fires_exactly_once_on_success(self) -> None:
@@ -335,7 +335,7 @@ class TestModelRunnerHookIntegration:
 
 class TestToolCancellation:
     @pytest.mark.asyncio
-    async def test_after_tool_call_fires_exactly_once_on_cancel(self) -> None:
+    async def test_after_tool_call_not_fired_on_cancel(self) -> None:
         import asyncio
 
         observed: list[ToolCallResult] = []
@@ -362,6 +362,6 @@ class TestToolCancellation:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        assert len(observed) == 1
-        # original exception preserved, re-raised unwrapped
-        assert isinstance(observed[0].error, asyncio.CancelledError)
+        # Cancellation is intentionally NOT a terminal observation:
+        # after_tool_call fires only for success, failure and deny/replace.
+        assert observed == []

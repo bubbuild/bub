@@ -33,9 +33,9 @@ description: BubHookSpecs 中每个钩子的类型、签名、返回值与调用
 | `build_tape_context` | firstresult | `() -> TapeContext` | tape context | `BubFramework.build_tape_context` (`call_first_sync`) | 仅同步;awaitable 返回会被跳过。 |
 | `admit_message` | firstresult | `(session_id, message, turn) -> AdmitDecision \| None` | turn admission decision | `ChannelManager` | 调度 channel message 前调用。返回 `None` 保持默认并发调度；decision 类型见 [类型](/zh-cn/docs/reference/types/#turn-admission-类型)。 |
 | `before_llm_call` | chained | `(request: LlmCallRequest, state: State) -> LlmCallRequest \| LlmCallDecision \| None` | 修改后的 request 或 finish 决定 | `ModelRunner.run` 经 `AgentHooks` | 实现按 LIFO 链式执行,每个实现看到的是前一个实现修改后的 request。返回 `LlmCallDecision.finish(text)` 跳过 provider 调用。实现抛异常仅记日志并跳过。 |
-| `after_llm_call` | observer | `(request: LlmCallRequest, result: LlmCallResult, state: State) -> None` | 无 | `ModelRunner.run` 经 `AgentHooks` | 每次调用恰好触发一次:成功、异常、消费方 `aclose()`、取消。`result.error` 是原始 `BaseException`。 |
+| `after_llm_call` | observer | `(request: LlmCallRequest, result: LlmCallResult, state: State) -> None` | 无 | `ModelRunner.run` 经 `AgentHooks` | 每次完成的调用恰好触发一次:成功或 `Exception` 失败。取消 / 消费方 `aclose()` 不观察。`result.error` 是原始异常。 |
 | `before_tool_call` | chained | `(call: ToolCall, state: State) -> ToolCallDecision \| None` | decision | `ToolExecutor` 经 `AgentHooks` | 逐次工具调用。`proceed(arguments=…)` 折叠参数修改;`replace(result)` / `deny(message)` 短路。否决只能通过 decision 对象——异常仅记日志并跳过。 |
-| `after_tool_call` | observer | `(call: ToolCall, result: ToolCallResult, state: State) -> None` | 无 | `ToolExecutor` 经 `AgentHooks` | 成功、失败、deny/replace、取消都会触发。`result.error` 是原始异常(`BubError`,取消则为原样上抛的 `CancelledError`)。 |
+| `after_tool_call` | observer | `(call: ToolCall, result: ToolCallResult, state: State) -> None` | 无 | `ToolExecutor` 经 `AgentHooks` | 成功、失败、deny/replace 会触发。取消不观察。`result.error` 是原始 `BubError`。 |
 
 ## 钩子如何被调用
 
@@ -103,7 +103,7 @@ def _kwargs_for_impl(impl: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
 
 - **链式** — `before_llm_call` 与 `before_tool_call` 按 LIFO 顺序执行全部实现并**折叠**修改:每个实现收到的是前序实现修改后的 request/call。第一个短路决定(`LlmCallDecision.finish`、`ToolCallDecision.replace`/`deny`)终止链。
 - **错误隔离** — 实现抛异常只记日志(`hook.agent_hook_failed`)并跳过,绝不炸掉回合。阻断只能通过 decision 对象表达,坏掉的策略插件无法靠 crash 否决。
-- **终态恰好一次** — `after_llm_call` 与 `after_tool_call` 在**每条**退出路径上恰好触发一次,包括消费方 `aclose()`(`GeneratorExit`)与任务取消(`CancelledError`)。`result.error` 携带**原始异常对象**(工具失败为完整 `BubError`,`kind`/`details` 保留);取消在观察后原样上抛。
+- **终态恰好一次** — `after_llm_call` 与 `after_tool_call` 对真实完成的调用恰好触发一次:成功或 `Exception` 失败。取消与消费方关闭(`BaseException`)刻意不进入 after 钩子。`result.error` 携带**原始异常对象**(工具失败为完整 `BubError`,`kind`/`details` 保留)。
 
 载荷数据类(`LlmCallRequest`、`LlmCallResult`、`ToolCall`、`ToolCallDecision`、`ToolCallResult`、`LlmCallDecision`)位于 `src/bub/agent_hooks.py`。所有载荷携带 `run_id`,与 tape 条目 meta 中的 `run_id` 对应,观察者可将钩子事件与 tape 记录对齐。`before_llm_call` 改写的 `model`/`max_tokens` 全链路生效:provider 收到改写值,tape 记录 effective model。
 

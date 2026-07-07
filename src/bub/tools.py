@@ -230,12 +230,6 @@ class ToolExecutor:
         except BubError as exc:
             await self._fire_after_tool_call(call, hook_state, started, error=exc)
             raise
-        except BaseException as exc:
-            # Cancellation (CancelledError) must still produce a terminal
-            # after_tool_call observation — mirror the LLM-side guarantee —
-            # and is re-raised unwrapped.
-            await self._fire_after_tool_call(call, hook_state, started, error=exc)
-            raise
         else:
             await self._fire_after_tool_call(call, hook_state, started, result=result)
             return result
@@ -303,7 +297,7 @@ class ToolExecutor:
         started: float,
         *,
         result: Any = None,
-        error: BaseException | None = None,
+        error: Exception | None = None,
     ) -> None:
         if self._hooks is None:
             return

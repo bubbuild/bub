@@ -155,7 +155,7 @@ class ModelRunner:
             llm_started = datetime.now(UTC)
             after_fired = False
 
-            async def fire_after(error: BaseException | None = None) -> None:
+            async def fire_after(error: Exception | None = None) -> None:
                 """Fire after_llm_call exactly once per call, on every exit path."""
 
                 nonlocal after_fired
@@ -174,9 +174,10 @@ class ModelRunner:
                     )
                     async for event in self._completion_events(completion, state, output):
                         yield event
-            except BaseException as exc:
-                # BaseException so consumer aclose()/cancellation (GeneratorExit,
-                # CancelledError) still produce a terminal after_llm_call.
+            except Exception as exc:
+                # Cancellation / consumer close (BaseException) intentionally
+                # bypasses after_llm_call: only real completions and failures
+                # are terminal observations.
                 await fire_after(exc)
                 raise
             await fire_after()
@@ -236,7 +237,7 @@ class ModelRunner:
         state: StreamState,
         started: datetime,
         tape: Tape,
-        error: BaseException | None = None,
+        error: Exception | None = None,
     ) -> None:
         if self.hooks is None:
             return

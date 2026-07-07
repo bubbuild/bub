@@ -220,7 +220,7 @@ class WeatherPlugin:
 
 ## 9. 拦截 agent loop 的 LLM 与工具调用
 
-agent loop 暴露四个拦截钩子(完整契约见 [参考 › 钩子](/zh-cn/docs/reference/hooks/))。`before_*` 按 LIFO 链式执行,可修改或短路;`after_*` 观察终态,每次调用恰好一次,覆盖异常与取消路径。
+agent loop 暴露四个拦截钩子(完整契约见 [参考 › 钩子](/zh-cn/docs/reference/hooks/))。`before_*` 按 LIFO 链式执行,可修改或短路;`after_*` 观察终态,成功与 `Exception` 失败各恰好一次(取消不观察)。
 
 模型路由、限次、脱敏 —— `before_llm_call`:
 
@@ -266,7 +266,7 @@ class ShellPolicy:
         return None  # proceed unchanged
 ```
 
-观察终态 —— `after_llm_call` / `after_tool_call` 在失败时拿到**原始异常对象**(`result.error`),调用中途被取消时是 `CancelledError`:
+观察终态 —— `after_llm_call` / `after_tool_call` 在失败时拿到**原始异常对象**(`result.error`);被取消的调用不产生观察:
 
 ```python
 from bub import hookimpl
