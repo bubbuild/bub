@@ -234,11 +234,14 @@ from bub.agent_hooks import LlmCallDecision, LlmCallRequest
 class RouteAndBudget:
     @hookimpl
     def before_llm_call(self, request: LlmCallRequest, state):
-        calls = state.get("llm_calls", 0)
-        state["llm_calls"] = calls + 1
+        # `state` persists for the session (it is not reset per turn), so
+        # this is a session-wide budget. For a per-turn budget, reset the
+        # counter yourself at a turn boundary (e.g. in build_prompt).
+        calls = state.get("session_llm_calls", 0)
+        state["session_llm_calls"] = calls + 1
         if calls >= 10:
             # Skip the provider entirely; this text becomes the final output.
-            return LlmCallDecision.finish("Call budget exhausted for this turn.")
+            return LlmCallDecision.finish("LLM call budget exhausted for this session.")
         # Rewrites are honored end-to-end: the provider receives this model
         # and max_tokens, and the tape records the effective model.
         return replace(request, model="openai:gpt-4o-mini", max_tokens=512)
