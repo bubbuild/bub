@@ -156,7 +156,7 @@ class ModelRunner:
             after_fired = False
 
             async def fire_after(error: Exception | None = None) -> None:
-                """Fire after_llm_call exactly once per call, on every exit path."""
+                """Fire after_llm_call once per completed call (success or Exception failure); cancellation/consumer close bypasses it."""
 
                 nonlocal after_fired
                 if after_fired:

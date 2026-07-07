@@ -130,9 +130,11 @@ class BubHookSpecs:
     def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: State) -> None:
         """Observe the terminal outcome of one agent-loop LLM call.
 
-        Fires exactly once per call — for streaming completions after the
-        stream is fully consumed, and also on error (``result.error`` set).
-        Return values are ignored; exceptions are logged and skipped.
+        Fires exactly once per completed call — success (for streaming
+        completions, after the stream is fully consumed) or ``Exception``
+        failure (``result.error`` set). Cancellation and consumer close
+        (``BaseException``) intentionally bypass this hook. Return values
+        are ignored; exceptions are logged and skipped.
         """
 
     @hookspec
