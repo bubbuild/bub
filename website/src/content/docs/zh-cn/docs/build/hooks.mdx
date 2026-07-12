@@ -228,7 +228,7 @@ agent loop 暴露四个拦截钩子(完整契约见 [参考 › 钩子](/zh-cn/d
 from dataclasses import replace
 
 from bub import hookimpl
-from bub.agent_hooks import LlmCallDecision, LlmCallRequest
+from bub.runtime import LlmCallDecision, LlmCallRequest
 
 
 class RouteAndBudget:
@@ -251,7 +251,7 @@ class RouteAndBudget:
 
 ```python
 from bub import hookimpl
-from bub.agent_hooks import ToolCall, ToolCallDecision
+from bub.runtime import ToolCall, ToolCallDecision
 
 
 class ShellPolicy:

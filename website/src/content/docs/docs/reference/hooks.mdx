@@ -105,7 +105,7 @@ The four `*_llm_call` / `*_tool_call` hooks are dispatched through the `AgentHoo
 - **Fault isolation** — a raising implementation is logged (`hook.agent_hook_failed`) and skipped, never fatal to the turn. Blocking is only expressible through decision objects, so a broken policy plugin cannot veto by crashing.
 - **Exactly-once terminal observation** — `after_llm_call` and `after_tool_call` fire exactly once per call for real completions: success or `Exception` failure. Cancellation and consumer close (`BaseException`) intentionally bypass after hooks. `result.error` carries the **original exception object** (a `BubError` for tool failures with `kind`/`details` intact).
 
-Payload dataclasses (`LlmCallRequest`, `LlmCallResult`, `ToolCall`, `ToolCallDecision`, `ToolCallResult`, `LlmCallDecision`) live in `src/bub/agent_hooks.py`. Every payload carries `run_id`, matching the `run_id` meta on tape entries, so observers can correlate hook events with the tape. Rewritten `model`/`max_tokens` from `before_llm_call` are honored end-to-end: the provider receives them and the tape records the effective model.
+Payload dataclasses (`LlmCallRequest`, `LlmCallResult`, `ToolCall`, `ToolCallDecision`, `ToolCallResult`, `LlmCallDecision`) live in `src/bub/runtime.py`. Every payload carries `run_id`, matching the `run_id` meta on tape entries, so observers can correlate hook events with the tape. Rewritten `model`/`max_tokens` from `before_llm_call` are honored end-to-end: the provider receives them and the tape records the effective model.
 
 A continuation-style `wrap_tool_call` (retry / human-in-the-loop / caching) was prototyped in the original PR and removed by review direction; if those use cases materialize it will return as a separate proposal.
 

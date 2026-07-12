@@ -13,9 +13,8 @@ from typing import TYPE_CHECKING, Any, Protocol, overload
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
-from bub.agent_hooks import ToolCall, ToolCallResult
 from bub.builtin.tape import Tape
-from bub.runtime import BubError, ErrorKind
+from bub.runtime import BubError, ErrorKind, ToolCall, ToolCallResult
 
 if TYPE_CHECKING:
     from bub.hook_runtime import AgentHooks

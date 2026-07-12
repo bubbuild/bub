@@ -105,7 +105,7 @@ def _kwargs_for_impl(impl: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
 - **错误隔离** — 实现抛异常只记日志(`hook.agent_hook_failed`)并跳过,绝不炸掉回合。阻断只能通过 decision 对象表达,坏掉的策略插件无法靠 crash 否决。
 - **终态恰好一次** — `after_llm_call` 与 `after_tool_call` 对真实完成的调用恰好触发一次:成功或 `Exception` 失败。取消与消费方关闭(`BaseException`)刻意不进入 after 钩子。`result.error` 携带**原始异常对象**(工具失败为完整 `BubError`,`kind`/`details` 保留)。
 
-载荷数据类(`LlmCallRequest`、`LlmCallResult`、`ToolCall`、`ToolCallDecision`、`ToolCallResult`、`LlmCallDecision`)位于 `src/bub/agent_hooks.py`。所有载荷携带 `run_id`,与 tape 条目 meta 中的 `run_id` 对应,观察者可将钩子事件与 tape 记录对齐。`before_llm_call` 改写的 `model`/`max_tokens` 全链路生效:provider 收到改写值,tape 记录 effective model。
+载荷数据类(`LlmCallRequest`、`LlmCallResult`、`ToolCall`、`ToolCallDecision`、`ToolCallResult`、`LlmCallDecision`)位于 `src/bub/runtime.py`。所有载荷携带 `run_id`,与 tape 条目 meta 中的 `run_id` 对应,观察者可将钩子事件与 tape 记录对齐。`before_llm_call` 改写的 `model`/`max_tokens` 全链路生效:provider 收到改写值,tape 记录 effective model。
 
 continuation 风格的 `wrap_tool_call`(重试 / human-in-the-loop / 缓存)曾在原 PR 中实现,按 review 方向移除;若相关用例成熟,将作为独立提案回归。
 

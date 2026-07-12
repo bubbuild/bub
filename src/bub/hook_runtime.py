@@ -9,15 +9,17 @@ from typing import Any
 import pluggy
 from loguru import logger
 
-from bub.agent_hooks import (
+from bub.runtime import (
+    AsyncStreamEvents,
     LlmCallDecision,
     LlmCallRequest,
     LlmCallResult,
+    StreamEvent,
+    StreamState,
     ToolCall,
     ToolCallDecision,
     ToolCallResult,
 )
-from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
 from bub.types import Envelope
 
 
@@ -211,7 +213,7 @@ class AgentHooks:
     Unlike ``call_first``/``call_many``, every implementation call here is
     fault-isolated: a raising plugin is logged and skipped, never fatal to
     the turn. Blocking a tool call is only possible through a returned
-    :class:`~bub.agent_hooks.ToolCallDecision` (``deny``/``replace``) — an
+    :class:`~bub.runtime.ToolCallDecision` (``deny``/``replace``) — an
     exception inside ``before_tool_call`` is treated as a broken plugin,
     not as a veto.
     """

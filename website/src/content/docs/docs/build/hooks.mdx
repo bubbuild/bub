@@ -228,7 +228,7 @@ Route models, cap spend, and redact — `before_llm_call`:
 from dataclasses import replace
 
 from bub import hookimpl
-from bub.agent_hooks import LlmCallDecision, LlmCallRequest
+from bub.runtime import LlmCallDecision, LlmCallRequest
 
 
 class RouteAndBudget:
@@ -251,7 +251,7 @@ Guard tool calls — `before_tool_call` returns a decision, never raises to veto
 
 ```python
 from bub import hookimpl
-from bub.agent_hooks import ToolCall, ToolCallDecision
+from bub.runtime import ToolCall, ToolCallDecision
 
 
 class ShellPolicy:

@@ -1,4 +1,4 @@
-"""Small runtime primitives shared by Bub core and channels."""
+"""Runtime data contracts shared by Bub core, channels, and plugins."""
 
 from __future__ import annotations
 
@@ -57,6 +57,102 @@ class RuntimeOptions:
 
     models: list[RuntimeChoice] = field(default_factory=list)
     current_model: str | None = None
+
+
+@dataclass(frozen=True)
+class LlmCallRequest:
+    """Outgoing agent-loop LLM request exposed to interception hooks.
+
+    Hooks may return a modified copy (``dataclasses.replace``) to change the
+    model or messages for this call. Tool objects are not exposed;
+    ``tool_names`` is observational and altering the toolset is out of scope.
+    """
+
+    run_id: str
+    model: str
+    messages: list[dict[str, Any]]
+    tool_names: tuple[str, ...] = ()
+    max_tokens: int | None = None
+
+
+@dataclass(frozen=True)
+class LlmCallResult:
+    """Terminal outcome of one LLM call exposed to interception hooks.
+
+    For streaming completions this is the fully accumulated final state, not
+    a per-chunk view. ``error`` is the original raised exception (and other
+    fields are best effort) when the call failed. Cancellation and consumer
+    close are not observed.
+    """
+
+    run_id: str
+    text: str | None = None
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    usage: dict[str, Any] | None = None
+    error: Exception | None = None
+    duration_ms: int = 0
+
+
+@dataclass(frozen=True)
+class LlmCallDecision:
+    """Short-circuit verdict returned by a ``before_llm_call`` hook."""
+
+    action: Literal["finish"] = "finish"
+    text: str = ""
+
+    @classmethod
+    def finish(cls, text: str) -> LlmCallDecision:
+        """Skip the provider call and emit ``text`` as its final output."""
+
+        return cls(action="finish", text=text)
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """One tool invocation exposed to interception hooks."""
+
+    run_id: str
+    tool: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolCallDecision:
+    """Verdict returned by a ``before_tool_call`` hook.
+
+    ``proceed`` continues with optional argument changes. ``replace`` skips
+    the handler and uses the supplied result. ``deny`` skips the handler and
+    surfaces the supplied message as a tool error.
+    """
+
+    action: Literal["proceed", "replace", "deny"] = "proceed"
+    arguments: dict[str, Any] | None = None
+    result: Any = None
+    message: str | None = None
+
+    @classmethod
+    def proceed(cls, arguments: dict[str, Any] | None = None) -> ToolCallDecision:
+        return cls(action="proceed", arguments=arguments)
+
+    @classmethod
+    def replace(cls, result: Any) -> ToolCallDecision:
+        return cls(action="replace", result=result)
+
+    @classmethod
+    def deny(cls, message: str) -> ToolCallDecision:
+        return cls(action="deny", message=message)
+
+
+@dataclass(frozen=True)
+class ToolCallResult:
+    """Terminal outcome of one tool invocation exposed to hooks."""
+
+    run_id: str
+    tool: str
+    arguments: dict[str, Any]
+    result: Any = None
+    error: Exception | None = None
+    duration_ms: int = 0
 
 
 @dataclass

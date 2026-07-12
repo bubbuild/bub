@@ -8,16 +8,17 @@ from typing import Any
 import pluggy
 import pytest
 
-from bub.agent_hooks import (
+from bub.hook_runtime import AgentHooks, HookRuntime
+from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
+from bub.runtime import (
+    BubError,
+    LlmCallDecision,
     LlmCallRequest,
     LlmCallResult,
     ToolCall,
     ToolCallDecision,
     ToolCallResult,
 )
-from bub.hook_runtime import AgentHooks, HookRuntime
-from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
-from bub.runtime import BubError
 from bub.tools import Tool, ToolExecutor
 
 
@@ -225,8 +226,6 @@ class TestAfterLlmCall:
 class TestBeforeLlmCallFinish:
     @pytest.mark.asyncio
     async def test_finish_decision_short_circuits(self) -> None:
-        from bub.agent_hooks import LlmCallDecision
-
         class Limit:
             @hookimpl
             def before_llm_call(self, request: LlmCallRequest, state: dict) -> LlmCallDecision:
