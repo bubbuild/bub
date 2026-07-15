@@ -16,9 +16,9 @@ from telegram.request import HTTPXRequest
 
 from bub import config
 from bub.channels.base import Channel
+from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem, MediaType
 from bub.configure import Settings, ensure_config
-from bub.types import MessageHandler
 from bub.utils import exclude_none
 
 

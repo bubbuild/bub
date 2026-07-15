@@ -13,7 +13,7 @@ from bub.builtin.agent import Agent
 from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
 from bub.builtin.steering import InMemorySteeringInbox
-from bub.runtime import BubError
+from bub.errors import BubError
 from bub.tape import TapeContext
 from bub.tools import REGISTRY, tool
 

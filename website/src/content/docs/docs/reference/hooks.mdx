@@ -3,7 +3,7 @@ title: Hooks
 description: Every hook in BubHookSpecs with kind, signature, return type, and invocation site.
 ---
 
-This page lists every hook declared in `bub/hookspecs.py` (`BubHookSpecs`). Hook **kind** uses three labels:
+This page lists every hook declared in `bub/hooks/specs.py` (`BubHookSpecs`). Hook **kind** uses three labels:
 
 - **firstresult** — `pluggy` `firstresult=True`; `HookRuntime.call_first` returns the first non-`None` value in priority order.
 - **broadcast** — every implementation runs; results are collected into a list (`call_many`).
@@ -16,8 +16,8 @@ For the *why* and *how* of each stage see [Turn pipeline](/docs/concepts/turn-pi
 | Hook | Kind | Signature | Returns | Invoked from | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `resolve_session` | firstresult | `(message: Envelope) -> str` | session id | `BubFramework.process_inbound` | Falls back to `"{channel}:{chat_id}"` when no impl returns a value. |
-| `load_state` | broadcast | `(message: Envelope, session_id: str) -> State` | dict to merge | `BubFramework.process_inbound` | Framework reverses results, then merges in order so high-priority keys overwrite low-priority. |
-| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: State) -> str \| list[dict]` | prompt or content parts | `BubFramework.process_inbound` | Falls back to `content_of(message)` when no impl returns a non-`None` value, or when the selected firstresult is falsy. A falsy selected value does not cause lower-priority impls to run. |
+| `load_state` | broadcast | `(message: Envelope, session_id: str) -> TurnState` | dict to merge | `BubFramework.process_inbound` | Framework reverses results, then merges in order so high-priority keys overwrite low-priority. |
+| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: TurnState) -> str \| list[dict]` | prompt or content parts | `BubFramework.process_inbound` | Falls back to `content_of(message)` when no impl returns a non-`None` value, or when the selected firstresult is falsy. A falsy selected value does not cause lower-priority impls to run. |
 | `run_model` | firstresult | `(prompt, session_id, state) -> str` | model text | `HookRuntime.run_model` | Legacy text path. Implement either `run_model` or `run_model_stream`, not both. |
 | `run_model_stream` | firstresult | `(prompt, session_id, state) -> AsyncStreamEvents` | async stream | `HookRuntime.run_model_stream` | Preferred. Falls back to wrapping a `run_model` result in a one-chunk stream when no streaming impl exists. |
 | `save_state` | broadcast | `(session_id, state, message, model_output) -> None` | none | `process_inbound` model-stage finally block | Runs after prompt resolution for model-stage success or failure; failures before prompt/model execution skip it. |
@@ -25,21 +25,21 @@ For the *why* and *how* of each stage see [Turn pipeline](/docs/concepts/turn-pi
 | `dispatch_outbound` | broadcast | `(message: Envelope) -> bool` | sent flag | `process_inbound` per outbound | Each outbound is fanned out to every impl. |
 | `register_cli_commands` | sync-only consumer | `(app: typer.Typer) -> None` | none | `BubFramework.create_cli_app` (`call_many_sync`) | Bootstrap only; async impls log a warning and are skipped. |
 | `onboard_config` | sync-only consumer (custom merge) | `(current_config: dict) -> dict \| None` | config fragment | `BubFramework.collect_onboard_config` | Iterated by priority; each fragment is merged via `configure.merge`. Non-dict returns raise `TypeError`. |
-| `provide_runtime_options` | broadcast | `(session_id: str, workspace: Path \| None) -> RuntimeOptions \| None` | runtime choices | `BubFramework.get_runtime_options` | Model choices are appended in hook priority order. Selection state is owned by the caller or adapter. |
+| `provide_model_options` | broadcast | `(session_id: str, workspace: Path \| None) -> ModelOptions \| None` | model choices | `BubFramework.get_model_options` | Model choices are appended in hook priority order. Selection state is owned by the caller or adapter. |
 | `on_error` | observer | `(stage: str, error: Exception, message: Envelope \| None) -> None` | none | `HookRuntime.notify_error` / `notify_error_sync` | Failures inside an `on_error` impl are caught and logged so other observers still run. |
 | `system_prompt` | broadcast (joined) | `(prompt, state) -> str` | prompt fragment | `BubFramework.get_system_prompt` (`call_many_sync`) | Results are reversed and joined with `\n\n`; truthy fragments only. |
 | `provide_tape_store` | firstresult | `() -> TapeStore \| AsyncTapeStore` | tape store | `BubFramework.running()` | Resolved once when the runtime scope opens; sync/async iterators are entered as context managers. |
 | `provide_channels` | sync-only consumer (deduped) | `(message_handler: MessageHandler) -> list[Channel]` | channels | `BubFramework.get_channels` (`call_many_sync`) | Channels are deduplicated by `Channel.name`; the first channel seen in hook priority order wins. |
 | `build_tape_context` | firstresult | `() -> TapeContext` | tape context | `BubFramework.build_tape_context` (`call_first_sync`) | Sync-only; awaitable returns are skipped. |
-| `admit_message` | firstresult | `(session_id, message, turn) -> AdmitDecision \| None` | turn admission decision | `ChannelManager` | Runs before channel scheduling. `None` keeps default concurrent scheduling; decision types are listed in [Types](/docs/reference/types/#turn-admission-types). |
-| `before_llm_call` | chained | `(request: LlmCallRequest, state: State) -> LlmCallRequest \| LlmCallDecision \| None` | modified request or finish decision | `ModelRunner.run` via `AgentHooks` | Impls chain in LIFO order; each sees the previous impl's request. `LlmCallDecision.finish(text)` skips the provider call. Raising impls are logged and skipped. |
-| `after_llm_call` | observer | `(request: LlmCallRequest, result: LlmCallResult, state: State) -> None` | none | `ModelRunner.run` via `AgentHooks` | Fires exactly once per completed call: success or `Exception` failure. Cancellation / consumer `aclose()` is not observed. `result.error` is the original exception. |
-| `before_tool_call` | chained | `(call: ToolCall, state: State) -> ToolCallDecision \| None` | decision | `ToolExecutor` via `AgentHooks` | Per tool invocation. `proceed(arguments=…)` folds argument changes; `replace(result)` / `deny(message)` short-circuit. Veto only via the decision object — exceptions are logged and skipped. |
-| `after_tool_call` | observer | `(call: ToolCall, result: ToolCallResult, state: State) -> None` | none | `ToolExecutor` via `AgentHooks` | Fires for success, failure and deny/replace. Cancellation is not observed. `result.error` is the original `BubError`. |
+| `admit_message` | firstresult | `(session_id, message, turn) -> AdmitDecision \| None` | turn admission decision | `ChannelManager` | Runs before channel scheduling. `None` keeps default concurrent scheduling; decision types are listed in [Core contracts](/docs/reference/types/). |
+| `before_llm_call` | chained | `(request: LlmCallRequest, state: TurnState) -> LlmCallRequest \| LlmCallDecision \| None` | modified request or finish decision | `ModelRunner.run` via `AgentHooks` | Impls chain in LIFO order; each sees the previous impl's request. `LlmCallDecision.finish(text)` skips the provider call. Raising impls are logged and skipped. |
+| `after_llm_call` | observer | `(request: LlmCallRequest, result: LlmCallResult, state: TurnState) -> None` | none | `ModelRunner.run` via `AgentHooks` | Fires exactly once per completed call: success or `Exception` failure. Cancellation / consumer `aclose()` is not observed. `result.error` is the original exception. |
+| `before_tool_call` | chained | `(call: ToolCall, state: TurnState) -> ToolCallDecision \| None` | decision | `ToolExecutor` via `AgentHooks` | Per tool invocation. `proceed(arguments=…)` folds argument changes; `replace(result)` / `deny(message)` short-circuit. Veto only via the decision object — exceptions are logged and skipped. |
+| `after_tool_call` | observer | `(call: ToolCall, result: ToolCallResult, state: TurnState) -> None` | none | `ToolExecutor` via `AgentHooks` | Fires for success, failure and deny/replace. Cancellation is not observed. `result.error` is the original `BubError`. |
 
 ## How hooks are invoked
 
-`HookRuntime` (in `src/bub/hook_runtime.py`) wraps the `pluggy.PluginManager` with the following semantics.
+`HookRuntime` (in `src/bub/hooks/runtime.py`) wraps the `pluggy.PluginManager` with the following semantics.
 
 ### Iteration order
 
@@ -99,14 +99,14 @@ Each impl receives only the kwargs it declares. You can omit unused parameters f
 
 ### Agent-loop hooks (`AgentHooks`)
 
-The four `*_llm_call` / `*_tool_call` hooks are dispatched through the `AgentHooks` facade (`src/bub/hook_runtime.py`), not `call_first`/`call_many`, with three deliberate differences:
+The four `*_llm_call` / `*_tool_call` hooks are dispatched through the `AgentHooks` facade (`src/bub/hooks/interception.py`), not `call_first`/`call_many`, with three deliberate differences:
 
 - **Chaining** — `before_llm_call` and `before_tool_call` run every implementation in LIFO order and *fold* modifications: each impl receives the request/call as modified by the impls before it. The first short-circuiting decision (`LlmCallDecision.finish`, `ToolCallDecision.replace`/`deny`) stops the chain.
 - **Fault isolation** — a raising implementation is logged (`hook.agent_hook_failed`) and skipped, never fatal to the turn. Blocking is only expressible through decision objects, so a broken policy plugin cannot veto by crashing.
 - **Exactly-once terminal observation** — `after_llm_call` and `after_tool_call` fire exactly once per call for real completions: success or `Exception` failure. Cancellation and consumer close (`BaseException`) intentionally bypass after hooks. `result.error` carries the **original exception object** (a `BubError` for tool failures with `kind`/`details` intact).
 
-Payload dataclasses (`LlmCallRequest`, `LlmCallResult`, `ToolCall`, `ToolCallDecision`, `ToolCallResult`, `LlmCallDecision`) live in `src/bub/runtime.py`. Every payload carries `run_id`, matching the `run_id` meta on tape entries, so observers can correlate hook events with the tape. Rewritten `model`/`max_tokens` from `before_llm_call` are honored end-to-end: the provider receives them and the tape records the effective model.
+Payload dataclasses (`LlmCallRequest`, `LlmCallResult`, `ToolCall`, `ToolCallDecision`, `ToolCallResult`, `LlmCallDecision`) live beside those semantics in `src/bub/hooks/interception.py`. Every payload carries `run_id`, matching the `run_id` meta on tape entries, so observers can correlate hook events with the tape. Rewritten `model`/`max_tokens` from `before_llm_call` are honored end-to-end: the provider receives them and the tape records the effective model.
 
 A continuation-style `wrap_tool_call` (retry / human-in-the-loop / caching) was prototyped in the original PR and removed by review direction; if those use cases materialize it will return as a separate proposal.
 
-For the runtime contract behind every signature, read `src/bub/hookspecs.py`. To verify what is registered in your environment, run `bub hooks` (see [CLI › hooks](/docs/reference/cli/#hooks)).
+For the contract behind every signature, read `src/bub/hooks/specs.py`. To verify what is registered in your environment, run `bub hooks` (see [CLI › hooks](/docs/reference/cli/#hooks)).

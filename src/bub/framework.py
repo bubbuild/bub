@@ -14,13 +14,16 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from bub import configure
-from bub.envelope import content_of, field_of, unpack_batch
-from bub.hook_runtime import _SKIP_VALUE, AgentHooks, HookRuntime
-from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs
-from bub.runtime import BubError, ErrorKind, RuntimeOptions
+from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
+from bub.channels.contracts import ChannelRouter, MessageHandler
+from bub.envelope import Envelope, content_of, field_of, unpack_batch
+from bub.errors import BubError, ErrorKind
+from bub.hooks.interception import AgentHooks
+from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
+from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
+from bub.model_selection import ModelOptions
 from bub.tape import AsyncTapeStore, TapeContext, TapeStore
-from bub.turn_admission import AdmitDecision, TurnSnapshot
-from bub.types import Envelope, MessageHandler, OutboundChannelRouter, State, SteeringInboxProtocol, TurnResult
+from bub.turn import TurnResult, TurnState
 from bub.utils import maybe_context_manager
 
 if TYPE_CHECKING:
@@ -49,9 +52,9 @@ class BubFramework:
         self._hook_runtime = HookRuntime(self._plugin_manager)
         self._agent_hooks = AgentHooks(self._hook_runtime)
         self._plugin_status: dict[str, PluginStatus] = {}
-        self._outbound_router: OutboundChannelRouter | None = None
+        self._channel_router: ChannelRouter | None = None
         self._tape_store: TapeStore | AsyncTapeStore | None = None
-        self._steering_inbox: SteeringInboxProtocol | None = None
+        self._steering_inbox: SteeringInbox | None = None
         configure.load(self.config_file)
 
     def _load_builtin_hooks(self) -> None:
@@ -119,7 +122,7 @@ class BubFramework:
             prompt = content_of(message)
         return cast("str | list[dict[str, Any]]", prompt)
 
-    async def build_state(self, message: Envelope, session_id: str) -> State:
+    async def build_state(self, message: Envelope, session_id: str) -> TurnState:
         state = {"_runtime_workspace": str(self.workspace), "_runtime_steering_inbox": self.get_steering_inbox()}
         for hook_state in reversed(
             await self._hook_runtime.call_many("load_state", message=message, session_id=session_id)
@@ -198,7 +201,7 @@ class BubFramework:
             return prompt if isinstance(prompt, str) else content_of(inbound)
         else:
             parts: list[str] = []
-            events = self._outbound_router.wrap_stream(inbound, stream) if self._outbound_router is not None else stream
+            events = self._channel_router.wrap_stream(inbound, stream) if self._channel_router is not None else stream
             async for event in events:
                 if event.kind == "text":
                     parts.append(str(event.data.get("delta", "")))
@@ -216,17 +219,17 @@ class BubFramework:
 
         return self._hook_runtime.hook_report()
 
-    def bind_outbound_router(self, router: OutboundChannelRouter | None) -> None:
-        self._outbound_router = router
+    def bind_channel_router(self, router: ChannelRouter | None) -> None:
+        self._channel_router = router
 
-    async def dispatch_via_router(self, message: Envelope) -> bool:
-        if self._outbound_router is None:
+    async def dispatch_via_channel_router(self, message: Envelope) -> bool:
+        if self._channel_router is None:
             return False
-        return await self._outbound_router.dispatch_output(message)
+        return await self._channel_router.dispatch_output(message)
 
-    async def quit_via_router(self, session_id: str) -> None:
-        if self._outbound_router is not None:
-            await self._outbound_router.quit(session_id)
+    async def quit_via_channel_router(self, session_id: str) -> None:
+        if self._channel_router is not None:
+            await self._channel_router.quit(session_id)
 
     async def admit_message(self, *, session_id: str, message: Envelope, turn: TurnSnapshot) -> AdmitDecision | None:
         decision = await self._hook_runtime.call_first(
@@ -239,28 +242,28 @@ class BubFramework:
             return decision
         raise TypeError("hook.admit_message must return AdmitDecision or None")
 
-    async def get_runtime_options(
+    async def get_model_options(
         self,
         *,
         session_id: str,
         workspace: str | Path | None = None,
-    ) -> RuntimeOptions:
-        """Collect protocol-neutral runtime choices for one session."""
+    ) -> ModelOptions:
+        """Collect model choices for one session."""
 
         resolved_workspace = self._resolve_workspace(workspace)
         results = await self._hook_runtime.call_many(
-            "provide_runtime_options",
+            "provide_model_options",
             session_id=session_id,
             workspace=resolved_workspace,
         )
 
-        merged = RuntimeOptions()
+        merged = ModelOptions()
         for result in results:
             if result is None:
                 continue
-            if not isinstance(result, RuntimeOptions):
-                raise TypeError("hook.provide_runtime_options must return RuntimeOptions or None")
-            merged = RuntimeOptions(
+            if not isinstance(result, ModelOptions):
+                raise TypeError("hook.provide_model_options must return ModelOptions or None")
+            merged = ModelOptions(
                 models=[*merged.models, *result.models],
                 current_model=merged.current_model or result.current_model,
             )
@@ -276,7 +279,7 @@ class BubFramework:
         *,
         message: Envelope,
         session_id: str,
-        state: State,
+        state: TurnState,
         reason: str | None = None,
     ) -> bool:
         inbox = self.get_steering_inbox()
@@ -357,7 +360,7 @@ class BubFramework:
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         return self._tape_store
 
-    def get_steering_inbox(self) -> SteeringInboxProtocol | None:
+    def get_steering_inbox(self) -> SteeringInbox | None:
         return self._steering_inbox
 
     def get_agent_hooks(self) -> AgentHooks:

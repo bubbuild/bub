@@ -3,7 +3,7 @@ title: 钩子
 description: BubHookSpecs 中每个钩子的类型、签名、返回值与调用位置。
 ---
 
-本页列出 `bub/hookspecs.py` (`BubHookSpecs`) 中声明的每一个钩子。**类型** 列使用三种标签：
+本页列出 `bub/hooks/specs.py` (`BubHookSpecs`) 中声明的每一个钩子。**类型** 列使用三种标签：
 
 - **firstresult** — 对应 `pluggy` 的 `firstresult=True`;`HookRuntime.call_first` 按优先级返回第一个非 `None` 的结果。
 - **broadcast** — 所有实现都会执行,结果聚合到列表(`call_many`)。
@@ -16,8 +16,8 @@ description: BubHookSpecs 中每个钩子的类型、签名、返回值与调用
 | 钩子 | 类型 | 签名 | 返回 | 调用方 | 备注 |
 | --- | --- | --- | --- | --- | --- |
 | `resolve_session` | firstresult | `(message: Envelope) -> str` | session id | `BubFramework.process_inbound` | 没有任何实现返回值时,框架回退为 `"{channel}:{chat_id}"`。 |
-| `load_state` | broadcast | `(message: Envelope, session_id: str) -> State` | dict to merge | `BubFramework.process_inbound` | 框架先反转结果列表再依次合并,使高优先级的键覆盖低优先级。 |
-| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: State) -> str \| list[dict]` | prompt or content parts | `BubFramework.process_inbound` | 没有实现返回非 `None` 值，或选中的 firstresult 为 falsy 时，回退到 `content_of(message)`。已选中的 falsy 值不会触发继续尝试低优先级实现。 |
+| `load_state` | broadcast | `(message: Envelope, session_id: str) -> TurnState` | dict to merge | `BubFramework.process_inbound` | 框架先反转结果列表再依次合并,使高优先级的键覆盖低优先级。 |
+| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: TurnState) -> str \| list[dict]` | prompt or content parts | `BubFramework.process_inbound` | 没有实现返回非 `None` 值，或选中的 firstresult 为 falsy 时，回退到 `content_of(message)`。已选中的 falsy 值不会触发继续尝试低优先级实现。 |
 | `run_model` | firstresult | `(prompt, session_id, state) -> str` | model text | `HookRuntime.run_model` | 旧版纯文本路径。`run_model` 与 `run_model_stream` 选其一实现,不要同时实现。 |
 | `run_model_stream` | firstresult | `(prompt, session_id, state) -> AsyncStreamEvents` | async stream | `HookRuntime.run_model_stream` | 推荐路径。无流式实现时框架将 `run_model` 结果包装为单个 chunk 的流。 |
 | `save_state` | broadcast | `(session_id, state, message, model_output) -> None` | none | `process_inbound` model-stage finally block | prompt 解析完成后，在模型阶段成功或失败时执行；若失败发生在 prompt/model 执行前则跳过。 |
@@ -25,21 +25,21 @@ description: BubHookSpecs 中每个钩子的类型、签名、返回值与调用
 | `dispatch_outbound` | broadcast | `(message: Envelope) -> bool` | sent flag | `process_inbound` per outbound | 每个 outbound 都会广播给所有实现。 |
 | `register_cli_commands` | sync-only consumer | `(app: typer.Typer) -> None` | none | `BubFramework.create_cli_app` (`call_many_sync`) | 仅用于启动期;async 实现会被跳过并产生告警。 |
 | `onboard_config` | sync-only consumer (custom merge) | `(current_config: dict) -> dict \| None` | config fragment | `BubFramework.collect_onboard_config` | 按优先级遍历;每个返回值通过 `configure.merge` 合并;非 dict 返回会抛出 `TypeError`。 |
-| `provide_runtime_options` | broadcast | `(session_id: str, workspace: Path \| None) -> RuntimeOptions \| None` | runtime choices | `BubFramework.get_runtime_options` | 模型选项会按 hook 优先级顺序追加。选择状态由调用方或 adapter 自己持有。 |
+| `provide_model_options` | broadcast | `(session_id: str, workspace: Path \| None) -> ModelOptions \| None` | model choices | `BubFramework.get_model_options` | 模型选项会按 hook 优先级顺序追加。选择状态由调用方或 adapter 自己持有。 |
 | `on_error` | observer | `(stage: str, error: Exception, message: Envelope \| None) -> None` | none | `HookRuntime.notify_error` / `notify_error_sync` | `on_error` 实现内部抛出的异常会被吞掉并写日志,确保其他观察者继续运行。 |
 | `system_prompt` | broadcast (joined) | `(prompt, state) -> str` | prompt fragment | `BubFramework.get_system_prompt` (`call_many_sync`) | 结果先反转再用 `\n\n` 拼接,只保留真值片段。 |
 | `provide_tape_store` | firstresult | `() -> TapeStore \| AsyncTapeStore` | tape store | `BubFramework.running()` | 仅在 runtime 作用域开启时解析一次;返回同步或异步迭代器时会被作为 context manager 进入。 |
 | `provide_channels` | sync-only consumer (deduped) | `(message_handler: MessageHandler) -> list[Channel]` | channels | `BubFramework.get_channels` (`call_many_sync`) | 按 `Channel.name` 去重；在钩子优先级顺序中最先出现的 channel 胜出。 |
 | `build_tape_context` | firstresult | `() -> TapeContext` | tape context | `BubFramework.build_tape_context` (`call_first_sync`) | 仅同步;awaitable 返回会被跳过。 |
-| `admit_message` | firstresult | `(session_id, message, turn) -> AdmitDecision \| None` | turn admission decision | `ChannelManager` | 调度 channel message 前调用。返回 `None` 保持默认并发调度；decision 类型见 [类型](/zh-cn/docs/reference/types/#turn-admission-类型)。 |
-| `before_llm_call` | chained | `(request: LlmCallRequest, state: State) -> LlmCallRequest \| LlmCallDecision \| None` | 修改后的 request 或 finish 决定 | `ModelRunner.run` 经 `AgentHooks` | 实现按 LIFO 链式执行,每个实现看到的是前一个实现修改后的 request。返回 `LlmCallDecision.finish(text)` 跳过 provider 调用。实现抛异常仅记日志并跳过。 |
-| `after_llm_call` | observer | `(request: LlmCallRequest, result: LlmCallResult, state: State) -> None` | 无 | `ModelRunner.run` 经 `AgentHooks` | 每次完成的调用恰好触发一次:成功或 `Exception` 失败。取消 / 消费方 `aclose()` 不观察。`result.error` 是原始异常。 |
-| `before_tool_call` | chained | `(call: ToolCall, state: State) -> ToolCallDecision \| None` | decision | `ToolExecutor` 经 `AgentHooks` | 逐次工具调用。`proceed(arguments=…)` 折叠参数修改;`replace(result)` / `deny(message)` 短路。否决只能通过 decision 对象——异常仅记日志并跳过。 |
-| `after_tool_call` | observer | `(call: ToolCall, result: ToolCallResult, state: State) -> None` | 无 | `ToolExecutor` 经 `AgentHooks` | 成功、失败、deny/replace 会触发。取消不观察。`result.error` 是原始 `BubError`。 |
+| `admit_message` | firstresult | `(session_id, message, turn) -> AdmitDecision \| None` | turn admission decision | `ChannelManager` | 调度 channel message 前调用。返回 `None` 保持默认并发调度；decision 类型见 [核心契约](/zh-cn/docs/reference/types/)。 |
+| `before_llm_call` | chained | `(request: LlmCallRequest, state: TurnState) -> LlmCallRequest \| LlmCallDecision \| None` | 修改后的 request 或 finish 决定 | `ModelRunner.run` 经 `AgentHooks` | 实现按 LIFO 链式执行,每个实现看到的是前一个实现修改后的 request。返回 `LlmCallDecision.finish(text)` 跳过 provider 调用。实现抛异常仅记日志并跳过。 |
+| `after_llm_call` | observer | `(request: LlmCallRequest, result: LlmCallResult, state: TurnState) -> None` | 无 | `ModelRunner.run` 经 `AgentHooks` | 每次完成的调用恰好触发一次:成功或 `Exception` 失败。取消 / 消费方 `aclose()` 不观察。`result.error` 是原始异常。 |
+| `before_tool_call` | chained | `(call: ToolCall, state: TurnState) -> ToolCallDecision \| None` | decision | `ToolExecutor` 经 `AgentHooks` | 逐次工具调用。`proceed(arguments=…)` 折叠参数修改;`replace(result)` / `deny(message)` 短路。否决只能通过 decision 对象——异常仅记日志并跳过。 |
+| `after_tool_call` | observer | `(call: ToolCall, result: ToolCallResult, state: TurnState) -> None` | 无 | `ToolExecutor` 经 `AgentHooks` | 成功、失败、deny/replace 会触发。取消不观察。`result.error` 是原始 `BubError`。 |
 
 ## 钩子如何被调用
 
-`HookRuntime`(位于 `src/bub/hook_runtime.py`)在 `pluggy.PluginManager` 之上提供以下语义。
+`HookRuntime`(位于 `src/bub/hooks/runtime.py`)在 `pluggy.PluginManager` 之上提供以下语义。
 
 ### 迭代顺序
 
@@ -99,14 +99,14 @@ def _kwargs_for_impl(impl: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
 
 ### Agent-loop 钩子(`AgentHooks`)
 
-四个 `*_llm_call` / `*_tool_call` 钩子经由 `AgentHooks` 门面(`src/bub/hook_runtime.py`)分发,而不是 `call_first`/`call_many`,有三处刻意差异:
+四个 `*_llm_call` / `*_tool_call` 钩子经由 `AgentHooks` 门面(`src/bub/hooks/interception.py`)分发,而不是 `call_first`/`call_many`,有三处刻意差异:
 
 - **链式** — `before_llm_call` 与 `before_tool_call` 按 LIFO 顺序执行全部实现并**折叠**修改:每个实现收到的是前序实现修改后的 request/call。第一个短路决定(`LlmCallDecision.finish`、`ToolCallDecision.replace`/`deny`)终止链。
 - **错误隔离** — 实现抛异常只记日志(`hook.agent_hook_failed`)并跳过,绝不炸掉回合。阻断只能通过 decision 对象表达,坏掉的策略插件无法靠 crash 否决。
 - **终态恰好一次** — `after_llm_call` 与 `after_tool_call` 对真实完成的调用恰好触发一次:成功或 `Exception` 失败。取消与消费方关闭(`BaseException`)刻意不进入 after 钩子。`result.error` 携带**原始异常对象**(工具失败为完整 `BubError`,`kind`/`details` 保留)。
 
-载荷数据类(`LlmCallRequest`、`LlmCallResult`、`ToolCall`、`ToolCallDecision`、`ToolCallResult`、`LlmCallDecision`)位于 `src/bub/runtime.py`。所有载荷携带 `run_id`,与 tape 条目 meta 中的 `run_id` 对应,观察者可将钩子事件与 tape 记录对齐。`before_llm_call` 改写的 `model`/`max_tokens` 全链路生效:provider 收到改写值,tape 记录 effective model。
+载荷数据类(`LlmCallRequest`、`LlmCallResult`、`ToolCall`、`ToolCallDecision`、`ToolCallResult`、`LlmCallDecision`)与执行语义一同位于 `src/bub/hooks/interception.py`。所有载荷携带 `run_id`,与 tape 条目 meta 中的 `run_id` 对应,观察者可将钩子事件与 tape 记录对齐。`before_llm_call` 改写的 `model`/`max_tokens` 全链路生效:provider 收到改写值,tape 记录 effective model。
 
 continuation 风格的 `wrap_tool_call`(重试 / human-in-the-loop / 缓存)曾在原 PR 中实现,按 review 方向移除;若相关用例成熟,将作为独立提案回归。
 
-每个签名的运行时契约见 `src/bub/hookspecs.py`。要核对当前环境注册的实现,运行 `bub hooks`(详见 [CLI › hooks](/zh-cn/docs/reference/cli/#hooks))。
+每个签名的契约见 `src/bub/hooks/specs.py`。要核对当前环境注册的实现,运行 `bub hooks`(详见 [CLI › hooks](/zh-cn/docs/reference/cli/#hooks))。

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from bub.builtin.tools import run_subagent
-from bub.runtime import AsyncStreamEvents, StreamEvent
+from bub.streaming import AsyncStreamEvents, StreamEvent
 from bub.tools import REGISTRY, tool
 
 
@@ -87,7 +87,7 @@ async def test_subagent_state_includes_session_id() -> None:
 
     call_kwargs = agent.run_stream.call_args.kwargs
     state = call_kwargs["state"]
-    # State should contain the subagent session_id, not the original
+    # Turn state should contain the subagent session_id, not the original
     assert state["session_id"] == call_kwargs["session_id"]
     assert state["extra"] == "val"
 

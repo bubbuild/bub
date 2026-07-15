@@ -6,7 +6,9 @@ Core code lives under `src/`:
 
 - `src/bub/__main__.py`: Typer CLI entrypoint.
 - `src/bub/framework.py`: turn orchestration and outbound routing.
-- `src/bub/hookspecs.py` / `src/bub/hook_runtime.py`: hook contracts and execution helpers.
+- `src/bub/hooks/`: hook specifications, execution helpers, and interception contracts.
+- `src/bub/channels/`: channel bases, routing contracts, admission policy, and lifecycle manager.
+- `src/bub/{envelope,turn,streaming,errors,model_selection}.py`: small kernel vocabulary owned by each concern.
 - `src/bub/builtin/`: builtin runtime, CLI wiring, settings, tools, and tape services.
 - `src/bub/channels/`: channel abstractions plus CLI and Telegram adapters.
 - `src/bub/skills.py` / `src/bub/tools.py`: skill discovery and tool registry.

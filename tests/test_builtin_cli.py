@@ -16,7 +16,7 @@ import bub.builtin.cli as cli
 import bub.configure as configure
 import bub.inquirer as bub_inquirer
 from bub.framework import BubFramework
-from bub.hookspecs import hookimpl
+from bub.hooks import hookimpl
 
 TEST_ACCESS_TOKEN = "access"  # noqa: S105
 TEST_REFRESH_TOKEN = "refresh"  # noqa: S105

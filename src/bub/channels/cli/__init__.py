@@ -24,14 +24,14 @@ from rich.tree import Tree
 import bub
 from bub.builtin.agent import Agent
 from bub.builtin.tape import TapeInfo
+from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.base import Interface
 from bub.channels.cli.renderer import CliRenderer
+from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
-from bub.envelope import field_of
-from bub.runtime import StreamEvent
+from bub.envelope import Envelope, field_of
+from bub.streaming import StreamEvent
 from bub.tools import REGISTRY, tool_call_reporter
-from bub.turn_admission import AdmitDecision, TurnSnapshot
-from bub.types import Envelope, MessageHandler
 
 _GENERATION_SPINNER: str = SPINNERS["dots"]["frames"]  # type: ignore[assignment]
 _PROMPT_REFRESH_INTERVAL: float = SPINNERS["dots"]["interval"] / 1000.0  # type: ignore[operator]

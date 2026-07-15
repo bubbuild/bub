@@ -25,15 +25,15 @@ from bub.builtin.settings import load_settings
 from bub.builtin.tape import Tape
 from bub.envelope import field_of
 from bub.framework import BubFramework
-from bub.runtime import AsyncStreamEvents, StreamEvent, StreamState
 from bub.skills import discover_skills, render_skills_prompt
+from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, is_async_tape_store
 from bub.tools import (
     REGISTRY,
     Tool,
     ToolContext,
 )
-from bub.types import State
+from bub.turn import TurnState
 from bub.utils import workspace_from_state
 
 CONTINUE_PROMPT = "Continue the task until all targets are completed."
@@ -86,7 +86,7 @@ class Agent:
         *,
         session_id: str,
         prompt: str | list[dict],
-        state: State,
+        state: TurnState,
         model: str | None = None,
         allowed_skills: Collection[str] | None = None,
         allowed_tools: Collection[str] | None = None,
@@ -380,7 +380,11 @@ class Agent:
         )
 
     def _system_prompt(
-        self, prompt: str, state: State, allowed_skills: set[str] | None = None, tools: Iterable[Tool] | None = None
+        self,
+        prompt: str,
+        state: TurnState,
+        allowed_skills: set[str] | None = None,
+        tools: Iterable[Tool] | None = None,
     ) -> str:
         from bub.builtin.tools import render_tools_prompt
 
@@ -400,7 +404,7 @@ class Agent:
             return f"{CONTINUE_PROMPT} [context: {tape.context.state['context']}]"
         return CONTINUE_PROMPT
 
-    def _has_steering_messages(self, state: State) -> bool:
+    def _has_steering_messages(self, state: TurnState) -> bool:
         steering_inbox = self.framework.get_steering_inbox()
         return bool(steering_inbox and steering_inbox.message_count(state) > 0)
 

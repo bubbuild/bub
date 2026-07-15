@@ -49,7 +49,7 @@ hook 运行时会在两者间互相适配：若插件只实现 `run_model_stream
 
 如果两者都没有返回输出（每个实现都返回 `None`），内核会通过 `on_error(stage="run_model", ...)` 通知并 fallback，使 `save_state` 与后续 outbound 阶段仍能运行。字符串 prompt 会原样返回；多模态 list prompt 会 fallback 为 inbound envelope 的纯 `content` 字段。
 
-流式过程中，每个 `error` 事件都会通过 `on_error(stage="run_model", ...)` 转发。绑定的 `OutboundChannelRouter` 也可在 turn 结束前包装该流，将增量 chunk 推送到 channel。
+流式过程中，每个 `error` 事件都会通过 `on_error(stage="run_model", ...)` 转发。绑定的 `ChannelRouter` 也可在 turn 结束前包装该流，将增量 chunk 推送到 channel。
 
 ### save_state
 
@@ -65,7 +65,7 @@ hook 运行时会在两者间互相适配：若插件只实现 `run_model_stream
 
 ### dispatch_outbound
 
-广播，按每条 outbound envelope 调用一次。实现可在投递完成后返回 `True`。内置实现还会把 envelope 转发到绑定的 `OutboundChannelRouter` 进行实际 channel I/O。
+广播，按每条 outbound envelope 调用一次。实现可在投递完成后返回 `True`。内置实现还会把 envelope 转发到绑定的 `ChannelRouter` 进行实际 channel I/O。
 
 ## `stage="turn"` 的 on_error 语义
 
@@ -89,7 +89,7 @@ hook 运行时会在两者间互相适配：若插件只实现 `run_model_stream
 - `run_model` / `run_model_stream` — 分别委托给 `Agent.run` / `Agent.run_stream`，即由 [Republic](https://github.com/bubbuild/republic) 支撑、带 tool 使用与 auto-handoff 的循环（见 [Tape and context](/zh-cn/docs/concepts/tape-and-context/)）。
 - `save_state` — 用捕获的异常信息关闭 per-message lifespan。
 - `render_outbound` — 将 `model_output` 包装为携带 inbound 路由字段的 `ChannelMessage`。
-- `dispatch_outbound` — 转发到绑定的 `OutboundChannelRouter`。
+- `dispatch_outbound` — 转发到绑定的 `ChannelRouter`。
 - `system_prompt` — 将默认 prompt 与 workspace 的 `AGENTS.md` 拼接。
 - `provide_tape_store` — 位于 `~/.bub/tapes` 下的文件型 tape store。
 - `provide_channels` — 注册内置的 `cli` 与 `telegram` adapter。

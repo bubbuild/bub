@@ -49,7 +49,7 @@ The hook runtime adapts between them: if a plugin only implements `run_model_str
 
 If neither hook returns output (every implementation returns `None`), the kernel notifies `on_error(stage="run_model", ...)` and falls back so `save_state` and the outbound stages still run. A string prompt is returned unchanged; a multimodal list prompt falls back to the inbound envelope's plain `content`.
 
-While streaming, every `error` event is forwarded through `on_error(stage="run_model", ...)`. A bound `OutboundChannelRouter` may also wrap the stream to push partial chunks to the channel before the turn finishes.
+While streaming, every `error` event is forwarded through `on_error(stage="run_model", ...)`. A bound `ChannelRouter` may also wrap the stream to push partial chunks to the channel before the turn finishes.
 
 ### save_state
 
@@ -65,7 +65,7 @@ If every implementation returns an empty list, the kernel emits one fallback env
 
 ### dispatch_outbound
 
-Broadcast, called per outbound envelope. Implementations may return `True` once the envelope is delivered. The built-in implementation also forwards the envelope to a bound `OutboundChannelRouter` for actual channel I/O.
+Broadcast, called per outbound envelope. Implementations may return `True` once the envelope is delivered. The built-in implementation also forwards the envelope to a bound `ChannelRouter` for actual channel I/O.
 
 ## on_error semantics for `stage="turn"`
 
@@ -89,7 +89,7 @@ The default observer (`BuiltinImpl.on_error`) sends an error envelope through `d
 - `run_model` / `run_model_stream` — delegate to `Agent.run` / `Agent.run_stream`, the [Republic](https://github.com/bubbuild/republic)-backed loop with tool use and auto-handoff (see [Tape and context](/docs/concepts/tape-and-context/)).
 - `save_state` — closes the per-message lifespan with the captured exception info.
 - `render_outbound` — wraps `model_output` into one `ChannelMessage` carrying the inbound's routing fields.
-- `dispatch_outbound` — forwards through the bound `OutboundChannelRouter`.
+- `dispatch_outbound` — forwards through the bound `ChannelRouter`.
 - `system_prompt` — combines a default prompt with the workspace `AGENTS.md`.
 - `provide_tape_store` — file-backed tape store under `~/.bub/tapes`.
 - `provide_channels` — registers the built-in `cli` and `telegram` adapters.

@@ -15,13 +15,13 @@ Most agent frameworks conflate "talks to a chat platform", "knows how to do a pr
 flowchart LR
   channels["Channels<br/>outward I/O"] --> envelope_io["Envelope<br/>(in & out of the<br/>turn pipeline)"]
   skills["Skills<br/>operator procedures"] --> envelope_prompt["Envelope<br/>(loaded into the<br/>prompt as text)"]
-  tools["Tools<br/>model-callable actions"] --> state["State<br/>(per-turn dict<br/>with _runtime_*)"]
+  tools["Tools<br/>model-callable actions"] --> state["TurnState<br/>(per-turn dict<br/>with _runtime_*)"]
 ```
 
-All three surfaces meet on two shared types from [`bub.types`](https://github.com/bubbuild/bub/blob/main/src/bub/types.py):
+All three surfaces meet on two small kernel contracts:
 
 - **`Envelope`** — the duck-typed payload moving through the turn pipeline. It is intentionally weakly typed (`Any`) and accessed through helpers (`field_of`, `content_of`).
-- **`State`** — a per-turn dict that hooks contribute to via [`load_state`](/docs/concepts/turn-pipeline/), and that survives until [`save_state`](/docs/concepts/turn-pipeline/) finishes.
+- **`TurnState`** — a per-turn dict from [`bub.turn`](https://github.com/bubbuild/bub/blob/main/src/bub/turn.py) that hooks contribute to via [`load_state`](/docs/concepts/turn-pipeline/), and that survives until [`save_state`](/docs/concepts/turn-pipeline/) finishes.
 
 ### Channels — outward I/O
 
@@ -76,4 +76,4 @@ Nothing else couples the three. This is what lets a plugin add a Discord channel
 - [Build channels](/docs/build/hooks/#6-add-a-channel) — implement and register a channel via `provide_channels`.
 - [Build skills](/docs/build/skills/) — author skills, including bundled assets.
 - [Build tools](/docs/build/tools/) — register typed tools the model can call.
-- [Types reference](/docs/reference/types/) — `Envelope`, `State`, and accessor helpers.
+- [Core contracts reference](/docs/reference/types/) — subsystem-owned types and accessor helpers.

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from bub.tape import TapeEntry
-from bub.types import State
+from bub.turn import TurnState
 
 
 def exclude_none(d: dict[str, Any]) -> dict[str, Any]:
@@ -27,7 +27,7 @@ async def wait_until_stopped[T](coro: Coroutine[None, None, T], stop_event: asyn
         return task.result()
 
 
-def workspace_from_state(state: State) -> Path:
+def workspace_from_state(state: TurnState) -> Path:
     raw = state.get("_runtime_workspace")
     if isinstance(raw, str) and raw.strip():
         return Path(raw).expanduser().resolve()

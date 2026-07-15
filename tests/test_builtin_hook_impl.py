@@ -12,7 +12,7 @@ from bub.builtin.store import FileTapeStore
 from bub.builtin.tape import Tape
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
-from bub.runtime import AsyncStreamEvents, StreamEvent
+from bub.streaming import AsyncStreamEvents, StreamEvent
 from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
 
 
@@ -276,7 +276,7 @@ fallback_models:
         )
         _, impl, _ = _build_impl(tmp_path, config_file=config_file)
 
-        options = impl.provide_runtime_options(session_id="session")
+        options = impl.provide_model_options(session_id="session")
 
         assert options is not None
         assert options.current_model == "openai:gpt-5"
@@ -365,11 +365,11 @@ async def test_dispatch_outbound_uses_framework_router(tmp_path: Path) -> None:
     framework, impl, _ = _build_impl(tmp_path)
     dispatched: list[object] = []
 
-    async def dispatch_via_router(message: object) -> bool:
+    async def dispatch_via_channel_router(message: object) -> bool:
         dispatched.append(message)
         return True
 
-    framework.dispatch_via_router = dispatch_via_router  # type: ignore[method-assign]
+    framework.dispatch_via_channel_router = dispatch_via_channel_router  # type: ignore[method-assign]
     outbound = {"session_id": "session", "channel": "cli", "chat_id": "room", "content": "hello"}
 
     result = await impl.dispatch_outbound(outbound)

@@ -22,7 +22,7 @@ from bub.builtin.tools import (
     resolve_tool_names,
     set_model,
 )
-from bub.runtime import ErrorKind
+from bub.errors import ErrorKind
 from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
 from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, tool
 
@@ -329,7 +329,7 @@ async def test_quit_tool_terminates_background_shells_for_current_session(tmp_pa
         def __init__(self) -> None:
             self.quit_sessions: list[str] = []
 
-        async def quit_via_router(self, session_id: str) -> None:
+        async def quit_via_channel_router(self, session_id: str) -> None:
             self.quit_sessions.append(session_id)
 
     framework = FakeFramework()

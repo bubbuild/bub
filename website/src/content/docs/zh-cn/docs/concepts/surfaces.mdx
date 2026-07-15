@@ -15,13 +15,13 @@ sidebar:
 flowchart LR
   channels["Channels<br/>outward I/O"] --> envelope_io["Envelope<br/>(in & out of the<br/>turn pipeline)"]
   skills["Skills<br/>operator procedures"] --> envelope_prompt["Envelope<br/>(loaded into the<br/>prompt as text)"]
-  tools["Tools<br/>model-callable actions"] --> state["State<br/>(per-turn dict<br/>with _runtime_*)"]
+  tools["Tools<br/>model-callable actions"] --> state["TurnState<br/>(per-turn dict<br/>with _runtime_*)"]
 ```
 
-三者在来自 [`bub.types`](https://github.com/bubbuild/bub/blob/main/src/bub/types.py) 的两个共享类型上相遇：
+三者通过两个小型内核契约相接：
 
 - **`Envelope`** — 在 turn pipeline 中流转的 duck-typed 负载。它有意保持弱类型（`Any`），并通过 helper（`field_of`、`content_of`）访问。
-- **`State`** — per-turn dict，由各 hook 通过 [`load_state`](/zh-cn/docs/concepts/turn-pipeline/) 贡献，并存活到 [`save_state`](/zh-cn/docs/concepts/turn-pipeline/) 完成为止。
+- **`TurnState`** — 来自 [`bub.turn`](https://github.com/bubbuild/bub/blob/main/src/bub/turn.py) 的 per-turn dict，由各 hook 通过 [`load_state`](/zh-cn/docs/concepts/turn-pipeline/) 贡献，并存活到 [`save_state`](/zh-cn/docs/concepts/turn-pipeline/) 完成为止。
 
 ### Channels — 对外 I/O
 
@@ -76,4 +76,4 @@ pipeline 是这三面唯一直接交互的地方：
 - [构建 channel](/zh-cn/docs/build/hooks/#6-add-a-channel) —— 通过 `provide_channels` 实现并注册一个 channel。
 - [Build skills](/zh-cn/docs/build/skills/) — 编写 skill，包括打包资产。
 - [Build tools](/zh-cn/docs/build/tools/) — 注册模型可调用的有类型 tool。
-- [Types 参考](/zh-cn/docs/reference/types/) — `Envelope`、`State` 与访问 helper。
+- [核心契约参考](/zh-cn/docs/reference/types/) — 各子系统拥有的类型与访问 helper。

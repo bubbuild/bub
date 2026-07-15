@@ -2,8 +2,8 @@ import asyncio
 
 from loguru import logger
 
+from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
-from bub.types import MessageHandler
 
 
 class BufferedMessageHandler:

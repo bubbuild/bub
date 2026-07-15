@@ -1,266 +1,172 @@
 ---
-title: Types
-description: Public types exported from bub — envelopes, state, channels, framework surface.
+title: Core contracts
+description: Bub's subsystem-owned contracts for turns, models, streaming, hooks, and channels.
 ---
 
-This page lists the types and helpers that plugin authors interact with. Source files: `src/bub/types.py`, `src/bub/envelope.py`, `src/bub/channels/base.py`, `src/bub/framework.py`, `src/bub/__init__.py`.
+Bub keeps contracts beside the subsystem that owns their behavior. Import a contract from its defining module; the top-level `bub` package intentionally exposes only the common framework entry points.
 
-## `Envelope`
+## Kernel vocabulary
+
+### Envelopes — `bub.envelope`
 
 ```python
+from bub.envelope import Envelope, content_of, field_of, normalize_envelope, unpack_batch
+
 type Envelope = Any
 ```
 
-`Envelope` is an alias for `Any`. Bub does not require a specific class — a dict, a `dataclass`, a `pydantic.BaseModel`, or any object with attribute access works. The framework reads fields through the helpers below; access them rather than indexing the envelope directly.
+An `Envelope` may be a mapping, dataclass, Pydantic model, or any attribute-based object. Use `field_of` and `content_of` to read values without coupling code to one transport schema. `normalize_envelope` produces a mutable dict; `unpack_batch` normalizes one `render_outbound` result into a list.
 
-### `field_of(message, key, default=None)`
+### Turns — `bub.turn`
 
 ```python
-def field_of(message: Envelope, key: str, default: Any = None) -> Any
+from bub.turn import TurnResult, TurnState
+
+type TurnState = dict[str, Any]
+
+@dataclass(frozen=True)
+class TurnResult:
+    session_id: str
+    prompt: str | list[dict[str, Any]]
+    model_output: str
+    outbounds: list[Envelope] = field(default_factory=list)
+    state: TurnState = field(default_factory=dict)
 ```
 
-Reads `message.get(key, default)` if `message` is a `Mapping`, else `getattr(message, key, default)`.
+`TurnState` is the mutable state shared by every stage of one turn. `process_inbound` returns the final `TurnResult`, including the state that produced its outbound envelopes.
 
-### `content_of(message)`
+### Model selection — `bub.model_selection`
 
 ```python
-def content_of(message: Envelope) -> str
+from bub.model_selection import ModelChoice, ModelOptions
+
+@dataclass(frozen=True)
+class ModelChoice:
+    id: str
+    name: str | None = None
+    description: str | None = None
+    meta: dict[str, Any] | None = None
+
+@dataclass(frozen=True)
+class ModelOptions:
+    models: list[ModelChoice] = field(default_factory=list)
+    current_model: str | None = None
 ```
 
-Returns `str(field_of(message, "content", ""))`.
+Channels and adapters may present these protocol-neutral choices to users. `BubFramework.get_model_options` merges values returned by `provide_model_options`; the caller owns selection UI and persistence.
 
-### `normalize_envelope(message)`
+### Streaming — `bub.streaming`
 
 ```python
-def normalize_envelope(message: Envelope) -> dict[str, Any]
+from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
-Converts any envelope into a mutable dict. `Mapping` → `dict(message)`; objects with `__dict__` → `dict(vars(message))`; everything else → `{"content": str(message)}`.
+`StreamEvent.kind` is one of `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, or `final`. `AsyncStreamEvents` wraps an async iterator and exposes terminal `error` and `usage` state.
 
-### `unpack_batch(batch)`
+### Errors — `bub.errors`
 
 ```python
-def unpack_batch(batch: Any) -> list[Envelope]
+from bub.errors import BubError, ErrorKind
 ```
 
-Normalizes one `render_outbound` return value to a list. `None` → `[]`; `list`/`tuple` → list copy; anything else → `[batch]`.
+`BubError` is the stable execution error object. Its `kind` is an `ErrorKind`, and `as_dict()` returns a transport-friendly payload.
 
-## `State`
+## Hook contracts
+
+Hook declarations and markers live in `bub.hooks`; agent-loop interception payloads live with their execution semantics:
 
 ```python
-type State = dict[str, Any]
+from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl, hookspec
+from bub.hooks.interception import (
+    AgentHooks,
+    LlmCallDecision,
+    LlmCallRequest,
+    LlmCallResult,
+    ToolCall,
+    ToolCallDecision,
+    ToolCallResult,
+)
+from bub.hooks.runtime import HookRuntime
 ```
 
-The per-turn state dict. The framework seeds it with `_runtime_workspace`, then merges the results of every `load_state` hook before the model call. The same dict is passed to `build_prompt`, `run_model[_stream]`, `save_state`, `render_outbound`, and `system_prompt`.
+Plugin authors normally need only `hookimpl` plus the payload types used by their hooks. See the [Hook reference](/docs/reference/hooks/) for dispatch and fault-isolation semantics.
 
-## `MessageHandler`
+## Channel contracts
+
+### Handler and router — `bub.channels.contracts`
 
 ```python
+from bub.channels.contracts import ChannelRouter, MessageHandler
+
 type MessageHandler = Callable[[Envelope], Coroutine[Any, Any, None]]
-```
 
-Async callable that a `Channel` invokes for every inbound message. The `ChannelManager` provides this handler when calling `provide_channels`.
-
-## `OutboundDispatcher`
-
-```python
-type OutboundDispatcher = Callable[[Envelope], Coroutine[Any, Any, bool]]
-```
-
-Async callable returning `True` when an outbound has been delivered. Used internally by the channel router; plugins return `True` from `dispatch_outbound` to signal a successful send.
-
-## `OutboundChannelRouter`
-
-```python
-class OutboundChannelRouter(Protocol):
+class ChannelRouter(Protocol):
     async def dispatch_output(self, message: Envelope) -> bool: ...
     def wrap_stream(
         self, message: Envelope, stream: AsyncIterable[StreamEvent]
     ) -> AsyncIterable[StreamEvent]: ...
     async def quit(self, session_id: str) -> None: ...
+    async def admit_channel_message(
+        self, session_id: str, message: Envelope, turn: TurnSnapshot
+    ) -> AdmitDecision | None: ...
 ```
 
-Structural protocol implemented by `ChannelManager`. Bound to the framework via `BubFramework.bind_outbound_router(router)`; used to send outbounds and to wrap the model stream so that channels can render incremental tokens.
+`ChannelManager` implements this protocol and binds it through `BubFramework.bind_channel_router`.
 
-## `TurnResult`
-
-```python
-@dataclass(frozen=True)
-class TurnResult:
-    session_id: str
-    prompt: str
-    model_output: str
-    outbounds: list[Envelope] = field(default_factory=list)
-```
-
-Returned by `BubFramework.process_inbound`. `prompt` is the resolved prompt. The source annotation is currently `str`, but a `build_prompt` hook may return multimodal content parts and the runtime preserves that list. `outbounds` is the flattened result of every `render_outbound` impl.
-
-## Runtime Option Types
-
-These dataclasses live in `src/bub/runtime_options.py` and are exported from `bub`. They describe protocol-neutral runtime choices that a channel or adapter may present to a user.
+### Admission — `bub.channels.admission`
 
 ```python
-@dataclass(frozen=True)
-class RuntimeChoice:
-    id: str
-    name: str | None = None
-    description: str | None = None
-    meta: dict[str, Any] | None = None
-```
+from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 
-```python
-@dataclass(frozen=True)
-class RuntimeOptions:
-    models: list[RuntimeChoice] = field(default_factory=list)
-    current_model: str | None = None
-```
-
-`id` is the stable value an adapter may use when applying a runtime choice. Bub does not own UI state for these choices; callers store selections and apply them through their own integration.
-
-## Turn Admission Types
-
-These types are exported from `bub` and defined in `src/bub/turn_admission.py`.
-
-```python
 @dataclass(frozen=True)
 class AdmitDecision:
     action: Literal["process", "drop", "follow_up", "steer"]
     reason: str | None = None
-```
 
-```python
 @dataclass(frozen=True)
 class TurnSnapshot:
     session_id: str
     is_running: bool
     running_count: int
     pending_count: int
+    steering_count: int = 0
 ```
 
-`admit_message` implementations return `AdmitDecision` to tell the channel manager whether to process immediately, drop, queue as follow-up input, or route as steering input. The `steer` handler is currently a placeholder and falls back to the follow-up queue until dedicated steering handling is rebuilt.
+`admit_message` implementations use these types to select immediate processing, dropping, follow-up queuing, or steering. `SteeringInbox` is the protocol for session steering queues.
 
-## `Channel`
+### Channel base — `bub.channels.base`
 
 ```python
-class Channel(ABC):
-    name: ClassVar[str] = "base"
-
-    @abstractmethod
-    async def start(self, stop_event: asyncio.Event) -> None: ...
-
-    @abstractmethod
-    async def stop(self) -> None: ...
-
-    @property
-    def needs_debounce(self) -> bool: ...
-
-    @property
-    def enabled(self) -> bool: ...
-
-    async def send(self, message: ChannelMessage) -> None: ...
-
-    def stream_events(
-        self, message: ChannelMessage, stream: AsyncIterable[StreamEvent]
-    ) -> AsyncIterable[StreamEvent]: ...
-
-
-class Interface(Channel): ...
-
-
-class Lifecycle(Channel): ...
+from bub.channels import Channel, Interface, Lifecycle
 ```
 
-Abstract base for inbound/outbound channels (`src/bub/channels/base.py`).
-
-| Member | Description |
-| --- | --- |
-| `name` | Class variable used to look up the channel in `ChannelManager` and to dedupe across `provide_channels` impls. |
-| `start(stop_event)` | Begin listening; release when `stop_event` is set. Required. |
-| `stop()` | Tear down resources. Required. |
-| `needs_debounce` | When `True`, the manager wraps inbound messages with `BufferedMessageHandler`. Defaults to `False`. |
-| `enabled` | When `False`, the manager skips the channel even if it is in `enabled_channels`. Defaults to `True`. |
-| `send(message)` | Outbound delivery. Default impl is a no-op. |
-| `stream_events(message, stream)` | Optional stream wrapper used by `OutboundChannelRouter.wrap_stream`. Returns the stream unchanged by default. |
-
-`Interface` is the public base for channels that should not be part of the default `gateway all` runtime set, such as the built-in CLI REPL. `Lifecycle` is the public base for background runtimes that start and stop with the channel manager, such as MCP bootstrap services.
-
-See [Operate › Channels](/docs/operate/channels/) and [Build › Plugins](/docs/build/plugins/) for end-to-end examples.
+`Channel` requires `start(stop_event)` and `stop()`. Implement `send`, `stream_events`, or `admit_message` as needed. `Interface` marks user-facing I/O surfaces; `Lifecycle` marks background runtimes managed alongside channels.
 
 ## `BubFramework`
 
-Constructor and public methods exposed by `src/bub/framework.py`.
+The main public methods that connect these contracts are:
 
 ```python
-class BubFramework:
-    workspace: Path
-    config_file: Path
+from bub import BubFramework
 
-    def __init__(self, config_file: Path = DEFAULT_CONFIG_FILE) -> None: ...
+async def process_inbound(
+    self, inbound: Envelope, stream_output: bool = False
+) -> TurnResult: ...
 
-    def load_hooks(self) -> None: ...
-    def create_cli_app(self) -> typer.Typer: ...
+async def get_model_options(
+    self, *, session_id: str, workspace: str | Path | None = None
+) -> ModelOptions: ...
 
-    async def process_inbound(
-        self, inbound: Envelope, stream_output: bool = False
-    ) -> TurnResult: ...
+async def admit_message(
+    self, *, session_id: str, message: Envelope, turn: TurnSnapshot
+) -> AdmitDecision | None: ...
 
-    def get_channels(
-        self, message_handler: MessageHandler
-    ) -> dict[str, Channel]: ...
-
-    def get_tape_store(self) -> TapeStore | AsyncTapeStore | None: ...
-    def get_system_prompt(self, prompt: str | list[dict], state: dict[str, Any]) -> str: ...
-    def hook_report(self) -> dict[str, list[str]]: ...
-    async def get_runtime_options(
-        self, *, session_id: str, workspace: str | Path | None = None
-    ) -> RuntimeOptions: ...
-    async def admit_message(
-        self, *, session_id: str, message: Envelope, turn: TurnSnapshot
-    ) -> AdmitDecision | None: ...
-
-    @contextlib.asynccontextmanager
-    async def running(self) -> AsyncGenerator[contextlib.AsyncExitStack, None]: ...
-
-    def bind_outbound_router(self, router: OutboundChannelRouter | None) -> None: ...
-    def build_tape_context(self) -> TapeContext: ...
-    def collect_onboard_config(self) -> dict[str, Any]: ...
+def get_channels(self, message_handler: MessageHandler) -> dict[str, Channel]: ...
+def bind_channel_router(self, router: ChannelRouter | None) -> None: ...
 ```
 
-| Member | Description |
-| --- | --- |
-| `workspace` | Resolved current working directory; overridden by `--workspace`. |
-| `config_file` | Resolved path to the YAML config (default `~/.bub/config.yml`). |
-| `load_hooks()` | Register the builtin plugin and every `bub` entry-point plugin. Records success/failure in `_plugin_status`. |
-| `create_cli_app()` | Build the root `typer.Typer`, set `ctx.obj`, and call `register_cli_commands` (sync). |
-| `process_inbound(inbound, stream_output=False)` | Run one inbound through the full hook pipeline and return a `TurnResult`. |
-| `get_channels(message_handler)` | Sync-collect channels from every `provide_channels` impl, deduped by `Channel.name`. |
-| `get_tape_store()` | Return the tape store entered by `running()`, or `None` outside the scope. |
-| `get_system_prompt(prompt, state)` | Run `system_prompt` impls (sync), reverse, and join non-empty results with `\n\n`. |
-| `hook_report()` | Map hook name → discovered adapter names. Backs `bub hooks`; read the hook reference before treating this order as runtime precedence. |
-| `get_runtime_options(...)` | Collect protocol-neutral runtime choices from hooks, appending model choices in hook priority order. |
-| `admit_message(...)` | Call the `admit_message` hook and return the selected decision. Used by `ChannelManager`. |
-| `running()` | Async context manager; resolves `provide_tape_store` once and binds the resulting store for the duration. |
-| `bind_outbound_router(router)` | Attach (or detach with `None`) the `OutboundChannelRouter`. The `ChannelManager` calls this on start/stop. |
-| `build_tape_context()` | Sync-call `build_tape_context` and return the resulting `TapeContext`. |
-| `collect_onboard_config()` | Iterate `onboard_config` impls, merging dict fragments via `configure.merge`, then validate. |
+See [Turn pipeline](/docs/concepts/turn-pipeline/) for the lifecycle of `process_inbound` and [Channels](/docs/operate/channels/) for channel operation.
 
-For the lifecycle of `process_inbound` step-by-step, see [Concepts › Turn pipeline](/docs/concepts/turn-pipeline/). For tape semantics see [Concepts › Tape and context](/docs/concepts/tape-and-context/).
+## Top-level exports
 
-## Module-level exports
-
-From `src/bub/__init__.py`:
-
-| Name | Kind | Description |
-| --- | --- | --- |
-| `BubFramework` | class | Framework runtime (above). |
-| `AdmitDecision` | dataclass | Decision returned by `admit_message`. |
-| `RuntimeChoice` | dataclass | One selectable runtime value. |
-| `RuntimeOptions` | dataclass | Available runtime choices for models. |
-| `Settings` | class | Base class for plugin settings (re-exported from `bub.configure`). |
-| `TurnSnapshot` | dataclass | Snapshot passed to `admit_message`. |
-| `config` | decorator | `@config(name="...")` registers a settings class for YAML/env validation. |
-| `ensure_config` | function | `ensure_config(SettingsCls)` — return the singleton instance for that class. |
-| `home` | `Path` (lazy attr) | `Path(BUB_HOME)` if set, else `~/.bub`. |
-| `hookimpl` | marker | `pluggy.HookimplMarker("bub")` — decorate plugin hook methods. |
-| `tool` | decorator | Register a builtin tool with the agent (`src/bub/tools.py`). |
-| `__version__` | str | Installed package version. |
+`bub.__init__` deliberately stays small: `BubFramework`, `Settings`, `config`, `ensure_config`, `home`, `hookimpl`, and `tool`. Import subsystem contracts from the modules above so ownership remains explicit.

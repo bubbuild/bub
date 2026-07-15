@@ -124,7 +124,7 @@ class MyPlugin:
 Visual-base's [`EyeImpl`](https://github.com/oilbeater/visual-base/blob/main/src/bub_eye/plugin.py) uses the callable form for exactly this reason: it captures the framework so `provide_channels` can read the post-CLI workspace.
 
 :::note
-Builtin is registered first; entry-point plugins are registered after. Inside the [`HookRuntime`](https://github.com/bubbuild/bub/blob/main/src/bub/hook_runtime.py), later registrations have higher precedence — so your plugin's `firstresult` hooks override the builtin.
+Builtin is registered first; entry-point plugins are registered after. Inside the [`HookRuntime`](https://github.com/bubbuild/bub/blob/main/src/bub/hooks/runtime.py), later registrations have higher precedence — so your plugin's `firstresult` hooks override the builtin.
 :::
 
 ## 4. Iterate with an editable install

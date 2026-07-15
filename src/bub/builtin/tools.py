@@ -399,7 +399,7 @@ async def quit_tool(*, context: ToolContext) -> str:
     agent = _get_agent(context)
     session_id = str(context.state.get("session_id", "temp/unknown"))
     await shell_manager.terminate_session(session_id)
-    await agent.framework.quit_via_router(session_id)
+    await agent.framework.quit_via_channel_router(session_id)
     return "Session tasks stopped."
 
 

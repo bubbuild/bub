@@ -8,10 +8,10 @@ from typing import Any
 import pluggy
 import pytest
 
-from bub.hook_runtime import AgentHooks, HookRuntime
-from bub.hookspecs import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
-from bub.runtime import (
-    BubError,
+from bub.errors import BubError
+from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
+from bub.hooks.interception import (
+    AgentHooks,
     LlmCallDecision,
     LlmCallRequest,
     LlmCallResult,
@@ -19,6 +19,7 @@ from bub.runtime import (
     ToolCallDecision,
     ToolCallResult,
 )
+from bub.hooks.runtime import HookRuntime
 from bub.tools import Tool, ToolExecutor
 
 
@@ -300,7 +301,7 @@ class TestModelRunnerHookIntegration:
         from bub.builtin.model_runner import ModelRunner  # noqa: F401
 
         async def fake_events(completion, state, output):
-            from bub.runtime import StreamEvent
+            from bub.streaming import StreamEvent
 
             yield StreamEvent("text", {"delta": "a"})
             yield StreamEvent("text", {"delta": "b"})

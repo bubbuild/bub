@@ -1,15 +1,16 @@
-"""Turn admission primitives for channel message scheduling."""
+"""Admission policy and session scheduling for channel messages."""
 
 from __future__ import annotations
 
 import asyncio
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Protocol
 
-from bub.types import Envelope, State, SteeringInboxProtocol
+from bub.envelope import Envelope
+from bub.turn import TurnState
 
-TurnAdmissionAction = Literal["process", "drop", "follow_up", "steer"]
+type TurnAdmissionAction = Literal["process", "drop", "follow_up", "steer"]
 
 
 @dataclass(frozen=True)
@@ -31,19 +32,27 @@ class TurnSnapshot:
     steering_count: int = 0
 
 
+class SteeringInbox(Protocol):
+    """Queue boundary used when admission chooses to steer a running turn."""
+
+    async def enqueue_message(self, message: Envelope, state: TurnState) -> None: ...
+    async def drain_messages(self, state: TurnState) -> list[Envelope]: ...
+    def message_count(self, state: TurnState) -> int: ...
+
+
 @dataclass
 class SessionTurnController:
-    """Per-session runtime queues used by ``ChannelManager``."""
+    """Per-session queues and tasks owned by ``ChannelManager``."""
 
     session_id: str
-    steering_inbox: SteeringInboxProtocol | None = None
+    steering_inbox: SteeringInbox | None = None
     active_tasks: set[asyncio.Task] = field(default_factory=set)
     pending_queue: deque[Envelope] = field(default_factory=deque)
 
     def active(self) -> set[asyncio.Task]:
         return {task for task in self.active_tasks if not task.done()}
 
-    def snapshot(self, state: State) -> TurnSnapshot:
+    def snapshot(self, state: TurnState) -> TurnSnapshot:
         running_count = len(self.active())
         return TurnSnapshot(
             session_id=self.session_id,

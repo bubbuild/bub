@@ -14,10 +14,11 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
 from bub.builtin.tape import Tape
-from bub.runtime import BubError, ErrorKind, ToolCall, ToolCallResult
+from bub.errors import BubError, ErrorKind
+from bub.hooks.interception import ToolCall, ToolCallResult
 
 if TYPE_CHECKING:
-    from bub.hook_runtime import AgentHooks
+    from bub.hooks.interception import AgentHooks
 
 
 @dataclass(frozen=True)

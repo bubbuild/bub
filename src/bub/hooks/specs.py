@@ -1,4 +1,4 @@
-"""Pluggy hook namespace and framework hook specifications."""
+"""Pluggy namespace and extension specifications for Bub hooks."""
 
 from __future__ import annotations
 
@@ -7,19 +7,21 @@ from typing import TYPE_CHECKING, Any
 
 import pluggy
 
-from bub.runtime import (
-    AsyncStreamEvents,
+from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
+from bub.channels.contracts import MessageHandler
+from bub.envelope import Envelope
+from bub.hooks.interception import (
     LlmCallDecision,
     LlmCallRequest,
     LlmCallResult,
-    RuntimeOptions,
     ToolCall,
     ToolCallDecision,
     ToolCallResult,
 )
+from bub.model_selection import ModelOptions
+from bub.streaming import AsyncStreamEvents
 from bub.tape import AsyncTapeStore, TapeContext, TapeStore
-from bub.turn_admission import AdmitDecision, TurnSnapshot
-from bub.types import Envelope, MessageHandler, State, SteeringInboxProtocol
+from bub.turn import TurnState
 
 if TYPE_CHECKING:
     from bub.channels.base import Channel
@@ -38,7 +40,7 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def build_prompt(self, message: Envelope, session_id: str, state: State) -> str | list[dict]:
+    def build_prompt(self, message: Envelope, session_id: str, state: TurnState) -> str | list[dict]:
         """Build model prompt for this turn.
 
         Returns either a plain text string or a list of content parts
@@ -47,12 +49,12 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def run_model(self, prompt: str | list[dict], session_id: str, state: State) -> str:
+    def run_model(self, prompt: str | list[dict], session_id: str, state: TurnState) -> str:
         """Run model for one turn and return plain text output. Should not be implemented if `run_model_stream` is implemented."""
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> AsyncStreamEvents:
+    def run_model_stream(self, prompt: str | list[dict], session_id: str, state: TurnState) -> AsyncStreamEvents:
         """Run model for one turn and return a stream of events. Should not be implemented if `run_model` is implemented.
 
         Implementations may honor a runtime model override by reading
@@ -63,7 +65,7 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec
-    def load_state(self, message: Envelope, session_id: str) -> State:
+    def load_state(self, message: Envelope, session_id: str) -> TurnState:
         """Load state snapshot for one session."""
         raise NotImplementedError
 
@@ -71,7 +73,7 @@ class BubHookSpecs:
     def save_state(
         self,
         session_id: str,
-        state: State,
+        state: TurnState,
         message: Envelope,
         model_output: str,
     ) -> None:
@@ -82,7 +84,7 @@ class BubHookSpecs:
         self,
         message: Envelope,
         session_id: str,
-        state: State,
+        state: TurnState,
         model_output: str,
     ) -> list[Envelope]:
         """Render outbound messages from model output."""
@@ -102,19 +104,19 @@ class BubHookSpecs:
         """Collect a plugin config fragment for the interactive onboarding command."""
 
     @hookspec
-    def provide_runtime_options(
+    def provide_model_options(
         self,
         session_id: str,
         workspace: Path | None,
-    ) -> RuntimeOptions | None:
-        """Provide protocol-neutral runtime choices for a session."""
+    ) -> ModelOptions | None:
+        """Provide model choices for a session."""
 
     @hookspec
     def on_error(self, stage: str, error: Exception, message: Envelope | None) -> None:
         """Observe framework errors from any stage."""
 
     @hookspec
-    def before_llm_call(self, request: LlmCallRequest, state: State) -> LlmCallRequest | LlmCallDecision | None:
+    def before_llm_call(self, request: LlmCallRequest, state: TurnState) -> LlmCallRequest | LlmCallDecision | None:
         """Observe, modify or short-circuit an outgoing agent-loop LLM request.
 
         Implementations are chained in pluggy's LIFO order (last registered
@@ -127,7 +129,7 @@ class BubHookSpecs:
         """
 
     @hookspec
-    def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: State) -> None:
+    def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: TurnState) -> None:
         """Observe the terminal outcome of one agent-loop LLM call.
 
         Fires exactly once per completed call — success (for streaming
@@ -138,7 +140,7 @@ class BubHookSpecs:
         """
 
     @hookspec
-    def before_tool_call(self, call: ToolCall, state: State) -> ToolCallDecision | None:
+    def before_tool_call(self, call: ToolCall, state: TurnState) -> ToolCallDecision | None:
         """Decide whether/how one tool invocation runs.
 
         Return ``None`` or ``ToolCallDecision.proceed(...)`` to continue
@@ -151,7 +153,7 @@ class BubHookSpecs:
         """
 
     @hookspec
-    def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: State) -> None:
+    def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: TurnState) -> None:
         """Observe the terminal outcome of one tool invocation.
 
         Fires for success, failure (``result.error`` set), denial and
@@ -159,7 +161,7 @@ class BubHookSpecs:
         """
 
     @hookspec
-    def system_prompt(self, prompt: str | list[dict], state: State) -> str:
+    def system_prompt(self, prompt: str | list[dict], state: TurnState) -> str:
         """Provide a system prompt to be prepended to all model prompts."""
         raise NotImplementedError
 
@@ -192,6 +194,6 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def provide_steering_inbox(self) -> SteeringInboxProtocol | None:
+    def provide_steering_inbox(self) -> SteeringInbox | None:
         """Provide a steering inbox for the current session, to be used to queue and drain messages."""
         raise NotImplementedError

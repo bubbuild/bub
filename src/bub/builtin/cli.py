@@ -21,7 +21,7 @@ from bub.builtin.auth import app as login_app  # noqa: F401
 from bub.channels.message import ChannelMessage
 from bub.envelope import field_of
 from bub.framework import BubFramework
-from bub.types import TurnResult
+from bub.turn import TurnResult
 
 ONBOARD_BANNER = r"""
  ███████████             █████

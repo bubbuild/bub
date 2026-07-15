@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import pytest
 
 from bub.builtin.steering import InMemorySteeringInbox
+from bub.channels.admission import AdmitDecision, SessionTurnController, TurnSnapshot
 from bub.channels.base import Channel, Interface, Lifecycle
 from bub.channels.cli import CliChannel
 from bub.channels.cli.renderer import CliRenderer
@@ -24,9 +25,8 @@ from bub.channels.handler import BufferedMessageHandler
 from bub.channels.manager import ChannelManager
 from bub.channels.message import ChannelMessage
 from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMessageParser
-from bub.runtime import StreamEvent
-from bub.turn_admission import AdmitDecision, SessionTurnController, TurnSnapshot
-from bub.types import TurnResult
+from bub.streaming import StreamEvent
+from bub.turn import TurnResult
 
 ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[()][A-Za-z])")
 
@@ -139,7 +139,7 @@ class FakeFramework:
         finally:
             self.running_exits += 1
 
-    def bind_outbound_router(self, router) -> None:
+    def bind_channel_router(self, router) -> None:
         self.router = router
 
     async def process_inbound(self, message: ChannelMessage, stream_output: bool = False):
@@ -943,7 +943,7 @@ def test_cli_stream_output_does_not_overlap_active_pty_prompt() -> None:
         from rich.console import Console
 
         from bub.channels.cli import _StreamPrinter
-        from bub.runtime import StreamEvent
+        from bub.streaming import StreamEvent
 
 
         async def main():

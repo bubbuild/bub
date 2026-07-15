@@ -11,15 +11,17 @@ from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context
 from bub.builtin.settings import DEFAULT_MODEL, load_settings
 from bub.builtin.steering import InMemorySteeringInbox
+from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.base import Channel
+from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem
-from bub.envelope import content_of, field_of
+from bub.envelope import Envelope, content_of, field_of
 from bub.framework import BubFramework
-from bub.hookspecs import hookimpl
-from bub.runtime import AsyncStreamEvents, RuntimeChoice, RuntimeOptions
+from bub.hooks import hookimpl
+from bub.model_selection import ModelChoice, ModelOptions
+from bub.streaming import AsyncStreamEvents
 from bub.tape import TapeContext, TapeStore
-from bub.turn_admission import AdmitDecision, TurnSnapshot
-from bub.types import Envelope, MessageHandler, State, SteeringInboxProtocol
+from bub.turn import TurnState
 
 AGENTS_FILE_NAME = "AGENTS.md"
 MODEL_PROVIDER_CHOICES: tuple[str, ...] = (
@@ -135,7 +137,7 @@ class BuiltinImpl:
         return f"{channel}:{chat_id}"
 
     @hookimpl
-    async def load_state(self, message: ChannelMessage, session_id: str) -> State:
+    async def load_state(self, message: ChannelMessage, session_id: str) -> TurnState:
         lifespan = field_of(message, "lifespan")
         if lifespan is not None:
             await lifespan.__aenter__()
@@ -154,7 +156,7 @@ class BuiltinImpl:
         return state
 
     @hookimpl
-    async def save_state(self, session_id: str, state: State, message: ChannelMessage, model_output: str) -> None:
+    async def save_state(self, session_id: str, state: TurnState, message: ChannelMessage, model_output: str) -> None:
         tp, value, traceback = sys.exc_info()
         lifespan = field_of(message, "lifespan")
         if lifespan is not None:
@@ -164,7 +166,7 @@ class BuiltinImpl:
         # turn), so nothing to write here — this hook only closes the lifespan.
 
     @hookimpl
-    async def build_prompt(self, message: ChannelMessage, session_id: str, state: State) -> str | list[dict]:
+    async def build_prompt(self, message: ChannelMessage, session_id: str, state: TurnState) -> str | list[dict]:
         content = content_of(message)
         if content.startswith(","):
             message.kind = "command"
@@ -193,7 +195,7 @@ class BuiltinImpl:
         return text
 
     @hookimpl
-    async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: State) -> AsyncStreamEvents:
+    async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: TurnState) -> AsyncStreamEvents:
         return await self._get_agent().run_stream(
             session_id=session_id,
             prompt=prompt,
@@ -262,22 +264,22 @@ class BuiltinImpl:
         return config
 
     @hookimpl
-    def provide_runtime_options(
+    def provide_model_options(
         self,
         session_id: str,
         workspace: Path | None = None,
-    ) -> RuntimeOptions | None:
+    ) -> ModelOptions | None:
         del session_id, workspace
         models = self._configured_models()
         if not models:
             return None
 
-        return RuntimeOptions(
-            models=[RuntimeChoice(id=model, name=model) for model in models],
+        return ModelOptions(
+            models=[ModelChoice(id=model, name=model) for model in models],
             current_model=models[0],
         )
 
-    def _read_agents_file(self, state: State) -> str:
+    def _read_agents_file(self, state: TurnState) -> str:
         workspace = state.get("_runtime_workspace", str(Path.cwd()))
         prompt_path = Path(workspace) / AGENTS_FILE_NAME
         if not prompt_path.is_file():
@@ -288,7 +290,7 @@ class BuiltinImpl:
             return ""
 
     @hookimpl
-    def system_prompt(self, prompt: str | list[dict], state: State) -> str:
+    def system_prompt(self, prompt: str | list[dict], state: TurnState) -> str:
         # Read the content of AGENTS.md under workspace
         return DEFAULT_SYSTEM_PROMPT + "\n\n" + self._read_agents_file(state)
 
@@ -320,14 +322,14 @@ class BuiltinImpl:
         session_id = field_of(message, "session_id")
         if field_of(message, "output_channel") != "cli":
             logger.info("session.run.outbound session_id={} content={}", session_id, content)
-        return await self.framework.dispatch_via_router(message)
+        return await self.framework.dispatch_via_channel_router(message)
 
     @hookimpl
     def render_outbound(
         self,
         message: Envelope,
         session_id: str,
-        state: State,
+        state: TurnState,
         model_output: str,
     ) -> list[ChannelMessage]:
         outbound = ChannelMessage(
@@ -352,7 +354,7 @@ class BuiltinImpl:
         return default_tape_context()
 
     @hookimpl
-    def provide_steering_inbox(self) -> SteeringInboxProtocol:
+    def provide_steering_inbox(self) -> SteeringInbox:
         return InMemorySteeringInbox()
 
     @hookimpl
@@ -362,7 +364,7 @@ class BuiltinImpl:
         message: Envelope,
         turn: TurnSnapshot,
     ) -> AdmitDecision | None:
-        outbound_router = self.framework._outbound_router
-        if outbound_router is None:
+        channel_router = self.framework._channel_router
+        if channel_router is None:
             return None
-        return await outbound_router.admit_channel_message(session_id=session_id, message=message, turn=turn)
+        return await channel_router.admit_channel_message(session_id=session_id, message=message, turn=turn)

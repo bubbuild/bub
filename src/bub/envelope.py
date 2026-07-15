@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from bub.types import Envelope
+type Envelope = Any
 
 
 def field_of(message: Envelope, key: str, default: Any = None) -> Any:

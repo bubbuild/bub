@@ -3,10 +3,10 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
 from typing import ClassVar
 
+from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.message import ChannelMessage
-from bub.runtime import StreamEvent
-from bub.turn_admission import AdmitDecision, TurnSnapshot
-from bub.types import Envelope
+from bub.envelope import Envelope
+from bub.streaming import StreamEvent
 
 
 class Channel(ABC):

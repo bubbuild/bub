@@ -8,15 +8,16 @@ from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
 from bub import config
+from bub.channels.admission import AdmitDecision, SessionTurnController, TurnSnapshot
 from bub.channels.base import Channel, Interface, Lifecycle
+from bub.channels.contracts import MessageHandler
 from bub.channels.handler import BufferedMessageHandler
 from bub.channels.message import ChannelMessage
 from bub.configure import Settings, ensure_config
-from bub.envelope import content_of, field_of
+from bub.envelope import Envelope, content_of, field_of
 from bub.framework import BubFramework
-from bub.runtime import StreamEvent
-from bub.turn_admission import AdmitDecision, SessionTurnController, TurnSnapshot
-from bub.types import Envelope, MessageHandler, State
+from bub.streaming import StreamEvent
+from bub.turn import TurnState
 from bub.utils import wait_until_stopped
 
 
@@ -231,7 +232,7 @@ class ChannelManager:
         controller: SessionTurnController,
         message: ChannelMessage,
         decision: AdmitDecision,
-        state: State,
+        state: TurnState,
     ) -> bool:
         action = decision.action
         if action == "process":
@@ -295,8 +296,8 @@ class ChannelManager:
         return session_id
 
     @staticmethod
-    def _admission_state(message: Envelope, session_id: str) -> State:
-        state: State = {"session_id": session_id}
+    def _admission_state(message: Envelope, session_id: str) -> TurnState:
+        state: TurnState = {"session_id": session_id}
         context = field_of(message, "context", {})
         if isinstance(context, dict) and (thread_id := context.get("thread_id")):
             state["_runtime_thread_id"] = thread_id
@@ -307,7 +308,7 @@ class ChannelManager:
         state = getattr(result, "state", {"session_id": message.session_id})
         await self._promote_steering_to_pending(message.session_id, state)
 
-    async def _promote_steering_to_pending(self, session_id: str, state: State) -> None:
+    async def _promote_steering_to_pending(self, session_id: str, state: TurnState) -> None:
         steering_inbox = self.framework.get_steering_inbox()
         if steering_inbox is None:
             return
@@ -326,7 +327,7 @@ class ChannelManager:
 
     async def listen_and_run(self) -> None:
         stop_event = asyncio.Event()
-        self.framework.bind_outbound_router(self)
+        self.framework.bind_channel_router(self)
         async with self.framework.running():
             for channel in self.enabled_channels():
                 await channel.start(stop_event)
@@ -343,7 +344,7 @@ class ChannelManager:
                 logger.exception("channel.manager error")
                 raise
             finally:
-                self.framework.bind_outbound_router(None)
+                self.framework.bind_channel_router(None)
                 await self.shutdown()
                 logger.info("channel.manager stopped")
 

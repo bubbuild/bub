@@ -13,7 +13,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from bub.builtin.store import ForkTapeStore
-from bub.runtime import BubError
+from bub.errors import BubError
 from bub.tape import (
     AsyncTapeStore,
     TapeContext,

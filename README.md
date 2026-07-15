@@ -62,7 +62,7 @@ Builtins are registered first. External plugins load after them. At runtime, lat
 Key source files:
 
 - Turn orchestrator: [`src/bub/framework.py`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py)
-- Hook contract: [`src/bub/hookspecs.py`](https://github.com/bubbuild/bub/blob/main/src/bub/hookspecs.py)
+- Hook contract: [`src/bub/hooks/specs.py`](https://github.com/bubbuild/bub/blob/main/src/bub/hooks/specs.py)
 - Builtin hooks: [`src/bub/builtin/hook_impl.py`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/hook_impl.py)
 - Skill discovery: [`src/bub/skills.py`](https://github.com/bubbuild/bub/blob/main/src/bub/skills.py)
 

@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-本页汇总最常用钩子模式的可运行配方。每个配方都基于 [`src/bub/hookspecs.py`](https://github.com/bubbuild/bub/blob/main/src/bub/hookspecs.py) 中的真实签名。完整钩子契约 —— 参数类型、同步/异步规则、`firstresult` 语义 —— 见[钩子参考](/zh-cn/docs/reference/hooks/)。
+本页汇总最常用钩子模式的可运行配方。每个配方都基于 [`src/bub/hooks/specs.py`](https://github.com/bubbuild/bub/blob/main/src/bub/hooks/specs.py) 中的真实签名。完整钩子契约 —— 参数类型、同步/异步规则、`firstresult` 语义 —— 见[钩子参考](/zh-cn/docs/reference/hooks/)。
 
 ## 开始之前
 
@@ -41,11 +41,11 @@ class PrefixPrompt:
 import asyncio
 
 from bub import hookimpl
-from bub.types import State
+from bub.turn import TurnState
 
 
 @hookimpl
-async def run_model(prompt: str, session_id: str, state: State) -> str:
+async def run_model(prompt: str, session_id: str, state: TurnState) -> str:
     proc = await asyncio.create_subprocess_exec(
         "codex", "e", prompt,
         stdout=asyncio.subprocess.PIPE,
@@ -64,7 +64,7 @@ async def run_model(prompt: str, session_id: str, state: State) -> str:
 如果你想观察或转换现有模型流而不替换它，实现 `run_model_stream`，并用 pluggy 的 `subset_hook_caller` 在**剔除自身**之后调用钩子链：
 
 ```python
-from republic import AsyncStreamEvents
+from bub.streaming import AsyncStreamEvents
 
 from bub import BubFramework, hookimpl
 
@@ -146,7 +146,7 @@ import asyncio
 
 from bub import hookimpl
 from bub.channels import Channel
-from bub.types import MessageHandler
+from bub.channels.contracts import MessageHandler
 
 
 class WebhookChannel(Channel):
@@ -228,7 +228,7 @@ agent loop 暴露四个拦截钩子(完整契约见 [参考 › 钩子](/zh-cn/d
 from dataclasses import replace
 
 from bub import hookimpl
-from bub.runtime import LlmCallDecision, LlmCallRequest
+from bub.hooks.interception import LlmCallDecision, LlmCallRequest
 
 
 class RouteAndBudget:
@@ -251,7 +251,7 @@ class RouteAndBudget:
 
 ```python
 from bub import hookimpl
-from bub.runtime import ToolCall, ToolCallDecision
+from bub.hooks.interception import ToolCall, ToolCallDecision
 
 
 class ShellPolicy:

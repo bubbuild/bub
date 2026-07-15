@@ -13,14 +13,15 @@ from typer.testing import CliRunner
 
 from bub import configure
 from bub.builtin.settings import load_settings
+from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage
 from bub.channels.telegram import TelegramSettings
 from bub.configure import ensure_config
 from bub.framework import BubFramework
-from bub.hookspecs import hookimpl
-from bub.runtime import AsyncStreamEvents, RuntimeChoice, RuntimeOptions, StreamEvent, StreamState
-from bub.turn_admission import AdmitDecision, TurnSnapshot
+from bub.hooks import hookimpl
+from bub.model_selection import ModelChoice, ModelOptions
+from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 
 
 def make_named_channel(name: str, label: str) -> Channel:
@@ -313,33 +314,33 @@ async def test_framework_admit_message_calls_hook_with_snapshot() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_runtime_options_collects_models_by_priority(tmp_path: Path) -> None:
+async def test_get_model_options_collects_models_by_priority(tmp_path: Path) -> None:
     framework = BubFramework()
 
     class LowPriorityPlugin:
         @hookimpl
-        def provide_runtime_options(self, session_id, workspace):
+        def provide_model_options(self, session_id, workspace):
             assert session_id == "session"
             assert workspace == tmp_path.resolve()
-            return RuntimeOptions(
-                models=[RuntimeChoice(id="low", name="Low")],
+            return ModelOptions(
+                models=[ModelChoice(id="low", name="Low")],
                 current_model="low",
             )
 
     class HighPriorityPlugin:
         @hookimpl
-        def provide_runtime_options(self, session_id, workspace):
+        def provide_model_options(self, session_id, workspace):
             assert session_id == "session"
             assert workspace == tmp_path.resolve()
-            return RuntimeOptions(
-                models=[RuntimeChoice(id="high", name="High"), RuntimeChoice(id="mid", name="Mid")],
+            return ModelOptions(
+                models=[ModelChoice(id="high", name="High"), ModelChoice(id="mid", name="Mid")],
                 current_model="high",
             )
 
     framework._plugin_manager.register(LowPriorityPlugin(), name="low")
     framework._plugin_manager.register(HighPriorityPlugin(), name="high")
 
-    options = await framework.get_runtime_options(session_id="session", workspace=tmp_path)
+    options = await framework.get_model_options(session_id="session", workspace=tmp_path)
 
     assert [(choice.id, choice.name) for choice in options.models] == [
         ("high", "High"),
@@ -407,7 +408,7 @@ async def test_process_inbound_streams_when_requested() -> None:  # noqa: C901
             return None
 
     framework._plugin_manager.register(StreamingPlugin(), name="streaming")
-    framework.bind_outbound_router(RecordingRouter())
+    framework.bind_channel_router(RecordingRouter())
 
     result = await framework.process_inbound(
         ChannelMessage(session_id="s", channel="cli", chat_id="room", content="hi"),

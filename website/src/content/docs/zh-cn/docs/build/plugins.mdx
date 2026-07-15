@@ -124,7 +124,7 @@ class MyPlugin:
 visual-base 的 [`EyeImpl`](https://github.com/oilbeater/visual-base/blob/main/src/bub_eye/plugin.py) 正是因为这个原因采用可调用形态：它捕获框架，从而 `provide_channels` 时能读到 CLI 处理后的工作区。
 
 :::note
-内置插件最先注册，入口点插件随后注册。在 [`HookRuntime`](https://github.com/bubbuild/bub/blob/main/src/bub/hook_runtime.py) 中，注册越晚优先级越高 —— 因此你的 `firstresult` 钩子会覆盖内置实现。
+内置插件最先注册，入口点插件随后注册。在 [`HookRuntime`](https://github.com/bubbuild/bub/blob/main/src/bub/hooks/runtime.py) 中，注册越晚优先级越高 —— 因此你的 `firstresult` 钩子会覆盖内置实现。
 :::
 
 ## 4. 用可编辑安装迭代
