@@ -5,6 +5,10 @@ description: Bub 中由 turn、model、stream、hook 与 channel 子系统分别
 
 Bub 把契约放在拥有其行为的子系统旁边。请从定义它的模块导入；顶层 `bub` 包只暴露常用框架入口。
 
+:::caution
+为兼容旧代码，`bub.types` 暂时只重导出 `Envelope`、`State` 和 `MessageHandler`，并在导入时发出 `DeprecationWarning`。新代码应直接使用 `bub.envelope.Envelope`、`bub.turn.TurnState` 和 `bub.channels.contracts.MessageHandler`。
+:::
+
 ## 内核词汇
 
 ### Envelope — `bub.envelope`

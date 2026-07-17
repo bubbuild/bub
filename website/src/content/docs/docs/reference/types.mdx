@@ -5,6 +5,10 @@ description: Bub's subsystem-owned contracts for turns, models, streaming, hooks
 
 Bub keeps contracts beside the subsystem that owns their behavior. Import a contract from its defining module; the top-level `bub` package intentionally exposes only the common framework entry points.
 
+:::caution
+`bub.types` temporarily re-exports only `Envelope`, `State`, and `MessageHandler` for compatibility and emits a `DeprecationWarning` when imported. New code should use `bub.envelope.Envelope`, `bub.turn.TurnState`, and `bub.channels.contracts.MessageHandler` directly.
+:::
+
 ## Kernel vocabulary
 
 ### Envelopes — `bub.envelope`
