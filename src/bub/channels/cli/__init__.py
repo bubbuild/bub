@@ -15,7 +15,6 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
-from prompt_toolkit.utils import get_cwidth
 from rich import get_console
 from rich.spinner import SPINNERS
 from rich.text import Text
@@ -27,6 +26,7 @@ from bub.builtin.tape import TapeInfo
 from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.base import Interface
 from bub.channels.cli.renderer import CliRenderer
+from bub.channels.cli.writers import MarkdownWriter, PlainTextWriter, StreamWriter
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
 from bub.envelope import Envelope, field_of
@@ -38,16 +38,30 @@ _PROMPT_REFRESH_INTERVAL: float = SPINNERS["dots"]["interval"] / 1000.0  # type:
 
 
 class _StreamPrinter:
-    def __init__(self, *, console, print_head: Callable[[], None], expand_thinking: bool) -> None:
+    def __init__(
+        self,
+        *,
+        console,
+        print_head: Callable[[], None],
+        expand_thinking: bool,
+        writer: StreamWriter | None = None,
+    ) -> None:
         self._console = console
         self._print_head = print_head
         self._expand_thinking = expand_thinking
         self._reasoning_chars = 0
         self._reasoning_streaming = False
-        self._current_text_line = ""
-        self._rendered_text_line: str | None = None
-        self._live_text_rows = 0
+        self._writer: StreamWriter = writer or self._default_writer()
+        self._live_rows = 0
         self.head_printed = False
+
+    @staticmethod
+    def _default_writer() -> StreamWriter:
+        import os
+
+        if os.environ.get("BUB_CLI_RENDER") == "plain":
+            return PlainTextWriter()
+        return MarkdownWriter()
 
     async def render(self, event: StreamEvent) -> bool:
         if event.kind == "reasoning":
@@ -88,15 +102,15 @@ class _StreamPrinter:
         if self._reasoning_chars:
             await self._ensure_head()
         await self._flush_reasoning()
-        if self._current_text_line:
+        if self._writer.has_content():
             await self._commit_text_line()
-        elif self.head_printed and not self._live_text_rows:
+        elif self.head_printed and not self._live_rows:
             await self._print("")
 
     async def _print_stream_boundary(self) -> None:
         await self._close_reasoning_stream()
         await self._flush_reasoning()
-        if self._current_text_line or self._live_text_rows:
+        if self._writer.has_content() or self._live_rows:
             await self._commit_text_line()
         if self.head_printed:
             await self._print("")
@@ -121,48 +135,58 @@ class _StreamPrinter:
         self._reasoning_chars = 0
 
     async def _write_text(self, text: str) -> None:
-        parts = text.split("\n")
-        for index, part in enumerate(parts):
-            self._current_text_line += part
-            if index < len(parts) - 1:
-                await self._commit_text_line()
+        self._writer.append(text)
+        while self._writer.can_commit():
+            await self._commit_writer()
+        await self._render_live()
 
-        if self._current_text_line:
-            await self._render_live_text_line()
-
-    async def _commit_text_line(self) -> None:
-        if self._live_text_rows and self._rendered_text_line == self._current_text_line:
-            self._current_text_line = ""
-            self._rendered_text_line = None
-            self._live_text_rows = 0
-            return
-        self._live_text_rows = await self._render_text_line(self._current_text_line)
-        self._current_text_line = ""
-        self._rendered_text_line = None
-        self._live_text_rows = 0
-
-    async def commit_live_text(self) -> None:
-        if self._current_text_line or self._live_text_rows:
-            await self._commit_text_line()
-
-    async def _render_live_text_line(self) -> None:
-        self._live_text_rows = await self._render_text_line(self._current_text_line)
-        self._rendered_text_line = self._current_text_line
-
-    async def _render_text_line(self, text: str) -> int:
-        previous_rows = self._live_text_rows
-        rows = self._display_rows(text)
+    async def _commit_writer(self) -> None:
+        committed = self._writer.render_committed()
+        console_width = int(getattr(self._console, "width", 80) or 80)
 
         def render() -> None:
-            self._rewind_live_text(previous_rows)
-            self._console.print(f"{text}\n", end="", highlight=False)
+            self._rewind_live_text(self._live_rows)
+            self._console.print(committed, end="")
+            self._console.print("", highlight=False)
 
         await run_in_terminal(render, render_cli_done=False)
-        return rows
+        self._writer.commit()
+        self._live_rows = 0
 
-    def _display_rows(self, text: str) -> int:
-        columns = max(1, int(getattr(self._console, "width", 80) or 80))
-        return max(1, (get_cwidth(text) + columns - 1) // columns)
+    async def _render_live(self) -> None:
+        partial = self._writer.render_partial()
+        console_width = int(getattr(self._console, "width", 80) or 80)
+        new_rows = self._writer.row_count(partial, console_width)
+
+        def render() -> None:
+            self._rewind_live_text(self._live_rows)
+            if new_rows > 0:
+                self._console.print(partial, end="", highlight=False)
+
+        await run_in_terminal(render, render_cli_done=False)
+        self._live_rows = new_rows
+
+    async def _commit_text_line(self) -> None:
+        if self._writer.can_commit():
+            await self._commit_writer()
+        if self._writer.has_content():
+            flushed = self._writer.flush()
+            if flushed is not None:
+                def render() -> None:
+                    self._rewind_live_text(self._live_rows)
+                    self._console.print(flushed, end="")
+                    self._console.print("", highlight=False)
+                await run_in_terminal(render, render_cli_done=False)
+                self._live_rows = 0
+        elif self._live_rows:
+            def render() -> None:
+                self._rewind_live_text(self._live_rows)
+            await run_in_terminal(render, render_cli_done=False)
+            self._live_rows = 0
+
+    async def commit_live_text(self) -> None:
+        if self._writer.has_content() or self._live_rows:
+            await self._commit_text_line()
 
     def _rewind_live_text(self, rows: int) -> None:
         if rows <= 0:

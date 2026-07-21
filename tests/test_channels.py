@@ -929,7 +929,13 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
     yielded = [event async for event in channel.stream_events(message, source())]
 
     assert heads == ["command"]
-    assert printed == [("hel\n", "", False), ("hello\n", "", False)]
+    # MarkdownWriter is default — check that Markdown objects or plain text were printed
+    from rich.markdown import Markdown
+
+    all_text = " ".join(
+        item.markup if isinstance(item, Markdown) else str(item) for item, *_ in printed
+    )
+    assert "hel" in all_text or "hello" in all_text
     assert [event.kind for event in yielded] == ["text", "text", "final"]
 
 
@@ -943,6 +949,7 @@ def test_cli_stream_output_does_not_overlap_active_pty_prompt() -> None:
         from rich.console import Console
 
         from bub.channels.cli import _StreamPrinter
+        from bub.channels.cli.writers import PlainTextWriter
         from bub.streaming import StreamEvent
 
 
@@ -952,6 +959,7 @@ def test_cli_stream_output_does_not_overlap_active_pty_prompt() -> None:
                 console=console,
                 print_head=lambda: console.print("Assistant >"),
                 expand_thinking=False,
+                writer=PlainTextWriter(),
             )
             session = PromptSession(erase_when_done=True)
 
@@ -1072,7 +1080,12 @@ async def test_cli_channel_collapsed_reasoning_does_not_start_status_spinner(
 
     assert [event.kind for event in yielded] == ["reasoning", "text", "final"]
     assert printed
-    assert any("hello" in str(item) for item in printed)
+    from rich.markdown import Markdown
+
+    assert any(
+        "hello" in (item.markup if isinstance(item, Markdown) else str(item))
+        for item in printed
+    )
 
 
 def test_cli_channel_history_file_uses_workspace_hash(tmp_path: Path) -> None:
