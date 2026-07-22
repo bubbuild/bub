@@ -54,6 +54,7 @@ anchors: 2
 last_anchor: session/start
 entries_since_last_anchor: 44
 last_token_usage: 7458
+last_token_cache_hit_rate: 72.50%
 ```
 
 ![A terminal screenshot showing `tape.info` after a Bub task run](/docs/observability/tape-info.png)
@@ -64,6 +65,7 @@ The fields are useful when the model starts behaving oddly:
 - `anchors` and `last_anchor` tell you whether the tape has a checkpoint for context reconstruction.
 - `entries_since_last_anchor` tells you whether a handoff could shorten the next prompt.
 - `last_token_usage` appears when token usage has been recorded by the model path.
+- `last_token_cache_hit_rate` shows the cached share of prompt tokens for that same model call when available.
 
 Because Bub uses the [tape model](/docs/concepts/tape-and-context/) from [tape.systems](https://tape.systems), the runtime can inspect its own operational record. Bub can answer questions about what happened because the tape is the same state it uses to rebuild context.
 

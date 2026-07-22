@@ -21,6 +21,7 @@ from bub.builtin.tools import (
     render_tools_prompt,
     resolve_tool_names,
     set_model,
+    tape_info,
 )
 from bub.errors import ErrorKind
 from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
@@ -34,6 +35,27 @@ def _tool_context(tmp_path, **state) -> ToolContext:
 
 def _python_shell(code: str) -> str:
     return f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
+
+
+@pytest.mark.asyncio
+async def test_tape_info_formats_token_cache_hit_rate(tmp_path) -> None:
+    context = _tool_context(tmp_path)
+    await context.tape.record_chat(
+        run_id="run-1",
+        system_prompt=None,
+        new_messages=[],
+        response_text=None,
+        usage={
+            "prompt_tokens": 8,
+            "completion_tokens": 2,
+            "total_tokens": 10,
+            "prompt_tokens_details": {"cached_tokens": 3},
+        },
+    )
+
+    result = await tape_info.run(context=context)
+
+    assert "last_token_cache_hit_rate: 37.50%" in result
 
 
 def test_completion_tools_builds_any_llm_payload() -> None:

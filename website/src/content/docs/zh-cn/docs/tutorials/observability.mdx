@@ -54,6 +54,7 @@ anchors: 2
 last_anchor: session/start
 entries_since_last_anchor: 44
 last_token_usage: 7458
+last_token_cache_hit_rate: 72.50%
 ```
 
 ![展示 Bub task run 之后 `tape.info` 输出的终端截图](/docs/observability/tape-info.png)
@@ -64,6 +65,7 @@ last_token_usage: 7458
 - `anchors` 与 `last_anchor` 表示 tape 是否已有用于重建 context 的 checkpoint。
 - `entries_since_last_anchor` 表示是否可以通过 handoff 缩短下一次 prompt。
 - `last_token_usage` 会在模型路径记录 token usage 后出现。
+- `last_token_cache_hit_rate` 表示同一次模型调用中命中缓存的 prompt token 比例（provider 提供明细时可用）。
 
 由于 Bub 使用来自 [tape.systems](https://tape.systems) 的 [tape 模型](/zh-cn/docs/concepts/tape-and-context/)，运行时可以检查自己的操作记录。Bub 能回答发生了什么，是因为 tape 正是它重建 context 时使用的状态。
 

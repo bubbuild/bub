@@ -365,22 +365,28 @@ class CodexCompletionChunkMapper:
         })
 
 
-def _completion_usage_from_response_usage(usage: Any) -> dict[str, int]:
+def _completion_usage_from_response_usage(usage: Any) -> dict[str, Any]:
     payload = usage.model_dump(exclude_none=True) if hasattr(usage, "model_dump") else usage
     if not isinstance(payload, dict):
         payload = {
             "input_tokens": getattr(usage, "input_tokens", 0),
             "output_tokens": getattr(usage, "output_tokens", 0),
             "total_tokens": getattr(usage, "total_tokens", 0),
+            "input_tokens_details": getattr(usage, "input_tokens_details", None),
         }
     prompt_tokens = int(payload.get("input_tokens") or payload.get("prompt_tokens") or 0)
     completion_tokens = int(payload.get("output_tokens") or payload.get("completion_tokens") or 0)
     total_tokens = int(payload.get("total_tokens") or prompt_tokens + completion_tokens)
-    return {
+    completion_usage: dict[str, Any] = {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": total_tokens,
     }
+    input_details = _mapping_from_value(payload.get("input_tokens_details"))
+    cached_tokens = input_details.get("cached_tokens")
+    if isinstance(cached_tokens, int) and not isinstance(cached_tokens, bool):
+        completion_usage["prompt_tokens_details"] = {"cached_tokens": cached_tokens}
+    return completion_usage
 
 
 def _string_attr(obj: Any, name: str) -> str:

@@ -273,13 +273,15 @@ def skill_describe(name: str, *, context: ToolContext) -> str:
 async def tape_info(context: ToolContext) -> str:
     """Get information about the current tape, such as number of entries and anchors."""
     info = await context.tape.info()
+    cache_hit_rate = f"{info.last_token_cache_hit_rate:.2%}" if info.last_token_cache_hit_rate is not None else "None"
     return (
         f"name: {info.name}\n"
         f"entries: {info.entries}\n"
         f"anchors: {info.anchors}\n"
         f"last_anchor: {info.last_anchor}\n"
         f"entries_since_last_anchor: {info.entries_since_last_anchor}\n"
-        f"last_token_usage: {info.last_token_usage}"
+        f"last_token_usage: {info.last_token_usage}\n"
+        f"last_token_cache_hit_rate: {cache_hit_rate}"
     )
 
 

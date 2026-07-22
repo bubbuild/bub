@@ -256,7 +256,12 @@ async def _codex_response_events():
             id="resp_123",
             created_at=1,
             model="gpt-5-codex",
-            usage=SimpleNamespace(input_tokens=3, output_tokens=2, total_tokens=5),
+            usage=SimpleNamespace(
+                input_tokens=3,
+                output_tokens=2,
+                total_tokens=5,
+                input_tokens_details={"cached_tokens": 2},
+            ),
         ),
     )
 
@@ -279,6 +284,8 @@ async def test_codex_completion_stream_maps_response_events_to_completion_chunks
     assert chunks[-1].usage is not None
     assert chunks[-1].usage.prompt_tokens == 3
     assert chunks[-1].usage.completion_tokens == 2
+    assert chunks[-1].usage.prompt_tokens_details is not None
+    assert chunks[-1].usage.prompt_tokens_details.cached_tokens == 2
 
 
 async def _codex_tool_response_events():

@@ -4,7 +4,7 @@ import contextlib
 import hashlib
 import inspect
 import json
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,6 +33,7 @@ class TapeInfo:
     last_anchor: str | None
     entries_since_last_anchor: int
     last_token_usage: int | None
+    last_token_cache_hit_rate: float | None
 
 
 @dataclass(frozen=True)
@@ -77,13 +78,29 @@ class Tape:
             last_anchor = None
             entries_since_last_anchor = len(entries)
         last_token_usage: int | None = None
+        last_token_cache_hit_rate: float | None = None
         for entry in reversed(entries):
             if entry.kind == "event" and entry.payload.get("name") == "run":
-                with contextlib.suppress(AttributeError):
-                    token_usage = entry.payload.get("data", {}).get("usage", {}).get("total_tokens")
-                    if token_usage and isinstance(token_usage, int):
-                        last_token_usage = token_usage
-                        break
+                data = entry.payload.get("data")
+                usage = data.get("usage") if isinstance(data, Mapping) else None
+                if not isinstance(usage, Mapping):
+                    continue
+                token_usage = usage.get("total_tokens")
+                if not isinstance(token_usage, int) or isinstance(token_usage, bool):
+                    continue
+                last_token_usage = token_usage
+                prompt_tokens = usage.get("prompt_tokens")
+                prompt_details = usage.get("prompt_tokens_details")
+                cached_tokens = prompt_details.get("cached_tokens") if isinstance(prompt_details, Mapping) else None
+                if (
+                    isinstance(prompt_tokens, int)
+                    and not isinstance(prompt_tokens, bool)
+                    and prompt_tokens > 0
+                    and isinstance(cached_tokens, int)
+                    and not isinstance(cached_tokens, bool)
+                ):
+                    last_token_cache_hit_rate = cached_tokens / prompt_tokens
+                break
         return TapeInfo(
             name=self.name,
             entries=len(entries),
@@ -91,6 +108,7 @@ class Tape:
             last_anchor=str(last_anchor) if last_anchor else None,
             entries_since_last_anchor=entries_since_last_anchor,
             last_token_usage=last_token_usage,
+            last_token_cache_hit_rate=last_token_cache_hit_rate,
         )
 
     async def ensure_bootstrap_anchor(self) -> None:
