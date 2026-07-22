@@ -11,12 +11,13 @@ from loguru import logger
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.completion import WordCompleter
-from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.formatted_text import ANSI, AnyFormattedText, FormattedText, merge_formatted_text
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich import get_console
-from rich.spinner import SPINNERS
+from rich.console import Group, RenderableType
+from rich.spinner import SPINNERS, Spinner
 from rich.text import Text
 from rich.tree import Tree
 
@@ -25,7 +26,14 @@ from bub.builtin.agent import Agent
 from bub.builtin.tape import TapeInfo
 from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.base import Interface
+from bub.channels.cli.ansi_bridge import render_to_ansi
 from bub.channels.cli.renderer import CliRenderer
+from bub.channels.cli.terminal_output import (
+    create_synchronized_output,
+    direct_terminal_stdio,
+    restore_synchronized_prompt,
+    synchronized_prompt_output,
+)
 from bub.channels.cli.writers import MarkdownWriter, PlainTextWriter, StreamWriter
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
@@ -45,6 +53,7 @@ class _StreamPrinter:
         print_head: Callable[[], None],
         expand_thinking: bool,
         writer: StreamWriter | None = None,
+        invalidate: Callable[[], None] | None = None,
     ) -> None:
         self._console = console
         self._print_head = print_head
@@ -52,7 +61,8 @@ class _StreamPrinter:
         self._reasoning_chars = 0
         self._reasoning_streaming = False
         self._writer: StreamWriter = writer or self._default_writer()
-        self._live_rows = 0
+        self._invalidate = invalidate or (lambda: None)
+        self._spinner = Spinner("dots", text="Generating...")
         self.head_printed = False
 
     @staticmethod
@@ -104,13 +114,13 @@ class _StreamPrinter:
         await self._flush_reasoning()
         if self._writer.has_content():
             await self._commit_text_line()
-        elif self.head_printed and not self._live_rows:
+        elif self.head_printed:
             await self._print("")
 
     async def _print_stream_boundary(self) -> None:
         await self._close_reasoning_stream()
         await self._flush_reasoning()
-        if self._writer.has_content() or self._live_rows:
+        if self._writer.has_content():
             await self._commit_text_line()
         if self.head_printed:
             await self._print("")
@@ -118,7 +128,7 @@ class _StreamPrinter:
     async def _ensure_head(self) -> None:
         if self.head_printed:
             return
-        await run_in_terminal(self._print_head, render_cli_done=False)
+        await self._run_in_terminal(self._print_head)
         self.head_printed = True
 
     async def _close_reasoning_stream(self) -> None:
@@ -142,29 +152,20 @@ class _StreamPrinter:
 
     async def _commit_writer(self) -> None:
         committed = self._writer.render_committed()
-        console_width = int(getattr(self._console, "width", 80) or 80)
 
         def render() -> None:
-            self._rewind_live_text(self._live_rows)
-            self._console.print(committed, end="")
-            self._console.print("", highlight=False)
+            self._console.print(committed)
 
-        await run_in_terminal(render, render_cli_done=False)
+        await self._run_in_terminal(render)
         self._writer.commit()
-        self._live_rows = 0
 
     async def _render_live(self) -> None:
-        partial = self._writer.render_partial()
-        console_width = int(getattr(self._console, "width", 80) or 80)
-        new_rows = self._writer.row_count(partial, console_width)
+        self._invalidate()
 
-        def render() -> None:
-            self._rewind_live_text(self._live_rows)
-            if new_rows > 0:
-                self._console.print(partial, end="", highlight=False)
-
-        await run_in_terminal(render, render_cli_done=False)
-        self._live_rows = new_rows
+    def compose(self) -> RenderableType | None:
+        if self._writer.has_content():
+            return Group(self._writer.render_partial(), self._spinner)
+        return self._spinner
 
     async def _commit_text_line(self) -> None:
         if self._writer.can_commit():
@@ -173,38 +174,25 @@ class _StreamPrinter:
             flushed = self._writer.flush()
             if flushed is not None:
                 def render() -> None:
-                    self._rewind_live_text(self._live_rows)
-                    self._console.print(flushed, end="")
-                    self._console.print("", highlight=False)
-                await run_in_terminal(render, render_cli_done=False)
-                self._live_rows = 0
-        elif self._live_rows:
-            def render() -> None:
-                self._rewind_live_text(self._live_rows)
-            await run_in_terminal(render, render_cli_done=False)
-            self._live_rows = 0
+                    self._console.print(flushed)
+                await self._run_in_terminal(render)
+        self._invalidate()
 
     async def commit_live_text(self) -> None:
-        if self._writer.has_content() or self._live_rows:
+        if self._writer.has_content():
             await self._commit_text_line()
 
-    def _rewind_live_text(self, rows: int) -> None:
-        if rows <= 0:
-            return
-        output = getattr(self._console, "file", None)
-        if output is None:
-            return
-        output.write(f"\x1b[{rows}A\r")
-        for row in range(rows):
-            output.write("\x1b[2K")
-            if row < rows - 1:
-                output.write("\x1b[1B\r")
-        if rows > 1:
-            output.write(f"\x1b[{rows - 1}A\r")
-        output.flush()
-
     async def _print(self, *args: Any, **kwargs: Any) -> None:
-        await run_in_terminal(lambda: self._console.print(*args, **kwargs), render_cli_done=False)
+        await self._run_in_terminal(lambda: self._console.print(*args, **kwargs))
+
+    async def _run_in_terminal(self, function: Callable[[], None]) -> None:
+        def write_directly() -> None:
+            with direct_terminal_stdio():
+                function()
+
+        with synchronized_prompt_output():
+            await run_in_terminal(write_directly, render_cli_done=False)
+            await restore_synchronized_prompt()
 
 
 class _CliToolCallReporter:
@@ -283,12 +271,7 @@ class CliChannel(Interface):
         while not self._stop_event.is_set():
             try:
                 with patch_stdout(raw=True):
-                    raw = (
-                        await self._prompt.prompt_async(
-                            self._prompt_message,
-                            refresh_interval=_PROMPT_REFRESH_INTERVAL,
-                        )
-                    ).strip()
+                    raw = (await self._prompt.prompt_async(self._prompt_message)).strip()
             except KeyboardInterrupt:
                 self._renderer.info("Interrupted. Use ',quit' to exit.")
                 continue
@@ -340,8 +323,17 @@ class CliChannel(Interface):
             return raw
         return f",{raw}"
 
-    def _prompt_message(self) -> FormattedText:
+    def _prompt_message(self) -> AnyFormattedText:
         prompt = self._prompt_label()
+        stream_printer = getattr(self, "_stream_printer", None)
+        if stream_printer is not None:
+            renderable = stream_printer.compose()
+            if renderable is not None:
+                agent_ansi = render_to_ansi(renderable, width=get_console().width).rstrip("\n")
+                return merge_formatted_text([
+                    ANSI(agent_ansi),
+                    FormattedText([("bold", f"\n{prompt}")]),
+                ])
         if not self._llm_loop_running:
             return FormattedText([("bold", prompt)])
         index = int(monotonic() / _PROMPT_REFRESH_INTERVAL) % len(_GENERATION_SPINNER)
@@ -370,8 +362,10 @@ class CliChannel(Interface):
             console=console,
             print_head=lambda: self._renderer.print_head(message.kind),
             expand_thinking=self._expand_thinking,
+            invalidate=self._invalidate_prompt,
         )
         self._stream_printer = printer
+        self._invalidate_prompt()
         try:
             with tool_call_reporter(_CliToolCallReporter(self._renderer)):
                 async for event in stream:
@@ -380,6 +374,7 @@ class CliChannel(Interface):
         finally:
             if self._stream_printer is printer:
                 self._stream_printer = None
+                self._invalidate_prompt()
 
     def _build_prompt(self, workspace: Path) -> PromptSession[str]:
         kb = KeyBindings()
@@ -398,14 +393,17 @@ class CliChannel(Interface):
         history = FileHistory(str(history_file))
         tool_names = sorted([*(f",{name}" for name in REGISTRY), ",thinking"], key=_tool_sort_key)
         completer = WordCompleter(tool_names, ignore_case=True, sentence=True)
-        return PromptSession(
+        prompt: PromptSession[str] = PromptSession(
             completer=completer,
             complete_while_typing=True,
             key_bindings=kb,
             history=history,
             bottom_toolbar=self._render_bottom_toolbar,
             erase_when_done=True,
+            output=create_synchronized_output(),
         )
+        prompt.app.min_redraw_interval = _PROMPT_REFRESH_INTERVAL
+        return prompt
 
     def _render_bottom_toolbar(self) -> FormattedText:
         info = self._last_tape_info

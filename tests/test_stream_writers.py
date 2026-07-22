@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
+from bub.channels.cli import _StreamPrinter
 from bub.channels.cli.writers import (
     MarkdownWriter,
     PlainTextWriter,
     StreamWriter,
-    _trim_partial_closing_fences,
 )
+from bub.streaming import StreamEvent
 
 
 class TestPlainTextWriter:
@@ -85,10 +88,25 @@ class TestPlainTextWriter:
 
 
 class TestMarkdownWriter:
-    def test_single_paragraph_is_commits(self):
+    @staticmethod
+    def _render_text(writer: MarkdownWriter) -> str:
+        from io import StringIO
+
+        from rich.console import Console
+
+        output = StringIO()
+        Console(file=output, width=80, force_terminal=True, color_system=None).print(writer.render_partial())
+        return output.getvalue()
+
+    def test_single_paragraph_stays_partial_without_blank_line(self):
         w = MarkdownWriter()
         w.append("Hello world")
-        # No unclosed fences → single paragraph is committable
+        assert not w.can_commit()
+        assert "Hello world" in w.render_partial().markup
+
+    def test_single_paragraph_commits_after_blank_line(self):
+        w = MarkdownWriter()
+        w.append("Hello world\n\n")
         assert w.can_commit()
         assert "Hello world" in w.render_committed().markup
 
@@ -104,6 +122,7 @@ class TestMarkdownWriter:
         w.append("Text\n\n```python\ncode here")
         assert w.can_commit()
         assert "Text" in w.render_committed().markup
+        assert "code here" in self._render_text(w)
 
     def test_closed_fence_commits_all(self):
         w = MarkdownWriter()
@@ -139,6 +158,50 @@ class TestMarkdownWriter:
         w.append("```\n\nDone!")
         assert w.can_commit()
 
+    def test_unclosed_code_block_renders_each_streamed_update(self):
+        w = MarkdownWriter()
+        w.append("```python\n")
+
+        w.append("def greet")
+        assert "def greet" in self._render_text(w)
+
+        w.append("(name):\n")
+        assert "def greet(name):" in self._render_text(w)
+
+        w.append('    return f"Hello, {name}"')
+        rendered = self._render_text(w)
+        assert "def greet(name):" in rendered
+        assert 'return f"Hello, {name}"' in rendered
+
+    def test_blank_line_inside_fence_is_not_a_commit_boundary(self):
+        w = MarkdownWriter()
+        code = "```python\ndef first():\n    return 1\n\ndef second():\n    return 2\n```"
+
+        w.append(code)
+
+        assert not w.can_commit()
+        rendered = self._render_text(w)
+        assert "def first():" in rendered
+        assert "def second():" in rendered
+
+        w.append("\n\nAfter code")
+
+        assert w.can_commit()
+        assert w.render_committed().markup == code
+        assert "After code" in w.render_partial().markup
+
+    def test_code_highlighting_does_not_set_background_color(self):
+        from rich.console import Console
+
+        w = MarkdownWriter()
+        w.append("```python\ndef greet():\n    return 42")
+
+        segments = list(Console(width=80, force_terminal=True, color_system="standard").render(w.render_partial()))
+        code_segments = [segment for segment in segments if segment.text.strip()]
+
+        assert any(segment.style and segment.style.color is not None for segment in code_segments)
+        assert all(segment.style is None or segment.style.bgcolor is None for segment in code_segments)
+
     def test_reset(self):
         w = MarkdownWriter()
         w.append("hello\n\nworld")
@@ -156,25 +219,43 @@ class TestMarkdownWriter:
         assert w.row_count(Text(""), 80) == 0
 
 
-class TestTrimPartialClosingFences:
-    def test_strips_unclosed_fence(self):
-        text = "```python\ncode\n```"
-        result = _trim_partial_closing_fences(text)
-        assert result.count("```") % 2 == 0
+class TestStreamPrinterIntegration:
+    @pytest.mark.asyncio
+    async def test_no_commit_per_token_without_block_boundary(self, monkeypatch):
+        import asyncio
+        from io import StringIO
 
-    def test_preserves_paired_fences(self):
-        text = "```python\ncode\n```\n\n```bash\nmore"
-        result = _trim_partial_closing_fences(text)
-        assert result.count("```") == 2
+        from rich.console import Console
 
-    def test_no_fences_unchanged(self):
-        text = "Just plain text"
-        assert _trim_partial_closing_fences(text) == text
+        async def fake_run_in_terminal(func, render_cli_done=True):
+            if asyncio.iscoroutine(func):
+                await func
+            elif callable(func):
+                func()
+            return None
 
-    def test_empty_string(self):
-        assert _trim_partial_closing_fences("") == ""
+        monkeypatch.setattr("bub.channels.cli.run_in_terminal", fake_run_in_terminal)
 
-    def test_single_open_fence(self):
-        text = "```python\ndef hello():"
-        result = _trim_partial_closing_fences(text)
-        assert "```" not in result
+        console = Console(file=StringIO(), width=80, force_terminal=True, color_system=None)
+        printer = _StreamPrinter(
+            console=console,
+            print_head=lambda: None,
+            expand_thinking=False,
+        )
+        commits = 0
+        real_commit = printer._writer.commit
+
+        def spy_commit():
+            nonlocal commits
+            committed = real_commit()
+            if committed:
+                commits += 1
+            return committed
+
+        printer._writer.commit = spy_commit
+
+        for ch in "春风一夜入江城":
+            await printer.render(StreamEvent("text", {"delta": ch}))
+        await printer.render(StreamEvent("final", {}))
+
+        assert commits == 0

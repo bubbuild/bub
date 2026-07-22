@@ -10,11 +10,48 @@ from model responses is formatted and committed to the terminal.
 from __future__ import annotations
 
 import io
+import re
 from typing import Any, Protocol, runtime_checkable
 
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.text import Text
+
+_MARKDOWN_CODE_THEME = "ansi_dark"
+_FENCE_START_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
+def _markdown(content: str) -> Markdown:
+    return Markdown(content, code_theme=_MARKDOWN_CODE_THEME)
+
+
+def _committable_prefix_length(content: str) -> int:
+    """Return the last completed blank-line boundary outside fenced code."""
+    boundary = 0
+    offset = 0
+    fence_char: str | None = None
+    fence_length = 0
+
+    for line in content.splitlines(keepends=True):
+        body = line.rstrip("\r\n")
+        if fence_char is None:
+            match = _FENCE_START_RE.match(body)
+            if match is not None and not (match.group(1)[0] == "`" and "`" in match.group(2)):
+                marker = match.group(1)
+                fence_char = marker[0]
+                fence_length = len(marker)
+            elif not body.strip() and line.endswith(("\n", "\r")):
+                boundary = offset + len(line)
+        else:
+            stripped = body.lstrip(" ")
+            indent = len(body) - len(stripped)
+            marker_length = len(stripped) - len(stripped.lstrip(fence_char))
+            if indent <= 3 and marker_length >= fence_length and not stripped[marker_length:].strip():
+                fence_char = None
+                fence_length = 0
+        offset += len(line)
+
+    return boundary
 
 
 @runtime_checkable
@@ -127,8 +164,8 @@ class MarkdownWriter:
     Commits completed top-level blocks (separated by blank lines) via
     ``rich.Markdown``. The incomplete tail is re-rendered on each delta.
 
-    Fence-aware: strips incomplete closing fences from the live area
-    to prevent code block flicker.
+    Fence-aware: keeps an open fenced code block in the live area so Rich can
+    render and highlight it before the closing fence arrives.
     """
 
     def __init__(self) -> None:
@@ -143,33 +180,20 @@ class MarkdownWriter:
 
     def _reparse(self) -> None:
         uncommitted = self._buffer[len(self._committed_text):]
-        segments = uncommitted.split("\n\n")
-        fence_count = sum(s.count("```") for s in segments)
-
-        if fence_count % 2 == 0:
-            self._to_commit = uncommitted
-            self._partial = ""
-        else:
-            if len(segments) > 1:
-                self._to_commit = "\n\n".join(segments[:-1]) + "\n\n"
-                self._partial = segments[-1]
-            else:
-                self._to_commit = ""
-                self._partial = segments[0] if segments else ""
+        split_at = _committable_prefix_length(uncommitted)
+        self._to_commit = uncommitted[:split_at]
+        self._partial = uncommitted[split_at:]
 
     def can_commit(self) -> bool:
         return bool(self._to_commit) and bool(self._to_commit.strip())
 
     def render_committed(self) -> Markdown:
-        return Markdown(self._to_commit.rstrip())
+        return _markdown(self._to_commit.rstrip())
 
     def render_partial(self) -> Markdown | Text:
         if not self._partial.strip():
             return Text("")
-        content = _trim_partial_closing_fences(self._partial)
-        if not content.strip():
-            return Text(content)
-        return Markdown(content)
+        return _markdown(self._partial)
 
     def commit(self) -> bool:
         if not self.can_commit():
@@ -185,7 +209,7 @@ class MarkdownWriter:
         self._committed_text = self._buffer
         self._to_commit = ""
         self._partial = ""
-        return Markdown(uncommitted.rstrip())
+        return _markdown(uncommitted.rstrip())
 
     def has_content(self) -> bool:
         uncommitted = self._buffer[len(self._committed_text):]
@@ -212,20 +236,3 @@ class MarkdownWriter:
         while lines and not lines[-1].strip():
             lines.pop()
         return max(1, len(lines)) if lines else 0
-
-
-def _trim_partial_closing_fences(text: str) -> str:
-    """Strip incomplete closing fences to prevent code block flicker.
-
-    When streaming, a closing ``` may arrive before the next delta extends
-    past it, causing rich.Markdown to briefly close and reopen the block.
-    This detects an unclosed code block (odd ``` count) and strips the
-    trailing incomplete fence.
-    """
-    fence_count = text.count("```")
-    if fence_count % 2 == 0:
-        return text
-    last_fence = text.rfind("```")
-    if last_fence < 0:
-        return text
-    return text[:last_fence].rstrip()
