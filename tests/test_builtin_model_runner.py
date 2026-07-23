@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 from any_llm.constants import LLMProvider
+from any_llm.providers.anthropic.base import BaseAnthropicProvider
 from any_llm.providers.openai.base import BaseOpenAIProvider
 from any_llm.types.completion import ChatCompletionChunk
 
@@ -53,6 +54,23 @@ class _FakeStreamingOpenAIProvider(BaseOpenAIProvider):
         return stream()
 
 
+class _FakeStreamingAnthropicProvider(BaseAnthropicProvider):
+    def __init__(self) -> None:
+        self.completion_kwargs: dict[str, Any] | None = None
+
+    def _init_client(self, api_key: str | None = None, api_base: str | None = None, **kwargs: Any) -> None:
+        pass
+
+    async def acompletion(self, **kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:
+        self.completion_kwargs = kwargs
+
+        async def stream() -> AsyncIterator[ChatCompletionChunk]:
+            if False:
+                yield
+
+        return stream()
+
+
 class _FakeOpenAIModelRunner(ModelRunner):
     def __init__(self, settings: AgentSettings, llm: _FakeStreamingOpenAIProvider) -> None:
         super().__init__(settings)
@@ -60,6 +78,15 @@ class _FakeOpenAIModelRunner(ModelRunner):
 
     def iter_llm_clients(self, model: str) -> Iterator[tuple[ModelCandidate, _FakeStreamingOpenAIProvider]]:
         yield ModelCandidate(provider=LLMProvider.OPENAI, model_id=model, name=f"openai:{model}"), self._llm
+
+
+class _FakeAnthropicModelRunner(ModelRunner):
+    def __init__(self, settings: AgentSettings, llm: _FakeStreamingAnthropicProvider) -> None:
+        super().__init__(settings)
+        self._llm = llm
+
+    def iter_llm_clients(self, model: str) -> Iterator[tuple[ModelCandidate, _FakeStreamingAnthropicProvider]]:
+        yield ModelCandidate(provider=LLMProvider.ANTHROPIC, model_id=model, name=f"anthropic:{model}"), self._llm
 
 
 @pytest.mark.asyncio
@@ -93,3 +120,19 @@ async def test_streaming_openai_usage_is_requested_and_recorded_in_tape(tmp_path
         "prompt_tokens": 3,
         "total_tokens": 5,
     }
+
+
+@pytest.mark.asyncio
+async def test_anthropic_prompt_caching_is_requested() -> None:
+    llm = _FakeStreamingAnthropicProvider()
+    runner = _FakeAnthropicModelRunner(
+        AgentSettings.model_construct(model="anthropic:claude-test", max_tokens=100),
+        llm,
+    )
+
+    await runner.completion_response(model="claude-test", messages=[{"role": "user", "content": "hello"}], tools=[])
+
+    assert llm.completion_kwargs is not None
+    assert llm.completion_kwargs["stream"] is True
+    assert llm.completion_kwargs["cache_control"] == {"type": "ephemeral"}
+    assert "stream_options" not in llm.completion_kwargs

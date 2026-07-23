@@ -11,6 +11,7 @@ from typing import Any, Literal, cast
 
 from any_llm import AnyLLM
 from any_llm.constants import LLMProvider
+from any_llm.providers.anthropic.base import BaseAnthropicProvider
 from any_llm.providers.openai.base import BaseOpenAIProvider
 from any_llm.types.completion import (
     ChatCompletion,
@@ -46,17 +47,13 @@ TOOL_ARGUMENTS_ADAPTER = TypeAdapter(dict[str, Any])
 CompletionResult = ChatCompletion | ParsedChatCompletion[Any] | AsyncIterator[ChatCompletionChunk]
 
 
-def _stream_usage_options(llm: AnyLLM, *, stream: bool) -> dict[str, Any] | None:
-    """Make streaming completions report token usage.
-
-    OpenAI-style streaming responses omit the `usage` block unless the request
-    sets `stream_options.include_usage`; without it every streamed run records
-    zero tokens (and zero cost). Only OpenAI-compatible providers accept the
-    field, so gate on the provider base class — anthropic/gemini reject it.
-    """
-    if stream and isinstance(llm, BaseOpenAIProvider):
-        return {"include_usage": True}
-    return None
+def _extra_options(llm: AnyLLM, *, stream: bool) -> dict[str, Any]:
+    """Return provider-specific extra completion options."""
+    if isinstance(llm, BaseAnthropicProvider):
+        return {"cache_control": {"type": "ephemeral"}}
+    elif stream and isinstance(llm, BaseOpenAIProvider):
+        return {"stream_options": {"include_usage": True}}
+    return {}
 
 
 class ModelRunner:
@@ -101,7 +98,7 @@ class ModelRunner:
                     tools=tool_payloads,
                     max_tokens=max_tokens if max_tokens is not None else self.settings.max_tokens,
                     stream=streaming,
-                    stream_options=_stream_usage_options(llm, stream=streaming),
+                    **_extra_options(llm, stream=streaming),
                 )
             except Exception as exc:
                 if completion_error is None:
