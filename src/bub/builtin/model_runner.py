@@ -92,14 +92,16 @@ class ModelRunner:
         for index, (candidate, llm) in enumerate(clients):
             try:
                 streaming = llm.SUPPORTS_COMPLETION_STREAMING
-                return await llm.acompletion(
-                    model=candidate.model_id,
-                    messages=completion_messages,
-                    tools=tool_payloads,
-                    max_tokens=max_tokens if max_tokens is not None else self.settings.max_tokens,
-                    stream=streaming,
+                completion_kwargs = {
+                    **self.settings.completion_args,
                     **_extra_options(llm, stream=streaming),
-                )
+                    "model": candidate.model_id,
+                    "messages": completion_messages,
+                    "tools": tool_payloads,
+                    "max_tokens": max_tokens if max_tokens is not None else self.settings.max_tokens,
+                    "stream": streaming,
+                }
+                return cast("CompletionResult", await llm.acompletion(**completion_kwargs))
             except Exception as exc:
                 if completion_error is None:
                     completion_error = exc

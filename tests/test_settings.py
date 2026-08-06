@@ -38,6 +38,7 @@ def test_settings_no_keys_return_none() -> None:
     assert settings.api_key is None
     assert settings.api_base is None
     assert settings.client_args == {}
+    assert settings.completion_args == {}
 
 
 def test_settings_provider_names_are_lowercased() -> None:
@@ -74,6 +75,8 @@ client_args:
   extra_headers:
     HTTP-Referer: https://openclaw.ai
     X-Title: OpenClaw
+completion_args:
+  reasoning_effort: high
 """.strip(),
         )
 
@@ -87,6 +90,7 @@ client_args:
     assert settings.client_args == {
         "extra_headers": {"HTTP-Referer": "https://openclaw.ai", "X-Title": "OpenClaw"},
     }
+    assert settings.completion_args == {"reasoning_effort": "high"}
 
 
 def test_env_settings_override_yaml(load_config) -> None:
@@ -106,6 +110,7 @@ client_args:
             "BUB_MODEL": "anthropic:claude-3-7-sonnet",
             "BUB_API_KEY": "sk-env",
             "BUB_CLIENT_ARGS": '{"extra_headers":{"HTTP-Referer":"https://env.example","X-Title":"Env App"}}',
+            "BUB_COMPLETION_ARGS": '{"reasoning_effort":"medium"}',
             "BUB_MAX_STEPS": "12",
         },
         clear=True,
@@ -119,12 +124,14 @@ client_args:
     assert settings.client_args == {
         "extra_headers": {"HTTP-Referer": "https://env.example", "X-Title": "Env App"},
     }
+    assert settings.completion_args == {"reasoning_effort": "medium"}
 
 
 def test_settings_client_args_can_be_disabled() -> None:
-    settings = _settings_with_env({"BUB_CLIENT_ARGS": "null"})
+    settings = _settings_with_env({"BUB_CLIENT_ARGS": "null", "BUB_COMPLETION_ARGS": "null"})
 
     assert settings.client_args == {}
+    assert settings.completion_args == {}
 
 
 def test_load_settings_returns_defaults_without_loaded_config() -> None:

@@ -60,6 +60,7 @@ class AgentSettings(Settings):
     max_tokens: int = DEFAULT_MAX_TOKENS
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] = Field(default_factory=dict)
+    completion_args: dict[str, Any] = Field(default_factory=dict)
     verbose: int = Field(default=0, description="Verbosity level for logging. Higher means more verbose.", ge=0, le=2)
 
     @classmethod
@@ -79,9 +80,9 @@ class AgentSettings(Settings):
             file_secret_settings,
         )
 
-    @field_validator("client_args", mode="before")
+    @field_validator("client_args", "completion_args", mode="before")
     @classmethod
-    def default_client_args(cls, value: Any) -> Any:
+    def default_dict_args(cls, value: Any) -> Any:
         return {} if value is None else value
 
     def model_candidates(self, model: str) -> list[ModelCandidate]:

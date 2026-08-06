@@ -48,6 +48,7 @@ class AgentSettings(Settings):
     max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] = Field(default_factory=dict)
+    completion_args: dict[str, Any] = Field(default_factory=dict)
     verbose: int = Field(default=0, ge=0, le=2)
 ```
 
@@ -65,6 +66,7 @@ class AgentSettings(Settings):
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | 单次模型调用的最大 token 数。 |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | 单次调用的超时秒数。 |
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | 传递给底层模型 client 的额外 kwargs(JSON / dict)。 |
+| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | 传递给每次 completion 调用的额外 kwargs,例如 `{"reasoning_effort":"high"}`;Bub 管理的参数优先。 |
 | `BUB_VERBOSE` | `0` | `verbose` | 日志详细级别(`0`–`2`)。 |
 
 启动时 `ProviderSpecificEnvSource` 会扫描 `os.environ` 中匹配 `^BUB_(.+)_(API_KEY|API_BASE)$` 的变量,把捕获到的 provider 名称小写后作为 key 收集。

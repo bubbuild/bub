@@ -136,3 +136,36 @@ async def test_anthropic_prompt_caching_is_requested() -> None:
     assert llm.completion_kwargs["stream"] is True
     assert llm.completion_kwargs["cache_control"] == {"type": "ephemeral"}
     assert "stream_options" not in llm.completion_kwargs
+
+
+@pytest.mark.asyncio
+async def test_completion_args_are_forwarded_without_overriding_managed_args() -> None:
+    llm = _FakeStreamingOpenAIProvider()
+    runner = _FakeOpenAIModelRunner(
+        AgentSettings.model_construct(
+            model="openai:gpt-test",
+            max_tokens=100,
+            completion_args={
+                "reasoning_effort": "high",
+                "model": "ignored-model",
+                "max_tokens": 1,
+                "stream": False,
+                "stream_options": {"include_usage": False},
+            },
+        ),
+        llm,
+    )
+
+    await runner.completion_response(
+        model="gpt-test",
+        messages=[{"role": "user", "content": "hello"}],
+        tools=[],
+        max_tokens=42,
+    )
+
+    assert llm.completion_kwargs is not None
+    assert llm.completion_kwargs["reasoning_effort"] == "high"
+    assert llm.completion_kwargs["model"] == "gpt-test"
+    assert llm.completion_kwargs["max_tokens"] == 42
+    assert llm.completion_kwargs["stream"] is True
+    assert llm.completion_kwargs["stream_options"] == {"include_usage": True}

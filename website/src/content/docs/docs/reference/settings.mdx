@@ -48,6 +48,7 @@ class AgentSettings(Settings):
     max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] = Field(default_factory=dict)
+    completion_args: dict[str, Any] = Field(default_factory=dict)
     verbose: int = Field(default=0, ge=0, le=2)
 ```
 
@@ -65,6 +66,7 @@ Loaded under the YAML root section.
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Maximum tokens per model call. |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | Per-call timeout in seconds. |
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | Extra kwargs passed to the underlying model client (JSON / dict). |
+| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | Extra kwargs passed to each completion call, e.g. `{"reasoning_effort":"high"}`. Bub-managed arguments take precedence. |
 | `BUB_VERBOSE` | `0` | `verbose` | Logging verbosity level (`0`–`2`). |
 
 Provider-specific defaults are gathered at startup by scanning `os.environ` for `^BUB_(.+)_(API_KEY|API_BASE)$` and lowercasing the captured provider name.
