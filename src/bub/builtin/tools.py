@@ -4,11 +4,9 @@ import asyncio
 import json
 import uuid
 from collections.abc import Iterable
-from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from openai.types.chat import ChatCompletionToolParam
 from pydantic import BaseModel, Field
 
 from bub.builtin.shell_manager import shell_manager
@@ -72,11 +70,6 @@ def resolve_tool_names(names: Iterable[str] | None = None, *, exclude: Iterable[
     return resolved - excluded
 
 
-def model_tools(tools: Iterable[Tool]) -> list[Tool]:
-    """Convert runtime tool names into model-safe aliases."""
-    return [replace(tool_item, name=_to_model_name(tool_item.name)) for tool_item in tools]
-
-
 def _tool_signature(tool_item: Tool) -> str:
     properties = tool_item.parameters.get("properties", {})
     if not isinstance(properties, dict) or not properties:
@@ -90,30 +83,16 @@ def _tool_signature(tool_item: Tool) -> str:
 
 def render_tools_prompt(tools: Iterable[Tool]) -> str:
     """Render a human-readable description of tools for builtin agent prompts."""
-    if not tools:
+    agent_tools = [tool_item for tool_item in tools if tool_item.agent_use]
+    if not agent_tools:
         return ""
     lines = []
-    for tool_item in tools:
+    for tool_item in agent_tools:
         line = f"- {_tool_signature(tool_item)}"
         if tool_item.description:
             line += f": {tool_item.description}"
         lines.append(line)
     return f"<available_tools>\n{'\n'.join(lines)}\n</available_tools>"
-
-
-def completion_tools(tools: Iterable[Tool]) -> list[ChatCompletionToolParam]:
-    """Build any-llm completion tool payloads from Bub tools."""
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": tool_item.name,
-                "description": tool_item.description,
-                "parameters": tool_item.parameters,
-            },
-        }
-        for tool_item in tools
-    ]
 
 
 def _raise_for_failed_shell(returncode: int | None, output: str) -> None:
@@ -376,7 +355,7 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
     return output
 
 
-@tool(name="help")
+@tool(name="help", agent_use=False)
 def show_help() -> str:
     """Show a help message."""
     return (
@@ -399,7 +378,7 @@ def show_help() -> str:
     )
 
 
-@tool(name="quit", context=True)
+@tool(name="quit", context=True, agent_use=False)
 async def quit_tool(*, context: ToolContext) -> str:
     """Abort the tasks of the current session. DO NOT use it in a normal workflow."""
     agent = _get_agent(context)
@@ -409,7 +388,7 @@ async def quit_tool(*, context: ToolContext) -> str:
     return "Session tasks stopped."
 
 
-@tool(name="model", context=True)
+@tool(name="model", context=True, agent_use=False)
 async def set_model(model_id: str, *, context: ToolContext) -> str:
     """Switch the model for THIS session. Invoke as the `,model <model_id>` command.
 
@@ -423,6 +402,17 @@ async def set_model(model_id: str, *, context: ToolContext) -> str:
     # recovers the latest `model_switch` event next turn / after restart.
     await context.tape.append_event("model_switch", {"model": model_id})
     return f"Session model set to {model_id} (applies from the next turn)."
+
+
+@tool(name="reasoning_effort", context=True, agent_use=False)
+async def set_reasoning_effort(reasoning_effort: str, *, context: ToolContext) -> str:
+    """Set the reasoning effort for this session starting from the next turn."""
+    reasoning_effort = reasoning_effort.strip()
+    if not reasoning_effort:
+        raise ValueError("reasoning_effort must not be empty")
+    context.state["reasoning_effort"] = reasoning_effort
+    await context.tape.append_event("reasoning_effort_switch", {"reasoning_effort": reasoning_effort})
+    return f"Session reasoning effort set to {reasoning_effort} (applies from the next turn)."
 
 
 def _resolve_path(context: ToolContext, raw_path: str) -> Path:

@@ -254,7 +254,7 @@ class TestModelRunnerHookIntegration:
         from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
 
         class FakeRunner(ModelRunner):
-            async def completion_response(self, *, model, messages, tools, max_tokens=None):
+            async def completion_response(self, *, model, messages, tools, max_tokens=None, reasoning_effort=None):
                 captured.update(model=model, max_tokens=max_tokens)
 
                 async def chunks():

@@ -143,6 +143,19 @@ async def test_load_state_injects_model_recorded_on_session_tape(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+async def test_load_state_injects_reasoning_effort_recorded_on_session_tape(tmp_path: Path) -> None:
+    _, impl, agent = _build_impl(tmp_path)
+    session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
+    await session.append_event("reasoning_effort_switch", {"reasoning_effort": "high"})
+
+    message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
+
+    state = await impl.load_state(message=message, session_id="resolved-session")
+
+    assert state["reasoning_effort"] == "high"
+
+
+@pytest.mark.asyncio
 async def test_load_state_does_not_inject_model_for_unknown_session(tmp_path: Path) -> None:
     """A session with nothing recorded on its tape must not inherit any model (no leakage)."""
     _, impl, _ = _build_impl(tmp_path)

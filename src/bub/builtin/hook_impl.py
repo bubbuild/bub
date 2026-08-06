@@ -90,6 +90,16 @@ class BuiltinImpl:
                 return str(model) if model else None
         return None
 
+    async def _recover_session_reasoning_effort(self, session_id: str) -> str | None:
+        """Recover the latest per-session reasoning effort override."""
+        session = self._get_agent().tape.session_tape(session_id, self.framework.workspace)
+        entries = list(await session.store.fetch_all(session.query().kinds("event")))
+        for entry in reversed(entries):
+            if entry.kind == "event" and entry.payload.get("name") == "reasoning_effort_switch":
+                reasoning_effort = (entry.payload.get("data") or {}).get("reasoning_effort")
+                return str(reasoning_effort) if reasoning_effort else None
+        return None
+
     @staticmethod
     async def _discard_message(_: ChannelMessage) -> None:
         return
@@ -149,6 +159,8 @@ class BuiltinImpl:
         # fresh/unknown session never inherits another session's model.
         if model := await self._recover_session_model(session_id):
             state["model"] = model
+        if reasoning_effort := await self._recover_session_reasoning_effort(session_id):
+            state["reasoning_effort"] = reasoning_effort
         if model := field_of(message, "context", {}).get("model"):
             state["model"] = model
         if thread_id := field_of(message, "context", {}).get("thread_id"):
@@ -161,9 +173,8 @@ class BuiltinImpl:
         lifespan = field_of(message, "lifespan")
         if lifespan is not None:
             await lifespan.__aexit__(tp, value, traceback)
-        # The per-session model override is persisted on the session tape by the
-        # ``model`` tool itself (a ``model_switch`` event, merged back at end of
-        # turn), so nothing to write here — this hook only closes the lifespan.
+        # Per-session completion overrides are persisted by their tools as tape
+        # events, so nothing to write here — this hook only closes the lifespan.
 
     @hookimpl
     async def build_prompt(self, message: ChannelMessage, session_id: str, state: TurnState) -> str | list[dict]:

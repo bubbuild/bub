@@ -81,11 +81,15 @@ class ModelRunner:
         return AnyLLM.create(candidate.provider, **client_kwargs)
 
     async def completion_response(
-        self, *, model: str, messages: list[dict[str, Any]], tools: list[Tool], max_tokens: int | None = None
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[Tool],
+        max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
     ) -> CompletionResult:
-        from bub.builtin.tools import completion_tools
-
-        tool_payloads = completion_tools(tools) or None
+        tool_payloads = [tool.to_schema() for tool in tools] or None
         completion_messages: list[dict[str, Any] | ChatCompletionMessage] = list(messages)
         clients = list(self.iter_llm_clients(model))
         completion_error: Exception | None = None
@@ -101,6 +105,8 @@ class ModelRunner:
                     "max_tokens": max_tokens if max_tokens is not None else self.settings.max_tokens,
                     "stream": streaming,
                 }
+                if reasoning_effort is not None:
+                    completion_kwargs["reasoning_effort"] = reasoning_effort
                 return cast("CompletionResult", await llm.acompletion(**completion_kwargs))
             except Exception as exc:
                 if completion_error is None:
@@ -175,6 +181,7 @@ class ModelRunner:
                         messages=list(request.messages),
                         tools=tools,
                         max_tokens=request.max_tokens,
+                        reasoning_effort=tape.context.state.get("reasoning_effort"),
                     )
                     async for event in self._completion_events(completion, state, output):
                         yield event

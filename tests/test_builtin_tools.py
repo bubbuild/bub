@@ -14,13 +14,12 @@ from bub.builtin.tape import Tape
 from bub.builtin.tools import (
     bash,
     bash_output,
-    completion_tools,
     kill_bash,
-    model_tools,
     quit_tool,
     render_tools_prompt,
     resolve_tool_names,
     set_model,
+    set_reasoning_effort,
     tape_info,
 )
 from bub.errors import ErrorKind
@@ -58,47 +57,6 @@ async def test_tape_info_formats_token_cache_hit_rate(tmp_path) -> None:
     assert "last_token_cache_hit_rate: 37.50%" in result
 
 
-def test_completion_tools_builds_any_llm_payload() -> None:
-    parameters = {
-        "type": "object",
-        "properties": {"value": {"type": "string"}},
-        "required": ["value"],
-    }
-    sample_tool = Tool(
-        name="tests_sample_tool",
-        description="Sample tool",
-        parameters=parameters,
-        handler=lambda value: value,
-    )
-
-    assert completion_tools([sample_tool]) == [
-        {
-            "type": "function",
-            "function": {
-                "name": "tests_sample_tool",
-                "description": "Sample tool",
-                "parameters": parameters,
-            },
-        }
-    ]
-
-
-def test_model_tools_rewrites_dotted_names_without_mutating_original() -> None:
-    tool_name = "tests.rename_me"
-    REGISTRY.pop(tool_name, None)
-
-    @tool(name=tool_name, description="rename")
-    def rename_me(value: str) -> str:
-        return "ok"
-
-    rewritten = model_tools([rename_me])
-
-    assert [item.name for item in rewritten] == ["tests_rename_me"]
-    assert rewritten[0].parameters == rename_me.parameters
-    assert rename_me.name == tool_name
-    assert "additionalProperties" not in rename_me.parameters
-
-
 def test_render_tools_prompt_renders_available_tools_block() -> None:
     first_name = "tests.prompt_one"
     second_name = "tests.prompt_two"
@@ -133,6 +91,12 @@ def test_render_tools_prompt_includes_model_name_and_parameter_signature() -> No
 
 def test_render_tools_prompt_returns_empty_string_for_empty_input() -> None:
     assert render_tools_prompt([]) == ""
+
+
+def test_render_tools_prompt_excludes_tools_disabled_for_agent_use() -> None:
+    internal_tool = Tool(name="tests.internal", handler=lambda: None, agent_use=False)
+
+    assert render_tools_prompt([internal_tool]) == ""
 
 
 def test_resolve_tool_names_accepts_runtime_names_and_model_aliases() -> None:
@@ -210,6 +174,39 @@ async def test_set_model_overwrites_previous_model(tmp_path) -> None:
     await set_model.run(model_id="anthropic:claude-3", context=context)
 
     assert context.state["model"] == "anthropic:claude-3"
+
+
+def test_set_reasoning_effort_is_registered_for_internal_use() -> None:
+    assert REGISTRY["reasoning_effort"] is set_reasoning_effort
+    assert set_reasoning_effort.context is True
+    assert set_reasoning_effort.agent_use is False
+    assert set_reasoning_effort.parameters == {
+        "type": "object",
+        "properties": {"reasoning_effort": {"type": "string"}},
+        "required": ["reasoning_effort"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_set_reasoning_effort_writes_state_and_records_on_tape(tmp_path) -> None:
+    context = _tool_context(tmp_path)
+
+    result = await set_reasoning_effort.run(reasoning_effort=" high ", context=context)
+
+    assert context.state["reasoning_effort"] == "high"
+    assert result == "Session reasoning effort set to high (applies from the next turn)."
+    entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
+    switches = [
+        entry for entry in entries if entry.kind == "event" and entry.payload.get("name") == "reasoning_effort_switch"
+    ]
+    assert len(switches) == 1
+    assert switches[0].payload.get("data") == {"reasoning_effort": "high"}
+
+
+@pytest.mark.asyncio
+async def test_set_reasoning_effort_rejects_empty_value(tmp_path) -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        await set_reasoning_effort.run(reasoning_effort="  ", context=_tool_context(tmp_path))
 
 
 @pytest.mark.asyncio

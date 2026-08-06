@@ -362,6 +362,41 @@ async def test_agent_run_resolves_allowed_tool_aliases_and_limits_prompt() -> No
 
 
 @pytest.mark.asyncio
+async def test_agent_run_excludes_tools_disabled_for_agent_use() -> None:
+    visible_name = "tests.visible_agent_tool"
+    internal_name = "tests.internal_agent_tool"
+    REGISTRY.pop(visible_name, None)
+    REGISTRY.pop(internal_name, None)
+
+    @tool(name=visible_name, description="Visible tool")
+    def visible_agent_tool() -> str:
+        return "visible"
+
+    @tool(name=internal_name, description="Internal tool", agent_use=False)
+    def internal_agent_tool() -> str:
+        return "internal"
+
+    agent = _make_agent()
+    fork_capture = _ForkCapture()
+    agent.tape = _FakeTapeFactory(fork_capture)  # type: ignore[assignment]
+
+    result = await agent.run_stream(
+        session_id="user/s1",
+        prompt="hello",
+        state={"_runtime_workspace": "/tmp"},  # noqa: S108
+        allowed_tools=[visible_name, internal_name],
+    )
+    [event async for event in result]
+
+    completion_kwargs = _model_runner(agent).completion_kwargs
+    assert completion_kwargs is not None
+    assert [tool.name for tool in completion_kwargs["tools"]] == ["tests_visible_agent_tool"]
+    system_prompt = completion_kwargs["messages"][0]["content"]
+    assert "tests_visible_agent_tool" in system_prompt
+    assert "tests_internal_agent_tool" not in system_prompt
+
+
+@pytest.mark.asyncio
 async def test_agent_run_rejects_unknown_allowed_tools() -> None:
     agent = _make_agent()
     fork_capture = _ForkCapture()

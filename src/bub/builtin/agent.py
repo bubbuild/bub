@@ -32,6 +32,7 @@ from bub.tools import (
     REGISTRY,
     Tool,
     ToolContext,
+    model_tools,
 )
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
@@ -352,8 +353,6 @@ class Agent:
         allowed_skills: set[str] | None,
         tools: list[Tool],
     ) -> AsyncStreamEvents:
-        from bub.builtin.tools import model_tools
-
         system_prompt = self._system_prompt(
             prompt_text, state=tape.context.state, allowed_skills=allowed_skills, tools=tools
         )

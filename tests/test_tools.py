@@ -6,11 +6,59 @@ import pytest
 from loguru import logger
 from pydantic import BaseModel
 
-from bub.tools import REGISTRY, tool, tool_call_reporter
+from bub.tools import REGISTRY, Tool, model_tools, tool, tool_call_reporter
 
 
 class EchoInput(BaseModel):
     value: str
+
+
+def test_tool_builds_completion_payload() -> None:
+    parameters = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    sample_tool = Tool(
+        name="tests_sample_tool",
+        description="Sample tool",
+        parameters=parameters,
+        handler=lambda value: value,
+    )
+
+    assert sample_tool.to_schema() == {
+        "type": "function",
+        "function": {
+            "name": "tests_sample_tool",
+            "description": "Sample tool",
+            "parameters": parameters,
+        },
+    }
+
+
+def test_model_tools_rewrites_dotted_names_without_mutating_original() -> None:
+    tool_name = "tests.rename_me"
+    REGISTRY.pop(tool_name, None)
+
+    @tool(name=tool_name, description="rename")
+    def rename_me(value: str) -> str:
+        return "ok"
+
+    rewritten = model_tools([rename_me])
+
+    assert [item.name for item in rewritten] == ["tests_rename_me"]
+    assert rewritten[0].parameters == rename_me.parameters
+    assert rename_me.name == tool_name
+    assert "additionalProperties" not in rename_me.parameters
+
+
+def test_model_tools_excludes_tools_disabled_for_agent_use() -> None:
+    visible_tool = Tool(name="tests.visible", handler=lambda: None)
+    internal_tool = Tool(name="tests.internal", handler=lambda: None, agent_use=False)
+
+    rewritten = model_tools([visible_tool, internal_tool])
+
+    assert [item.name for item in rewritten] == ["tests_visible"]
 
 
 @pytest.mark.asyncio
@@ -24,8 +72,23 @@ async def test_tool_decorator_registers_tool_and_preserves_metadata() -> None:
 
     assert sync_tool.name == tool_name
     assert sync_tool.description == "Sync test tool"
+    assert sync_tool.agent_use is True
     assert REGISTRY[tool_name] is sync_tool
     assert await sync_tool.run(value="hello") == "HELLO"
+
+
+@pytest.mark.asyncio
+async def test_tool_decorator_can_disable_agent_use_without_disabling_direct_calls() -> None:
+    tool_name = "tests.internal_tool"
+    REGISTRY.pop(tool_name, None)
+
+    @tool(name=tool_name, agent_use=False)
+    def internal_tool(value: str) -> str:
+        return value.upper()
+
+    assert internal_tool.agent_use is False
+    assert REGISTRY[tool_name] is internal_tool
+    assert await internal_tool.run("hello") == "HELLO"
 
 
 @pytest.mark.asyncio

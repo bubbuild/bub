@@ -139,6 +139,32 @@ async def test_anthropic_prompt_caching_is_requested() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_applies_reasoning_effort_from_tape_state(tmp_path: Path) -> None:
+    tape = Tape(
+        tmp_path,
+        AsyncTapeStoreAdapter(InMemoryTapeStore()),
+        TapeContext(state={"reasoning_effort": "high"}),
+    ).scoped("test-tape")
+    llm = _FakeStreamingOpenAIProvider()
+    runner = _FakeOpenAIModelRunner(
+        AgentSettings.model_construct(
+            model="openai:gpt-test",
+            max_tokens=100,
+            model_timeout_seconds=None,
+            completion_args={"reasoning_effort": "low"},
+        ),
+        llm,
+    )
+
+    await tape.ensure_bootstrap_anchor()
+    events = runner.run(tape=tape, model="gpt-test", tools=[], system_prompt=None, prompt="hello")
+    [event async for event in events]
+
+    assert llm.completion_kwargs is not None
+    assert llm.completion_kwargs["reasoning_effort"] == "high"
+
+
+@pytest.mark.asyncio
 async def test_completion_args_are_forwarded_without_overriding_managed_args() -> None:
     llm = _FakeStreamingOpenAIProvider()
     runner = _FakeOpenAIModelRunner(

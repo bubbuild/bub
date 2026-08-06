@@ -6,7 +6,7 @@ import contextvars
 import inspect
 import json
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Protocol, overload
 
@@ -94,9 +94,21 @@ class Tool:
     description: str = ""
     parameters: dict[str, Any] = field(default_factory=dict)
     context: bool = False
+    agent_use: bool = True
 
     def run(self, *args: Any, **kwargs: Any) -> Any:
         return self.handler(*args, **kwargs)
+
+    def to_schema(self) -> dict[str, Any]:
+        """Build an any-llm completion tool payload."""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
 
     @classmethod
     def from_callable(
@@ -106,6 +118,7 @@ class Tool:
         name: str | None = None,
         description: str | None = None,
         context: bool = False,
+        agent_use: bool = True,
     ) -> Tool:
         signature = inspect.signature(func)
         if context and "context" not in signature.parameters:
@@ -129,7 +142,13 @@ class Tool:
             parameters=parameters,
             handler=validated,
             context=context,
+            agent_use=agent_use,
         )
+
+
+def model_tools(tools: Iterable[Tool]) -> list[Tool]:
+    """Convert agent-enabled runtime tools into model-safe aliases."""
+    return [replace(tool_item, name=tool_item.name.replace(".", "_")) for tool_item in tools if tool_item.agent_use]
 
 
 @dataclass(frozen=True)
@@ -405,6 +424,7 @@ def tool(
     model: type[BaseModel] | None = ...,
     description: str | None = ...,
     context: bool = ...,
+    agent_use: bool = ...,
 ) -> Tool: ...
 
 
@@ -416,6 +436,7 @@ def tool(
     model: type[BaseModel] | None = ...,
     description: str | None = ...,
     context: bool = ...,
+    agent_use: bool = ...,
 ) -> Callable[[Callable], Tool]: ...
 
 
@@ -426,6 +447,7 @@ def tool(
     model: type[BaseModel] | None = None,
     description: str | None = None,
     context: bool = False,
+    agent_use: bool = True,
 ) -> Tool | Callable[[Callable], Tool]:
     """Decorator to convert a function into a Tool instance."""
 
@@ -447,9 +469,16 @@ def tool(
                 parameters=model.model_json_schema(),
                 handler=handler,
                 context=context,
+                agent_use=agent_use,
             )
         else:
-            result = Tool.from_callable(func, name=name, description=description, context=context)
+            result = Tool.from_callable(
+                func,
+                name=name,
+                description=description,
+                context=context,
+                agent_use=agent_use,
+            )
         tool_instance = _add_logging(result)
         REGISTRY[tool_instance.name] = tool_instance
         return tool_instance
