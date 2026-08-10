@@ -419,3 +419,33 @@ def test_provide_tape_store_uses_bub_home_directory(tmp_path: Path, monkeypatch:
 
     assert isinstance(store, FileTapeStore)
     assert store._directory == tmp_path / "tapes"
+
+
+def test_before_tool_call_ignores_known_tool(tmp_path: Path) -> None:
+    _, impl, _ = _build_impl(tmp_path)
+    import asyncio
+
+    from bub.hooks.interception import ToolCall
+
+    async def _do():
+        return await impl.before_tool_call(ToolCall(run_id="r", tool="bash", arguments={}), state={})
+
+    decision = asyncio.run(_do())
+    assert decision is None
+
+
+def test_before_tool_call_recovers_unknown_tool_with_available_list(tmp_path: Path) -> None:
+    _, impl, _ = _build_impl(tmp_path)
+    import asyncio
+
+    from bub.hooks.interception import ToolCall
+
+    async def _do():
+        return await impl.before_tool_call(ToolCall(run_id="r", tool="tepadr", arguments={}), state={})
+
+    decision = asyncio.run(_do())
+    assert decision is not None
+    assert decision.action == "replace"
+    assert "tepadr" in decision.result
+    assert "does not exist" in decision.result
+    assert "available tools" in decision.result or "<available_tools>" in decision.result

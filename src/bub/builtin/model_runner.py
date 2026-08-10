@@ -461,10 +461,17 @@ def tool_invocation_from_native(
     tool_call: ChatCompletionMessageToolCall,
     tool_map: dict[str, Tool],
 ) -> tuple[Tool, dict[str, Any]]:
+    """Resolve a model tool call to (runtime tool, arguments).
+
+    An unknown tool name is not treated as a fatal error: it is surfaced as a
+    placeholder ``Tool`` so the invocation flows through ``ToolExecutor`` and
+    builtin hooks (e.g. ``before_tool_call``) can recover it into a guidance
+    ``tool_result`` instead of interrupting the turn.
+    """
     tool_name, arguments = parse_native_function_call(tool_call)
     tool_obj = tool_map.get(tool_name)
     if tool_obj is None:
-        raise BubError(ErrorKind.TOOL, f"Unknown tool name: {tool_name}.")
+        return Tool(name=tool_name, handler=lambda **_: ""), arguments
     return tool_obj, arguments
 
 

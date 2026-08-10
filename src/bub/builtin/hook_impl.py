@@ -18,6 +18,7 @@ from bub.channels.message import ChannelMessage, MediaItem
 from bub.envelope import Envelope, content_of, field_of
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
+from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
 from bub.model_selection import ModelChoice, ModelOptions
 from bub.streaming import AsyncStreamEvents
 from bub.tape import TapeContext, TapeStore
@@ -378,3 +379,42 @@ class BuiltinImpl:
         if channel_router is None:
             return None
         return await channel_router.admit_channel_message(session_id=session_id, message=message, turn=turn)
+
+    @hookimpl
+    async def before_tool_call(
+        self,
+        call: ToolCall,
+        state: TurnState,
+    ) -> ToolCallDecision | None:
+        """Recover hallucinated/unknown tool names without interrupting the turn.
+
+        When the model invokes a tool that is not part of the registered agent
+        tool set, replace the invocation with a guidance ``tool_result`` that
+        lists the available model-facing tools, so the model can re-issue with a
+        real tool on the next model step (via the inline list or its own
+        ``skill``/tools inspection). ``replace`` fires ``after_tool_call`` with the
+        guidance result for observability.
+        """
+        from bub.builtin.tools import REGISTRY, render_tools_prompt
+
+        runtime_names = set(REGISTRY)
+        if call.tool in runtime_names:
+            return None
+        available = render_tools_prompt(REGISTRY.values()) or "<no tools available>"
+        guidance = (
+            f"Tool '{call.tool}' does not exist. "
+            f"Use one of the available tools below (or invoke the `skill` tool to "
+            f"inspect available skills) instead:\n{available}"
+        )
+        return ToolCallDecision.replace(guidance)
+
+    @hookimpl
+    async def after_tool_call(
+        self,
+        call: ToolCall,
+        result: ToolCallResult,
+        state: TurnState,
+    ) -> None:
+        """Observe unknown-tool recovery events for diagnostics."""
+        if result.error is not None and getattr(result.error, "kind", None) is not None:
+            logger.debug("tool.call.error name={} error={}", call.tool, result.error)
