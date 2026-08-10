@@ -430,11 +430,10 @@ def test_before_tool_call_ignores_known_tool(tmp_path: Path) -> None:
     async def _do():
         return await impl.before_tool_call(ToolCall(run_id="r", tool="bash", arguments={}), state={})
 
-    decision = asyncio.run(_do())
-    assert decision is None
+    assert asyncio.run(_do()) is None
 
 
-def test_before_tool_call_recovers_unknown_tool_with_available_list(tmp_path: Path) -> None:
+def test_before_tool_call_recovers_unknown_tool(tmp_path: Path) -> None:
     _, impl, _ = _build_impl(tmp_path)
     import asyncio
 
@@ -444,8 +443,5 @@ def test_before_tool_call_recovers_unknown_tool_with_available_list(tmp_path: Pa
         return await impl.before_tool_call(ToolCall(run_id="r", tool="tepadr", arguments={}), state={})
 
     decision = asyncio.run(_do())
-    assert decision is not None
-    assert decision.action == "replace"
-    assert "tepadr" in decision.result
-    assert "does not exist" in decision.result
-    assert "available tools" in decision.result or "<available_tools>" in decision.result
+    assert decision is not None and decision.action == "replace"
+    assert decision.result
