@@ -466,12 +466,18 @@ def tool_invocation_from_native(
     An unknown tool name is not treated as a fatal error: it is surfaced as a
     placeholder ``Tool`` so the invocation flows through ``ToolExecutor`` and
     builtin hooks (e.g. ``before_tool_call``) can recover it into a guidance
-    ``tool_result`` instead of interrupting the turn.
+    ``tool_result`` instead of interrupting the turn. If no hook replaces the
+    call, the placeholder raises a clear tool error rather than succeeding with
+    an empty result.
     """
     tool_name, arguments = parse_native_function_call(tool_call)
     tool_obj = tool_map.get(tool_name)
     if tool_obj is None:
-        return Tool(name=tool_name, handler=lambda **_: ""), arguments
+
+        def raise_unknown_tool(**_: Any) -> None:
+            raise BubError(ErrorKind.TOOL, f"Unknown tool name: {tool_name}.")
+
+        return Tool(name=tool_name, handler=raise_unknown_tool), arguments
     return tool_obj, arguments
 
 

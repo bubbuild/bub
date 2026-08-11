@@ -1,5 +1,6 @@
 import sys
 from datetime import datetime
+from difflib import get_close_matches
 from pathlib import Path
 from typing import cast
 
@@ -18,7 +19,7 @@ from bub.channels.message import ChannelMessage, MediaItem
 from bub.envelope import Envelope, content_of, field_of
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
-from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
+from bub.hooks.interception import ToolCall, ToolCallDecision
 from bub.model_selection import ModelChoice, ModelOptions
 from bub.streaming import AsyncStreamEvents
 from bub.tape import TapeContext, TapeStore
@@ -388,33 +389,22 @@ class BuiltinImpl:
     ) -> ToolCallDecision | None:
         """Recover hallucinated/unknown tool names without interrupting the turn.
 
-        When the model invokes a tool that is not part of the registered agent
-        tool set, replace the invocation with a guidance ``tool_result`` that
-        lists the available model-facing tools, so the model can re-issue with a
-        real tool on the next model step (via the inline list or its own
-        ``skill``/tools inspection). ``replace`` fires ``after_tool_call`` with the
-        guidance result for observability.
+        When the model invokes a tool outside the current model-facing tool set,
+        replace it with a guidance ``tool_result`` so the model can re-issue a
+        valid call on the next step.
         """
-        from bub.builtin.tools import REGISTRY, render_tools_prompt
+        from bub.tools import REGISTRY, model_tools
 
-        runtime_names = set(REGISTRY)
-        if call.tool in runtime_names:
+        available_tools = tuple(tool_item.name for tool_item in model_tools(REGISTRY.values()))
+        if call.tool in available_tools:
             return None
-        available = render_tools_prompt(REGISTRY.values()) or "<no tools available>"
-        guidance = (
-            f"Tool '{call.tool}' does not exist. "
-            f"Use one of the available tools below (or invoke the `skill` tool to "
-            f"inspect available skills) instead:\n{available}"
-        )
-        return ToolCallDecision.replace(guidance)
 
-    @hookimpl
-    async def after_tool_call(
-        self,
-        call: ToolCall,
-        result: ToolCallResult,
-        state: TurnState,
-    ) -> None:
-        """Observe unknown-tool recovery events for diagnostics."""
-        if result.error is not None and getattr(result.error, "kind", None) is not None:
-            logger.debug("tool.call.error name={} error={}", call.tool, result.error)
+        matches = get_close_matches(call.tool, available_tools, n=3, cutoff=0.6)
+        if matches:
+            suggestions = "\n".join(f"- {name}" for name in matches)
+            guidance = f"Tool `{call.tool}` does not exist. Did you mean one of the following?\n{suggestions}"
+        elif "skill" in available_tools:
+            guidance = f"Tool `{call.tool}` does not exist. Invoke the `skill` tool to list available skills."
+        else:
+            guidance = f"Tool `{call.tool}` does not exist. No similar tool is available."
+        return ToolCallDecision.replace(guidance)

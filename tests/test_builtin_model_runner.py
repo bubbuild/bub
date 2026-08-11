@@ -8,12 +8,28 @@ import pytest
 from any_llm.constants import LLMProvider
 from any_llm.providers.anthropic.base import BaseAnthropicProvider
 from any_llm.providers.openai.base import BaseOpenAIProvider
-from any_llm.types.completion import ChatCompletionChunk
+from any_llm.types.completion import ChatCompletionChunk, ChatCompletionMessageFunctionToolCall, Function
 
-from bub.builtin.model_runner import ModelRunner
+from bub.builtin.model_runner import ModelRunner, tool_invocation_from_native
 from bub.builtin.settings import AgentSettings, ModelCandidate
 from bub.builtin.tape import Tape
 from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
+from bub.tools import ToolExecutor
+
+
+@pytest.mark.asyncio
+async def test_unknown_tool_placeholder_surfaces_error_without_hooks() -> None:
+    tool_call = ChatCompletionMessageFunctionToolCall(
+        id="call-1",
+        type="function",
+        function=Function(name="missing_tool", arguments="{}"),
+    )
+    invocation = tool_invocation_from_native(tool_call, {})
+
+    execution = await ToolExecutor().execute_async([invocation])
+
+    assert execution.error is not None
+    assert "missing_tool" in execution.error.message
 
 
 class _FakeStreamingOpenAIProvider(BaseOpenAIProvider):

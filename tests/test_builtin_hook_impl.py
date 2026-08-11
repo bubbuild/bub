@@ -433,6 +433,18 @@ def test_before_tool_call_ignores_known_tool(tmp_path: Path) -> None:
     assert asyncio.run(_do()) is None
 
 
+def test_before_tool_call_ignores_known_model_alias(tmp_path: Path) -> None:
+    _, impl, _ = _build_impl(tmp_path)
+    import asyncio
+
+    from bub.hooks.interception import ToolCall
+
+    async def _do():
+        return await impl.before_tool_call(ToolCall(run_id="r", tool="bash_output", arguments={}), state={})
+
+    assert asyncio.run(_do()) is None
+
+
 def test_before_tool_call_recovers_unknown_tool(tmp_path: Path) -> None:
     _, impl, _ = _build_impl(tmp_path)
     import asyncio
@@ -444,4 +456,20 @@ def test_before_tool_call_recovers_unknown_tool(tmp_path: Path) -> None:
 
     decision = asyncio.run(_do())
     assert decision is not None and decision.action == "replace"
-    assert decision.result
+    assert "tepadr" in decision.result
+    assert "skill" in decision.result
+
+
+def test_before_tool_call_suggests_close_model_tool_name(tmp_path: Path) -> None:
+    _, impl, _ = _build_impl(tmp_path)
+    import asyncio
+
+    from bub.hooks.interception import ToolCall
+
+    async def _do():
+        return await impl.before_tool_call(ToolCall(run_id="r", tool="fs_reed", arguments={}), state={})
+
+    decision = asyncio.run(_do())
+    assert decision is not None
+    assert "fs_reed" in decision.result
+    assert "fs_read" in decision.result
