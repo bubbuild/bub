@@ -117,7 +117,7 @@ Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-sk
 | `BUB_API_BASE`              | —                            | Custom provider endpoint                             |
 | `BUB_CLIENT_ARGS`           | —                            | JSON object forwarded to the underlying model client |
 | `BUB_COMPLETION_ARGS`       | —                            | JSON object forwarded to each completion call         |
-| `BUB_MAX_STEPS`             | `50`                         | Max tool-use loop iterations                         |
+| `BUB_MAX_STEPS`             | unlimited                    | Tool-use loop limit; must be a positive integer      |
 | `BUB_MAX_TOKENS`            | `16384`                      | Max tokens per model call                            |
 | `BUB_MODEL_TIMEOUT_SECONDS` | —                            | Model call timeout (seconds)                         |
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import pathlib
 import re
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -56,7 +57,7 @@ class AgentSettings(Settings):
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None
-    max_steps: int = 50
+    max_steps: int = Field(default=sys.maxsize, gt=0)
     max_tokens: int = DEFAULT_MAX_TOKENS
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] = Field(default_factory=dict)

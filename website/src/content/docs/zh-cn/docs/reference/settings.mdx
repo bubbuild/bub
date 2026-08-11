@@ -44,7 +44,7 @@ class AgentSettings(Settings):
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None
-    max_steps: int = 50
+    max_steps: int = Field(default=sys.maxsize, gt=0)
     max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] = Field(default_factory=dict)
@@ -62,7 +62,7 @@ class AgentSettings(Settings):
 | `BUB_API_BASE` | unset | `api_base` | 默认 API base URL,或按 provider 索引的映射。 |
 | `BUB_<PROVIDER>_API_KEY` | unset | — | 按 provider 划分的 API key,例如 `BUB_OPENAI_API_KEY`。 |
 | `BUB_<PROVIDER>_API_BASE` | unset | — | 按 provider 划分的 API base URL,例如 `BUB_OPENROUTER_API_BASE`。 |
-| `BUB_MAX_STEPS` | `50` | `max_steps` | 单次 turn 内 agent 循环的最大步数。 |
+| `BUB_MAX_STEPS` | 不限制 | `max_steps` | 单次 turn 内 agent 循环的最大步数；配置时必须为正整数。 |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | 单次模型调用的最大 token 数。 |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | 单次调用的超时秒数。 |
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | 传递给底层模型 client 的额外 kwargs(JSON / dict)。 |

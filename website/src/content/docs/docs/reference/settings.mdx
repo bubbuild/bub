@@ -44,7 +44,7 @@ class AgentSettings(Settings):
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None
-    max_steps: int = 50
+    max_steps: int = Field(default=sys.maxsize, gt=0)
     max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] = Field(default_factory=dict)
@@ -62,7 +62,7 @@ Loaded under the YAML root section.
 | `BUB_API_BASE` | unset | `api_base` | Default API base URL or per-provider mapping. |
 | `BUB_<PROVIDER>_API_KEY` | unset | — | Provider-scoped API key, e.g. `BUB_OPENAI_API_KEY`. |
 | `BUB_<PROVIDER>_API_BASE` | unset | — | Provider-scoped API base URL, e.g. `BUB_OPENROUTER_API_BASE`. |
-| `BUB_MAX_STEPS` | `50` | `max_steps` | Maximum agent loop iterations per turn. |
+| `BUB_MAX_STEPS` | unlimited | `max_steps` | Maximum agent loop iterations per turn. Must be a positive integer when set. |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Maximum tokens per model call. |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | Per-call timeout in seconds. |
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | Extra kwargs passed to the underlying model client (JSON / dict). |
