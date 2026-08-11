@@ -178,7 +178,7 @@ class ModelRunner:
                 async with asyncio.timeout(self.settings.model_timeout_seconds):
                     completion = await self.completion_response(
                         model=request.model,
-                        messages=list(request.messages),
+                        messages=self._clamp_oversized_messages(list(request.messages)),
                         tools=tools,
                         max_tokens=request.max_tokens,
                         reasoning_effort=tape.context.state.get("reasoning_effort"),
@@ -240,6 +240,51 @@ class ModelRunner:
     @staticmethod
     def generate_run_id() -> str:
         return f"run-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}"
+
+    def _clamp_oversized_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Clamp tool messages so the serialized request body stays under a hard cap.
+
+        This is the last-resort fuse against provider/reverse-proxy ``413``: it
+        shrinks the largest oversized ``role: tool`` messages with a head+tail
+        clamp and an explicit marker, so even a plugin that bypasses spilling
+        can never send an unbounded request body.
+        """
+        cap = self.settings.max_request_bytes
+        if cap <= 0 or not messages:
+            return messages
+
+        import json as _json
+
+        def size() -> int:
+            try:
+                return len(_json.dumps(messages, ensure_ascii=False, default=str))
+            except TypeError:
+                return sum(len(str(m.get("content", ""))) for m in messages if isinstance(m, dict))
+
+        if size() <= cap:
+            return messages
+
+        def clamp_tool_messages(messages: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
+            """Head+tail clamp every oversized tool message to ``budget`` chars."""
+            result: list[dict[str, Any]] = []
+            for message in messages:
+                content = message.get("content")
+                if isinstance(content, str) and message.get("role") == "tool" and len(content) > budget:
+                    head = content[: budget // 2]
+                    tail = content[-(budget - budget // 2) :]
+                    message = dict(message)
+                    message["content"] = (
+                        f"{head}\n\n[clamped: {len(content) - budget:,} chars removed to keep the request body bounded]\n\n{tail}"
+                    )
+                result.append(message)
+            return result
+
+        clamped = clamp_tool_messages(messages, budget=2000)
+        if size() <= cap:
+            return clamped
+
+        # Still over: shrink every tool message to a per-message budget within the cap.
+        return clamp_tool_messages(clamped, budget=cap // max(1, len(clamped)))
 
     async def _fire_after_llm_call(
         self,

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Protocol, overload
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
+from bub.builtin.spill import maybe_spill
 from bub.builtin.tape import Tape
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import ToolCall, ToolCallResult
@@ -256,6 +257,13 @@ class ToolExecutor:
             raise
         else:
             await self._fire_after_tool_call(call, hook_state, started, result=result)
+            if context is not None and isinstance(result, str):
+                result = await maybe_spill(
+                    tool=call.tool,
+                    run_id=context.run_id,
+                    result=result,
+                    store=context.state.get("_runtime_spill_store"),
+                )
             return result
 
     async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:

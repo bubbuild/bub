@@ -59,6 +59,14 @@ class AgentSettings(Settings):
     max_steps: int = 50
     max_tokens: int = DEFAULT_MAX_TOKENS
     model_timeout_seconds: int | None = None
+    tool_spill_threshold: int = Field(
+        4096,
+        description="Estimated tokens (4 chars each) above which a tool result is spilled to the spill tape. 0 disables spilling.",
+    )
+    max_request_bytes: int = Field(
+        262_144,
+        description="Hard cap on the serialized model request body in bytes; oversized tool messages are clamped before sending. 0 disables.",
+    )
     client_args: dict[str, Any] = Field(default_factory=dict)
     completion_args: dict[str, Any] = Field(default_factory=dict)
     verbose: int = Field(default=0, description="Verbosity level for logging. Higher means more verbose.", ge=0, le=2)

@@ -102,6 +102,11 @@ class Agent:
         tape = self.tape.session_tape(
             session_id, workspace_from_state(state), context=replace(self.tape.context, state=state)
         )
+        tape_store = self.framework.get_tape_store()
+        if tape_store is not None:
+            if not is_async_tape_store(tape_store):
+                tape_store = AsyncTapeStoreAdapter(tape_store)
+            state.setdefault("_runtime_spill_store", tape_store)
         merge_back = not session_id.startswith("temp/")
         stack = AsyncExitStack()
         # The fork_tape context manager must not be exited until the last chunk of the stream is consumed.
