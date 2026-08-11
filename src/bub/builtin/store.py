@@ -82,10 +82,7 @@ class ForkTapeStore:
 
     async def append(self, tape: str, entry: TapeEntry) -> None:
         self._redact_payload(entry.payload)
-        if tape == self._tape:
-            self._store.append(tape, entry)
-            return
-        await self._parent.append(tape, entry)
+        self._store.append(tape, entry)
 
     async def merge_back(self) -> None:
         if self._tape_was_reset:

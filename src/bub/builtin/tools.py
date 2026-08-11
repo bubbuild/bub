@@ -10,11 +10,6 @@ from typing import TYPE_CHECKING, cast
 from pydantic import BaseModel, Field
 
 from bub.builtin.shell_manager import shell_manager
-from bub.builtin.spill import (
-    MAX_READ_LINES,
-    read_slice,
-    read_spilled,
-)
 from bub.skills import discover_skills
 from bub.tools import REGISTRY, Tool, ToolContext, tool
 
@@ -198,44 +193,6 @@ async def kill_bash(shell_id: str) -> str:
     else:
         await shell_manager.wait_closed(shell_id)
     return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {shell.returncode}"
-
-
-@tool(context=True, name="read_tool_result")
-async def read_tool_result(
-    handle: str,
-    offset: int = 0,
-    limit: int = 200,
-    from_end: bool = False,
-    pattern: str | None = None,
-    *,
-    context: ToolContext,
-) -> str:
-    """Read a bounded slice of a spilled tool result.
-
-    Args:
-        handle: The handle from a `[tool output spilled ...]` ref.
-        offset: Number of lines to skip from the start (or end when `from_end`). Must be >= 0.
-        limit: Maximum number of lines to return (>= 1; clamped to a built-in cap).
-        from_end: Count `offset`/`limit` from the end of the result.
-        pattern: Optional literal substring; only lines containing it are returned.
-    """
-    if offset < 0:
-        return "`offset` must be >= 0."
-    if limit < 1:
-        return "`limit` must be >= 1."
-    limit = min(limit, MAX_READ_LINES)
-
-    store = context.state.get("_runtime_spill_store")
-    if store is None:
-        return "spill store unavailable in this context."
-    output = await read_spilled(store=store, handle=handle)
-    if output is None:
-        return (
-            f"[No stored tool result for handle {handle!r}. Use the exact handle from a "
-            '"[tool output spilled ...]" marker; if the result is no longer available, '
-            "re-run the original tool.]"
-        )
-    return read_slice(output, offset=offset, limit=limit, from_end=from_end, pattern=pattern)
 
 
 @tool(context=True, name="fs.read")
