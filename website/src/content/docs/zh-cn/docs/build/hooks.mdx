@@ -135,6 +135,27 @@ def provide_tape_store():
 
 完整插件位于 [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite)。需要清理的库可改为返回生成器 —— Bub 会以上下文管理器对待它。
 
+### 挂载 tape sidecar
+
+当插件需要一个与 session tape 共享生命周期的 sibling tape 时，使用 `provide_tape_sidecars`。sidecar 只声明稳定的 `name`；配置与数据格式由插件自己管理。
+
+```python
+from bub import hookimpl
+
+
+class ArtifactSidecar:
+    name = "artifacts"
+
+
+@hookimpl
+def provide_tape_sidecars():
+    return [ArtifactSidecar()]
+```
+
+对名为 `session` 的 tape，这会在 active `TapeStore` 中挂载 `session__artifacts`。工具代码可通过 `context.tape.get_sidecar("artifacts")` 取得 provider，并用 `context.tape.sidecar_tape_name("artifacts")` 得到物理名称。主 tape 负责所有已挂载 sidecar 的 fork、merge、archive 和 reset。同名 provider 遵循普通 hook 优先级：最先出现的实现生效。
+
+builtin `SpillStore` 是第一个 sidecar 实现。它的 `SpillSettings` 使用 `spill:` 配置 section 和 `BUB_SPILL_*` 环境变量，与 `AgentSettings` 相互独立。
+
 ## 6. 新增通道
 
 **通道**是一个收发端 —— CLI、Telegram、微信、定时触发器。`provide_channels` 让插件贡献一个或多个 `Channel` 子类。

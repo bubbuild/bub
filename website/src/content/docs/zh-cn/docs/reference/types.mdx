@@ -91,9 +91,10 @@ from bub.hooks.interception import (
     ToolCallResult,
 )
 from bub.hooks.runtime import HookRuntime
+from bub.sidecars import TapeSidecar, sidecar_tape_name
 ```
 
-插件作者通常只需要 `hookimpl` 与对应 hook 使用的 payload 类型。分发和故障隔离语义见 [Hook 参考](/zh-cn/docs/reference/hooks/)。
+插件作者通常只需要 `hookimpl` 与对应 hook 使用的 payload 类型。`TapeSidecar` 是 `provide_tape_sidecars` 返回的最小具名契约；`sidecar_tape_name` 用于解析 sibling tape 名称。分发和故障隔离语义见 [Hook 参考](/zh-cn/docs/reference/hooks/)。
 
 ## Channel 契约
 

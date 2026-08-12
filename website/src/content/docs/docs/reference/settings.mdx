@@ -47,7 +47,6 @@ class AgentSettings(Settings):
     max_steps: int = Field(default=sys.maxsize, gt=0)
     max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
     model_timeout_seconds: int | None = None
-    tool_spill_threshold: int = Field(default=4096, ge=0)
     client_args: dict[str, Any] = Field(default_factory=dict)
     completion_args: dict[str, Any] = Field(default_factory=dict)
     verbose: int = Field(default=0, ge=0, le=2)
@@ -66,7 +65,6 @@ Loaded under the YAML root section.
 | `BUB_MAX_STEPS` | unlimited | `max_steps` | Maximum agent loop iterations per turn. Must be a positive integer when set. |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Maximum tokens per model call. |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | Per-call timeout in seconds. |
-| `BUB_TOOL_SPILL_THRESHOLD` | `4096` | `tool_spill_threshold` | Estimated tokens (4 chars each) above which string tool results are stored in a chunked spill tape. Set to `0` to disable. |
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | Extra kwargs passed to the underlying model client (JSON / dict). |
 | `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | Extra kwargs passed to each completion call, e.g. `{"reasoning_effort":"high"}`. Bub-managed arguments take precedence. |
 | `BUB_VERBOSE` | `0` | `verbose` | Logging verbosity level (`0`–`2`). |
@@ -74,6 +72,23 @@ Loaded under the YAML root section.
 Provider-specific defaults are gathered at startup by scanning `os.environ` for `^BUB_(.+)_(API_KEY|API_BASE)$` and lowercasing the captured provider name.
 
 OpenAI Codex OAuth does not need a separate request-format setting. After `bub login openai`, Bub detects the stored Codex OAuth token when the selected model uses the `openai:` provider and no custom API base is set.
+
+## Spill sidecar — `SpillSettings`
+
+Defined in `src/bub/builtin/spill.py` and registered by the builtin sidecar plugin:
+
+```python
+@config(name="spill")
+class SpillSettings(Settings):
+    model_config = SettingsConfigDict(env_prefix="BUB_SPILL_", extra="ignore", env_file=".env")
+    threshold: int = Field(default=4096, ge=0)
+```
+
+Loaded under the YAML `spill:` section.
+
+| Env var | Default | YAML key (`spill.*`) | Description |
+| --- | --- | --- | --- |
+| `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | Estimated tokens (4 chars each) above which string tool results are stored in the spill sidecar. Set to `0` to stop creating new spills while keeping the sidecar mounted for existing handles and lifecycle operations. |
 
 ## Channels — `ChannelSettings`
 

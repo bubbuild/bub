@@ -47,7 +47,6 @@ class AgentSettings(Settings):
     max_steps: int = Field(default=sys.maxsize, gt=0)
     max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
     model_timeout_seconds: int | None = None
-    tool_spill_threshold: int = Field(default=4096, ge=0)
     client_args: dict[str, Any] = Field(default_factory=dict)
     completion_args: dict[str, Any] = Field(default_factory=dict)
     verbose: int = Field(default=0, ge=0, le=2)
@@ -66,7 +65,6 @@ class AgentSettings(Settings):
 | `BUB_MAX_STEPS` | 不限制 | `max_steps` | 单次 turn 内 agent 循环的最大步数；配置时必须为正整数。 |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | 单次模型调用的最大 token 数。 |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | 单次调用的超时秒数。 |
-| `BUB_TOOL_SPILL_THRESHOLD` | `4096` | `tool_spill_threshold` | 字符串工具结果超过该估算 token 数（每 token 按 4 字符估算）时写入分块 spill tape；设为 `0` 可关闭。 |
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | 传递给底层模型 client 的额外 kwargs(JSON / dict)。 |
 | `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | 传递给每次 completion 调用的额外 kwargs,例如 `{"reasoning_effort":"high"}`;Bub 管理的参数优先。 |
 | `BUB_VERBOSE` | `0` | `verbose` | 日志详细级别(`0`–`2`)。 |
@@ -74,6 +72,23 @@ class AgentSettings(Settings):
 启动时 `ProviderSpecificEnvSource` 会扫描 `os.environ` 中匹配 `^BUB_(.+)_(API_KEY|API_BASE)$` 的变量,把捕获到的 provider 名称小写后作为 key 收集。
 
 OpenAI Codex OAuth 不需要单独的请求格式设置。运行 `bub login openai` 后,当模型使用 `openai:` provider 且没有自定义 API base 时,Bub 会检测并使用本地保存的 Codex OAuth token。
+
+## Spill sidecar —— `SpillSettings`
+
+定义于 `src/bub/builtin/spill.py`，由 builtin sidecar 插件注册：
+
+```python
+@config(name="spill")
+class SpillSettings(Settings):
+    model_config = SettingsConfigDict(env_prefix="BUB_SPILL_", extra="ignore", env_file=".env")
+    threshold: int = Field(default=4096, ge=0)
+```
+
+从 YAML 的 `spill:` section 加载。
+
+| 环境变量 | 默认值 | YAML 字段（`spill.*`） | 描述 |
+| --- | --- | --- | --- |
+| `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | 字符串工具结果超过该估算 token 数（每 token 按 4 字符估算）时写入 spill sidecar。设为 `0` 会停止产生新 spill，但 sidecar 仍保持挂载，已有 handle 和生命周期操作不受影响。 |
 
 ## Channels —— `ChannelSettings`
 

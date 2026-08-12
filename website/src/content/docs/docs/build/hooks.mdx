@@ -135,6 +135,27 @@ def provide_tape_store():
 
 The full plugin lives at [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite). For stores that need cleanup, return a generator instead — Bub treats it as a context manager.
 
+### Mount a tape sidecar
+
+Use `provide_tape_sidecars` when a plugin needs a sibling tape with the same lifecycle as the session tape. A sidecar only declares a stable `name`; its plugin owns configuration and the data format.
+
+```python
+from bub import hookimpl
+
+
+class ArtifactSidecar:
+    name = "artifacts"
+
+
+@hookimpl
+def provide_tape_sidecars():
+    return [ArtifactSidecar()]
+```
+
+For a session tape named `session`, this mounts `session__artifacts` in the active `TapeStore`. Tool code can retrieve its provider with `context.tape.get_sidecar("artifacts")` and resolve the physical name with `context.tape.sidecar_tape_name("artifacts")`. The main tape handles fork, merge, archive, and reset for every mounted sidecar. Providers with the same name follow normal hook priority: the first one wins.
+
+The builtin `SpillStore` is the first sidecar implementation. Its `SpillSettings` class uses the `spill:` config section and `BUB_SPILL_*` environment variables, independently of `AgentSettings`.
+
 ## 6. Add a channel
 
 A **channel** is an inbound/outbound surface — CLI, Telegram, WeChat, a scheduled trigger. `provide_channels` lets your plugin contribute one or more `Channel` subclasses.
