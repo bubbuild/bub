@@ -69,9 +69,12 @@ def evaluate_run(run: RunArtifact, output_dir: Path) -> EvaluationReport:
             reason=tape_error or (None if has_tape else "No canonical tape evidence was found."),
         ),
         "tape_run_completed": EvaluationValue(
-            value=bool(tape and tape.terminal_runs >= evaluation.minimum_turns),
+            value=bool(
+                tape and tape.turns >= evaluation.minimum_turns and tape.terminal_turns >= evaluation.minimum_turns
+            ),
             reason=(
-                f"Observed {tape.terminal_runs if tape else 0} terminal runs; required {evaluation.minimum_turns}."
+                f"Observed {tape.turns if tape else 0} turns and "
+                f"{tape.terminal_turns if tape else 0} terminal turn records; required {evaluation.minimum_turns}."
             ),
         ),
         "tool_pairs_recorded": EvaluationValue(

@@ -27,7 +27,7 @@ class TapeSummary:
     tool_errors: int
     anchors: int
     handoffs: int
-    terminal_runs: int
+    terminal_turns: int
     total_tokens: int | None
     cached_tokens: int | None
 
@@ -53,7 +53,7 @@ def summarize_tapes(output_dir: Path) -> TapeSummary:
             tool_errors=0,
             anchors=0,
             handoffs=0,
-            terminal_runs=0,
+            terminal_turns=0,
             total_tokens=None,
             cached_tokens=None,
         )
@@ -75,6 +75,7 @@ def summarize_tapes(output_dir: Path) -> TapeSummary:
         _payload_list_size(entry, "results") for entry in tape_entries if entry.get("kind") == "tool_result"
     )
     run_events = list(_events_named(tape_entries, "run"))
+    loop_steps = list(_events_named(tape_entries, "loop.step"))
     usages: list[dict[str, Any]] = []
     for data in run_events:
         usage = data.get("usage")
@@ -96,7 +97,7 @@ def summarize_tapes(output_dir: Path) -> TapeSummary:
         tool_errors=sum(1 for entry in tape_entries if entry.get("kind") == "error"),
         anchors=sum(1 for entry in tape_entries if entry.get("kind") == "anchor"),
         handoffs=sum(1 for _ in _events_named(tape_entries, "handoff")),
-        terminal_runs=sum(data.get("status") in {"ok", "error"} for data in run_events),
+        terminal_turns=sum(data.get("status") in {"ok", "error"} for data in loop_steps),
         total_tokens=total_tokens,
         cached_tokens=cached_tokens,
     )
