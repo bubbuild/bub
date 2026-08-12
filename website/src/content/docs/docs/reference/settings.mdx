@@ -47,6 +47,7 @@ class AgentSettings(Settings):
     max_steps: int = Field(default=sys.maxsize, gt=0)
     max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
     model_timeout_seconds: int | None = None
+    tool_spill_threshold: int = Field(default=4096, ge=0)
     client_args: dict[str, Any] = Field(default_factory=dict)
     completion_args: dict[str, Any] = Field(default_factory=dict)
     verbose: int = Field(default=0, ge=0, le=2)
@@ -65,6 +66,7 @@ Loaded under the YAML root section.
 | `BUB_MAX_STEPS` | unlimited | `max_steps` | Maximum agent loop iterations per turn. Must be a positive integer when set. |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Maximum tokens per model call. |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | Per-call timeout in seconds. |
+| `BUB_TOOL_SPILL_THRESHOLD` | `4096` | `tool_spill_threshold` | Estimated tokens (4 chars each) above which string tool results are stored in a chunked spill tape. Set to `0` to disable. |
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | Extra kwargs passed to the underlying model client (JSON / dict). |
 | `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | Extra kwargs passed to each completion call, e.g. `{"reasoning_effort":"high"}`. Bub-managed arguments take precedence. |
 | `BUB_VERBOSE` | `0` | `verbose` | Logging verbosity level (`0`–`2`). |
