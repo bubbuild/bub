@@ -420,6 +420,14 @@ def test_provide_tape_store_uses_bub_home_directory(tmp_path: Path, monkeypatch:
     assert store._directory == tmp_path / "tapes"
 
 
+def test_builtin_mounts_the_spill_sidecar(tmp_path: Path) -> None:
+    from bub.builtin.spill import SpillStore
+
+    _, impl, _ = _build_impl(tmp_path)
+
+    assert isinstance(impl.provide_tape_sidecars()[0], SpillStore)
+
+
 def test_before_tool_call_ignores_known_tool(tmp_path: Path) -> None:
     _, impl, _ = _build_impl(tmp_path)
     import asyncio

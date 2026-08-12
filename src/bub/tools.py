@@ -188,9 +188,8 @@ async def _await_report(report: Awaitable[None] | None) -> None:
 class ToolExecutor:
     """Execute already-resolved Bub tool invocations."""
 
-    def __init__(self, hooks: AgentHooks | None = None, *, spill_threshold: int = 0) -> None:
+    def __init__(self, hooks: AgentHooks | None = None) -> None:
         self._hooks = hooks
-        self._spill_threshold = spill_threshold
 
     async def execute_async(
         self,
@@ -264,12 +263,14 @@ class ToolExecutor:
     async def _maybe_spill_result(self, call: ToolCall, result: Any, context: ToolContext | None) -> Any:
         if context is None or not isinstance(result, str):
             return result
-        spill = SpillStore(context.tape.store, context.tape.name)
+        spill = SpillStore.mounted(context.tape)
+        if spill is None:
+            return result
         return await spill.maybe_spill(
+            context.tape,
             result,
             tool=call.tool,
             run_id=call.run_id,
-            threshold=self._spill_threshold,
         )
 
     async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:

@@ -22,6 +22,7 @@ from bub.hooks.interception import AgentHooks
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.model_selection import ModelOptions
+from bub.sidecars import TapeSidecar
 from bub.store import AsyncTapeStore, TapeStore
 from bub.tape import TapeContext
 from bub.turn import TurnResult, TurnState
@@ -360,6 +361,13 @@ class BubFramework:
 
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         return self._tape_store
+
+    def get_tape_sidecars(self) -> tuple[TapeSidecar, ...]:
+        sidecars: dict[str, TapeSidecar] = {}
+        for provided in self._hook_runtime.call_many_sync("provide_tape_sidecars"):
+            for sidecar in provided:
+                sidecars.setdefault(sidecar.name, sidecar)
+        return tuple(sidecars.values())
 
     def get_steering_inbox(self) -> SteeringInbox | None:
         return self._steering_inbox

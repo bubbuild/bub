@@ -59,7 +59,12 @@ class Agent:
             tape_store = InMemoryTapeStore()
         if not is_async_tape_store(tape_store):
             tape_store = AsyncTapeStoreAdapter(tape_store)
-        return Tape(bub.home / "tapes", tape_store, self.framework.build_tape_context())
+        return Tape(
+            bub.home / "tapes",
+            tape_store,
+            self.framework.build_tape_context(),
+            sidecars=self.framework.get_tape_sidecars(),
+        )
 
     @staticmethod
     def _events_from_iterable(iterable: Iterable) -> AsyncStreamEvents:

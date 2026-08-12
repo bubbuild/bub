@@ -7,11 +7,16 @@ from typing import Any
 import pytest
 
 from bub.builtin.context import default_tape_context
-from bub.builtin.spill import SPILL_READ_MODEL_NAME, SPILL_READ_TOOL_NAME, spill_tape_name
-from bub.builtin.store import FileTapeStore
-from bub.builtin.tape import Tape
+from bub.builtin.spill import (
+    SPILL_READ_MODEL_NAME,
+    SPILL_READ_TOOL_NAME,
+    SpillSettings,
+    SpillStore,
+    spill_tape_name,
+)
 from bub.builtin.tools import render_tools_prompt, spill_read
-from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext, TapeEntry
+from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
+from bub.tape import Tape, TapeContext, TapeEntry
 from bub.tools import Tool, ToolContext, ToolExecutor, model_tools
 
 
@@ -28,8 +33,9 @@ def _page_field(page: str, name: str) -> str:
     return next(line.removeprefix(prefix) for line in page.splitlines() if line.startswith(prefix))
 
 
-def _root_tape(tmp_path: Path, store: InMemoryTapeStore) -> Tape:
-    return Tape(tmp_path, AsyncTapeStoreAdapter(store), default_tape_context()).scoped("session")
+def _root_tape(tmp_path: Path, store: InMemoryTapeStore, *, threshold: int = 1) -> Tape:
+    spill = SpillStore(SpillSettings(threshold=threshold))
+    return Tape(tmp_path, AsyncTapeStoreAdapter(store), default_tape_context(), sidecars=(spill,)).scoped("session")
 
 
 @pytest.mark.asyncio
@@ -39,10 +45,10 @@ async def test_oversized_result_is_bounded_and_readable_across_merge(tmp_path: P
     output = ("alpha🙂beta\n" * 5000) + "the-end"
     sidecar = spill_tape_name(root.name)
 
-    async with root.fork_tape(sidecars=(sidecar,)) as tape:
+    async with root.fork_tape() as tape:
         context = ToolContext(tape=tape, run_id="run-1")
         tool = Tool(name="large", handler=lambda: output)
-        execution = await ToolExecutor(spill_threshold=1).execute_async([(tool, {})], context=context)
+        execution = await ToolExecutor().execute_async([(tool, {})], context=context)
 
         ref = execution.tool_results[0]
         assert isinstance(ref, str)
@@ -96,33 +102,33 @@ async def test_oversized_result_is_bounded_and_readable_across_merge(tmp_path: P
 @pytest.mark.asyncio
 async def test_small_results_and_errors_are_not_spilled(tmp_path: Path) -> None:
     parent = InMemoryTapeStore()
-    root = _root_tape(tmp_path, parent)
+    root = _root_tape(tmp_path, parent, threshold=100)
     sidecar = spill_tape_name(root.name)
 
     def fail() -> str:
         raise ValueError("boom")
 
-    async with root.fork_tape(sidecars=(sidecar,)) as tape:
+    async with root.fork_tape() as tape:
         context = ToolContext(tape=tape, run_id="run-1")
-        small = await ToolExecutor(spill_threshold=100).execute_async(
-            [(Tool(name="small", handler=lambda: "tiny"), {})], context=context
-        )
-        disabled = await ToolExecutor(spill_threshold=0).execute_async(
-            [(Tool(name="disabled", handler=lambda: "x" * 20_000), {})], context=context
-        )
-        spill_page = await ToolExecutor(spill_threshold=1).execute_async(
+        small = await ToolExecutor().execute_async([(Tool(name="small", handler=lambda: "tiny"), {})], context=context)
+        spill_page = await ToolExecutor().execute_async(
             [(Tool(name=SPILL_READ_MODEL_NAME, handler=lambda: "x" * 20_000), {})], context=context
         )
-        failed = await ToolExecutor(spill_threshold=1).execute_async(
-            [(Tool(name="failed", handler=fail), {})], context=context
-        )
+        failed = await ToolExecutor().execute_async([(Tool(name="failed", handler=fail), {})], context=context)
 
         assert small.tool_results == ["tiny"]
-        assert disabled.tool_results == ["x" * 20_000]
         assert spill_page.tool_results == ["x" * 20_000]
         assert failed.error is not None
 
     assert parent.read(sidecar) is None
+
+    disabled = _root_tape(tmp_path, parent, threshold=0).scoped("disabled")
+    async with disabled.fork_tape() as tape:
+        execution = await ToolExecutor().execute_async(
+            [(Tool(name="large", handler=lambda: "x" * 20_000), {})],
+            context=ToolContext(tape=tape, run_id="run-2"),
+        )
+    assert execution.tool_results == ["x" * 20_000]
 
 
 @pytest.mark.asyncio
@@ -131,9 +137,9 @@ async def test_temporary_fork_discards_spilled_content(tmp_path: Path) -> None:
     root = _root_tape(tmp_path, parent)
     sidecar = spill_tape_name(root.name)
 
-    async with root.fork_tape(merge_back=False, sidecars=(sidecar,)) as tape:
+    async with root.fork_tape(merge_back=False) as tape:
         context = ToolContext(tape=tape, run_id="run-1")
-        execution = await ToolExecutor(spill_threshold=1).execute_async(
+        execution = await ToolExecutor().execute_async(
             [(Tool(name="large", handler=lambda: "x" * 20_000), {})], context=context
         )
         handle = _handle_from_ref(execution.tool_results[0])
@@ -159,13 +165,12 @@ async def test_spill_failure_degrades_to_a_bounded_result(tmp_path: Path) -> Non
         async def append(self, tape: str, entry: Any) -> None:
             raise OSError("disk full")
 
-    tape = Tape(tmp_path, BrokenStore(), TapeContext()).scoped("session")
+    spill = SpillStore(SpillSettings(threshold=1))
+    tape = Tape(tmp_path, BrokenStore(), TapeContext(), sidecars=(spill,)).scoped("session")
     context = ToolContext(tape=tape, run_id="run-1")
     output = "x" * 100_000
 
-    execution = await ToolExecutor(spill_threshold=1).execute_async(
-        [(Tool(name="large", handler=lambda: output), {})], context=context
-    )
+    execution = await ToolExecutor().execute_async([(Tool(name="large", handler=lambda: output), {})], context=context)
 
     result = execution.tool_results[0]
     assert execution.error is None
@@ -187,12 +192,12 @@ async def test_unknown_handle_and_invalid_read_bounds_are_friendly(tmp_path: Pat
 @pytest.mark.asyncio
 async def test_spill_uses_the_regular_tape_store_contract(tmp_path: Path) -> None:
     store = FileTapeStore(tmp_path / "tapes")
-    root = Tape(tmp_path, AsyncTapeStoreAdapter(store), default_tape_context()).scoped("session")
-    sidecar = spill_tape_name(root.name)
+    spill = SpillStore(SpillSettings(threshold=1))
+    root = Tape(tmp_path, AsyncTapeStoreAdapter(store), default_tape_context(), sidecars=(spill,)).scoped("session")
     output = "stored through the native tape store\n" * 1000
 
-    async with root.fork_tape(sidecars=(sidecar,)) as tape:
-        execution = await ToolExecutor(spill_threshold=1).execute_async(
+    async with root.fork_tape() as tape:
+        execution = await ToolExecutor().execute_async(
             [(Tool(name="large", handler=lambda: output), {})],
             context=ToolContext(tape=tape, run_id="run-1"),
         )
@@ -214,12 +219,11 @@ def test_spill_read_uses_the_builtin_tool_naming_convention() -> None:
 async def test_spilled_result_keeps_the_recorded_model_prefix_stable(tmp_path: Path) -> None:
     parent = InMemoryTapeStore()
     root = _root_tape(tmp_path, parent)
-    sidecar = spill_tape_name(root.name)
     output = "cache-prefix\n" * 5000
     await root.ensure_bootstrap_anchor()
 
-    async with root.fork_tape(sidecars=(sidecar,)) as tape:
-        execution = await ToolExecutor(spill_threshold=1).execute_async(
+    async with root.fork_tape() as tape:
+        execution = await ToolExecutor().execute_async(
             [(Tool(name="large", handler=lambda: output), {})],
             context=ToolContext(tape=tape, run_id="run-1"),
         )
@@ -259,7 +263,7 @@ async def test_tape_reset_clears_the_spill_sidecar_with_the_main_tape(tmp_path: 
     await root.ensure_bootstrap_anchor()
 
     async with root.fork_tape() as tape:
-        execution = await ToolExecutor(spill_threshold=1).execute_async(
+        execution = await ToolExecutor().execute_async(
             [(Tool(name="large", handler=lambda: "old output\n" * 5000), {})],
             context=ToolContext(tape=tape, run_id="run-1"),
         )
@@ -298,7 +302,7 @@ async def test_tape_archive_preserves_main_and_spill_as_sibling_tapes(tmp_path: 
     await root.ensure_bootstrap_anchor()
 
     async with root.fork_tape() as tape:
-        execution = await ToolExecutor(spill_threshold=1).execute_async(
+        execution = await ToolExecutor().execute_async(
             [(Tool(name="large", handler=lambda: "archived output\n" * 5000), {})],
             context=ToolContext(tape=tape, run_id="run-1"),
         )
@@ -334,7 +338,7 @@ async def test_spill_sidecar_can_be_archived_and_reset_without_changing_main_con
     await root.ensure_bootstrap_anchor()
 
     async with root.fork_tape() as tape:
-        execution = await ToolExecutor(spill_threshold=1).execute_async(
+        execution = await ToolExecutor().execute_async(
             [(Tool(name="large", handler=lambda: "gc output\n" * 5000), {})],
             context=ToolContext(tape=tape, run_id="run-1"),
         )
@@ -351,13 +355,13 @@ async def test_spill_sidecar_can_be_archived_and_reset_without_changing_main_con
         )
 
     messages_before = await root.read_messages()
-    archive_result = await root.archive_spill(reason="gc")
+    archive_result = await root.archive_sidecar("spill", reason="gc")
 
     assert archive_result.startswith("Archived spill: ")
     assert parent.read(sidecar)
     assert await root.read_messages() == messages_before
 
-    reset_result = await root.reset_spill(reason="gc")
+    reset_result = await root.reset_sidecar("spill", reason="gc")
 
     assert reset_result == "ok"
     assert parent.read(sidecar) is None

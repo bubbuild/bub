@@ -19,6 +19,7 @@ from bub.hooks.interception import (
     ToolCallResult,
 )
 from bub.model_selection import ModelOptions
+from bub.sidecars import TapeSidecar
 from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import AsyncStreamEvents
 from bub.tape import TapeContext
@@ -169,6 +170,11 @@ class BubHookSpecs:
     @hookspec(firstresult=True)
     def provide_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         """Provide a tape store instance for Bub's conversation recording feature."""
+        raise NotImplementedError
+
+    @hookspec
+    def provide_tape_sidecars(self) -> list[TapeSidecar]:
+        """Provide capabilities backed by sibling tapes mounted on every session tape."""
         raise NotImplementedError
 
     @hookspec

@@ -211,9 +211,17 @@ async def spill_read(
     if count < 1:
         return "`count` must be >= 1."
 
-    spill = SpillStore(context.tape.store, context.tape.name)
+    spill = SpillStore.mounted(context.tape)
+    if spill is None:
+        return "spill sidecar unavailable in this context."
     try:
-        page = await spill.read(handle, cursor=cursor, count=min(count, MAX_READ_CHUNKS), from_end=from_end)
+        page = await spill.read(
+            context.tape,
+            handle,
+            cursor=cursor,
+            count=min(count, MAX_READ_CHUNKS),
+            from_end=from_end,
+        )
     except IncompleteSpillError as exc:
         return f"[incomplete spilled tool result: {exc}]"
     if page is None:

@@ -38,6 +38,7 @@ def _make_agent() -> Agent:
     framework.get_tape_store.return_value = None
     framework.get_steering_inbox.return_value = None
     framework.get_system_prompt.return_value = ""
+    framework.get_tape_sidecars.return_value = ()
 
     async def build_prompt(message: dict[str, Any], session_id: str, state: dict[str, Any]) -> str:
         return str(message["content"])
@@ -108,7 +109,7 @@ class _FakeTape:
         pass
 
     @contextlib.asynccontextmanager
-    async def fork_tape(self, merge_back: bool = True, *, sidecars: Any = ()) -> AsyncGenerator[_FakeTape, None]:
+    async def fork_tape(self, merge_back: bool = True) -> AsyncGenerator[_FakeTape, None]:
         async with self._fork.fork_tape(self.name, merge_back=merge_back):
             yield self
 

@@ -22,6 +22,7 @@ from bub.hooks import hookimpl
 from bub.hooks.interception import ToolCall, ToolCallDecision
 from bub.model_selection import ModelChoice, ModelOptions
 from bub.store import TapeStore
+from bub.sidecars import TapeSidecar
 from bub.streaming import AsyncStreamEvents
 from bub.tape import TapeContext
 from bub.turn import TurnState
@@ -361,6 +362,13 @@ class BuiltinImpl:
         from bub.store import FileTapeStore
 
         return FileTapeStore(directory=bub.home / "tapes")
+
+    @hookimpl
+    def provide_tape_sidecars(self) -> list[TapeSidecar]:
+        from bub.builtin.spill import SpillSettings, SpillStore
+        from bub.configure import ensure_config
+
+        return [SpillStore(ensure_config(SpillSettings))]
 
     @hookimpl
     def build_tape_context(self) -> TapeContext:
