@@ -58,7 +58,7 @@ sidecar 与 session tape 一起参与 fork、merge、archive 和 reset，但始�
 
 spill 配置归 sidecar 插件自己所有：在 `config.yml` 使用 `spill.threshold`，或设置环境变量 `BUB_SPILL_THRESHOLD`。设为 `0` 只停止新写入，不会卸载 sidecar，因此已有 handle 仍可读取，tape 生命周期操作也仍会包含它。
 
-生命周期结果以 `spill.write`、`spill.archive`、`spill.reset` 和 `sidecar.merge` event 记录在主 tape。它们会在任何 context selector 运行前被排除，因此可用于运维和审计，同时不会改变模型消息或 prompt cache 前缀。sidecar 持久化失败会被记录，但不会阻止主 tape merge 或 reset。
+spill 写入以 `spill.write` event 记录。框架管理的生命周期结果使用 `sidecar.archive`、`sidecar.reset` 和 `sidecar.merge`，其数据会标明受影响的 sidecar 或物理 tape。它们会在任何 context selector 运行前被排除，因此可用于运维和审计，同时不会改变模型消息或 prompt cache 前缀。sidecar 持久化失败会被记录，但不会阻止主 tape merge 或 reset。
 
 ### ensure_bootstrap_anchor
 

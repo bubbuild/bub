@@ -370,11 +370,14 @@ async def test_spill_sidecar_can_be_archived_and_reset_without_changing_main_con
     lifecycle_events = [
         entry
         for entry in parent.read(root.name) or []
-        if entry.kind == "event" and entry.payload.get("name") in {"spill.archive", "spill.reset"}
+        if entry.kind == "event" and entry.payload.get("name") in {"sidecar.archive", "sidecar.reset"}
     ]
-    assert [(entry.payload["name"], entry.payload["data"]["status"]) for entry in lifecycle_events] == [
-        ("spill.archive", "ok"),
-        ("spill.reset", "ok"),
+    assert [
+        (entry.payload["name"], entry.payload["data"]["sidecar"], entry.payload["data"]["status"])
+        for entry in lifecycle_events
+    ] == [
+        ("sidecar.archive", "spill", "ok"),
+        ("sidecar.reset", "spill", "ok"),
     ]
 
 
@@ -402,9 +405,12 @@ async def test_failed_spill_archive_preserves_sidecar_without_blocking_main_rese
     lifecycle_events = [
         entry
         for entry in parent.read(root.name) or []
-        if entry.kind == "event" and entry.payload.get("name") in {"spill.archive", "spill.reset"}
+        if entry.kind == "event" and entry.payload.get("name") in {"sidecar.archive", "sidecar.reset"}
     ]
-    assert [(entry.payload["name"], entry.payload["data"]["status"]) for entry in lifecycle_events] == [
-        ("spill.archive", "error"),
-        ("spill.reset", "skipped"),
+    assert [
+        (entry.payload["name"], entry.payload["data"]["sidecar"], entry.payload["data"]["status"])
+        for entry in lifecycle_events
+    ] == [
+        ("sidecar.archive", "spill", "error"),
+        ("sidecar.reset", "spill", "skipped"),
     ]

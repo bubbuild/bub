@@ -58,7 +58,7 @@ The sidecar follows the session tape through forks, merges, archive, and reset, 
 
 Spill configuration belongs to the sidecar plugin: use `spill.threshold` in `config.yml` or `BUB_SPILL_THRESHOLD` in the environment. Setting it to `0` stops new writes without unmounting the sidecar, so existing handles remain readable and tape lifecycle operations still include it.
 
-Lifecycle outcomes are recorded on the main tape as `spill.write`, `spill.archive`, `spill.reset`, and `sidecar.merge` events. These entries are marked as context-excluded before any context selector runs, so they remain available for operations and audit without changing model messages or prompt-cache prefixes. A sidecar persistence failure is recorded but does not prevent the main tape from merging or resetting.
+Spill writes are recorded as `spill.write`. Framework-managed lifecycle outcomes use `sidecar.archive`, `sidecar.reset`, and `sidecar.merge`; lifecycle data identifies the affected sidecar or physical tape. These entries are marked as context-excluded before any context selector runs, so they remain available for operations and audit without changing model messages or prompt-cache prefixes. A sidecar persistence failure is recorded but does not prevent the main tape from merging or resetting.
 
 ### ensure_bootstrap_anchor
 

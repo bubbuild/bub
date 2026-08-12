@@ -391,13 +391,14 @@ class Tape:
     @staticmethod
     def _sidecar_lifecycle_data(
         *,
+        sidecar: str,
         status: str,
         reason: str,
         archive_path: Path | None = None,
         error: Exception | None = None,
         cause: str | None = None,
     ) -> dict[str, Any]:
-        data: dict[str, Any] = {"status": status, "reason": reason}
+        data: dict[str, Any] = {"sidecar": sidecar, "status": status, "reason": reason}
         if archive_path is not None:
             data["archive"] = str(archive_path)
         if error is not None:
@@ -417,15 +418,25 @@ class Tape:
         try:
             archive_path = await self._archive_tape(sidecar_tape_name(self.name, sidecar.name), archive_stamp)
         except Exception as exc:
-            return None, self._sidecar_lifecycle_data(status="error", reason=reason, error=exc)
-        return archive_path, self._sidecar_lifecycle_data(status="ok", reason=reason, archive_path=archive_path)
+            return None, self._sidecar_lifecycle_data(
+                sidecar=sidecar.name,
+                status="error",
+                reason=reason,
+                error=exc,
+            )
+        return archive_path, self._sidecar_lifecycle_data(
+            sidecar=sidecar.name,
+            status="ok",
+            reason=reason,
+            archive_path=archive_path,
+        )
 
     async def _try_reset_sidecar(self, sidecar: TapeSidecar, *, reason: str) -> dict[str, Any]:
         try:
             await self.store.reset(sidecar_tape_name(self.name, sidecar.name))
         except Exception as exc:
-            return self._sidecar_lifecycle_data(status="error", reason=reason, error=exc)
-        return self._sidecar_lifecycle_data(status="ok", reason=reason)
+            return self._sidecar_lifecycle_data(sidecar=sidecar.name, status="error", reason=reason, error=exc)
+        return self._sidecar_lifecycle_data(sidecar=sidecar.name, status="ok", reason=reason)
 
     def _require_sidecar(self, name: str) -> TapeSidecar:
         sidecar = self.get_sidecar(name)
@@ -438,7 +449,7 @@ class Tape:
 
         sidecar = self._require_sidecar(name)
         archive_path, event_data = await self._try_archive_sidecar(sidecar, reason=reason)
-        await self.append_event(f"{name}.archive", event_data, context=False)
+        await self.append_event("sidecar.archive", event_data, context=False)
         return (
             f"Archived {name}: {archive_path}"
             if archive_path is not None
@@ -456,6 +467,7 @@ class Tape:
 
         if archive_data is not None and archive_data["status"] == "error":
             reset_data = self._sidecar_lifecycle_data(
+                sidecar=name,
                 status="skipped",
                 reason=reason,
                 cause="archive_failed",
@@ -463,8 +475,8 @@ class Tape:
         else:
             reset_data = await self._try_reset_sidecar(sidecar, reason=reason)
         if archive_data is not None:
-            await self.append_event(f"{name}.archive", archive_data, context=False)
-        await self.append_event(f"{name}.reset", reset_data, context=False)
+            await self.append_event("sidecar.archive", archive_data, context=False)
+        await self.append_event("sidecar.reset", reset_data, context=False)
 
         if reset_data["status"] == "error":
             return f"{name} reset failed: {reset_data['error']}"
@@ -490,6 +502,7 @@ class Tape:
             archive_data = sidecar_archives.get(sidecar.name)
             if archive_data is not None and archive_data["status"] == "error":
                 reset_data = self._sidecar_lifecycle_data(
+                    sidecar=sidecar.name,
                     status="skipped",
                     reason="tape.reset",
                     cause="archive_failed",
@@ -497,8 +510,8 @@ class Tape:
             else:
                 reset_data = await self._try_reset_sidecar(sidecar, reason="tape.reset")
             if archive_data is not None:
-                await self.append_event(f"{sidecar.name}.archive", archive_data, context=False)
-            await self.append_event(f"{sidecar.name}.reset", reset_data, context=False)
+                await self.append_event("sidecar.archive", archive_data, context=False)
+            await self.append_event("sidecar.reset", reset_data, context=False)
         return f"Archived: {archive_path}" if archive_path else "ok"
 
     def session_tape(self, session_id: str, workspace: Path, context: TapeContext | None = None) -> Tape:

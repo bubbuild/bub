@@ -361,7 +361,7 @@ class ForkTapeStore:
                     self._tape,
                     TapeEntry.event(
                         "sidecar.merge",
-                        {"name": sidecar, "status": "error", "error": str(exc)},
+                        {"tape": sidecar, "status": "error", "error": str(exc)},
                         context=False,
                     ),
                 )
