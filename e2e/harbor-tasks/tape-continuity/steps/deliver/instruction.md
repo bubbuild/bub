@@ -1,0 +1,1 @@
+Continue from the prepared plan in `/workspace/plan.json`. Create `/workspace/release-checklist.md` with a `# Bub release checklist` heading and one unchecked Markdown checkbox for each planned check, in the planned order. Then update the plan status to `delivered`.

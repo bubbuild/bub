@@ -1,0 +1,1 @@
+Read `/workspace/request.json`. Create `/workspace/plan.json` with the same `project`, `deliverable`, and `checks`, plus `status` set to `prepared`. Use a tool to inspect the input and a tool to write the file. Do not create the final deliverable yet.

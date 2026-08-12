@@ -1,0 +1,9 @@
+{
+  "project": "Bub",
+  "deliverable": "release-checklist.md",
+  "checks": [
+    "format",
+    "types",
+    "behavior"
+  ]
+}
