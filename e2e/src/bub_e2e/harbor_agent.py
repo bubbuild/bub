@@ -82,7 +82,7 @@ def _agent_version(bub: BubDistribution) -> str:
 
 
 def _tool_environment() -> str:
-    return f"UV_TOOL_BIN_DIR={shlex.quote(REMOTE_BIN_DIR)} UV_TOOL_DIR={shlex.quote(REMOTE_TOOL_DIR)}"
+    return f"UV_PYTHON=3.12 UV_TOOL_BIN_DIR={shlex.quote(REMOTE_BIN_DIR)} UV_TOOL_DIR={shlex.quote(REMOTE_TOOL_DIR)}"
 
 
 def _install_git_command() -> str:
