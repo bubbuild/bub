@@ -1,0 +1,24 @@
+schema: bub.e2e-case/v1
+id: benchmark-swe-atlas-qna
+categories: [benchmark, judge, repository-research, long-horizon]
+dataset:
+  name: scale-ai/swe-atlas-qna
+  version: "1.0"
+  task_id: scale-ai/task-6905333b74f22949d97ba9c8
+  checksum: dacf3fb5b0c24f99cc30463d7010d05accdb1b9d75d70d3fd9758d71e4ad79d8
+agent:
+  bub:
+    commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04
+  plugins:
+    - name: bub-acp-server
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+    - name: tape-dataset-opendal
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+  budgets:
+    max_agent_steps: 160
+    timeout_seconds: 10800
+    setup_timeout_seconds: 1800
+    max_tokens_per_call: 16384
+evaluation:
+  minimum_turns: 1
+  minimum_tool_pairs: 1

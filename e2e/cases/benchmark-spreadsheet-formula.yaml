@@ -1,0 +1,24 @@
+schema: bub.e2e-case/v1
+id: benchmark-spreadsheet-formula
+categories: [benchmark, smoke, artifact, spreadsheet]
+dataset:
+  name: spreadsheetbench-verified
+  version: "1.0"
+  task_id: "46240"
+  checksum: f0e3d9fc80e2f4364ea4c17562fa98032d4f03244387ecf37079e538bf354b88
+agent:
+  bub:
+    commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04
+  plugins:
+    - name: bub-acp-server
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+    - name: tape-dataset-opendal
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+  budgets:
+    max_agent_steps: 40
+    timeout_seconds: 1200
+    setup_timeout_seconds: 1200
+    max_tokens_per_call: 8192
+evaluation:
+  minimum_turns: 1
+  minimum_tool_pairs: 1

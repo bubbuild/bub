@@ -1,0 +1,24 @@
+schema: bub.e2e-case/v1
+id: benchmark-compile-coreutils
+categories: [benchmark, build, long-horizon]
+dataset:
+  name: compilebench
+  version: "1.0"
+  task_id: coreutils-static
+  checksum: 57fa5e05b3331f5e000ef4a2a61f490df9c19f5b52aac37a1526f63be55bbbec
+agent:
+  bub:
+    commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04
+  plugins:
+    - name: bub-acp-server
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+    - name: tape-dataset-opendal
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+  budgets:
+    max_agent_steps: 100
+    timeout_seconds: 3000
+    setup_timeout_seconds: 1500
+    max_tokens_per_call: 8192
+evaluation:
+  minimum_turns: 1
+  minimum_tool_pairs: 1

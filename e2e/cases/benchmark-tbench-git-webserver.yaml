@@ -1,0 +1,24 @@
+schema: bub.e2e-case/v1
+id: benchmark-tbench-git-webserver
+categories: [benchmark, terminal, system-administration, long-horizon]
+dataset:
+  name: terminal-bench-sample
+  version: "2.0"
+  task_id: configure-git-webserver
+  checksum: c5af4367fa054a6dc70d91d4fb29680d2ecbdbdede0efac564f84d75c43a63dd
+agent:
+  bub:
+    commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04
+  plugins:
+    - name: bub-acp-server
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+    - name: tape-dataset-opendal
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+  budgets:
+    max_agent_steps: 80
+    timeout_seconds: 2400
+    setup_timeout_seconds: 1200
+    max_tokens_per_call: 8192
+evaluation:
+  minimum_turns: 1
+  minimum_tool_pairs: 1

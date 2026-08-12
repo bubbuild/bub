@@ -1,0 +1,24 @@
+schema: bub.e2e-case/v1
+id: benchmark-compile-cowsay
+categories: [benchmark, smoke, build, long-horizon]
+dataset:
+  name: compilebench
+  version: "1.0"
+  task_id: cowsay
+  checksum: 6c14463d6eb8c409847e7317d5298fc6ba9ebde7e8fcdf82a90a5d5ac7e7622a
+agent:
+  bub:
+    commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04
+  plugins:
+    - name: bub-acp-server
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+    - name: tape-dataset-opendal
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+  budgets:
+    max_agent_steps: 50
+    timeout_seconds: 1800
+    setup_timeout_seconds: 1200
+    max_tokens_per_call: 8192
+evaluation:
+  minimum_turns: 1
+  minimum_tool_pairs: 1

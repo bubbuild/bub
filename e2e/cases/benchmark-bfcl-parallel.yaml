@@ -1,0 +1,24 @@
+schema: bub.e2e-case/v1
+id: benchmark-bfcl-parallel
+categories: [benchmark, action-selection, structured-output]
+dataset:
+  name: bfcl_parity
+  version: "1.0"
+  task_id: bfcl-parallel-multiple-130
+  checksum: ddab161376869db5dbf4b0ebcf13950441dc11ffbb3236fcd3fe3ac944ea361a
+agent:
+  bub:
+    commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04
+  plugins:
+    - name: bub-acp-server
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+    - name: tape-dataset-opendal
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+  budgets:
+    max_agent_steps: 15
+    timeout_seconds: 600
+    setup_timeout_seconds: 900
+    max_tokens_per_call: 4096
+evaluation:
+  minimum_turns: 1
+  minimum_tool_pairs: 1

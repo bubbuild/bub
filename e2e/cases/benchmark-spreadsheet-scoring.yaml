@@ -1,0 +1,24 @@
+schema: bub.e2e-case/v1
+id: benchmark-spreadsheet-scoring
+categories: [benchmark, artifact, spreadsheet, data-analysis]
+dataset:
+  name: spreadsheetbench-verified
+  version: "1.0"
+  task_id: "42526"
+  checksum: c750679637cbc0e2d2d28058ef4ac24be8483c880c8d2483f57a63eec92e21f2
+agent:
+  bub:
+    commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04
+  plugins:
+    - name: bub-acp-server
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+    - name: tape-dataset-opendal
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+  budgets:
+    max_agent_steps: 60
+    timeout_seconds: 1800
+    setup_timeout_seconds: 1200
+    max_tokens_per_call: 8192
+evaluation:
+  minimum_turns: 1
+  minimum_tool_pairs: 1

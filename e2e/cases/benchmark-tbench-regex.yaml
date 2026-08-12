@@ -1,0 +1,24 @@
+schema: bub.e2e-case/v1
+id: benchmark-tbench-regex
+categories: [benchmark, smoke, terminal, artifact]
+dataset:
+  name: terminal-bench-sample
+  version: "2.0"
+  task_id: regex-log
+  checksum: 4dd947b5c60d968ca75cf67985e95c338d36f2fc5648b21c918a13d8816e148d
+agent:
+  bub:
+    commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04
+  plugins:
+    - name: bub-acp-server
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+    - name: tape-dataset-opendal
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+  budgets:
+    max_agent_steps: 30
+    timeout_seconds: 1200
+    setup_timeout_seconds: 1200
+    max_tokens_per_call: 8192
+evaluation:
+  minimum_turns: 1
+  minimum_tool_pairs: 1

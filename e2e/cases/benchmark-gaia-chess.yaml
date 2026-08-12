@@ -1,0 +1,24 @@
+schema: bub.e2e-case/v1
+id: benchmark-gaia-chess
+categories: [benchmark, general-assistant, multimodal, multi-step]
+dataset:
+  name: gaia
+  version: "1.0"
+  task_id: cca530fc-4052-43b2-b130-b30968d8aa44
+  checksum: f7745e949b535c8b88fef8051dd0ba543190d74b15f62b7761a86ecf1a82dca6
+agent:
+  bub:
+    commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04
+  plugins:
+    - name: bub-acp-server
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+    - name: tape-dataset-opendal
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+  budgets:
+    max_agent_steps: 60
+    timeout_seconds: 1800
+    setup_timeout_seconds: 900
+    max_tokens_per_call: 8192
+evaluation:
+  minimum_turns: 1
+  minimum_tool_pairs: 1
