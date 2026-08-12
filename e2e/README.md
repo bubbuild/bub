@@ -4,19 +4,24 @@ This directory contains Bub's external end-to-end harness. It defines the owners
 
 ## Run it
 
-Prerequisites are Docker with Compose and model credentials supported by Bub. Set `BUB_MODEL` and its provider credentials, then run:
+Prerequisites are Docker or Podman with Compose and model credentials supported by Bub. Set `BUB_MODEL` and its provider credentials, then run:
 
 ```console
 make e2e-check
 make e2e-run
 ```
 
+The runner selects Docker first when both engines are installed. Set `BUB_E2E_ENGINE=podman` to choose Podman explicitly.
+
 `make e2e-run` runs the `acceptance` category and writes evidence to `.bub-e2e/run`. Select cases or categories with `BUB_E2E_IDS` and `BUB_E2E_CATEGORIES`:
 
 ```console
 BUB_E2E_IDS=sqlite make e2e-run
 BUB_E2E_CATEGORIES=observability make e2e-run
+BUB_E2E_CATEGORIES=smoke make e2e-run
 ```
+
+The default `acceptance` suite covers the plugin compatibility contract. The `smoke` suite samples five independent agent capabilities with deterministic upstream verifiers. `benchmark` runs the full selected benchmark set, while `judge` selects the two SWE Atlas workloads that require an evaluator model. See [BENCHMARKS.md](BENCHMARKS.md) for provenance and suite policy.
 
 Phoenix remains available at `http://localhost:6006` after a run. Stop the services and remove their dedicated volumes with `make e2e-down`.
 
@@ -29,7 +34,7 @@ uv run --project e2e bub-e2e rescore .bub-e2e/run/sqlite
 
 ## Goals
 
-The harness should answer three questions:
+The harness answers three questions:
 
 1. Did Bub complete the workload?
 2. How did the agent behave while completing it?
@@ -120,11 +125,11 @@ Tape remains authoritative for Bub behavior, including:
 - plans and model or reasoning-effort changes; and
 - errors recorded by the runtime.
 
-The harness obtains tape as an external artifact. The initial implementation should use the supported `bub tape-export` command so that evaluation is independent of the configured tape-store backend. The export plugin is evidence transport; it does not add observation semantics.
+The harness obtains Tape as an external artifact. It uses the supported `bub tape-export` command for backend-independent evidence and also retains the builtin store's canonical JSONL files as a fallback. The export plugin is evidence transport; it does not add observation semantics.
 
 ### OpenTelemetry and Phoenix
 
-The fixed Compose harness should include Phoenix and configure `bub-tapestore-otel` to send OTLP traces to it. This provides a standard view of agent, step, model, and tool activity and makes failed runs easier to inspect.
+The fixed Compose harness includes Phoenix and configures `bub-tapestore-otel` to send OTLP traces to it. This provides a standard view of agent, step, model, and tool activity and makes failed runs easier to inspect.
 
 Phoenix serves two purposes:
 
@@ -181,7 +186,7 @@ Secrets, provider credentials, endpoint configuration, and output locations rema
 
 ## Evaluation model
 
-The first evaluator should calculate a small, stable set of results.
+The evaluator calculates a small, stable set of results.
 
 ### Assertions
 
@@ -193,7 +198,7 @@ Assertions gate acceptance:
 - expected hook implementations appear in `bub hooks`;
 - the run completed without an unhandled agent exception;
 - the native verifier met the declared reward;
-- the tape export exists and can be parsed;
+- canonical Tape evidence exists and can be parsed, either as a portable export or the builtin JSONL store;
 - the tape contains a terminal record for the run; and
 - declared step, token, and time budgets were not exceeded.
 
@@ -217,7 +222,7 @@ Missing provider usage is reported as unavailable, not as zero.
 
 ### Acceptance
 
-The initial acceptance rule is deliberately direct:
+The acceptance rule is deliberately direct:
 
 ```text
 accepted =
@@ -229,23 +234,23 @@ accepted =
   AND plugin-specific assertions pass
 ```
 
-There is no aggregate quality score in the first version. An optional LLM judge can be added later for workloads whose outcome cannot be verified deterministically.
+The harness does not invent an aggregate quality score. `summary.json` reports pass rate and operational totals, while every case retains the native verifier reward. Cases whose upstream benchmark requires an LLM judge are labeled `judge` and kept out of `smoke`.
 
-## Initial plugin compatibility coverage
+## Plugin compatibility coverage
 
-The harness should begin with tape-store plugins because they affect Bub's canonical execution record. Each case installs plugins through `bub install` and runs the same `tape-continuity` Harbor workload.
+The first compatibility matrix covers tape-store plugins because they affect Bub's canonical execution record. Each case installs plugins through `bub install` and runs the same `tape-continuity` Harbor workload.
 
 ### Tape continuity workload
 
-The workload should exercise only public Bub behavior:
+The workload exercises only public Bub behavior:
 
 1. Run an ordinary multi-step task that invokes at least one tool.
-2. Continue in the same ACP session and use information from the earlier turn.
+2. Continue from the persisted workspace in a second Harbor step.
 3. Create or exercise a normal tape anchor or handoff.
-4. Run `bub tape-export` after the agent finishes.
+4. Collect canonical Tape evidence after the agent finishes.
 5. Verify the task workspace independently through Harbor.
 
-The evaluator checks that the exported tape contains the expected conversation, tool call/result pairing, completed run records, and anchor-derived segment. It compares semantic invariants rather than backend-specific files or identifiers.
+The evaluator checks that Tape contains the expected conversation, tool call/result pairing, completed run records, and anchor-derived segment. It compares semantic invariants rather than backend-specific files or identifiers.
 
 ### First matrix
 
@@ -285,7 +290,7 @@ Persistence across a complete Bub process restart is valuable, but it should be 
 
 ## Output layout
 
-The harness should preserve upstream artifacts rather than copying them into a new event schema:
+The harness preserves upstream artifacts rather than copying them into a new event schema:
 
 ```text
 <output>/<case-id>/
@@ -294,6 +299,8 @@ The harness should preserve upstream artifacts rather than copying them into a n
   report.md
   harbor-jobs/        # Harbor, ACP, task workspace, and exported Tape artifacts
   phoenix/            # only when telemetry is enabled
+<output>/summary.json
+<output>/summary.md
 ```
 
 `run.json` records resolved versions, checksums, environment labels, timestamps, and artifact fingerprints. `eval-report.json` contains assertions and metrics derived from the other directories. Offline rescoring reads the same directory and rewrites only the reports.
@@ -321,23 +328,17 @@ e2e/
 
 `bub_e2e` depends on Harbor and ordinary data-processing libraries only. It invokes `bub`, `bub install`, and `bub tape-export` as external commands.
 
-## Extension stages
+## Coverage layers
 
-### Reproducible execution
+The harness is organized into independently selectable layers:
 
-The case model, installation contract, Harbor runner, artifact layout, offline rescore command, and builtin file-store acceptance case form the base harness.
+1. `acceptance` verifies the installed Bub product and the first tape-store plugin matrix.
+2. `observability` verifies OTel projection and Phoenix ingestion without making telemetry the source of truth.
+3. `smoke` runs five deterministic upstream tasks covering action selection, terminal work, spreadsheet artifacts, cross-file reasoning, and build execution.
+4. `benchmark` adds the second representative case in each capability family and the two repository-engineering cases.
+5. `judge` isolates workloads whose upstream verifier intentionally uses an evaluator model.
 
-### Tape-store compatibility
-
-The same workload and evaluator run against SQLite, SQLAlchemy-backed SQLite, and Redis. Backend-specific code is limited to environment and service configuration.
-
-### Observability composition
-
-`bub-tapestore-otel`, Phoenix, and two decorator-composition cases keep Tape as the evaluation source and use Phoenix to verify and inspect the projection.
-
-### Agent behavior coverage
-
-Add context-overflow recovery, handoff, steering, and selected plugin combinations after the tape-store contract is stable. Each new test must express user-visible behavior or preserve a demonstrated regression.
+New cases must express user-visible behavior or preserve a demonstrated regression. A benchmark name alone is not sufficient: the selected task must have a stable identifier, a pinned dataset revision, a recorded checksum, and an evaluator whose limits are documented.
 
 ## Test policy
 
@@ -347,7 +348,7 @@ Do not add tests that pin helper calls, command assembly internals, private Harb
 
 ## Non-goals
 
-The first harness does not:
+The harness does not:
 
 - replace Harbor's task or verifier model;
 - implement another ACP client or Bub runner;
