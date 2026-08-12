@@ -200,7 +200,10 @@ class ModelRunner:
                 tool_invocations = [tool_invocation_from_native(tool_call, tool_map) for tool_call in tool_calls]
                 yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
                 context = ToolContext(tape=tape, run_id=run_id, state=tape.context.state)
-                execution = await ToolExecutor(hooks=self.hooks).execute_async(
+                execution = await ToolExecutor(
+                    hooks=self.hooks,
+                    spill_threshold=self.settings.tool_spill_threshold,
+                ).execute_async(
                     tool_invocations,
                     context=context,
                 )

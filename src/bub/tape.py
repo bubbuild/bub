@@ -219,6 +219,11 @@ class Tape:
 
         return TapeQuery(tape=self.name, store=self.store)
 
+    def _sidecar_names(self) -> tuple[str, ...]:
+        from bub.builtin.spill import spill_tape_name
+
+        return (spill_tape_name(self.name),)
+
     async def info(self) -> TapeInfo:
         entries = list(await self.store.fetch_all(self.query()))
         anchors = [(i, entry) for i, entry in enumerate(entries) if entry.kind == "anchor"]
@@ -286,7 +291,8 @@ class Tape:
     async def read_messages(self) -> list[dict[str, Any]]:
         query = self.context.build_query(self.query())
         entries = await self.store.fetch_all(query)
-        messages = build_messages(entries, self.context)
+        context_entries = (entry for entry in entries if entry.meta.get("context") is not False)
+        messages = build_messages(context_entries, self.context)
         if inspect.isawaitable(messages):
             messages = await messages
         return messages
@@ -362,25 +368,112 @@ class Tape:
             return payload if isinstance(payload, dict) else None
         return None
 
-    async def _archive(self) -> Path:
-        tape_name = self.name
-        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    async def _archive_tape(self, tape_name: str, stamp: str) -> Path:
+        from bub.store import TapeQuery
+
         self.archive_path.mkdir(parents=True, exist_ok=True)
         archive_path = self.archive_path / f"{tape_name}.jsonl.{stamp}.bak"
         with archive_path.open("w", encoding="utf-8") as f:
-            for entry in await self.store.fetch_all(self.query()):
+            query = TapeQuery(tape=tape_name, store=self.store)
+            for entry in await self.store.fetch_all(query):
                 f.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
         return archive_path
 
+    @staticmethod
+    def _spill_lifecycle_data(
+        *,
+        status: str,
+        reason: str,
+        archive_path: Path | None = None,
+        error: Exception | None = None,
+        cause: str | None = None,
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {"status": status, "reason": reason}
+        if archive_path is not None:
+            data["archive"] = str(archive_path)
+        if error is not None:
+            data["error"] = str(error)
+        if cause is not None:
+            data["cause"] = cause
+        return data
+
+    async def _try_archive_spill(self, *, reason: str, stamp: str | None = None) -> tuple[Path | None, dict[str, Any]]:
+        from bub.builtin.spill import spill_tape_name
+
+        archive_stamp = stamp or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        try:
+            archive_path = await self._archive_tape(spill_tape_name(self.name), archive_stamp)
+        except Exception as exc:
+            return None, self._spill_lifecycle_data(status="error", reason=reason, error=exc)
+        return archive_path, self._spill_lifecycle_data(status="ok", reason=reason, archive_path=archive_path)
+
+    async def _try_reset_spill(self, *, reason: str) -> dict[str, Any]:
+        from bub.builtin.spill import spill_tape_name
+
+        try:
+            await self.store.reset(spill_tape_name(self.name))
+        except Exception as exc:
+            return self._spill_lifecycle_data(status="error", reason=reason, error=exc)
+        return self._spill_lifecycle_data(status="ok", reason=reason)
+
+    async def archive_spill(self, *, reason: str = "manual") -> str:
+        """Archive the spill sidecar without resetting the main tape."""
+        archive_path, event_data = await self._try_archive_spill(reason=reason)
+        await self.append_event("spill.archive", event_data, context=False)
+        return (
+            f"Archived spill: {archive_path}"
+            if archive_path is not None
+            else f"Spill archive failed: {event_data['error']}"
+        )
+
+    async def reset_spill(self, *, archive: bool = False, reason: str = "gc") -> str:
+        """Reset the spill sidecar and record the outcome on the main tape."""
+        archive_path: Path | None = None
+        archive_data: dict[str, Any] | None = None
+        if archive:
+            archive_path, archive_data = await self._try_archive_spill(reason=reason)
+
+        if archive_data is not None and archive_data["status"] == "error":
+            reset_data = self._spill_lifecycle_data(
+                status="skipped",
+                reason=reason,
+                cause="archive_failed",
+            )
+        else:
+            reset_data = await self._try_reset_spill(reason=reason)
+        if archive_data is not None:
+            await self.append_event("spill.archive", archive_data, context=False)
+        await self.append_event("spill.reset", reset_data, context=False)
+
+        if reset_data["status"] == "error":
+            return f"Spill reset failed: {reset_data['error']}"
+        if reset_data["status"] == "skipped" and archive_data is not None:
+            return f"Spill archive failed: {archive_data['error']}; spill reset skipped"
+        return f"Archived spill: {archive_path}" if archive_path is not None else "ok"
+
     async def reset(self, *, archive: bool = False) -> str:
         archive_path: Path | None = None
+        spill_archive_data: dict[str, Any] | None = None
         if archive:
-            archive_path = await self._archive()
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            archive_path = await self._archive_tape(self.name, stamp)
+            _, spill_archive_data = await self._try_archive_spill(reason="tape.reset", stamp=stamp)
         await self.store.reset(self.name)
         state = {"owner": "human"}
         if archive_path is not None:
             state["archived"] = str(archive_path)
         await self.handoff(name="session/start", state=state)
+        if spill_archive_data is not None and spill_archive_data["status"] == "error":
+            spill_reset_data = self._spill_lifecycle_data(
+                status="skipped",
+                reason="tape.reset",
+                cause="archive_failed",
+            )
+        else:
+            spill_reset_data = await self._try_reset_spill(reason="tape.reset")
+        if spill_archive_data is not None:
+            await self.append_event("spill.archive", spill_archive_data, context=False)
+        await self.append_event("spill.reset", spill_reset_data, context=False)
         return f"Archived: {archive_path}" if archive_path else "ok"
 
     def session_tape(self, session_id: str, workspace: Path, context: TapeContext | None = None) -> Tape:
@@ -391,10 +484,11 @@ class Tape:
         return self.scoped(tape_name, context=context)
 
     @contextlib.asynccontextmanager
-    async def fork_tape(self, merge_back: bool = True) -> AsyncGenerator[Tape, None]:
+    async def fork_tape(self, merge_back: bool = True, *, sidecars: Iterable[str] = ()) -> AsyncGenerator[Tape, None]:
         from bub.store import ForkTapeStore
 
-        fork_store = ForkTapeStore(self.store, self.name)
+        managed_sidecars = tuple(dict.fromkeys((*sidecars, *self._sidecar_names())))
+        fork_store = ForkTapeStore(self.store, self.name, sidecars=managed_sidecars)
         forked = replace(self, store=fork_store)
         try:
             yield forked

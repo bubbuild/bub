@@ -134,6 +134,11 @@ def test_settings_client_args_can_be_disabled() -> None:
     assert settings.completion_args == {}
 
 
+def test_tool_spill_threshold_can_be_configured_or_disabled() -> None:
+    assert _settings_with_env({"BUB_TOOL_SPILL_THRESHOLD": "64"}).tool_spill_threshold == 64
+    assert _settings_with_env({"BUB_TOOL_SPILL_THRESHOLD": "0"}).tool_spill_threshold == 0
+
+
 def test_load_settings_returns_defaults_without_loaded_config() -> None:
     with patch.dict(os.environ, {}, clear=True):
         settings = load_settings()

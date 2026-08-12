@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Protocol, overload
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
+from bub.builtin.spill import SpillStore
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import ToolCall, ToolCallResult
 from bub.tape import Tape
@@ -187,8 +188,9 @@ async def _await_report(report: Awaitable[None] | None) -> None:
 class ToolExecutor:
     """Execute already-resolved Bub tool invocations."""
 
-    def __init__(self, hooks: AgentHooks | None = None) -> None:
+    def __init__(self, hooks: AgentHooks | None = None, *, spill_threshold: int = 0) -> None:
         self._hooks = hooks
+        self._spill_threshold = spill_threshold
 
     async def execute_async(
         self,
@@ -247,7 +249,8 @@ class ToolExecutor:
         if self._hooks is not None:
             call, short_circuit = await self._apply_before_tool_call(call, hook_state, started)
             if short_circuit is not None:
-                return short_circuit()
+                result = short_circuit()
+                return await self._maybe_spill_result(call, result, context)
 
         try:
             result = await self._invoke_normalized(tool_obj, call, context)
@@ -256,7 +259,18 @@ class ToolExecutor:
             raise
         else:
             await self._fire_after_tool_call(call, hook_state, started, result=result)
+            return await self._maybe_spill_result(call, result, context)
+
+    async def _maybe_spill_result(self, call: ToolCall, result: Any, context: ToolContext | None) -> Any:
+        if context is None or not isinstance(result, str):
             return result
+        spill = SpillStore(context.tape.store, context.tape.name)
+        return await spill.maybe_spill(
+            result,
+            tool=call.tool,
+            run_id=call.run_id,
+            threshold=self._spill_threshold,
+        )
 
     async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:
         """Run the tool with errors normalized to BubError."""

@@ -99,3 +99,24 @@ async def test_reset_for_unbound_tape_resets_parent_immediately() -> None:
 
     entries = parent.read("test-tape")
     assert entries is None
+
+
+@pytest.mark.asyncio
+async def test_sidecar_merge_failure_records_event_and_still_merges_main_tape() -> None:
+    class BrokenSidecarStore(InMemoryTapeStore):
+        def append(self, tape: str, entry: TapeEntry) -> None:
+            if tape == "session__spill":
+                raise OSError("sidecar unavailable")
+            super().append(tape, entry)
+
+    parent = BrokenSidecarStore()
+    store = ForkTapeStore(AsyncTapeStoreAdapter(parent), "session", sidecars=("session__spill",))
+    await store.append("session__spill", TapeEntry.tool_result(["full output"]))
+    await store.append("session", TapeEntry.tool_result(["ref"]))
+
+    await store.merge_back()
+
+    entries = parent.read("session") or []
+    assert any(entry.kind == "tool_result" and entry.payload["results"] == ["ref"] for entry in entries)
+    merge_event = next(entry for entry in entries if entry.payload.get("name") == "sidecar.merge")
+    assert merge_event.payload["data"]["status"] == "error"

@@ -281,40 +281,46 @@ class UnavailableTapeStore:
 
 
 class ForkTapeStore:
-    def __init__(self, parent: AsyncTapeStore, tape: str) -> None:
+    def __init__(self, parent: AsyncTapeStore, tape: str, *, sidecars: Iterable[str] = ()) -> None:
         self._parent = parent
         self._store = InMemoryTapeStore()
         self._tape = tape
-        self._tape_was_reset = False
+        self._sidecars = tuple(dict.fromkeys(sidecars))
+        self._managed_tapes = {tape, *self._sidecars}
+        self._reset_tapes: set[str] = set()
 
     async def list_tapes(self) -> list[str]:
         return await self._parent.list_tapes()
 
     async def reset(self, tape: str) -> None:
-        if tape != self._tape:
+        if tape not in self._managed_tapes:
             await self._parent.reset(tape)
             return
         self._store.reset(tape)
-        self._tape_was_reset = True
+        self._reset_tapes.add(tape)
 
     async def fetch_all(self, query: TapeQuery[AsyncTapeStore]) -> Iterable[TapeEntry]:
+        if query.tape not in self._managed_tapes:
+            return await self._parent.fetch_all(query)
+
         parent_entries: Iterable[TapeEntry] = []
-        if not (query.tape == self._tape and self._tape_was_reset):
+        if query.tape not in self._reset_tapes:
             try:
                 parent_entries = await self._parent.fetch_all(query)
             except Exception:
                 parent_entries = []
         this_entries: list[TapeEntry] = []
         for entry in self._store.read(query.tape) or []:
-            if query._kinds and entry.kind not in query._kinds:
-                continue
             if entry.kind == "anchor":  # noqa: SIM102
                 if query._after_last or (query._after_anchor and entry.payload.get("name") == query._after_anchor):
                     this_entries.clear()
                     parent_entries = []
                     continue
+            if query._kinds and entry.kind not in query._kinds:
+                continue
             this_entries.append(entry)
-        return itertools.chain(parent_entries, this_entries)
+        entries = itertools.chain(parent_entries, this_entries)
+        return itertools.islice(entries, query._limit) if query._limit is not None else entries
 
     @staticmethod
     def _redact_prompt(prompt: list[dict]) -> Any:
@@ -335,18 +341,41 @@ class ForkTapeStore:
 
     async def append(self, tape: str, entry: TapeEntry) -> None:
         self._redact_payload(entry.payload)
+        if tape not in self._managed_tapes:
+            await self._parent.append(tape, entry)
+            return
         self._store.append(tape, entry)
 
     async def merge_back(self) -> None:
-        if self._tape_was_reset:
+        total = 0
+        for sidecar in self._sidecars:
+            entries = self._store.read(sidecar) or []
+            try:
+                if sidecar in self._reset_tapes:
+                    await self._parent.reset(sidecar)
+                for entry in entries:
+                    await self._parent.append(sidecar, entry)
+            except Exception as exc:
+                logger.warning('Failed to merge sidecar "{}" into tape "{}": {}', sidecar, self._tape, exc)
+                self._store.append(
+                    self._tape,
+                    TapeEntry.event(
+                        "sidecar.merge",
+                        {"name": sidecar, "status": "error", "error": str(exc)},
+                        context=False,
+                    ),
+                )
+            else:
+                total += len(entries)
+
+        if self._tape in self._reset_tapes:
             await self._parent.reset(self._tape)
-        entries = self._store.read(self._tape)
-        if not entries:
-            return
-        count = len(entries)
+        entries = self._store.read(self._tape) or []
         for entry in entries:
             await self._parent.append(self._tape, entry)
-        logger.info(f'Merged {count} entries into tape "{self._tape}"')
+        total += len(entries)
+        if total:
+            logger.info('Merged {} entries into tape fork "{}"', total, self._tape)
 
 
 class FileTapeStore(InMemoryQueryMixin):
@@ -430,13 +459,7 @@ class FileTapeStore(InMemoryQueryMixin):
         return self._tape_files[tape]
 
     def list_tapes(self) -> list[str]:
-        result: list[str] = []
-        for file in self._directory.glob("*.jsonl"):
-            filename = file.stem
-            if filename.count("__") != 1:
-                continue
-            result.append(filename)
-        return result
+        return sorted(file.stem for file in self._directory.glob("*.jsonl"))
 
     def reset(self, tape: str) -> None:
         self._tape_file(tape).reset()

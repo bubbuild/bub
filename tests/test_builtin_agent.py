@@ -108,7 +108,7 @@ class _FakeTape:
         pass
 
     @contextlib.asynccontextmanager
-    async def fork_tape(self, merge_back: bool = True) -> AsyncGenerator[_FakeTape, None]:
+    async def fork_tape(self, merge_back: bool = True, *, sidecars: Any = ()) -> AsyncGenerator[_FakeTape, None]:
         async with self._fork.fork_tape(self.name, merge_back=merge_back):
             yield self
 

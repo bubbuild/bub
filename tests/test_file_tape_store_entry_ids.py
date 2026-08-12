@@ -21,3 +21,11 @@ async def test_file_tape_store_assigns_monotonic_ids_when_merging_forked_entries
     entries = parent.read("tape") or []
     assert [entry.id for entry in entries] == [1, 2]
     assert [entry.payload.get("name") for entry in entries] == ["first", "second"]
+
+
+def test_file_tape_store_lists_main_and_sidecar_tapes(tmp_path) -> None:
+    store = FileTapeStore(directory=tmp_path)
+    store.append("session__id", TapeEntry.event(name="main"))
+    store.append("session__id__spill", TapeEntry.event(name="spill"))
+
+    assert store.list_tapes() == ["session__id", "session__id__spill"]
