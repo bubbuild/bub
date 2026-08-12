@@ -6,6 +6,7 @@ from pathlib import Path
 
 from bub_e2e.evaluate import evaluate_run
 from bub_e2e.models import HarborObservation, RunArtifact, RunEnvironment, load_cases
+from bub_e2e.runner import _dataset_config
 
 
 def test_complete_upstream_evidence_passes_acceptance(tmp_path: Path) -> None:
@@ -61,6 +62,17 @@ def test_complete_upstream_evidence_passes_acceptance(tmp_path: Path) -> None:
     assert report.metrics["agent_turns"] == 2
     assert report.metrics["tool_calls"] == 2
     assert report.metrics["total_tokens"] == 220
+
+
+def test_package_dataset_uses_declared_revision() -> None:
+    e2e_root = Path(__file__).parents[1]
+    case = load_cases(e2e_root / "cases" / "benchmark-swe-atlas-qna.yaml")[0]
+
+    config = _dataset_config(case, e2e_root.parent)
+
+    assert config.ref == "1.0"
+    assert config.version is None
+    assert config.task_names == ["scale-ai/task-6905333b74f22949d97ba9c8"]
 
 
 def _entry(kind: str, payload: dict[str, object]) -> dict[str, object]:

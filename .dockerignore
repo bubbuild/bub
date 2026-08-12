@@ -1,0 +1,13 @@
+.git
+.bub-e2e
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.venv
+**/__pycache__
+**/.mypy_cache
+**/.pytest_cache
+**/.ruff_cache
+**/.venv
+website/dist
+website/node_modules

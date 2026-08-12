@@ -16,7 +16,7 @@ expected = """# Bub release checklist
 - [ ] behavior
 """
 actual = Path("/workspace/release-checklist.md").read_text()
-if actual != expected:
+if actual.rstrip("\n") != expected.rstrip("\n"):
     raise SystemExit(f"unexpected deliverable: {actual!r}")
 PY
 

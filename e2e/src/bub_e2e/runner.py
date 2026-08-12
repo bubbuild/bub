@@ -26,7 +26,7 @@ from .models import (
     RunEnvironment,
     fingerprint,
 )
-from .report import write_reports
+from .report import write_reports, write_suite_report
 from .settings import HarnessSettings
 
 FORWARDED_ENVIRONMENT = (
@@ -36,11 +36,19 @@ FORWARDED_ENVIRONMENT = (
     "BUB_CLIENT_ARGS",
     "BUB_MODEL",
     "DEEPSEEK_API_KEY",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
     "OPENROUTER_API_KEY",
     "OPENROUTER_APP_TITLE",
     "OPENROUTER_APP_URL",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
 )
 
 
@@ -56,8 +64,9 @@ async def run_cases(
         run = await run_case(case, output_dir=case_dir, settings=settings)
         report = evaluate_run(run, case_dir)
         write_reports(run, report, case_dir)
-        results.append(report.accepted)
-    return all(results)
+        results.append((run, report))
+    write_suite_report(results, output_dir)
+    return all(report.accepted for _, report in results)
 
 
 async def run_case(case: CaseManifest, *, output_dir: Path, settings: HarnessSettings) -> RunArtifact:
@@ -159,6 +168,8 @@ def _dataset_config(case: CaseManifest, repository: Path) -> DatasetConfig:
     dataset = case.dataset
     if dataset.path is not None:
         return DatasetConfig(path=repository / dataset.path, task_names=[dataset.task_id])
+    if dataset.name is not None and "/" in dataset.name:
+        return DatasetConfig(name=dataset.name, ref=dataset.version, task_names=[dataset.task_id])
     return DatasetConfig(name=dataset.name, version=dataset.version, task_names=[dataset.task_id])
 
 

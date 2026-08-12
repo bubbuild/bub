@@ -149,3 +149,6 @@ reference/
 backup/
 _version.py
 !website/src/lib/
+
+# Local end-to-end evidence and container state
+.bub-e2e/

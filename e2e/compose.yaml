@@ -2,7 +2,7 @@ name: bub-e2e
 
 services:
   redis:
-    image: redis:7.4.5-alpine
+    image: docker.io/library/redis:7.4.5-alpine
     healthcheck:
       test: [CMD, redis-cli, ping]
       interval: 2s
@@ -12,7 +12,7 @@ services:
       - redis-data:/data
 
   phoenix:
-    image: arizephoenix/phoenix:version-13.15.0
+    image: docker.io/arizephoenix/phoenix:version-13.15.0
     ports:
       - "${BUB_E2E_PHOENIX_PORT:-6006}:6006"
     environment:
@@ -41,12 +41,22 @@ services:
       - BUB_MODEL
       - CODEX_HOME=/codex
       - DEEPSEEK_API_KEY
+      - EVAL_MODEL
       - GITHUB_SHA
+      - HTTP_PROXY=${BUB_E2E_CONTAINER_HTTP_PROXY:-}
+      - HTTPS_PROXY=${BUB_E2E_CONTAINER_HTTPS_PROXY:-}
+      - ALL_PROXY=${BUB_E2E_CONTAINER_ALL_PROXY:-}
+      - NO_PROXY=localhost,127.0.0.1,redis,phoenix,host-gateway
       - OPENAI_API_KEY
+      - OPENAI_API_BASE
       - OPENAI_BASE_URL
       - OPENROUTER_API_KEY
       - OPENROUTER_APP_TITLE
       - OPENROUTER_APP_URL
+      - http_proxy=${BUB_E2E_CONTAINER_HTTP_PROXY:-}
+      - https_proxy=${BUB_E2E_CONTAINER_HTTPS_PROXY:-}
+      - all_proxy=${BUB_E2E_CONTAINER_ALL_PROXY:-}
+      - no_proxy=localhost,127.0.0.1,redis,phoenix,host-gateway
     volumes:
       - ${BUB_E2E_OUTPUT}:/evidence
       - ${BUB_E2E_CODEX_AUTH:-/dev/null}:/codex/auth.json:ro

@@ -4,7 +4,7 @@ categories: [acceptance, observability, compatibility]
 dataset:
   path: e2e/harbor-tasks
   task_id: tape-continuity
-  checksum: d9f7c7c41b70139b03406223e9ec878dceb1b3f0fbe77c31a77503fcac6f4b4c
+  checksum: 8d52e2d6d33b2786c94b9840a8bc6e3b89c4a77696df98122ec109ee3083f5fa
 agent:
   bub:
     commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04

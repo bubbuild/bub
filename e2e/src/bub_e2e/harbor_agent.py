@@ -52,6 +52,7 @@ class BubAcpAgent(harbor_acp.AcpAgent):
             command=self._build_dependencies_command("uvx"),
             env={"DEBIAN_FRONTEND": "noninteractive"},
         )
+        await self.exec_as_root(environment, command=_install_git_command())
         await self.exec_as_root(environment, command=_install_bub_command(self._bub))
         await self.exec_as_root(environment, command=_install_plugins_command(self._plugins))
 
@@ -82,6 +83,20 @@ def _agent_version(bub: BubDistribution) -> str:
 
 def _tool_environment() -> str:
     return f"UV_TOOL_BIN_DIR={shlex.quote(REMOTE_BIN_DIR)} UV_TOOL_DIR={shlex.quote(REMOTE_TOOL_DIR)}"
+
+
+def _install_git_command() -> str:
+    return """set -eu
+if command -v apt-get >/dev/null 2>&1; then
+    apt-get install --yes --no-install-recommends git
+elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache git
+elif command -v yum >/dev/null 2>&1; then
+    yum install --assumeyes git
+else
+    echo "Unsupported package manager for Bub source installation" >&2
+    exit 1
+fi"""
 
 
 def _runtime_environment() -> str:
@@ -121,6 +136,8 @@ bub_bin=$(dirname "$(readlink -f {REMOTE_BIN_DIR}/bub)")
 collect_bub_artifacts() {{
     set +e
     mkdir -p /logs/agent
+    mkdir -p /logs/agent/raw-tapes
+    cp -R "{REMOTE_BUB_HOME}/tapes/." /logs/agent/raw-tapes/ 2>/dev/null
     "$bub_bin/bub" hooks > /logs/agent/bub-hooks.txt 2>&1
     hooks_status=$?
     "$bub_bin/bub" tape-export \

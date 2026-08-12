@@ -15,7 +15,7 @@ class ArtifactError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class TapeSummary:
-    exports: int
+    snapshots: int
     tapes: int
     entries: int
     segments: int
@@ -38,9 +38,10 @@ class TapeSummary:
 
 def summarize_tapes(output_dir: Path) -> TapeSummary:
     manifests = sorted(output_dir.rglob("tape-dataset/manifest.json"))
-    if not manifests:
+    raw_snapshots = _raw_snapshots(output_dir) if not manifests else []
+    if not manifests and not raw_snapshots:
         return TapeSummary(
-            exports=0,
+            snapshots=0,
             tapes=0,
             entries=0,
             segments=0,
@@ -57,7 +58,15 @@ def summarize_tapes(output_dir: Path) -> TapeSummary:
             cached_tokens=None,
         )
 
-    entries = [entry for manifest in manifests for entry in _entries_for_export(manifest.parent)]
+    if manifests:
+        snapshot = max(manifests, key=lambda path: _manifest_count(path, "entry_count"))
+        entries = _entries_for_export(snapshot.parent)
+        snapshots = len(manifests)
+        segments = _manifest_count(snapshot, "segment_count")
+    else:
+        entries = max(raw_snapshots, key=len)
+        snapshots = len(raw_snapshots)
+        segments = _segment_count(entries)
     tape_names = {str(row.get("tape", "")) for row in entries if row.get("tape")}
     tape_entries = [row["entry"] for row in entries]
 
@@ -75,10 +84,10 @@ def summarize_tapes(output_dir: Path) -> TapeSummary:
     cached_tokens = _sum_nested_optional_int(usages, "prompt_tokens_details", "cached_tokens")
 
     return TapeSummary(
-        exports=len(manifests),
+        snapshots=snapshots,
         tapes=len(tape_names),
         entries=len(tape_entries),
-        segments=sum(_manifest_count(path, "segment_count") for path in manifests),
+        segments=segments,
         turns=sum(1 for _ in _events_named(tape_entries, "loop.start")),
         steps=sum(1 for _ in _events_named(tape_entries, "loop.step")),
         model_calls=len(run_events),
@@ -130,6 +139,35 @@ def _entries_for_export(export_dir: Path) -> list[dict[str, Any]]:
             raise ArtifactError(f"Invalid tape entry shape at {entries_path}:{line_number}")
         rows.append(row)
     return rows
+
+
+def _raw_snapshots(output_dir: Path) -> list[list[dict[str, Any]]]:
+    snapshots: list[list[dict[str, Any]]] = []
+    for directory in sorted(path for path in output_dir.rglob("raw-tapes") if path.is_dir()):
+        rows: list[dict[str, Any]] = []
+        for tape_path in sorted(directory.glob("*.jsonl")):
+            for line_number, line in enumerate(tape_path.read_text(encoding="utf-8").splitlines(), start=1):
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ArtifactError(f"Invalid tape entry at {tape_path}:{line_number}: {exc}") from exc
+                if not isinstance(entry, dict):
+                    raise ArtifactError(f"Invalid tape entry shape at {tape_path}:{line_number}")
+                rows.append({"tape": tape_path.stem, "entry": entry})
+        if rows:
+            snapshots.append(rows)
+    return snapshots
+
+
+def _segment_count(entries: list[dict[str, Any]]) -> int:
+    by_tape: dict[str, list[dict[str, Any]]] = {}
+    for row in entries:
+        entry = row.get("entry")
+        if isinstance(entry, dict):
+            by_tape.setdefault(str(row.get("tape", "")), []).append(entry)
+    return sum(max(1, sum(entry.get("kind") == "anchor" for entry in tape)) for tape in by_tape.values())
 
 
 def _events_named(entries: Iterable[dict[str, Any]], name: str) -> Iterable[dict[str, Any]]:

@@ -1,0 +1,6 @@
+services:
+  harness:
+    network_mode: slirp4netns:allow_host_loopback=true
+    environment:
+      - BUB_E2E_BRIDGE_SERVICES=false
+      - BUB_E2E_PHOENIX_URL=http://10.0.2.2:6006

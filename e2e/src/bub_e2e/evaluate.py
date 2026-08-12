@@ -27,7 +27,7 @@ def evaluate_run(run: RunArtifact, output_dir: Path) -> EvaluationReport:
     budgets = run.case.agent.budgets
     evaluation = run.case.evaluation
 
-    has_tape = tape is not None and tape.exports > 0
+    has_tape = tape is not None and tape.snapshots > 0
     token_budget_passed = budgets.max_total_tokens is None or (
         tape is not None and tape.total_tokens is not None and tape.total_tokens <= budgets.max_total_tokens
     )
@@ -64,9 +64,9 @@ def evaluate_run(run: RunArtifact, output_dir: Path) -> EvaluationReport:
             value=observed_reward >= evaluation.required_reward,
             reason=f"Observed {observed_reward}; required {evaluation.required_reward}.",
         ),
-        "tape_export_valid": EvaluationValue(
+        "tape_evidence_valid": EvaluationValue(
             value=has_tape,
-            reason=tape_error or (None if has_tape else "No tape export was found."),
+            reason=tape_error or (None if has_tape else "No canonical tape evidence was found."),
         ),
         "tape_run_completed": EvaluationValue(
             value=bool(tape and tape.terminal_runs >= evaluation.minimum_turns),
@@ -111,7 +111,7 @@ def evaluate_run(run: RunArtifact, output_dir: Path) -> EvaluationReport:
         metrics={
             "wall_time_seconds": elapsed_seconds,
             "harbor_reward": observed_reward,
-            "tape_exports": tape.exports if tape else 0,
+            "tape_snapshots": tape.snapshots if tape else 0,
             "tapes": tape.tapes if tape else 0,
             "tape_entries": tape.entries if tape else 0,
             "tape_segments": tape.segments if tape else 0,

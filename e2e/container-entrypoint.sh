@@ -11,14 +11,22 @@ is_loopback_proxy() {
     esac
 }
 
-if is_loopback_proxy "${HTTP_PROXY:-}"; then unset HTTP_PROXY; fi
-if is_loopback_proxy "${HTTPS_PROXY:-}"; then unset HTTPS_PROXY; fi
-if is_loopback_proxy "${ALL_PROXY:-}"; then unset ALL_PROXY; fi
-if is_loopback_proxy "${http_proxy:-}"; then unset http_proxy; fi
-if is_loopback_proxy "${https_proxy:-}"; then unset https_proxy; fi
-if is_loopback_proxy "${all_proxy:-}"; then unset all_proxy; fi
+bridge_proxy() {
+    proxy_url=$1
+    listen_port=$2
+    proxy_address=${proxy_url#*://}
+    proxy_address=${proxy_address%%/*}
+    proxy_host=${proxy_address%:*}
+    proxy_port=${proxy_address##*:}
+    socat "TCP-LISTEN:$listen_port,bind=0.0.0.0,fork,reuseaddr" "TCP:$proxy_host:$proxy_port" \
+        >/dev/null 2>&1 &
+}
 
-dockerd \
+daemon_http_proxy=${HTTP_PROXY:-${http_proxy:-}}
+daemon_https_proxy=${HTTPS_PROXY:-${https_proxy:-}}
+daemon_all_proxy=${ALL_PROXY:-${all_proxy:-}}
+
+HTTP_PROXY=$daemon_http_proxy HTTPS_PROXY=$daemon_https_proxy ALL_PROXY=$daemon_all_proxy dockerd \
     --host=unix:///var/run/docker.sock \
     --storage-driver="$storage_driver" \
     --log-level=error \
@@ -35,7 +43,29 @@ until docker info >/dev/null 2>&1; do
     sleep 1
 done
 
-socat TCP-LISTEN:6379,bind=0.0.0.0,fork,reuseaddr TCP:redis:6379 &
-socat TCP-LISTEN:6006,bind=0.0.0.0,fork,reuseaddr TCP:phoenix:6006 &
+docker_gateway=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+
+if [ -n "$daemon_http_proxy" ]; then
+    bridge_proxy "$daemon_http_proxy" 18080
+    proxy_scheme=${daemon_http_proxy%%://*}
+    HTTP_PROXY="$proxy_scheme://$docker_gateway:18080"
+    http_proxy=$HTTP_PROXY
+    export HTTP_PROXY http_proxy
+fi
+if [ -n "$daemon_https_proxy" ]; then
+    bridge_proxy "$daemon_https_proxy" 18081
+    proxy_scheme=${daemon_https_proxy%%://*}
+    HTTPS_PROXY="$proxy_scheme://$docker_gateway:18081"
+    https_proxy=$HTTPS_PROXY
+    export HTTPS_PROXY https_proxy
+fi
+if is_loopback_proxy "$daemon_all_proxy"; then
+    unset ALL_PROXY all_proxy
+fi
+
+if [ "${BUB_E2E_BRIDGE_SERVICES:-true}" = true ]; then
+    socat TCP-LISTEN:6379,bind=0.0.0.0,fork,reuseaddr TCP:redis:6379 &
+    socat TCP-LISTEN:6006,bind=0.0.0.0,fork,reuseaddr TCP:phoenix:6006 &
+fi
 
 exec bub-e2e "$@"
