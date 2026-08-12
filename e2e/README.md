@@ -1,8 +1,31 @@
 # Bub end-to-end harness
 
-## Status
+This directory contains Bub's external end-to-end harness. It defines the ownership boundaries, evidence sources, metrics, and first plugin compatibility workloads. It does not define a second Bub runtime or a new observability protocol.
 
-This document proposes the first Bub end-to-end harness. It defines the ownership boundaries, evidence sources, initial metrics, and first plugin compatibility workloads. It does not define a second Bub runtime or a new observability protocol.
+## Run it
+
+Prerequisites are Docker with Compose and model credentials supported by Bub. Set `BUB_MODEL` and its provider credentials, then run:
+
+```console
+make e2e-check
+make e2e-run
+```
+
+`make e2e-run` runs the `acceptance` category and writes evidence to `.bub-e2e/run`. Select cases or categories with `BUB_E2E_IDS` and `BUB_E2E_CATEGORIES`:
+
+```console
+BUB_E2E_IDS=sqlite make e2e-run
+BUB_E2E_CATEGORIES=observability make e2e-run
+```
+
+Phoenix remains available at `http://localhost:6006` after a run. Stop the services and remove their dedicated volumes with `make e2e-down`.
+
+The Python CLI can validate manifests and rescore an existing run without Docker or model access:
+
+```console
+uv run --project e2e bub-e2e check --manifest e2e/cases
+uv run --project e2e bub-e2e rescore .bub-e2e/run/sqlite
+```
 
 ## Goals
 
@@ -135,15 +158,15 @@ agent:
       commit: <bub-contrib-commit>
     - name: tape-dataset-opendal
       commit: <bub-contrib-commit>
-  max_steps: 20
-  max_tokens: 8192
-  timeout_seconds: 900
-evaluation:
-  required_reward: 1
-  require_tape_export: true
   budgets:
     max_agent_steps: 20
     max_total_tokens: 50000
+    max_tokens_per_call: 8192
+    timeout_seconds: 900
+evaluation:
+  required_reward: 1
+  minimum_turns: 2
+  minimum_tool_pairs: 2
 ```
 
 `agent.bub` accepts exactly one of `version` or `commit`. A version installs from the configured package index. A commit installs from `repository` at that immutable revision. Each plugin accepts exactly one of `version`, `commit`, or `spec`:
@@ -228,12 +251,12 @@ The evaluator checks that the exported tape contains the expected conversation, 
 
 | Case | Installed tape-store path | Additional service | Purpose |
 | --- | --- | --- | --- |
-| `tapestore-file` | Bub builtin | none | Reference behavior |
-| `tapestore-sqlite` | `bub-tapestore-sqlite` | none | SQLite backend compatibility |
-| `tapestore-sqlalchemy-sqlite` | `bub-tapestore-sqlalchemy` | none | SQLAlchemy adapter compatibility |
-| `tapestore-redis` | `bub-tapestore-redis` | Redis | Remote asynchronous backend compatibility |
-| `tapestore-otel-file` | builtin wrapped by `bub-tapestore-otel` | Phoenix | OTel decorator and trace ingestion |
-| `tapestore-otel-sqlite` | SQLite wrapped by `bub-tapestore-otel` | Phoenix | Decorator composition with a contributed backend |
+| `builtin` | Bub builtin | none | Reference behavior |
+| `sqlite` | `bub-tapestore-sqlite` | none | SQLite backend compatibility |
+| `sqlalchemy-sqlite` | `bub-tapestore-sqlalchemy` | none | SQLAlchemy adapter compatibility |
+| `redis` | `bub-tapestore-redis` | Redis | Remote asynchronous backend compatibility |
+| `otel-builtin` | builtin wrapped by `bub-tapestore-otel` | Phoenix | OTel decorator and trace ingestion |
+| `otel-sqlite` | SQLite wrapped by `bub-tapestore-otel` | Phoenix | Decorator composition with a contributed backend |
 
 This is not a full cross-product. One reference backend and one contributed backend are sufficient to establish decorator composition initially.
 
@@ -269,8 +292,7 @@ The harness should preserve upstream artifacts rather than copying them into a n
   run.json
   eval-report.json
   report.md
-  harbor-jobs/
-  tape-dataset/
+  harbor-jobs/        # Harbor, ACP, task workspace, and exported Tape artifacts
   phoenix/            # only when telemetry is enabled
 ```
 
@@ -278,7 +300,7 @@ The harness should preserve upstream artifacts rather than copying them into a n
 
 Known secrets must be redacted from final reports. Native Harbor, tape, and trace artifacts can contain task or tool content and must be reviewed before publication.
 
-## Proposed layout
+## Layout
 
 ```text
 e2e/
@@ -299,21 +321,21 @@ e2e/
 
 `bub_e2e` depends on Harbor and ordinary data-processing libraries only. It invokes `bub`, `bub install`, and `bub tape-export` as external commands.
 
-## Delivery order
+## Extension stages
 
-### Stage 1: reproducible execution
+### Reproducible execution
 
-Implement the case model, installation contract, Harbor runner, artifact layout, and offline rescore command. Complete this stage with one readable builtin file-store acceptance case.
+The case model, installation contract, Harbor runner, artifact layout, offline rescore command, and builtin file-store acceptance case form the base harness.
 
-### Stage 2: tape-store compatibility
+### Tape-store compatibility
 
-Run the same workload and evaluator against SQLite, SQLAlchemy-backed SQLite, and Redis. Backend-specific code is limited to environment and service configuration.
+The same workload and evaluator run against SQLite, SQLAlchemy-backed SQLite, and Redis. Backend-specific code is limited to environment and service configuration.
 
-### Stage 3: observability composition
+### Observability composition
 
-Add `bub-tapestore-otel`, Phoenix, and the two decorator-composition cases. Keep Tape as the evaluation source and use Phoenix to verify and inspect the projection.
+`bub-tapestore-otel`, Phoenix, and two decorator-composition cases keep Tape as the evaluation source and use Phoenix to verify and inspect the projection.
 
-### Stage 4: agent behavior coverage
+### Agent behavior coverage
 
 Add context-overflow recovery, handoff, steering, and selected plugin combinations after the tape-store contract is stable. Each new test must express user-visible behavior or preserve a demonstrated regression.
 

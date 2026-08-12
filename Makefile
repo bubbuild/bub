@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install check vulture test clean-build build publish build-and-publish docs-test docs docs-preview
+.PHONY: help install check vulture test clean-build build publish build-and-publish docs-test docs docs-preview e2e-check e2e-run e2e-down
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "}; /^[a-zA-Z0-9_-]+:.*## / {printf "%-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -54,3 +54,12 @@ docs: ## Start the website/docs development server
 docs-preview: ## Preview the production website/docs build
 	@echo "==> Starting website preview server"
 	BUB_ASTRO_IMAGE_MODE=build pnpm --dir website preview --ip 0.0.0.0
+
+e2e-check: ## Validate the Bub e2e manifests and Compose configuration
+	e2e/run.sh check
+
+e2e-run: ## Run Bub e2e acceptance cases
+	e2e/run.sh run
+
+e2e-down: ## Stop Bub e2e services and remove their volumes
+	e2e/run.sh down

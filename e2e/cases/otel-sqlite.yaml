@@ -1,0 +1,37 @@
+schema: bub.e2e-case/v1
+id: otel-sqlite
+categories: [acceptance, observability, compatibility, tapestore]
+dataset:
+  path: e2e/harbor-tasks
+  task_id: tape-continuity
+  checksum: d9f7c7c41b70139b03406223e9ec878dceb1b3f0fbe77c31a77503fcac6f4b4c
+agent:
+  bub:
+    commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04
+  plugins:
+    - name: bub-acp-server
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+    - name: tape-dataset-opendal
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+    - name: bub-tapestore-sqlite
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+    - name: bub-tapestore-otel
+      commit: d2e84fd8dbeea06044365200da215c9def0f092e
+  environment:
+    BUB_SQLITE_PATH: /installed-agent/bub-home/e2e.sqlite3
+    BUB_TAPESTORE_OTEL_ENABLED: "true"
+    BUB_TAPESTORE_OTEL_SERVICE_NAME: bub-e2e
+    BUB_TAPESTORE_OTEL_AGENT_NAME: bub
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://host-gateway:6006/v1/traces
+    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: http/protobuf
+    OTEL_RESOURCE_ATTRIBUTES: openinference.project.name=bub-e2e
+  budgets:
+    max_agent_steps: 30
+    timeout_seconds: 600
+    setup_timeout_seconds: 600
+    max_tokens_per_call: 4096
+services: [phoenix]
+evaluation:
+  require_otel_trace: true
+  minimum_turns: 2
+  minimum_tool_pairs: 2

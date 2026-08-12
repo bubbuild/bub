@@ -1,0 +1,58 @@
+name: bub-e2e
+
+services:
+  redis:
+    image: redis:7.4.5-alpine
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - redis-data:/data
+
+  phoenix:
+    image: arizephoenix/phoenix:version-13.15.0
+    ports:
+      - "${BUB_E2E_PHOENIX_PORT:-6006}:6006"
+    environment:
+      - PHOENIX_WORKING_DIR=/mnt/data
+    volumes:
+      - phoenix-data:/mnt/data
+
+  harness:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+      phoenix:
+        condition: service_started
+    privileged: true
+    environment:
+      - ANTHROPIC_API_KEY
+      - BUB_API_BASE
+      - BUB_API_KEY
+      - BUB_CLIENT_ARGS
+      - BUB_E2E_DOCKER_STORAGE_DRIVER=${BUB_E2E_DOCKER_STORAGE_DRIVER:-vfs}
+      - BUB_E2E_PHOENIX_PROJECT=bub-e2e
+      - BUB_E2E_PHOENIX_URL=http://phoenix:6006
+      - BUB_MODEL
+      - CODEX_HOME=/codex
+      - DEEPSEEK_API_KEY
+      - GITHUB_SHA
+      - OPENAI_API_KEY
+      - OPENAI_BASE_URL
+      - OPENROUTER_API_KEY
+      - OPENROUTER_APP_TITLE
+      - OPENROUTER_APP_URL
+    volumes:
+      - ${BUB_E2E_OUTPUT}:/evidence
+      - ${BUB_E2E_CODEX_AUTH:-/dev/null}:/codex/auth.json:ro
+      - harbor-docker-data:/var/lib/docker
+
+volumes:
+  harbor-docker-data:
+  phoenix-data:
+  redis-data:
