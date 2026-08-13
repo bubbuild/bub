@@ -3,6 +3,8 @@ name: bub-e2e
 services:
   redis:
     image: docker.io/library/redis:7.4.5-alpine
+    ports:
+      - "${BUB_E2E_REDIS_PORT:-16379}:6379"
     healthcheck:
       test: [CMD, redis-cli, ping]
       interval: 2s

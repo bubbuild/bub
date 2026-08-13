@@ -63,7 +63,26 @@ if is_loopback_proxy "$daemon_all_proxy"; then
     unset ALL_PROXY all_proxy
 fi
 
-if [ "${BUB_E2E_BRIDGE_SERVICES:-true}" = true ]; then
+if [ -n "${HTTP_PROXY:-}${HTTPS_PROXY:-}" ]; then
+    mkdir -p /root/.docker
+    cat > /root/.docker/config.json <<EOF
+{
+  "proxies": {
+    "default": {
+      "httpProxy": "${HTTP_PROXY:-}",
+      "httpsProxy": "${HTTPS_PROXY:-}",
+      "noProxy": "${NO_PROXY:-${no_proxy:-}}"
+    }
+  }
+}
+EOF
+fi
+
+service_bridge_host=${BUB_E2E_SERVICE_BRIDGE_HOST:-}
+if [ -n "$service_bridge_host" ]; then
+    socat TCP-LISTEN:6379,bind=0.0.0.0,fork,reuseaddr "TCP:$service_bridge_host:${BUB_E2E_REDIS_PORT:-16379}" &
+    socat TCP-LISTEN:6006,bind=0.0.0.0,fork,reuseaddr "TCP:$service_bridge_host:${BUB_E2E_PHOENIX_PORT:-6006}" &
+else
     socat TCP-LISTEN:6379,bind=0.0.0.0,fork,reuseaddr TCP:redis:6379 &
     socat TCP-LISTEN:6006,bind=0.0.0.0,fork,reuseaddr TCP:phoenix:6006 &
 fi
