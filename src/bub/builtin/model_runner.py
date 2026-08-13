@@ -27,6 +27,7 @@ from loguru import logger
 from pydantic import TypeAdapter, ValidationError
 
 from bub.builtin.codex_provider import OpenaiCodexProvider, should_use_openai_codex_provider
+from bub.builtin.orcarouter_provider import ORCAROUTER_PROVIDER, OrcaRouterProvider
 from bub.builtin.settings import AgentSettings, ModelCandidate
 from bub.builtin.tape import Tape
 from bub.errors import BubError, ErrorKind
@@ -71,8 +72,10 @@ class ModelRunner:
 
     @staticmethod
     def create_llm_client(candidate: ModelCandidate, client_kwargs: dict[str, Any]) -> AnyLLM:
+        if candidate.provider == ORCAROUTER_PROVIDER:
+            return OrcaRouterProvider(**client_kwargs)
         if candidate.provider == LLMProvider.OPENAI and should_use_openai_codex_provider(
-            candidate.provider.value,
+            LLMProvider.OPENAI.value,
             candidate.model_id,
             api_key=client_kwargs.get("api_key"),
             api_base=client_kwargs.get("api_base"),

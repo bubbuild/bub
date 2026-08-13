@@ -14,6 +14,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from bub import Settings, config, ensure_config
+from bub.builtin.orcarouter_provider import ORCAROUTER_PROVIDER
 
 DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 16384
@@ -21,7 +22,7 @@ DEFAULT_MAX_TOKENS = 16384
 
 @dataclass(frozen=True)
 class ModelCandidate:
-    provider: LLMProvider
+    provider: LLMProvider | str
     model_id: str
     name: str
 
@@ -93,11 +94,24 @@ class AgentSettings(Settings):
 
         candidates: list[ModelCandidate] = []
         for candidate in candidate_names:
-            provider, model_id = AnyLLM.split_model_provider(candidate)
+            provider, model_id = self.split_model_provider(candidate)
             candidates.append(ModelCandidate(provider=provider, model_id=model_id, name=candidate))
         return candidates
 
-    def model_client_kwargs(self, provider: LLMProvider) -> dict[str, Any]:
+    @staticmethod
+    def split_model_provider(model: str) -> tuple[LLMProvider | str, str]:
+        """Split ``provider:model_id``, resolving the OrcaRouter prefix locally.
+
+        any-llm-sdk has no named OrcaRouter provider, so ``AnyLLM.split_model_provider``
+        raises for ``orcarouter:...`` models. Bub resolves the prefix itself and lets
+        ``ModelRunner`` build the OpenAI-compatible ``OrcaRouterProvider`` for it.
+        """
+        provider, separator, model_id = model.partition(":")
+        if separator and provider == ORCAROUTER_PROVIDER and model_id:
+            return ORCAROUTER_PROVIDER, model_id
+        return AnyLLM.split_model_provider(model)
+
+    def model_client_kwargs(self, provider: LLMProvider | str) -> dict[str, Any]:
         return {
             **self.client_args,
             "api_key": self._provider_value(self.api_key, provider),
@@ -105,9 +119,10 @@ class AgentSettings(Settings):
         }
 
     @staticmethod
-    def _provider_value(value: str | dict[str, str] | None, provider: LLMProvider) -> str | None:
+    def _provider_value(value: str | dict[str, str] | None, provider: LLMProvider | str) -> str | None:
         if isinstance(value, dict):
-            return value.get(provider.value)
+            key = provider.value if isinstance(provider, LLMProvider) else provider
+            return value.get(key)
         return value
 
     @property

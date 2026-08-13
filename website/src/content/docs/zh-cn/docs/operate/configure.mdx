@@ -47,6 +47,15 @@ telegram:
   allow_users: "123456789,your_username"
 ```
 
+也可以使用内置的 `orcarouter` provider 连接 [OrcaRouter](https://www.orcarouter.ai) 网关（提供 OpenAI 兼容端点，并在同一端点对 AI agent 执行 gateway 级零信任安全防护），把 key 限定到该 provider：
+
+```yaml
+# ~/.bub/config.yml
+model: orcarouter:orcarouter/auto
+api_key:
+  orcarouter: sk-orca-...
+```
+
 顶层键对应 [src/bub/builtin/settings.py](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/settings.py) 中的 `AgentSettings`。每个 channel 的子键（如 `telegram:`）对应该 channel 的 `Settings` 子类。
 
 ## 3. 用环境变量在运行时覆盖
@@ -59,7 +68,7 @@ telegram:
 | `BUB_API_KEY` | 当前提供商的 API key。使用 `bub login openai` 时保持未设置。 |
 | `BUB_API_BASE` | 覆盖提供商的基础 URL。使用 Codex OAuth 时保持未设置，以便 Bub 路由到 Codex backend。 |
 | `BUB_HOME` | Bub 的运行时数据目录（history、tapes、托管插件项目）。默认 `~/.bub`；不会移动默认配置文件。 |
-| `BUB_<PROVIDER>_API_KEY` | 单个提供商的 key，如 `BUB_OPENROUTER_API_KEY`。 |
+| `BUB_<PROVIDER>_API_KEY` | 单个提供商的 key，如 `BUB_OPENROUTER_API_KEY` 或 `BUB_ORCAROUTER_API_KEY`。 |
 | `BUB_<PROVIDER>_API_BASE` | 单个提供商的基础 URL。 |
 
 使用 `uv run bub login openai` 时，Bub 会从 `CODEX_HOME` 或 `~/.codex` 读取 Codex OAuth 凭据，并自动 refresh。这个路径下使用 `openai:` provider 的模型标识，同时保持 `BUB_API_KEY` 和 `BUB_API_BASE` 未设置。

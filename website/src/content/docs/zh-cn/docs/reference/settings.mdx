@@ -60,7 +60,7 @@ class AgentSettings(Settings):
 | `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | 可选的回退模型标识列表。 |
 | `BUB_API_KEY` | unset | `api_key` | 默认 API key;也可以是按 provider 索引的 JSON object。 |
 | `BUB_API_BASE` | unset | `api_base` | 默认 API base URL,或按 provider 索引的映射。 |
-| `BUB_<PROVIDER>_API_KEY` | unset | — | 按 provider 划分的 API key,例如 `BUB_OPENAI_API_KEY`。 |
+| `BUB_<PROVIDER>_API_KEY` | unset | — | 按 provider 划分的 API key,例如 `BUB_OPENAI_API_KEY` 或 `BUB_ORCAROUTER_API_KEY`。 |
 | `BUB_<PROVIDER>_API_BASE` | unset | — | 按 provider 划分的 API base URL,例如 `BUB_OPENROUTER_API_BASE`。 |
 | `BUB_MAX_STEPS` | 不限制 | `max_steps` | 单次 turn 内 agent 循环的最大步数；配置时必须为正整数。 |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | 单次模型调用的最大 token 数。 |
@@ -70,6 +70,8 @@ class AgentSettings(Settings):
 | `BUB_VERBOSE` | `0` | `verbose` | 日志详细级别(`0`–`2`)。 |
 
 启动时 `ProviderSpecificEnvSource` 会扫描 `os.environ` 中匹配 `^BUB_(.+)_(API_KEY|API_BASE)$` 的变量,把捕获到的 provider 名称小写后作为 key 收集。
+
+除 any-llm-sdk 原生支持的 provider 外,Bub 还内置了一个名为 `orcarouter` 的 provider,用于接入 [OrcaRouter](https://www.orcarouter.ai) 网关:一个统一的 OpenAI 兼容端点,key 前缀为 `sk-orca-`。模型标识写成 `orcarouter:<model-id>`(例如 `orcarouter:orcarouter/auto`),并可通过 `BUB_ORCAROUTER_API_KEY` 为该 provider 单独设置 key。
 
 OpenAI Codex OAuth 不需要单独的请求格式设置。运行 `bub login openai` 后,当模型使用 `openai:` provider 且没有自定义 API base 时,Bub 会检测并使用本地保存的 Codex OAuth token。
 

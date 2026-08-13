@@ -60,7 +60,7 @@ Loaded under the YAML root section.
 | `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | Optional list of fallback model identifiers. |
 | `BUB_API_KEY` | unset | `api_key` | Default API key. May also be a JSON object mapping provider → key. |
 | `BUB_API_BASE` | unset | `api_base` | Default API base URL or per-provider mapping. |
-| `BUB_<PROVIDER>_API_KEY` | unset | — | Provider-scoped API key, e.g. `BUB_OPENAI_API_KEY`. |
+| `BUB_<PROVIDER>_API_KEY` | unset | — | Provider-scoped API key, e.g. `BUB_OPENAI_API_KEY` or `BUB_ORCAROUTER_API_KEY`. |
 | `BUB_<PROVIDER>_API_BASE` | unset | — | Provider-scoped API base URL, e.g. `BUB_OPENROUTER_API_BASE`. |
 | `BUB_MAX_STEPS` | unlimited | `max_steps` | Maximum agent loop iterations per turn. Must be a positive integer when set. |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Maximum tokens per model call. |
@@ -70,6 +70,8 @@ Loaded under the YAML root section.
 | `BUB_VERBOSE` | `0` | `verbose` | Logging verbosity level (`0`–`2`). |
 
 Provider-specific defaults are gathered at startup by scanning `os.environ` for `^BUB_(.+)_(API_KEY|API_BASE)$` and lowercasing the captured provider name.
+
+In addition to the providers any-llm-sdk knows natively, Bub has a named `orcarouter` provider for the [OrcaRouter](https://www.orcarouter.ai) gateway: a unified OpenAI-compatible endpoint in front of models from multiple providers, with keys prefixed `sk-orca-`. Set the model as `orcarouter:<model-id>` (e.g. `orcarouter:orcarouter/auto`) and, optionally, scope a key via `BUB_ORCAROUTER_API_KEY`.
 
 OpenAI Codex OAuth does not need a separate request-format setting. After `bub login openai`, Bub detects the stored Codex OAuth token when the selected model uses the `openai:` provider and no custom API base is set.
 

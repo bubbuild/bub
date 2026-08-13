@@ -48,6 +48,29 @@ def test_settings_provider_names_are_lowercased() -> None:
     assert "openrouter" in settings.api_key
 
 
+def test_settings_orcarouter_model_prefix_resolves_to_named_provider() -> None:
+    settings = _settings_with_env({"BUB_ORCAROUTER_API_KEY": "sk-orca-test"})
+
+    candidates = settings.model_candidates("orcarouter:orcarouter/auto")
+
+    assert len(candidates) == 1
+    assert candidates[0].provider == "orcarouter"
+    assert candidates[0].model_id == "orcarouter/auto"
+    assert candidates[0].name == "orcarouter:orcarouter/auto"
+
+
+def test_settings_orcarouter_per_provider_key_and_base() -> None:
+    settings = _settings_with_env({
+        "BUB_ORCAROUTER_API_KEY": "sk-orca-test",
+        "BUB_ORCAROUTER_API_BASE": "https://api.orcarouter.ai/v1",
+    })
+
+    kwargs = settings.model_client_kwargs("orcarouter")
+
+    assert kwargs["api_key"] == "sk-orca-test"
+    assert kwargs["api_base"] == "https://api.orcarouter.ai/v1"
+
+
 def test_settings_mixed_single_key_with_per_provider_base() -> None:
     settings = _settings_with_env({
         "BUB_API_KEY": "sk-global",

@@ -47,6 +47,15 @@ telegram:
   allow_users: "123456789,your_username"
 ```
 
+Or use the builtin `orcarouter` provider for the [OrcaRouter](https://www.orcarouter.ai) gateway (an OpenAI-compatible endpoint with gateway-level, zero-trust security for AI agents), scoping the key to the provider:
+
+```yaml
+# ~/.bub/config.yml
+model: orcarouter:orcarouter/auto
+api_key:
+  orcarouter: sk-orca-...
+```
+
 Top-level keys map to `AgentSettings` in [src/bub/builtin/settings.py](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/settings.py). Per-channel keys (such as `telegram:`) map to that channel's `Settings` subclass.
 
 ## 3. Override at runtime with environment variables
@@ -59,7 +68,7 @@ Every YAML key has a matching environment variable. The pattern is `BUB_<UPPERCA
 | `BUB_API_KEY` | API key for the active provider. Leave unset when using `bub login openai`. |
 | `BUB_API_BASE` | Override the provider's base URL. Leave unset for Codex OAuth so Bub can route through the Codex backend. |
 | `BUB_HOME` | Bub's runtime data directory (history, tapes, managed plugin project). Default `~/.bub`; does not move the default config file. |
-| `BUB_<PROVIDER>_API_KEY` | Per-provider key, e.g. `BUB_OPENROUTER_API_KEY`. |
+| `BUB_<PROVIDER>_API_KEY` | Per-provider key, e.g. `BUB_OPENROUTER_API_KEY` or `BUB_ORCAROUTER_API_KEY`. |
 | `BUB_<PROVIDER>_API_BASE` | Per-provider base URL. |
 
 When you use `uv run bub login openai`, Bub reads Codex OAuth credentials from `CODEX_HOME` or `~/.codex` and refreshes them automatically. Use a model id under the `openai:` provider and keep both `BUB_API_KEY` and `BUB_API_BASE` unset for that path.

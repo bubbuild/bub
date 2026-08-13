@@ -28,6 +28,7 @@ from bub.turn import TurnState
 AGENTS_FILE_NAME = "AGENTS.md"
 MODEL_PROVIDER_CHOICES: tuple[str, ...] = (
     "openrouter",
+    "orcarouter",
     "openai",
     "anthropic",
     "gemini",

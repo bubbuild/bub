@@ -11,6 +11,7 @@ from any_llm.providers.openai.base import BaseOpenAIProvider
 from any_llm.types.completion import ChatCompletionChunk, ChatCompletionMessageFunctionToolCall, Function
 
 from bub.builtin.model_runner import ModelRunner, tool_invocation_from_native
+from bub.builtin.orcarouter_provider import OrcaRouterProvider
 from bub.builtin.settings import AgentSettings, ModelCandidate
 from bub.builtin.tape import Tape
 from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
@@ -30,6 +31,20 @@ async def test_unknown_tool_placeholder_surfaces_error_without_hooks() -> None:
 
     assert execution.error is not None
     assert "missing_tool" in execution.error.message
+
+
+def test_create_llm_client_returns_orcarouter_provider() -> None:
+    candidate = ModelCandidate(provider="orcarouter", model_id="orcarouter/auto", name="orcarouter:orcarouter/auto")
+
+    client = ModelRunner.create_llm_client(
+        candidate,
+        {"api_key": "sk-orca-test", "api_base": "https://api.orcarouter.ai/v1"},
+    )
+
+    assert isinstance(client, OrcaRouterProvider)
+    assert client.PROVIDER_NAME == "orcarouter"
+    assert client.API_BASE == "https://api.orcarouter.ai/v1"
+    assert client.SUPPORTS_COMPLETION_STREAMING is True
 
 
 class _FakeStreamingOpenAIProvider(BaseOpenAIProvider):
