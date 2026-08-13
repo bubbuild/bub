@@ -187,6 +187,19 @@ class TestToolExecutorIntegration:
         assert "bad" in observed[1].tool
 
     @pytest.mark.asyncio
+    async def test_after_tool_call_can_replace_the_result_seen_by_the_model(self) -> None:
+        class BoundResult:
+            @hookimpl
+            def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict) -> None:
+                if isinstance(result.result, str):
+                    result.result = f"bounded:{result.result}"
+
+        executor = ToolExecutor(hooks=make_hooks(BoundResult()))
+        execution = await executor.execute_async([(self.tool(), {"cmd": "ls"})])
+
+        assert execution.tool_results == ["bounded:ran:ls"]
+
+    @pytest.mark.asyncio
     async def test_modified_arguments_reach_handler(self) -> None:
         class Rewrite:
             @hookimpl

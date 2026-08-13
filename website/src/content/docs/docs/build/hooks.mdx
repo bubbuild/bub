@@ -287,7 +287,7 @@ class ShellPolicy:
         return None  # proceed unchanged
 ```
 
-Observe terminal outcomes — `after_llm_call` / `after_tool_call` receive the original exception object on failure (`result.error`); cancelled calls do not produce an observation:
+Handle terminal outcomes — `after_llm_call` / `after_tool_call` receive the original exception object on failure (`result.error`); cancelled calls do not produce an observation. An `after_tool_call` implementation may replace a successful value by assigning `result.result`:
 
 ```python
 from bub import hookimpl
@@ -302,6 +302,8 @@ class Metrics:
     @hookimpl
     def after_tool_call(self, call, result, state):
         print(f"tool {call.tool} {result.duration_ms}ms error={result.error!r}")
+        if result.error is None and call.tool == "web_search":
+            result.result = str(result.result)[:4_000]
 ```
 
 All payloads carry `run_id`, matching the tape entry meta, so metrics can be joined against the recorded conversation.

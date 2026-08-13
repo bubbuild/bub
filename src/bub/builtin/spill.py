@@ -129,7 +129,7 @@ class SpillStore:
         except Exception as exc:
             logger.warning("spill write event failed run_id={} error={}", run_id, exc)
 
-    async def process_tool_result(self, tape: Any, result: str, *, tool: str, run_id: str) -> str:
+    async def spill_tool_result(self, tape: Any, result: str, *, tool: str, run_id: str) -> str:
         threshold = self.settings.threshold
         if threshold <= 0 or tool in {SPILL_READ_TOOL_NAME, SPILL_READ_MODEL_NAME} or len(result) < threshold * 4:
             return result

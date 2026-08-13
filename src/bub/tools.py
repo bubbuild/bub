@@ -242,12 +242,13 @@ class ToolExecutor:
             arguments=dict(tool_args),
         )
         hook_state = context.state if context is not None else {}
+        if self._hooks is not None and context is not None:
+            hook_state["_runtime_tape"] = context.tape
         started = time.monotonic()
         if self._hooks is not None:
             call, short_circuit = await self._apply_before_tool_call(call, hook_state, started)
             if short_circuit is not None:
-                result = short_circuit()
-                return await self._process_tool_result(call, result, context)
+                return short_circuit()
 
         try:
             result = await self._invoke_normalized(tool_obj, call, context)
@@ -255,32 +256,8 @@ class ToolExecutor:
             await self._fire_after_tool_call(call, hook_state, started, error=exc)
             raise
         else:
-            await self._fire_after_tool_call(call, hook_state, started, result=result)
-            return await self._process_tool_result(call, result, context)
-
-    @staticmethod
-    async def _process_tool_result(call: ToolCall, result: Any, context: ToolContext | None) -> Any:
-        if context is None or not isinstance(result, str):
-            return result
-        for sidecar in context.tape.sidecars:
-            processor = getattr(sidecar, "process_tool_result", None)
-            if processor is None:
-                continue
-            try:
-                result = await processor(
-                    context.tape,
-                    result,
-                    tool=call.tool,
-                    run_id=call.run_id,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "tool result sidecar failed sidecar={} tool={} error={}",
-                    getattr(sidecar, "name", type(sidecar).__name__),
-                    call.tool,
-                    exc,
-                )
-        return result
+            outcome = await self._fire_after_tool_call(call, hook_state, started, result=result)
+            return outcome.result
 
     async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:
         """Run the tool with errors normalized to BubError."""
@@ -334,8 +311,8 @@ class ToolExecutor:
 
             return call, raise_denied
         if decision.action == "replace":
-            await self._fire_after_tool_call(call, hook_state, started, result=decision.result)
-            return call, lambda: decision.result
+            outcome = await self._fire_after_tool_call(call, hook_state, started, result=decision.result)
+            return call, lambda: outcome.result
         return call, None
 
     async def _fire_after_tool_call(
@@ -346,9 +323,7 @@ class ToolExecutor:
         *,
         result: Any = None,
         error: Exception | None = None,
-    ) -> None:
-        if self._hooks is None:
-            return
+    ) -> ToolCallResult:
         duration_ms = int((time.monotonic() - started) * 1000)
         outcome = ToolCallResult(
             run_id=call.run_id,
@@ -358,7 +333,9 @@ class ToolExecutor:
             error=error,
             duration_ms=duration_ms,
         )
-        await self._hooks.after_tool_call(call, outcome, state=state)
+        if self._hooks is not None:
+            await self._hooks.after_tool_call(call, outcome, state=state)
+        return outcome
 
 
 # Central registry for tools. Tools defined with the @tool decorator are automatically added here.

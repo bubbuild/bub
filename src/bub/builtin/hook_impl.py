@@ -19,10 +19,10 @@ from bub.channels.message import ChannelMessage, MediaItem
 from bub.envelope import Envelope, content_of, field_of
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
-from bub.hooks.interception import ToolCall, ToolCallDecision
+from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
 from bub.model_selection import ModelChoice, ModelOptions
-from bub.store import TapeStore
 from bub.sidecars import TapeSidecar
+from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents
 from bub.tape import TapeContext
 from bub.turn import TurnState
@@ -417,3 +417,27 @@ class BuiltinImpl:
         else:
             guidance = f"Tool `{call.tool}` does not exist. No similar tool is available."
         return ToolCallDecision.replace(guidance)
+
+    @hookimpl
+    async def after_tool_call(
+        self,
+        call: ToolCall,
+        result: ToolCallResult,
+        state: TurnState,
+    ) -> None:
+        from bub.builtin.spill import SpillStore
+
+        if result.error is not None or not isinstance(result.result, str):
+            return
+        tape = state.get("_runtime_tape")
+        if tape is None:
+            return
+        spill = SpillStore.mounted(tape)
+        if spill is None:
+            return
+        result.result = await spill.spill_tool_result(
+            tape,
+            result.result,
+            tool=call.tool,
+            run_id=call.run_id,
+        )

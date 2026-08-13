@@ -156,10 +156,12 @@ class BubHookSpecs:
 
     @hookspec
     def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: TurnState) -> None:
-        """Observe the terminal outcome of one tool invocation.
+        """Handle the terminal outcome of one tool invocation.
 
         Fires for success, failure (``result.error`` set), denial and
-        replacement. Return values are ignored; exceptions are logged.
+        replacement. An implementation may replace a successful value by
+        assigning ``result.result``. Return values are ignored; exceptions
+        are logged.
         """
 
     @hookspec

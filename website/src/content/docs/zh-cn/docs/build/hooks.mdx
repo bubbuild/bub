@@ -287,7 +287,7 @@ class ShellPolicy:
         return None  # proceed unchanged
 ```
 
-观察终态 —— `after_llm_call` / `after_tool_call` 在失败时拿到**原始异常对象**(`result.error`);被取消的调用不产生观察:
+处理终态 —— `after_llm_call` / `after_tool_call` 在失败时拿到**原始异常对象**（`result.error`）；被取消的调用不产生观察。`after_tool_call` 实现可以通过赋值 `result.result` 替换成功结果：
 
 ```python
 from bub import hookimpl
@@ -302,6 +302,8 @@ class Metrics:
     @hookimpl
     def after_tool_call(self, call, result, state):
         print(f"tool {call.tool} {result.duration_ms}ms error={result.error!r}")
+        if result.error is None and call.tool == "web_search":
+            result.result = str(result.result)[:4_000]
 ```
 
 所有载荷携带 `run_id`,与 tape 条目 meta 对应,指标可与记录的会话对齐。
