@@ -12,9 +12,10 @@ from bub.builtin.spill import (
     SPILL_READ_TOOL_NAME,
     SpillSettings,
     SpillStore,
+    spill_read,
     spill_tape_name,
 )
-from bub.builtin.tools import render_tools_prompt, spill_read
+from bub.builtin.tools import render_tools_prompt
 from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
 from bub.tape import Tape, TapeContext, TapeEntry
 from bub.tools import Tool, ToolContext, ToolExecutor, model_tools

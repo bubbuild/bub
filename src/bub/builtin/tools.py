@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, cast
 from pydantic import BaseModel, Field
 
 from bub.builtin.shell_manager import shell_manager
-from bub.builtin.spill import MAX_READ_CHUNKS, SPILL_READ_TOOL_NAME, IncompleteSpillError, SpillStore
 from bub.skills import discover_skills
 from bub.tools import REGISTRY, Tool, ToolContext, tool
 
@@ -196,47 +195,6 @@ async def kill_bash(shell_id: str) -> str:
     return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {shell.returncode}"
 
 
-@tool(context=True, name=SPILL_READ_TOOL_NAME)
-async def spill_read(
-    handle: str,
-    cursor: int = 0,
-    count: int = 1,
-    from_end: bool = False,
-    *,
-    context: ToolContext,
-) -> str:
-    """Read bounded chunks from an oversized tool result stored in the current session's spill tape."""
-    if cursor < 0:
-        return "`cursor` must be >= 0."
-    if count < 1:
-        return "`count` must be >= 1."
-
-    spill = SpillStore.mounted(context.tape)
-    if spill is None:
-        return "spill sidecar unavailable in this context."
-    try:
-        page = await spill.read(
-            context.tape,
-            handle,
-            cursor=cursor,
-            count=min(count, MAX_READ_CHUNKS),
-            from_end=from_end,
-        )
-    except IncompleteSpillError as exc:
-        return f"[incomplete spilled tool result: {exc}]"
-    if page is None:
-        return f"[no spilled tool result for handle {handle!r}]"
-
-    shown = f"{page.start}-{page.stop - 1}" if page.stop > page.start else "none"
-    return (
-        f"[spilled tool result: {page.manifest.bytes:,} bytes, {page.manifest.chunks:,} chunks]\n"
-        f"chunks: {shown}\n"
-        f"next_cursor: {page.next_cursor}\n"
-        f"complete: {str(page.complete).lower()}\n"
-        f"content:\n{page.content}"
-    )
-
-
 @tool(context=True, name="fs.read")
 def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> str:
     """Read a text file and return its content. Supports optional pagination with offset and limit."""
@@ -332,8 +290,7 @@ async def tape_search(param: SearchInput, *, context: ToolContext) -> str:
 @tool(context=True, name="tape.reset")
 async def tape_reset(archive: bool = False, *, context: ToolContext) -> str:
     """Reset the current tape, optionally archiving it."""
-    result = await context.tape.reset(archive=archive)
-    return result
+    return cast(str, await context.tape.reset(archive=archive))
 
 
 @tool(context=True, name="tape.handoff")

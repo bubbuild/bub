@@ -13,10 +13,8 @@ from typing import TYPE_CHECKING, Any, Protocol, overload
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
-from bub.builtin.spill import SpillStore
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import ToolCall, ToolCallResult
-from bub.tape import Tape
 
 if TYPE_CHECKING:
     from bub.hooks.interception import AgentHooks
@@ -26,7 +24,7 @@ if TYPE_CHECKING:
 class ToolContext:
     """Runtime context passed to tools that opt into context."""
 
-    tape: Tape
+    tape: Any
     run_id: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
 
@@ -249,7 +247,7 @@ class ToolExecutor:
             call, short_circuit = await self._apply_before_tool_call(call, hook_state, started)
             if short_circuit is not None:
                 result = short_circuit()
-                return await self._maybe_spill_result(call, result, context)
+                return await self._process_tool_result(call, result, context)
 
         try:
             result = await self._invoke_normalized(tool_obj, call, context)
@@ -258,20 +256,31 @@ class ToolExecutor:
             raise
         else:
             await self._fire_after_tool_call(call, hook_state, started, result=result)
-            return await self._maybe_spill_result(call, result, context)
+            return await self._process_tool_result(call, result, context)
 
-    async def _maybe_spill_result(self, call: ToolCall, result: Any, context: ToolContext | None) -> Any:
+    @staticmethod
+    async def _process_tool_result(call: ToolCall, result: Any, context: ToolContext | None) -> Any:
         if context is None or not isinstance(result, str):
             return result
-        spill = SpillStore.mounted(context.tape)
-        if spill is None:
-            return result
-        return await spill.maybe_spill(
-            context.tape,
-            result,
-            tool=call.tool,
-            run_id=call.run_id,
-        )
+        for sidecar in context.tape.sidecars:
+            processor = getattr(sidecar, "process_tool_result", None)
+            if processor is None:
+                continue
+            try:
+                result = await processor(
+                    context.tape,
+                    result,
+                    tool=call.tool,
+                    run_id=call.run_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "tool result sidecar failed sidecar={} tool={} error={}",
+                    getattr(sidecar, "name", type(sidecar).__name__),
+                    call.tool,
+                    exc,
+                )
+        return result
 
     async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:
         """Run the tool with errors normalized to BubError."""

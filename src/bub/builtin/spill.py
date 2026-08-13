@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import Any
 
 from loguru import logger
 from pydantic import Field
@@ -16,9 +16,7 @@ from bub.configure import Settings
 from bub.errors import BubError, ErrorKind
 from bub.sidecars import sidecar_tape_name
 from bub.tape import TapeEntry, TapeQuery
-
-if TYPE_CHECKING:
-    from bub.tape import Tape
+from bub.tools import ToolContext, tool
 
 SPILL_READ_TOOL_NAME = "spill.read"
 SPILL_READ_MODEL_NAME = SPILL_READ_TOOL_NAME.replace(".", "_")
@@ -121,23 +119,23 @@ class SpillStore:
     name: str = field(default=SPILL_SIDECAR_NAME, init=False)
 
     @classmethod
-    def mounted(cls, tape: Tape) -> SpillStore | None:
+    def mounted(cls, tape: Any) -> SpillStore | None:
         sidecar = tape.get_sidecar(cls.name)
         return sidecar if isinstance(sidecar, cls) else None
 
-    async def _record_write(self, tape: Tape, data: dict[str, object], *, run_id: str) -> None:
+    async def _record_write(self, tape: Any, data: dict[str, object], *, run_id: str) -> None:
         try:
             await tape.append_event("spill.write", data, run_id=run_id, context=False)
         except Exception as exc:
             logger.warning("spill write event failed run_id={} error={}", run_id, exc)
 
-    async def maybe_spill(self, tape: Tape, output: str, *, tool: str, run_id: str) -> str:
+    async def process_tool_result(self, tape: Any, result: str, *, tool: str, run_id: str) -> str:
         threshold = self.settings.threshold
-        if threshold <= 0 or tool in {SPILL_READ_TOOL_NAME, SPILL_READ_MODEL_NAME} or len(output) < threshold * 4:
-            return output
+        if threshold <= 0 or tool in {SPILL_READ_TOOL_NAME, SPILL_READ_MODEL_NAME} or len(result) < threshold * 4:
+            return result
 
         handle = uuid.uuid4().hex
-        encoded = output.encode("utf-8")
+        encoded = result.encode("utf-8")
         encoded_bytes = len(encoded)
         chunk_count = 0
         spill_tape = tape.sidecar_tape_name(self.name)
@@ -158,8 +156,8 @@ class SpillStore:
                         "handle": handle,
                         "chunks": chunk_count,
                         "bytes": encoded_bytes,
-                        "chars": len(output),
-                        "lines": output.count("\n") + 1,
+                        "chars": len(result),
+                        "lines": result.count("\n") + 1,
                         "tool": tool,
                     },
                     spill_handle=handle,
@@ -179,7 +177,7 @@ class SpillStore:
                 },
                 run_id=run_id,
             )
-            return f"[tool output truncated: {encoded_bytes:,} bytes; spill storage failed]\n{_preview(output)}"
+            return f"[tool output truncated: {encoded_bytes:,} bytes; spill storage failed]\n{_preview(result)}"
 
         await self._record_write(
             tape,
@@ -196,10 +194,10 @@ class SpillStore:
         return (
             f"[tool output spilled: {encoded_bytes:,} bytes in {chunk_count:,} chunks; handle: {handle}]\n"
             f"[read with: {SPILL_READ_MODEL_NAME}(handle={handle!r}, cursor=0, count=1, from_end=False)]\n"
-            f"{_preview(output)}"
+            f"{_preview(result)}"
         )
 
-    async def manifest(self, tape: Tape, handle: str) -> SpillManifest | None:
+    async def manifest(self, tape: Any, handle: str) -> SpillManifest | None:
         query = (
             TapeQuery(tape=tape.sidecar_tape_name(self.name), store=tape.store)
             .after_anchor(_manifest_anchor(handle))
@@ -216,7 +214,15 @@ class SpillStore:
             return None
         return SpillManifest.from_entry(entries[0], handle)
 
-    async def read(self, tape: Tape, handle: str, *, cursor: int, count: int, from_end: bool) -> SpillPage | None:
+    async def read(
+        self,
+        tape: Any,
+        handle: str,
+        *,
+        cursor: int,
+        count: int,
+        from_end: bool,
+    ) -> SpillPage | None:
         manifest = await self.manifest(tape, handle)
         if manifest is None:
             return None
@@ -265,3 +271,44 @@ class SpillStore:
             chunks.append(results[0])
 
         return SpillPage(manifest, "".join(chunks), start, stop, next_cursor, complete)
+
+
+@tool(context=True, name=SPILL_READ_TOOL_NAME)
+async def spill_read(
+    handle: str,
+    cursor: int = 0,
+    count: int = 1,
+    from_end: bool = False,
+    *,
+    context: ToolContext,
+) -> str:
+    """Read bounded chunks from an oversized tool result stored in the current session's spill tape."""
+    if cursor < 0:
+        return "`cursor` must be >= 0."
+    if count < 1:
+        return "`count` must be >= 1."
+
+    spill = SpillStore.mounted(context.tape)
+    if spill is None:
+        return "spill sidecar unavailable in this context."
+    try:
+        page = await spill.read(
+            context.tape,
+            handle,
+            cursor=cursor,
+            count=min(count, MAX_READ_CHUNKS),
+            from_end=from_end,
+        )
+    except IncompleteSpillError as exc:
+        return f"[incomplete spilled tool result: {exc}]"
+    if page is None:
+        return f"[no spilled tool result for handle {handle!r}]"
+
+    shown = f"{page.start}-{page.stop - 1}" if page.stop > page.start else "none"
+    return (
+        f"[spilled tool result: {page.manifest.bytes:,} bytes, {page.manifest.chunks:,} chunks]\n"
+        f"chunks: {shown}\n"
+        f"next_cursor: {page.next_cursor}\n"
+        f"complete: {str(page.complete).lower()}\n"
+        f"content:\n{page.content}"
+    )

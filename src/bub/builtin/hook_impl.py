@@ -67,7 +67,7 @@ class BuiltinImpl:
     """Default hook implementations for basic runtime operations."""
 
     def __init__(self, framework: BubFramework) -> None:
-        from bub.builtin import tools  # noqa: F401
+        from bub.builtin import spill, tools  # noqa: F401
 
         self.framework = framework
         self._agent: Agent | None = None
