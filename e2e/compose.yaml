@@ -26,6 +26,11 @@ services:
     build:
       context: ..
       dockerfile: e2e/Dockerfile
+      args:
+        HTTP_PROXY: ${BUB_E2E_BUILD_HTTP_PROXY:-}
+        HTTPS_PROXY: ${BUB_E2E_BUILD_HTTPS_PROXY:-}
+        ALL_PROXY: ${BUB_E2E_BUILD_ALL_PROXY:-}
+        NO_PROXY: localhost,127.0.0.1,host-gateway
     depends_on:
       redis:
         condition: service_healthy

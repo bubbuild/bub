@@ -18,6 +18,7 @@ REMOTE_BUB_PROJECT = "/installed-agent/bub-project"
 REMOTE_CODEX_AUTH = "/run/bub-e2e/codex-auth.json"
 REMOTE_CODEX_HOME = "/installed-agent/codex"
 REMOTE_TOOL_DIR = "/installed-agent/tools"
+REMOTE_UV_BOOTSTRAP = "/opt/bub-e2e-uv"
 
 
 class BubAcpAgent(harbor_acp.AcpAgent):
@@ -49,10 +50,9 @@ class BubAcpAgent(harbor_acp.AcpAgent):
     async def install(self, environment: BaseEnvironment) -> None:
         await self.exec_as_root(
             environment,
-            command=self._build_dependencies_command("uvx"),
+            command=_install_runtime_dependencies_command(),
             env={"DEBIAN_FRONTEND": "noninteractive"},
         )
-        await self.exec_as_root(environment, command=_install_git_command())
         await self.exec_as_root(environment, command=_install_bub_command(self._bub))
         await self.exec_as_root(environment, command=_install_plugins_command(self._plugins))
 
@@ -85,17 +85,56 @@ def _tool_environment() -> str:
     return f"UV_PYTHON=3.12 UV_TOOL_BIN_DIR={shlex.quote(REMOTE_BIN_DIR)} UV_TOOL_DIR={shlex.quote(REMOTE_TOOL_DIR)}"
 
 
+def _install_runtime_dependencies_command() -> str:
+    runner = harbor_acp.AcpAgent._RUNNER_VENV_PATH
+    upstream = harbor_acp.AcpAgent._build_dependencies_command(harbor_acp.AcpAgent, "uvx")
+    command = f"""set -eu
+if [ -x {runner}/bin/uvx ] && {runner}/bin/python -c 'import acp' >/dev/null 2>&1; then
+    :
+elif command -v python3 >/dev/null 2>&1 \
+    && command -v git >/dev/null 2>&1 \
+    && python3 -m pip --version >/dev/null 2>&1; then
+        rm -rf {REMOTE_UV_BOOTSTRAP} {runner}
+        PIP_INDEX_URL=https://pypi.org/simple \
+            python3 -m pip install --disable-pip-version-check --target {REMOTE_UV_BOOTSTRAP} uv
+        {REMOTE_UV_BOOTSTRAP}/bin/uv venv --python 3.12 {runner}
+        {REMOTE_UV_BOOTSTRAP}/bin/uv pip install \
+            --python {runner}/bin/python agent-client-protocol uv
+else
+{upstream}
+{_install_git_command()}
+fi
+mkdir -p /root/.local/bin
+ln -sf {runner}/bin/uvx /root/.local/bin/uvx
+printf '%s\n' 'export PATH="$HOME/.local/bin:$PATH"' > /root/.local/bin/env"""
+    return f"""{command}
+if ! command -v stdbuf >/dev/null 2>&1; then
+    if command -v apk >/dev/null 2>&1; then
+        apk add --no-cache coreutils
+    elif command -v apt-get >/dev/null 2>&1; then
+        apt-get install --yes --no-install-recommends coreutils
+    elif command -v yum >/dev/null 2>&1; then
+        yum install --assumeyes coreutils
+    else
+        echo "Unsupported package manager for Harbor ACP logging" >&2
+        exit 1
+    fi
+fi"""
+
+
 def _install_git_command() -> str:
     return """set -eu
-if command -v apt-get >/dev/null 2>&1; then
-    apt-get install --yes --no-install-recommends git
-elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache git
-elif command -v yum >/dev/null 2>&1; then
-    yum install --assumeyes git
-else
-    echo "Unsupported package manager for Bub source installation" >&2
-    exit 1
+if ! command -v git >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get install --yes --no-install-recommends git
+    elif command -v apk >/dev/null 2>&1; then
+        apk add --no-cache git
+    elif command -v yum >/dev/null 2>&1; then
+        yum install --assumeyes git
+    else
+        echo "Unsupported package manager for Bub source installation" >&2
+        exit 1
+    fi
 fi"""
 
 
@@ -121,9 +160,10 @@ def _install_plugins_command(plugins: tuple[PluginSpec, ...]) -> str:
     runner_bin = f"{harbor_acp.AcpAgent._RUNNER_VENV_PATH}/bin"
     specs = " ".join(shlex.quote(plugin.install_spec()) for plugin in plugins)
     return (
-        "set -eu; "
+        "set -eu; mkdir -p /logs/agent; "
         f"PATH={runner_bin}:{REMOTE_BIN_DIR}:$PATH {_runtime_environment()} {_tool_environment()} "
-        f"{REMOTE_BIN_DIR}/bub install {specs}"
+        f"{REMOTE_BIN_DIR}/bub install {specs} > /logs/agent/plugin-install.txt 2>&1 || {{ "
+        "status=$?; cat /logs/agent/plugin-install.txt; exit $status; }"
     )
 
 

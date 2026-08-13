@@ -1,4 +1,8 @@
 services:
   main:
+    # Harbor replaces the command with a keepalive, so an image entrypoint must
+    # not reinterpret that command. Some public benchmark images use bash as
+    # their entrypoint and otherwise exit 126 before the agent starts.
+    entrypoint: []
     extra_hosts:
       - host-gateway:host-gateway

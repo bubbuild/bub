@@ -41,11 +41,18 @@ if [ "$container_engine" = podman ]; then
     BUB_E2E_CONTAINER_HTTP_PROXY=$(podman_proxy "${HTTP_PROXY:-${http_proxy:-}}")
     BUB_E2E_CONTAINER_HTTPS_PROXY=$(podman_proxy "${HTTPS_PROXY:-${https_proxy:-}}")
     BUB_E2E_CONTAINER_ALL_PROXY=
+    BUB_E2E_BUILD_HTTP_PROXY=$BUB_E2E_CONTAINER_HTTP_PROXY
+    BUB_E2E_BUILD_HTTPS_PROXY=$BUB_E2E_CONTAINER_HTTPS_PROXY
+    BUB_E2E_BUILD_ALL_PROXY=
 else
+    BUB_E2E_BUILD_HTTP_PROXY=${HTTP_PROXY:-${http_proxy:-}}
+    BUB_E2E_BUILD_HTTPS_PROXY=${HTTPS_PROXY:-${https_proxy:-}}
+    BUB_E2E_BUILD_ALL_PROXY=${ALL_PROXY:-${all_proxy:-}}
     BUB_E2E_CONTAINER_HTTP_PROXY=${HTTP_PROXY:-${http_proxy:-}}
     BUB_E2E_CONTAINER_HTTPS_PROXY=${HTTPS_PROXY:-${https_proxy:-}}
     BUB_E2E_CONTAINER_ALL_PROXY=${ALL_PROXY:-${all_proxy:-}}
 fi
+export BUB_E2E_BUILD_HTTP_PROXY BUB_E2E_BUILD_HTTPS_PROXY BUB_E2E_BUILD_ALL_PROXY
 export BUB_E2E_CONTAINER_HTTP_PROXY BUB_E2E_CONTAINER_HTTPS_PROXY BUB_E2E_CONTAINER_ALL_PROXY
 
 compose() {
@@ -72,6 +79,26 @@ compose() {
     fi
 }
 
+build_harness() {
+    if [ "$container_engine" = podman ]; then
+        env \
+            -u all_proxy -u https_proxy -u http_proxy \
+            HTTP_PROXY="$BUB_E2E_BUILD_HTTP_PROXY" \
+            HTTPS_PROXY="$BUB_E2E_BUILD_HTTPS_PROXY" \
+            ALL_PROXY="$BUB_E2E_BUILD_ALL_PROXY" \
+            "$container_engine" build \
+                --network slirp4netns:allow_host_loopback=true \
+                --build-arg HTTP_PROXY \
+                --build-arg HTTPS_PROXY \
+                --build-arg NO_PROXY=localhost,127.0.0.1,host-gateway \
+                --tag localhost/bub-e2e_harness:latest \
+                --file e2e/Dockerfile \
+                .
+    else
+        compose build harness
+    fi
+}
+
 if ! command -v "$container_engine" >/dev/null 2>&1; then
     echo "Container engine '$container_engine' was not found" >&2
     exit 1
@@ -91,6 +118,16 @@ else
 fi
 export BUB_E2E_CODEX_AUTH
 
+# Harbor judge tasks use the OpenAI-compatible evaluator variables. Reuse an
+# explicitly supplied OpenRouter credential when a separate evaluator is not
+# configured.
+if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${OPENROUTER_API_KEY:-}" ]; then
+    OPENAI_API_KEY=$OPENROUTER_API_KEY
+    OPENAI_API_BASE=${OPENAI_API_BASE:-https://openrouter.ai/api/v1}
+    EVAL_MODEL=${EVAL_MODEL:-openai/gpt-5.6-luna}
+    export OPENAI_API_KEY OPENAI_API_BASE EVAL_MODEL
+fi
+
 if [ "$command" = check ]; then
     compose config --quiet
     uv run --project e2e bub-e2e check --manifest e2e/cases
@@ -108,7 +145,7 @@ if [ -z "${GITHUB_SHA:-}" ]; then
 fi
 
 compose up --detach --wait redis phoenix
-compose build harness
+build_harness
 
 set -- run --manifest e2e/cases --output /evidence
 if [ -n "${BUB_E2E_IDS:-}" ]; then
