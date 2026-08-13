@@ -4,7 +4,7 @@ This directory contains Bub's external end-to-end harness. It defines the owners
 
 ## Run it
 
-Prerequisites are Docker or Podman with Compose and model credentials supported by Bub. Set `BUB_MODEL` and its provider credentials, then run:
+Prerequisites are Docker or Podman with Compose and credentials for the model declared by each case, then run:
 
 ```console
 make e2e-check
@@ -153,6 +153,7 @@ dataset:
   task_id: tape-continuity
   checksum: <sha256>
 agent:
+  model: openrouter:openai/gpt-5.6-luna
   bub:
     repository: https://github.com/bubbuild/bub.git
     commit: <git-commit>

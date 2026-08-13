@@ -86,7 +86,7 @@ class BudgetSpec(ArtifactModel):
 class AgentSpec(ArtifactModel):
     bub: BubDistribution
     plugins: tuple[PluginSpec, ...] = Field(min_length=1)
-    model: str | None = None
+    model: str = Field(min_length=1)
     model_source: Literal["environment", "codex-oauth"] = "environment"
     environment: dict[str, str] = Field(default_factory=dict)
     budgets: BudgetSpec = Field(default_factory=BudgetSpec)
@@ -94,11 +94,9 @@ class AgentSpec(ArtifactModel):
     @model_validator(mode="after")
     def require_runtime_plugins(self) -> AgentSpec:
         names = {plugin.name for plugin in self.plugins}
-        missing = {"bub-acp-server", "tape-dataset-opendal"} - names
+        missing = {"bub-acp-server"} - names
         if missing:
             raise ValueError(f"Agent is missing required plugins: {sorted(missing)!r}")
-        if self.model_source == "codex-oauth" and self.model is None:
-            raise ValueError("Codex OAuth cases require an explicit model")
         return self
 
 

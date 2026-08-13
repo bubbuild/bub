@@ -7,12 +7,11 @@ dataset:
   task_id: "46240"
   checksum: f0e3d9fc80e2f4364ea4c17562fa98032d4f03244387ecf37079e538bf354b88
 agent:
+  model: openrouter:openai/gpt-5.6-luna
   bub:
     commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04
   plugins:
     - name: bub-acp-server
-      commit: d2e84fd8dbeea06044365200da215c9def0f092e
-    - name: tape-dataset-opendal
       commit: d2e84fd8dbeea06044365200da215c9def0f092e
   budgets:
     max_agent_steps: 40

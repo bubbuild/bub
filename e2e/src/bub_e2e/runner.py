@@ -185,8 +185,7 @@ def _agent_environment(case: CaseManifest) -> dict[str, str]:
         "BUB_PROJECT": "/installed-agent/bub-project",
         "CODEX_HOME": "/installed-agent/codex",
     })
-    if case.agent.model is not None:
-        environment["BUB_MODEL"] = case.agent.model
+    environment["BUB_MODEL"] = case.agent.model
     environment.update(case.agent.environment)
     return environment
 

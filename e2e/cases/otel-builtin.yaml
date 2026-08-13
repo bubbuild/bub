@@ -6,6 +6,7 @@ dataset:
   task_id: tape-continuity
   checksum: 8d52e2d6d33b2786c94b9840a8bc6e3b89c4a77696df98122ec109ee3083f5fa
 agent:
+  model: openrouter:openai/gpt-5.6-luna
   bub:
     commit: 5e0ffba488b7d5750071100c3a72bccdd2613e04
   plugins:

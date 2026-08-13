@@ -70,7 +70,7 @@ def test_package_dataset_uses_declared_revision() -> None:
 
     config = _dataset_config(case, e2e_root.parent)
 
-    assert config.ref == "1.0"
+    assert config.ref == "sha256:0e26bc0313ae2fc6f912b67b928e648c7f20d17d91f765f702a93042ce5be0e4"
     assert config.version is None
     assert config.task_names == ["scale-ai/task-6905333b74f22949d97ba9c8"]
 
