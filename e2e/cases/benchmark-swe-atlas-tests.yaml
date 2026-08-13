@@ -3,7 +3,7 @@ id: benchmark-swe-atlas-tests
 categories: [benchmark, judge, software-engineering, long-horizon]
 dataset:
   name: scale-ai/swe-atlas-tw
-  version: "1.0"
+  version: sha256:1fe41edad7c1cc96925f100be0d314804cc45f55a9a5b7c8583354f4bca30b44
   task_id: scale-ai/task-6902ef3ab97fe23e2ad27207
   checksum: 35d542bc707dcac06ec7d8ff041637f84bb05faaf55bd9cdd3590cac53f3a887
 agent:
