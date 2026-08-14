@@ -257,6 +257,7 @@ async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state() -> Non
     agent = _make_agent()
     tape = _FakeTape(_ForkCapture())
     prompts: list[str | list[dict]] = []
+    continuation_prompts: list[str | list[dict]] = []
     observed_usage: list[dict[str, Any] | None] = []
 
     async def run_once(**kwargs: Any) -> AsyncStreamEvents:
@@ -268,7 +269,8 @@ async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state() -> Non
 
         return AsyncStreamEvents(iterator(), state=StreamState(usage={"step": len(prompts)}))
 
-    async def continue_prompt(*, tape: _FakeTape, state: StreamState) -> str:
+    async def continue_prompt(*, prompt: str | list[dict], tape: _FakeTape, state: StreamState) -> str:
+        continuation_prompts.append(prompt)
         observed_usage.append(state.usage)
         return "custom continuation"
 
@@ -286,6 +288,7 @@ async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state() -> Non
 
     assert [event.kind for event in events] == ["final", "final"]
     assert prompts == ["initial prompt", "custom continuation"]
+    assert continuation_prompts == ["initial prompt"]
     assert observed_usage == [{"step": 1}]
 
 

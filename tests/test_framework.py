@@ -127,21 +127,22 @@ async def test_continue_prompt_awaits_high_priority_async_hook() -> None:
 
     class SyncPlugin:
         @hookimpl
-        def continue_prompt(self, tape, state):
+        def continue_prompt(self, prompt, tape, state):
             called.append("sync")
             return "sync prompt"
 
     class AsyncPlugin:
         @hookimpl
-        async def continue_prompt(self, tape: Any, state: StreamState) -> str:
+        async def continue_prompt(self, prompt: str, tape: Any, state: StreamState) -> str:
             called.append("async")
+            assert prompt == "current prompt"
             assert state.usage == {"total_tokens": 42}
             return "async prompt"
 
     framework._plugin_manager.register(SyncPlugin(), name="sync")
     framework._plugin_manager.register(AsyncPlugin(), name="async")
 
-    prompt = await framework.continue_prompt(tape=tape, state=state)
+    prompt = await framework.continue_prompt(prompt="current prompt", tape=tape, state=state)
 
     assert prompt == "async prompt"
     assert called == ["async"]

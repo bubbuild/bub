@@ -219,8 +219,8 @@ class BuiltinImpl:
         )
 
     @hookimpl
-    def continue_prompt(self, tape: Tape, state: StreamState) -> str:
-        del state
+    def continue_prompt(self, prompt: str | list[dict], tape: Tape, state: StreamState) -> str:
+        del prompt, state
         if "context" in tape.context.state:
             return f"{DEFAULT_CONTINUE_PROMPT} [context: {tape.context.state['context']}]"
         return DEFAULT_CONTINUE_PROMPT

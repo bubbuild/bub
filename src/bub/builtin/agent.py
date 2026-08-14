@@ -290,7 +290,7 @@ class Agent:
                 )
                 return
 
-            next_prompt = await self.framework.continue_prompt(tape=tape, state=state)
+            next_prompt = await self.framework.continue_prompt(prompt=next_prompt, tape=tape, state=state)
             await tape.append_event(
                 "loop.step",
                 {

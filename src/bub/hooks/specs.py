@@ -66,7 +66,7 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def continue_prompt(self, tape: Tape, state: StreamState) -> str:
+    def continue_prompt(self, prompt: str | list[dict], tape: Tape, state: StreamState) -> str:
         """Build the prompt used to continue an agent loop.
 
         Implementations may be synchronous or asynchronous. The first
