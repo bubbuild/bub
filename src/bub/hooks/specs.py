@@ -19,8 +19,9 @@ from bub.hooks.interception import (
     ToolCallResult,
 )
 from bub.model_selection import ModelOptions
+from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import AsyncStreamEvents
-from bub.tape import AsyncTapeStore, TapeContext, TapeStore
+from bub.tape import TapeContext
 from bub.turn import TurnState
 
 if TYPE_CHECKING:

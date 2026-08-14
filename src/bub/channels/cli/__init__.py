@@ -25,7 +25,6 @@ from rich.tree import Tree
 
 import bub
 from bub.builtin.agent import Agent
-from bub.builtin.tape import TapeInfo
 from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.base import Interface
 from bub.channels.cli.ansi_bridge import render_to_ansi
@@ -39,6 +38,7 @@ from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
 from bub.envelope import Envelope, field_of
 from bub.streaming import StreamEvent
+from bub.tape import TapeInfo
 from bub.tools import REGISTRY, tool_call_reporter
 
 _GENERATION_SPINNER: str = SPINNERS["dots"]["frames"]  # type: ignore[assignment]

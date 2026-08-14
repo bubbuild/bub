@@ -8,12 +8,11 @@ from types import SimpleNamespace
 import pytest
 
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
-from bub.builtin.store import FileTapeStore
-from bub.builtin.tape import Tape
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
+from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
 from bub.streaming import AsyncStreamEvents, StreamEvent
-from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
+from bub.tape import Tape, TapeContext
 
 
 class RecordingLifespan:

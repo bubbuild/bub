@@ -4,9 +4,27 @@ from pathlib import Path
 
 import pytest
 
-from bub.builtin.store import ForkTapeStore
-from bub.builtin.tape import Tape
-from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
+from bub.store import AsyncTapeStoreAdapter, ForkTapeStore, InMemoryTapeStore
+from bub.tape import Tape, TapeContext
+
+
+def test_tape_reexports_legacy_store_objects() -> None:
+    from bub import store, tape
+
+    expected_exports = {
+        "AsyncTapeStore",
+        "AsyncTapeStoreAdapter",
+        "InMemoryQueryMixin",
+        "InMemoryTapeStore",
+        "TapeQuery",
+        "TapeStore",
+        "UnavailableTapeStore",
+        "is_async_tape_store",
+    }
+
+    assert expected_exports <= set(dir(tape))
+    for name in expected_exports:
+        assert getattr(tape, name) is getattr(store, name)
 
 
 @pytest.mark.asyncio

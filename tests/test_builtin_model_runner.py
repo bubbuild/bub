@@ -12,8 +12,7 @@ from any_llm.types.completion import ChatCompletionChunk, ChatCompletionMessageF
 
 from bub.builtin.model_runner import ModelRunner, tool_invocation_from_native
 from bub.builtin.settings import AgentSettings, ModelCandidate
-from bub.builtin.tape import Tape
-from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
+from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, Tape, TapeContext
 from bub.tools import ToolExecutor
 
 

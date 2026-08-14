@@ -22,12 +22,12 @@ from bub.builtin.model_runner import (
     is_context_length_error,
 )
 from bub.builtin.settings import load_settings
-from bub.builtin.tape import Tape
 from bub.envelope import field_of
 from bub.framework import BubFramework
 from bub.skills import discover_skills, render_skills_prompt
+from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore, is_async_tape_store
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
-from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, is_async_tape_store
+from bub.tape import Tape
 from bub.tools import (
     REGISTRY,
     Tool,

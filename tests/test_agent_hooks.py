@@ -250,8 +250,8 @@ class TestModelRunnerHookIntegration:
         import bub
         from bub.builtin.model_runner import ModelRunner
         from bub.builtin.settings import AgentSettings
-        from bub.builtin.tape import Tape
-        from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
+        from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+        from bub.tape import Tape, TapeContext
 
         class FakeRunner(ModelRunner):
             async def completion_response(self, *, model, messages, tools, max_tokens=None, reasoning_effort=None):

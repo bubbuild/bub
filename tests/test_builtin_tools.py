@@ -10,7 +10,6 @@ import pytest
 
 import bub.builtin.tools as builtin_tools
 from bub.builtin.shell_manager import ShellManager
-from bub.builtin.tape import Tape
 from bub.builtin.tools import (
     bash,
     bash_output,
@@ -23,7 +22,8 @@ from bub.builtin.tools import (
     tape_info,
 )
 from bub.errors import ErrorKind
-from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeContext
+from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.tape import Tape, TapeContext
 from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, tool
 
 

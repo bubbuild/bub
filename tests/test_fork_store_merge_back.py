@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from bub.builtin.store import ForkTapeStore
-from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, TapeEntry, TapeQuery
+from bub.store import AsyncTapeStoreAdapter, ForkTapeStore, InMemoryTapeStore, TapeQuery
+from bub.tape import TapeEntry
 
 
 @pytest.mark.asyncio

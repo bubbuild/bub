@@ -22,7 +22,8 @@ from bub.hooks.interception import AgentHooks
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.model_selection import ModelOptions
-from bub.tape import AsyncTapeStore, TapeContext, TapeStore
+from bub.store import AsyncTapeStore, TapeStore
+from bub.tape import TapeContext
 from bub.turn import TurnResult, TurnState
 from bub.utils import maybe_context_manager
 

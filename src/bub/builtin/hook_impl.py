@@ -21,8 +21,9 @@ from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.hooks.interception import ToolCall, ToolCallDecision
 from bub.model_selection import ModelChoice, ModelOptions
+from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents
-from bub.tape import TapeContext, TapeStore
+from bub.tape import TapeContext
 from bub.turn import TurnState
 
 AGENTS_FILE_NAME = "AGENTS.md"
@@ -357,7 +358,7 @@ class BuiltinImpl:
     @hookimpl
     def provide_tape_store(self) -> TapeStore:
         import bub
-        from bub.builtin.store import FileTapeStore
+        from bub.store import FileTapeStore
 
         return FileTapeStore(directory=bub.home / "tapes")
 
