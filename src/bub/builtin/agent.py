@@ -37,7 +37,6 @@ from bub.tools import (
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
 
-CONTINUE_PROMPT = "Continue the task until all targets are completed."
 HINT_RE = re.compile(r"\$([A-Za-z0-9_.-]+)")
 MAX_AUTO_HANDOFF_RETRIES = 1
 
@@ -291,7 +290,7 @@ class Agent:
                 )
                 return
 
-            next_prompt = self._continue_prompt(tape)
+            next_prompt = await self.framework.continue_prompt(tape=tape, state=state)
             await tape.append_event(
                 "loop.step",
                 {
@@ -397,11 +396,6 @@ class Agent:
         if skills_prompt := self._load_skills_prompt(prompt, workspace, allowed_skills):
             blocks.append(skills_prompt)
         return "\n\n".join(blocks)
-
-    def _continue_prompt(self, tape: Tape) -> str:
-        if "context" in tape.context.state:
-            return f"{CONTINUE_PROMPT} [context: {tape.context.state['context']}]"
-        return CONTINUE_PROMPT
 
     def _has_steering_messages(self, state: TurnState) -> bool:
         steering_inbox = self.framework.get_steering_inbox()
