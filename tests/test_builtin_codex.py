@@ -189,23 +189,8 @@ def test_codex_completion_params_use_official_responses_payload_fields() -> None
     assert payload == {
         "model": "gpt-5.5",
         "input": [{"role": "user", "content": "hello"}],
-        "max_output_tokens": 100,
         "stream": True,
     }
-
-
-def test_codex_completion_params_prefer_max_completion_tokens() -> None:
-    provider = OpenaiCodexProvider(api_key=_jwt_with_account("acct_123"))
-    params = CompletionParams(
-        model_id="gpt-5.5",
-        messages=[{"role": "user", "content": "hello"}],
-        max_tokens=100,
-        max_completion_tokens=200,
-    )
-
-    responses_params = provider._completion_params_to_responses_params(params)
-
-    assert responses_params.max_output_tokens == 200
 
 
 def test_codex_completion_params_convert_chat_tool_messages_to_responses_items() -> None:
