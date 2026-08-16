@@ -30,7 +30,7 @@ For the *why* and *how* of each stage see [Turn pipeline](/docs/concepts/turn-pi
 | `on_error` | observer | `(stage: str, error: Exception, message: Envelope \| None) -> None` | none | `HookRuntime.notify_error` / `notify_error_sync` | Failures inside an `on_error` impl are caught and logged so other observers still run. |
 | `system_prompt` | broadcast (joined) | `(prompt, state) -> str` | prompt fragment | `BubFramework.get_system_prompt` (`call_many_sync`) | Results are reversed and joined with `\n\n`; truthy fragments only. |
 | `provide_tape_store` | firstresult | `() -> TapeStore \| AsyncTapeStore` | tape store | `BubFramework.running()` | Resolved once when the runtime scope opens; sync/async iterators are entered as context managers. |
-| `provide_tape_sidecars` | sync-only consumer (deduped) | `() -> list[TapeSidecar]` | mounted sidecars | `BubFramework.get_tape_sidecars` | Sidecars are deduplicated by `name`; the first value in hook priority order wins. |
+| `provide_tape_sidecars` | sync-only consumer (deduped) | `() -> TapeSidecar` | mounted sidecars | `BubFramework.get_tape_sidecars` | Each implementation contributes one sidecar. Sidecars are deduplicated by `name`; the first value in hook priority order wins. |
 | `provide_channels` | sync-only consumer (deduped) | `(message_handler: MessageHandler) -> list[Channel]` | channels | `BubFramework.get_channels` (`call_many_sync`) | Channels are deduplicated by `Channel.name`; the first channel seen in hook priority order wins. |
 | `build_tape_context` | firstresult | `() -> TapeContext` | tape context | `BubFramework.build_tape_context` (`call_first_sync`) | Sync-only; awaitable returns are skipped. |
 | `admit_message` | firstresult | `(session_id, message, turn) -> AdmitDecision \| None` | turn admission decision | `ChannelManager` | Runs before channel scheduling. `None` keeps default concurrent scheduling; decision types are listed in [Core contracts](/docs/reference/types/). |
@@ -97,7 +97,7 @@ Each impl receives only the kwargs it declares. You can omit unused parameters f
 
 ### Tape sidecars
 
-`provide_tape_sidecars` contributes named capabilities backed by sibling tapes in the active `TapeStore`. Bub mounts the combined set when it constructs the agent's root `Tape`; a scoped session then maps sidecar `spill` to `<session-tape>__spill`. Fork, merge, archive, and reset operate on every mounted sidecar without requiring a new storage interface. Removing a provider stops mounting its sidecar but does not delete stored data.
+Each `provide_tape_sidecars` implementation contributes one named capability backed by a sibling tape in the active `TapeStore`. Bub mounts the combined set when it constructs the agent's root `Tape`; a scoped session then maps sidecar `spill` to `<session-tape>__sidecar__spill`. Fork, merge, archive, and reset operate on every mounted sidecar without requiring a new storage interface. Removing a provider stops mounting its sidecar but does not delete stored data.
 
 ### `on_error` observer safety
 

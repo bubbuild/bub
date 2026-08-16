@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, valida
 
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import ToolCall, ToolCallResult
+from bub.tape import Tape
 
 if TYPE_CHECKING:
     from bub.hooks.interception import AgentHooks
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 class ToolContext:
     """Runtime context passed to tools that opt into context."""
 
-    tape: Any
+    tape: Tape
     run_id: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
 

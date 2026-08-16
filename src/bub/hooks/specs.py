@@ -184,8 +184,8 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec
-    def provide_tape_sidecars(self) -> list[TapeSidecar]:
-        """Provide capabilities backed by sibling tapes mounted on every session tape."""
+    def provide_tape_sidecars(self) -> TapeSidecar:
+        """Provide a capability backed by a sibling tape mounted on every session tape."""
         raise NotImplementedError
 
     @hookspec

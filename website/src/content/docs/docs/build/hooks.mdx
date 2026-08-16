@@ -149,10 +149,10 @@ class ArtifactSidecar:
 
 @hookimpl
 def provide_tape_sidecars():
-    return [ArtifactSidecar()]
+    return ArtifactSidecar()
 ```
 
-For a session tape named `session`, this mounts `session__artifacts` in the active `TapeStore`. Tool code can retrieve its provider with `context.tape.get_sidecar("artifacts")` and resolve the physical name with `context.tape.sidecar_tape_name("artifacts")`. The main tape handles fork, merge, archive, and reset for every mounted sidecar. Providers with the same name follow normal hook priority: the first one wins.
+For a session tape named `session`, this mounts `session__sidecar__artifacts` in the active `TapeStore`. Tool code can retrieve its provider with `context.tape.get_sidecar("artifacts")` and resolve the physical name with `context.tape.sidecar_tape_name("artifacts")`. Each hook implementation contributes one sidecar. The main tape handles fork, merge, archive, and reset for every mounted sidecar. Providers with the same name follow normal hook priority: the first one wins.
 
 The builtin spill plugin owns `SpillStore`, the `spill.read` tool, its data format, and `SpillSettings`. The core does not import or recognize the spill implementation. Configuration uses the `spill:` section and `BUB_SPILL_*` environment variables independently of `AgentSettings`.
 

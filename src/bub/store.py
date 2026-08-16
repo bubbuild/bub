@@ -459,7 +459,7 @@ class FileTapeStore(InMemoryQueryMixin):
         return self._tape_files[tape]
 
     def list_tapes(self) -> list[str]:
-        return sorted(file.stem for file in self._directory.glob("*.jsonl"))
+        return sorted(file.stem for file in self._directory.glob("*.jsonl") if file.stem.count("__") == 1)
 
     def reset(self, tape: str) -> None:
         self._tape_file(tape).reset()

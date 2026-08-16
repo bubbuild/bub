@@ -50,7 +50,7 @@ The default `provide_tape_store` returns a `FileTapeStore` rooted at `~/.bub/tap
 
 ### Spill sidecar
 
-The builtin spill plugin mounts a `SpillStore` through `provide_tape_sidecars`, registers `spill.read`, and bounds large results through the existing `after_tool_call` hook. The sidecar itself has no tool-result interception contract. Large results are stored in a sibling tape named `<session-tape>__spill`. The sidecar uses the same `TapeStore` as the session tape, so existing storage plugins do not need a spill-specific interface. Bub writes UTF-8-safe chunks followed by a manifest; the manifest is the completion marker for the stored result.
+The builtin spill plugin mounts a `SpillStore` through `provide_tape_sidecars`, registers `spill.read`, and bounds large results through the existing `after_tool_call` hook. The sidecar itself has no tool-result interception contract. Large results are stored in a sibling tape named `<session-tape>__sidecar__spill`. The sidecar uses the same `TapeStore` as the session tape, so existing storage plugins do not need a spill-specific interface. Bub writes UTF-8-safe chunks followed by a manifest; the manifest is the completion marker for the stored result.
 
 The main tape keeps a bounded preview and an opaque handle instead of the complete result. The `spill.read` tool reads a bounded page by handle and cursor, including pages counted from the end. Content explicitly returned by `spill.read` is recorded as a normal bounded tool result.
 

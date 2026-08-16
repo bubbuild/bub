@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from bub.sidecars import sidecar_tape_name
 from bub.store import AsyncTapeStoreAdapter, FileTapeStore, ForkTapeStore
 from bub.tape import TapeEntry
 
@@ -23,9 +24,10 @@ async def test_file_tape_store_assigns_monotonic_ids_when_merging_forked_entries
     assert [entry.payload.get("name") for entry in entries] == ["first", "second"]
 
 
-def test_file_tape_store_lists_main_and_sidecar_tapes(tmp_path) -> None:
+def test_file_tape_store_excludes_sidecar_tapes(tmp_path) -> None:
     store = FileTapeStore(directory=tmp_path)
+    sidecar = sidecar_tape_name("session__id", "spill")
     store.append("session__id", TapeEntry.event(name="main"))
-    store.append("session__id__spill", TapeEntry.event(name="spill"))
+    store.append(sidecar, TapeEntry.event(name="spill"))
 
-    assert store.list_tapes() == ["session__id", "session__id__spill"]
+    assert store.list_tapes() == ["session__id"]

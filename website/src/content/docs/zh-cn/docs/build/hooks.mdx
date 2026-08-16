@@ -149,10 +149,10 @@ class ArtifactSidecar:
 
 @hookimpl
 def provide_tape_sidecars():
-    return [ArtifactSidecar()]
+    return ArtifactSidecar()
 ```
 
-对名为 `session` 的 tape，这会在 active `TapeStore` 中挂载 `session__artifacts`。工具代码可通过 `context.tape.get_sidecar("artifacts")` 取得 provider，并用 `context.tape.sidecar_tape_name("artifacts")` 得到物理名称。主 tape 负责所有已挂载 sidecar 的 fork、merge、archive 和 reset。同名 provider 遵循普通 hook 优先级：最先出现的实现生效。
+对名为 `session` 的 tape，这会在 active `TapeStore` 中挂载 `session__sidecar__artifacts`。工具代码可通过 `context.tape.get_sidecar("artifacts")` 取得 provider，并用 `context.tape.sidecar_tape_name("artifacts")` 得到物理名称。每个 hook implementation 提供一个 sidecar。主 tape 负责所有已挂载 sidecar 的 fork、merge、archive 和 reset。同名 provider 遵循普通 hook 优先级：最先出现的实现生效。
 
 builtin spill 插件拥有 `SpillStore`、`spill.read` 工具、数据格式和 `SpillSettings`。核心层不导入或识别 spill 实现。配置使用 `spill:` section 和 `BUB_SPILL_*` 环境变量，与 `AgentSettings` 相互独立。
 

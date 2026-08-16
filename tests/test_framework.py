@@ -126,18 +126,18 @@ def test_get_tape_sidecars_combines_plugins_and_prefers_the_highest_priority_nam
             self.name = name
             self.source = source
 
-    class LowPriorityPlugin:
-        @hookimpl
-        def provide_tape_sidecars(self):
-            return [Sidecar("shared", "low"), Sidecar("low-only", "low")]
+    class SidecarPlugin:
+        def __init__(self, sidecar: Sidecar) -> None:
+            self.sidecar = sidecar
 
-    class HighPriorityPlugin:
         @hookimpl
-        def provide_tape_sidecars(self):
-            return [Sidecar("shared", "high"), Sidecar("high-only", "high")]
+        def provide_tape_sidecars(self) -> Sidecar:
+            return self.sidecar
 
-    framework._plugin_manager.register(LowPriorityPlugin(), name="low")
-    framework._plugin_manager.register(HighPriorityPlugin(), name="high")
+    framework._plugin_manager.register(SidecarPlugin(Sidecar("shared", "low")), name="low-shared")
+    framework._plugin_manager.register(SidecarPlugin(Sidecar("low-only", "low")), name="low-only")
+    framework._plugin_manager.register(SidecarPlugin(Sidecar("shared", "high")), name="high-shared")
+    framework._plugin_manager.register(SidecarPlugin(Sidecar("high-only", "high")), name="high-only")
 
     sidecars = {sidecar.name: sidecar for sidecar in framework.get_tape_sidecars()}
 

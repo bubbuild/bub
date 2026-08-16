@@ -372,11 +372,11 @@ class BuiltinImpl:
         return FileTapeStore(directory=bub.home / "tapes")
 
     @hookimpl
-    def provide_tape_sidecars(self) -> list[TapeSidecar]:
+    def provide_tape_sidecars(self) -> TapeSidecar:
         from bub.builtin.spill import SpillSettings, SpillStore
         from bub.configure import ensure_config
 
-        return [SpillStore(ensure_config(SpillSettings))]
+        return SpillStore(ensure_config(SpillSettings))
 
     @hookimpl
     def build_tape_context(self) -> TapeContext:

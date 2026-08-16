@@ -50,7 +50,7 @@ tape_name      = f"{workspace_hash}__{session_hash}"
 
 ### spill sidecar
 
-builtin spill 插件通过 `provide_tape_sidecars` 挂载 `SpillStore`、注册 `spill.read`，并通过现有 `after_tool_call` hook 限制大结果。sidecar 本身没有工具结果拦截约定。较大的结果存放在名为 `<session-tape>__spill` 的 sibling tape 中。sidecar 与 session tape 使用同一个 `TapeStore`，因此现有存储插件不需要实现 spill 专用接口。Bub 依次写入 UTF-8 安全的 chunk，最后写入 manifest；manifest 是该结果已完整存储的提交标记。
+builtin spill 插件通过 `provide_tape_sidecars` 挂载 `SpillStore`、注册 `spill.read`，并通过现有 `after_tool_call` hook 限制大结果。sidecar 本身没有工具结果拦截约定。较大的结果存放在名为 `<session-tape>__sidecar__spill` 的 sibling tape 中。sidecar 与 session tape 使用同一个 `TapeStore`，因此现有存储插件不需要实现 spill 专用接口。Bub 依次写入 UTF-8 安全的 chunk，最后写入 manifest；manifest 是该结果已完整存储的提交标记。
 
 主 tape 只保留有界预览和 opaque handle，不保存完整结果。`spill.read` 工具按 handle 与 cursor 有界读取，也支持从末尾开始读取。由 `spill.read` 明确返回的内容会作为普通的有界 tool result 记录。
 
