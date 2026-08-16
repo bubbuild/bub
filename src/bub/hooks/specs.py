@@ -21,8 +21,8 @@ from bub.hooks.interception import (
 from bub.model_selection import ModelOptions
 from bub.sidecars import TapeSidecar
 from bub.store import AsyncTapeStore, TapeStore
-from bub.streaming import AsyncStreamEvents
-from bub.tape import TapeContext
+from bub.streaming import AsyncStreamEvents, StreamState
+from bub.tape import Tape, TapeContext
 from bub.turn import TurnState
 
 if TYPE_CHECKING:
@@ -63,6 +63,15 @@ class BubHookSpecs:
         ``state["model"]`` (any ``provider:model`` string). The value takes
         effect on the turn in which it is read, so a model switched mid-turn via
         the `,model <id>` command applies from the *next* turn.
+        """
+        raise NotImplementedError
+
+    @hookspec(firstresult=True)
+    def continue_prompt(self, prompt: str | list[dict], tape: Tape, state: StreamState) -> str:
+        """Build the prompt used to continue an agent loop.
+
+        Implementations may be synchronous or asynchronous. The first
+        non-``None`` result in hook priority order is used.
         """
         raise NotImplementedError
 

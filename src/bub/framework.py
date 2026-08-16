@@ -24,7 +24,8 @@ from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.model_selection import ModelOptions
 from bub.sidecars import TapeSidecar
 from bub.store import AsyncTapeStore, TapeStore
-from bub.tape import TapeContext
+from bub.streaming import StreamState
+from bub.tape import Tape, TapeContext
 from bub.turn import TurnResult, TurnState
 from bub.utils import maybe_context_manager
 
@@ -123,6 +124,13 @@ class BubFramework:
         if not prompt:
             prompt = content_of(message)
         return cast("str | list[dict[str, Any]]", prompt)
+
+    async def continue_prompt(self, prompt: str | list[dict], tape: Tape, state: StreamState) -> str:
+        """Build the prompt for the next step of an agent loop."""
+        next_prompt = await self._hook_runtime.call_first("continue_prompt", prompt=prompt, tape=tape, state=state)
+        if isinstance(next_prompt, str):
+            return next_prompt
+        raise TypeError("hook.continue_prompt must return str")
 
     async def build_state(self, message: Envelope, session_id: str) -> TurnState:
         state = {"_runtime_workspace": str(self.workspace), "_runtime_steering_inbox": self.get_steering_inbox()}

@@ -14,6 +14,7 @@ from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
 from bub.builtin.steering import InMemorySteeringInbox
 from bub.errors import BubError
+from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import TapeContext
 from bub.tools import REGISTRY, tool
 
@@ -250,6 +251,46 @@ async def test_agent_run_model_defaults_to_none() -> None:
     completion_kwargs = _model_runner(agent).completion_kwargs
     assert completion_kwargs is not None
     assert completion_kwargs["model"] == "test:model"
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state() -> None:
+    agent = _make_agent()
+    tape = _FakeTape(_ForkCapture())
+    prompts: list[str | list[dict]] = []
+    continuation_prompts: list[str | list[dict]] = []
+    observed_usage: list[dict[str, Any] | None] = []
+
+    async def run_once(**kwargs: Any) -> AsyncStreamEvents:
+        prompts.append(kwargs["prompt"])
+        should_continue = len(prompts) == 1
+
+        async def iterator() -> AsyncIterator[StreamEvent]:
+            yield StreamEvent("final", {"tool_calls": ["call"] if should_continue else []})
+
+        return AsyncStreamEvents(iterator(), state=StreamState(usage={"step": len(prompts)}))
+
+    async def continue_prompt(*, prompt: str | list[dict], tape: _FakeTape, state: StreamState) -> str:
+        continuation_prompts.append(prompt)
+        observed_usage.append(state.usage)
+        return "custom continuation"
+
+    agent._run_once = run_once  # type: ignore[method-assign]
+    agent.framework.continue_prompt = continue_prompt
+
+    events = [
+        event
+        async for event in agent._stream_events_with_auto_handoff(
+            tape=tape,  # type: ignore[arg-type]
+            prompt="initial prompt",
+            state=StreamState(),
+        )
+    ]
+
+    assert [event.kind for event in events] == ["final", "final"]
+    assert prompts == ["initial prompt", "custom continuation"]
+    assert continuation_prompts == ["initial prompt"]
+    assert observed_usage == [{"step": 1}]
 
 
 @pytest.mark.asyncio

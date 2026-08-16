@@ -146,6 +146,36 @@ def test_get_tape_sidecars_combines_plugins_and_prefers_the_highest_priority_nam
 
 
 @pytest.mark.asyncio
+async def test_continue_prompt_awaits_high_priority_async_hook() -> None:
+    framework = BubFramework()
+    tape = cast(Any, SimpleNamespace(context=SimpleNamespace(state={})))
+    state = StreamState(usage={"total_tokens": 42})
+    called: list[str] = []
+
+    class SyncPlugin:
+        @hookimpl
+        def continue_prompt(self, prompt, tape, state):
+            called.append("sync")
+            return "sync prompt"
+
+    class AsyncPlugin:
+        @hookimpl
+        async def continue_prompt(self, prompt: str, tape: Any, state: StreamState) -> str:
+            called.append("async")
+            assert prompt == "current prompt"
+            assert state.usage == {"total_tokens": 42}
+            return "async prompt"
+
+    framework._plugin_manager.register(SyncPlugin(), name="sync")
+    framework._plugin_manager.register(AsyncPlugin(), name="async")
+
+    prompt = await framework.continue_prompt(prompt="current prompt", tape=tape, state=state)
+
+    assert prompt == "async prompt"
+    assert called == ["async"]
+
+
+@pytest.mark.asyncio
 async def test_running_enters_tape_store_once_and_reuses_it() -> None:
     framework = BubFramework()
 
