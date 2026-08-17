@@ -137,7 +137,7 @@ def provide_tape_store():
 
 ### 挂载 tape sidecar
 
-当插件需要一个与 session tape 共享生命周期的 sibling tape 时，使用 `provide_tape_sidecars`。sidecar 只声明稳定的 `name`；配置与数据格式由插件自己管理。
+当插件需要一个与 session tape 共享生命周期的 sibling tape 时，使用 `provide_tape_sidecar`。sidecar 只声明稳定的 `name`；配置与数据格式由插件自己管理。
 
 ```python
 from bub import hookimpl
@@ -148,7 +148,7 @@ class ArtifactSidecar:
 
 
 @hookimpl
-def provide_tape_sidecars():
+def provide_tape_sidecar():
     return ArtifactSidecar()
 ```
 

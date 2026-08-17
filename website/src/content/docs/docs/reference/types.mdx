@@ -94,7 +94,7 @@ from bub.hooks.runtime import HookRuntime
 from bub.sidecars import TapeSidecar, sidecar_tape_name
 ```
 
-Plugin authors normally need only `hookimpl` plus the payload types used by their hooks. `TapeSidecar` is the minimal named contract returned by `provide_tape_sidecars`; `sidecar_tape_name` resolves its sibling tape name. See the [Hook reference](/docs/reference/hooks/) for dispatch and fault-isolation semantics.
+Plugin authors normally need only `hookimpl` plus the payload types used by their hooks. `TapeSidecar` is the minimal named contract returned by `provide_tape_sidecar`; `sidecar_tape_name` resolves its sibling tape name. See the [Hook reference](/docs/reference/hooks/) for dispatch and fault-isolation semantics.
 
 ## Channel contracts
 
