@@ -131,7 +131,7 @@ def test_get_tape_sidecars_combines_plugins_and_prefers_the_highest_priority_nam
             self.sidecar = sidecar
 
         @hookimpl
-        def provide_tape_sidecars(self) -> Sidecar:
+        def provide_tape_sidecar(self) -> Sidecar:
             return self.sidecar
 
     framework._plugin_manager.register(SidecarPlugin(Sidecar("shared", "low")), name="low-shared")
