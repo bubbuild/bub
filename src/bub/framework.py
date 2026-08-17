@@ -372,7 +372,7 @@ class BubFramework:
 
     def get_tape_sidecars(self) -> tuple[TapeSidecar, ...]:
         sidecars: dict[str, TapeSidecar] = {}
-        for sidecar in self._hook_runtime.call_many_sync("provide_tape_sidecars"):
+        for sidecar in self._hook_runtime.call_many_sync("provide_tape_sidecar"):
             sidecars.setdefault(sidecar.name, sidecar)
         return tuple(sidecars.values())
 

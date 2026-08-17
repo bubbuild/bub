@@ -372,7 +372,7 @@ class BuiltinImpl:
         return FileTapeStore(directory=bub.home / "tapes")
 
     @hookimpl
-    def provide_tape_sidecars(self) -> TapeSidecar:
+    def provide_tape_sidecar(self) -> TapeSidecar:
         from bub.builtin.spill import SpillSettings, SpillStore
         from bub.configure import ensure_config
 
