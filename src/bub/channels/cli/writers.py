@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from rich.console import Console, ConsoleOptions, RenderResult
 from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.segment import Segment
 from rich.text import Text
 
 _MARKDOWN_CODE_THEME = "ansi_dark"
@@ -10,6 +13,37 @@ _MARKDOWN_CODE_THEME = "ansi_dark"
 
 def _markdown(content: str) -> Markdown:
     return Markdown(content, code_theme=_MARKDOWN_CODE_THEME)
+
+
+class PanelHead:
+    """The top border of a Panel, printed before its content is streamed."""
+
+    def __init__(self, title: str, *, border_style: str, width: int | None = None) -> None:
+        self._title = title
+        self._border_style = border_style
+        self._width = width
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        width = self._width if self._width is not None else options.max_width
+        panel = Panel("", title=self._title, border_style=self._border_style, width=width)
+        for line in console.render_lines(panel, options.update(width=width), pad=False)[:1]:
+            yield from line
+        yield Segment.line()
+
+
+class PanelEnd:
+    """The bottom border of a Panel, printed after its content is streamed."""
+
+    def __init__(self, *, border_style: str, width: int | None = None) -> None:
+        self._border_style = border_style
+        self._width = width
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        width = self._width if self._width is not None else options.max_width
+        panel = Panel("", border_style=self._border_style, width=width)
+        for line in console.render_lines(panel, options.update(width=width), pad=False)[-1:]:
+            yield from line
+        yield Segment.line()
 
 
 class MarkdownWriter:

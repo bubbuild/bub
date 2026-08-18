@@ -54,10 +54,12 @@ class _StreamPrinter:
         expand_thinking: bool,
         presenter: TerminalPresenter,
         writer: MarkdownWriter | None = None,
+        print_end: Callable[[], None] | None = None,
         invalidate: Callable[[], None] | None = None,
     ) -> None:
         self._console = console
         self._print_head = print_head
+        self._print_end = print_end or (lambda: None)
         self._expand_thinking = expand_thinking
         self._presenter = presenter
         self._reasoning_chars = 0
@@ -82,13 +84,10 @@ class _StreamPrinter:
 
     async def _record_reasoning(self, reasoning: str) -> None:
         if not self._expand_thinking:
-            if self._reasoning_chars == 0:
-                await self._ensure_head()
             self._reasoning_chars += len(reasoning)
             self._invalidate()
             return
 
-        await self._ensure_head()
         if not self._reasoning_streaming:
             await self._print(Text("[-] Thinking", style="dim"))
             self._reasoning_streaming = True
@@ -97,19 +96,21 @@ class _StreamPrinter:
     async def _print_content(self, content: str) -> bool:
         if not (content.strip() or self.head_printed or self._reasoning_chars or self._reasoning_streaming):
             return False
-        await self._ensure_head()
         await self._close_reasoning_stream()
         await self._flush_reasoning()
+        if content.strip() or self.head_printed:
+            await self._ensure_head()
         await self._write_text(content)
         return True
 
     async def finish(self) -> None:
         await self._close_reasoning_stream()
-        if self._reasoning_chars:
-            await self._ensure_head()
         await self._flush_reasoning()
         if self._writer.has_content():
+            await self._ensure_head()
             await self._flush_text()
+        else:
+            await self._ensure_panel_end()
 
     async def _print_stream_boundary(self) -> None:
         await self.finish()
@@ -121,6 +122,12 @@ class _StreamPrinter:
             return
         await self._presenter.write(self._print_head)
         self.head_printed = True
+
+    async def _ensure_panel_end(self) -> None:
+        if not self.head_printed:
+            return
+        await self._presenter.write(self._print_end)
+        self.head_printed = False
 
     async def _close_reasoning_stream(self) -> None:
         if not self._reasoning_streaming:
@@ -163,6 +170,8 @@ class _StreamPrinter:
         def commit() -> None:
             self._console.print(finished)
             self._writer.clear()
+            self._print_end()
+            self.head_printed = False
 
         await self._presenter.write(commit)
         self._ansi_cache = None
@@ -353,6 +362,7 @@ class CliChannel(Interface):
         printer = _StreamPrinter(
             console=console,
             print_head=lambda: self._renderer.print_head(message.kind),
+            print_end=lambda: self._renderer.print_end(message.kind),
             expand_thinking=self._expand_thinking,
             presenter=self._presenter,
             invalidate=self._invalidate_prompt,

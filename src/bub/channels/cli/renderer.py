@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from bub.channels.cli.writers import PanelEnd, PanelHead
 from bub.channels.message import MessageKind
 
 MAX_TOOL_PAYLOAD_CHARS = 4000
@@ -37,20 +38,10 @@ class CliRenderer:
             return
         self.console.print(Text(text, style="bright_black"))
 
-    def command_output(self, text: str) -> None:
-        if not text.strip():
-            return
-        self.console.print(f"[cyan bold]Command >[/]\n{text}")
-
-    def assistant_output(self, text: str) -> None:
-        if not text.strip():
-            return
-        self.console.print(f"[blue bold]Assistant >[/]\n{text}")
-
     def error(self, text: str) -> None:
         if not text.strip():
             return
-        self.console.print(f"[red bold]Error >[/]\n{text}")
+        self.console.print(Panel(text, title="error", border_style="red"))
 
     def input_echo(self, prompt: str, text: str, steering: bool = False) -> None:
         if not text.strip():
@@ -62,8 +53,7 @@ class CliRenderer:
         self.console.print(Text(_format_tool_call(name, args, kwargs), style="magenta"), new_line_start=True)
 
     def tool_call_success(self, *, name: str, result: Any, elapsed_ms: float) -> None:
-        rendered = _format_tool_payload(result)
-        self._tool_result(f"completed in {elapsed_ms:.0f} ms", rendered, style="green")
+        self._tool_status(f"completed in {elapsed_ms:.0f} ms", style="green")
 
     def tool_call_error(self, *, name: str, error: BaseException, elapsed_ms: float) -> None:
         rendered = _format_tool_payload({"type": error.__class__.__name__, "message": str(error)})
@@ -71,11 +61,19 @@ class CliRenderer:
 
     def print_head(self, kind: MessageKind) -> None:
         if kind == "command":
-            self.console.print("[cyan bold]Command >[/]", new_line_start=True)
+            self.console.print(PanelHead("Command", border_style="cyan"))
         elif kind == "error":
-            self.console.print("[red bold]Error >[/]", new_line_start=True)
+            self.console.print(PanelHead("Error", border_style="red"))
         else:
-            self.console.print("[blue bold]Assistant >[/]", new_line_start=True)
+            self.console.print(PanelHead("Assistant", border_style="blue"))
+
+    def print_end(self, kind: MessageKind) -> None:
+        if kind == "command":
+            self.console.print(PanelEnd(border_style="cyan"))
+        elif kind == "error":
+            self.console.print(PanelEnd(border_style="red"))
+        else:
+            self.console.print(PanelEnd(border_style="blue"))
 
     def log(self, message: object) -> None:
         text = str(message).rstrip()
@@ -83,10 +81,12 @@ class CliRenderer:
             self.console.print(text, new_line_start=True)
 
     def _tool_result(self, label: str, rendered: str, *, style: str) -> None:
-        lines = rendered.splitlines() or [""]
-        self.console.print(Text(f"  ⎿ {label}", style=style), highlight=False)
-        for line in lines:
+        self._tool_status(label, style=style)
+        for line in rendered.splitlines() or [""]:
             self.console.print(Text(f"    {line}", style="bright_black"), highlight=False)
+
+    def _tool_status(self, label: str, *, style: str) -> None:
+        self.console.print(Text(f"  ⎿ {label}", style=style), highlight=False)
 
 
 def _format_tool_call(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:

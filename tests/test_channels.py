@@ -1023,7 +1023,7 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
     channel = CliChannel.__new__(CliChannel)
     heads: list[str] = []
     printed: list[tuple[str, str | None, bool | None]] = []
-    channel._renderer = SimpleNamespace(print_head=heads.append)
+    channel._renderer = SimpleNamespace(print_head=heads.append, print_end=lambda kind: heads.append(kind + ":end"))
     channel._presenter = _ImmediatePresenter()
     channel._expand_thinking = False
     monkeypatch.setattr(
@@ -1043,7 +1043,7 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
 
     yielded = [event async for event in channel.stream_events(message, source())]
 
-    assert heads == ["command"]
+    assert heads == ["command", "command:end"]
     assert len(printed) == 1
     assert getattr(printed[0][0], "markup", None) == "first paragraph\n\nsecond paragraph"
     assert [event.kind for event in yielded] == ["text", "text", "final"]
@@ -1053,7 +1053,7 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
 async def test_cli_channel_stream_error_preserves_partial_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
     channel = CliChannel.__new__(CliChannel)
     printed: list[object] = []
-    channel._renderer = SimpleNamespace(print_head=lambda kind: None)
+    channel._renderer = SimpleNamespace(print_head=lambda kind: None, print_end=lambda kind: None)
     channel._presenter = _ImmediatePresenter()
     channel._expand_thinking = False
     monkeypatch.setattr(
@@ -1080,7 +1080,7 @@ async def test_cli_channel_stream_cancellation_preserves_partial_markdown(monkey
     channel = CliChannel.__new__(CliChannel)
     printed: list[object] = []
     partial_received = asyncio.Event()
-    channel._renderer = SimpleNamespace(print_head=lambda kind: None)
+    channel._renderer = SimpleNamespace(print_head=lambda kind: None, print_end=lambda kind: None)
     channel._presenter = _ImmediatePresenter()
     channel._expand_thinking = False
     monkeypatch.setattr(
@@ -1125,7 +1125,7 @@ async def test_cli_channel_final_write_cancellation_retries_partial_markdown(mon
             function()
 
     presenter = CancelFinalWriteOnce()
-    channel._renderer = SimpleNamespace(print_head=lambda kind: None)
+    channel._renderer = SimpleNamespace(print_head=lambda kind: None, print_end=lambda kind: None)
     channel._presenter = presenter
     channel._expand_thinking = False
     monkeypatch.setattr(
@@ -1208,6 +1208,68 @@ async def test_cli_tool_reporter_finishes_before_next_model_output() -> None:
         REGISTRY.pop(tool_name, None)
 
     assert events == ["tool-start", "tool-body", "tool-success", "next-model-text"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expand_thinking", [False, True])
+async def test_cli_stream_prints_panel_head_after_reasoning_block(expand_thinking: bool) -> None:
+    from rich.text import Text
+    from rich.tree import Tree
+
+    from bub.channels.cli import _StreamPrinter
+
+    events: list[str] = []
+
+    def print_content(content, **kwargs) -> None:
+        if isinstance(content, Text):
+            events.append(content.plain)
+        elif isinstance(content, Tree):
+            events.append("collapsed-thinking")
+        elif content == "":
+            events.append("thinking-end")
+        else:
+            events.append("body")
+
+    printer = _StreamPrinter(
+        console=SimpleNamespace(print=print_content),
+        print_head=lambda: events.append("head"),
+        print_end=lambda: events.append("end"),
+        expand_thinking=expand_thinking,
+        presenter=_ImmediatePresenter(),
+    )
+
+    await printer.render(StreamEvent("reasoning", {"delta": "reasoning"}))
+
+    assert "head" not in events
+
+    await printer.render(StreamEvent("text", {"delta": "answer"}))
+
+    assert events[-1] == "head"
+    assert "reasoning" in events or "collapsed-thinking" in events
+
+    await printer.render(StreamEvent("final", {}))
+
+    assert events[-2:] == ["body", "end"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expand_thinking", [False, True])
+async def test_cli_reasoning_only_stream_does_not_print_empty_panel(expand_thinking: bool) -> None:
+    from bub.channels.cli import _StreamPrinter
+
+    boundaries: list[str] = []
+    printer = _StreamPrinter(
+        console=SimpleNamespace(print=lambda *args, **kwargs: None),
+        print_head=lambda: boundaries.append("head"),
+        print_end=lambda: boundaries.append("end"),
+        expand_thinking=expand_thinking,
+        presenter=_ImmediatePresenter(),
+    )
+
+    await printer.render(StreamEvent("reasoning", {"delta": "reasoning"}))
+    await printer.render(StreamEvent("final", {}))
+
+    assert boundaries == []
 
 
 @pytest.mark.asyncio
@@ -1406,7 +1468,7 @@ async def test_cli_channel_collapsed_reasoning_does_not_start_status_spinner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     channel = CliChannel.__new__(CliChannel)
-    channel._renderer = SimpleNamespace(print_head=lambda kind: None)
+    channel._renderer = SimpleNamespace(print_head=lambda kind: None, print_end=lambda kind: None)
     channel._presenter = _ImmediatePresenter()
     channel._expand_thinking = False
     printed: list[object] = []
@@ -1447,24 +1509,46 @@ def test_cli_channel_history_file_uses_workspace_hash(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("kind", "expected"),
+    ("kind", "title"),
     [
-        ("command", "[cyan bold]Command >[/]"),
-        ("error", "[red bold]Error >[/]"),
-        ("normal", "[blue bold]Assistant >[/]"),
+        ("command", "Command"),
+        ("error", "Error"),
+        ("normal", "Assistant"),
     ],
 )
-def test_cli_renderer_print_head_uses_message_kind(kind: str, expected: str) -> None:
-    printed: list[tuple[str, bool | None]] = []
+def test_cli_renderer_print_head_uses_message_kind(kind: str, title: str) -> None:
+    from bub.channels.cli.writers import PanelHead
 
-    def print_message(message: str, *, new_line_start: bool | None = None) -> None:
+    printed: list[tuple[object, bool | None]] = []
+
+    def print_message(message: object, *, new_line_start: bool | None = None) -> None:
         printed.append((message, new_line_start))
 
     renderer = CliRenderer(SimpleNamespace(print=print_message))  # type: ignore[arg-type]
 
     renderer.print_head(kind)  # type: ignore[arg-type]
 
-    assert printed == [(expected, True)]
+    assert len(printed) == 1
+    head, new_line_start = printed[0]
+    assert isinstance(head, PanelHead)
+    assert head._title == title
+    assert new_line_start is None
+
+
+def test_cli_renderer_print_end_uses_message_kind() -> None:
+    from bub.channels.cli.writers import PanelEnd
+
+    printed: list[object] = []
+
+    def print_message(message: object, **kwargs: object) -> None:
+        printed.append(message)
+
+    renderer = CliRenderer(SimpleNamespace(print=print_message))  # type: ignore[arg-type]
+
+    renderer.print_end("normal")  # type: ignore[arg-type]
+
+    assert len(printed) == 1
+    assert isinstance(printed[0], PanelEnd)
 
 
 def test_bub_message_filter_accepts_private_messages() -> None:
