@@ -378,7 +378,7 @@ class TelegramMessageParser:
         duration = audio.duration or 0
         metadata = exclude_none({
             "file_id": audio.file_id,
-            "mime_type": audio.mime_type,
+            "mime_type": audio.mime_type or "audio/mpeg",
             "file_size": audio.file_size,
             "duration": audio.duration,
             "title": audio.title,
@@ -389,12 +389,12 @@ class TelegramMessageParser:
             return f"[Audio: {performer} - {title} ({duration}s)]", metadata
         return f"[Audio: {title} ({duration}s)]", metadata
 
-    async def _download_media(self, file_id: str, file_size: int) -> bytes | None:
+    async def _download_media(self, file_id: str, file_size: int | None) -> bytes | None:
         if not file_id:
             raise ValueError("file_id must not be empty")
         if self._bot_getter is None:
             raise RuntimeError("Telegram bot is not configured for media downloads.")
-        if file_size > 2 * 1024 * 1024:  # limit to 2MB
+        if file_size is not None and file_size > 2 * 1024 * 1024:  # limit to 2MB
             return None
         bot = self._bot_getter()
         if bot is None:
@@ -441,7 +441,7 @@ class TelegramMessageParser:
             "width": video.width,
             "height": video.height,
             "duration": video.duration,
-            "mime_type": video.mime_type,
+            "mime_type": video.mime_type or "video/mp4",
             "data_fetcher": lambda: self._download_media(video.file_id, video.file_size),
         })
         return formatted, metadata
