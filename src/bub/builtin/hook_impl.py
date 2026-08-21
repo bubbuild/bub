@@ -2,7 +2,7 @@ import sys
 from datetime import datetime
 from difflib import get_close_matches
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import typer
 from loguru import logger
@@ -15,7 +15,7 @@ from bub.builtin.steering import InMemorySteeringInbox
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
-from bub.channels.message import ChannelMessage, MediaItem
+from bub.channels.message import ChannelMessage, MediaItem, audio_format_from_mime_type
 from bub.envelope import Envelope, content_of, field_of
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
@@ -61,6 +61,16 @@ Excessively long context may cause model call failures. In this case, you MAY us
 </context_contract>
 """
 DEFAULT_CONTINUE_PROMPT = "Continue the task until all targets are completed."
+
+
+def _input_audio_part(data_url: str, mime_type: str) -> dict[str, Any] | None:
+    prefix, separator, data = data_url.partition("base64,")
+    if not separator or not prefix.startswith("data:audio/") or not data:
+        return None
+    return {
+        "type": "input_audio",
+        "input_audio": {"data": data, "format": audio_format_from_mime_type(mime_type)},
+    }
 
 
 class BuiltinImpl:
@@ -198,13 +208,18 @@ class BuiltinImpl:
         media_parts: list[dict] = []
         for item in cast("list[MediaItem]", media):
             match item.type:
-                case "image":
+                case "image" | "video":
                     data_url = await item.get_url()
                     if not data_url:
                         continue
-                    media_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+                    part_type = f"{item.type}_url"
+                    media_parts.append({"type": part_type, part_type: {"url": data_url}})
+                case "audio":
+                    data_url = await item.get_url()
+                    if data_url and (audio_part := _input_audio_part(data_url, item.mime_type)):
+                        media_parts.append(audio_part)
                 case _:
-                    pass  # TODO: Not supported for now
+                    pass
         if media_parts:
             return [{"type": "text", "text": text}, *media_parts]
         return text

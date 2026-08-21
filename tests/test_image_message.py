@@ -10,7 +10,7 @@ import pytest
 
 from bub.builtin.hook_impl import BuiltinImpl
 from bub.channels.message import ChannelMessage, MediaItem
-from bub.channels.telegram import TelegramChannel, _extract_media_items
+from bub.channels.telegram import TelegramChannel, TelegramMessageParser, _extract_media_items
 from bub.framework import BubFramework
 
 # ---------------------------------------------------------------------------
@@ -28,6 +28,13 @@ def test_media_item_keeps_fetcher_and_filename() -> None:
     assert item.mime_type == "image/jpeg"
     assert item.filename == "a.jpg"
     assert item.data_fetcher is fetch_bytes
+
+
+@pytest.mark.asyncio
+async def test_media_item_returns_none_when_fetcher_skips_download() -> None:
+    item = MediaItem(type="video", mime_type="video/mp4", data_fetcher=_async_return(None))
+
+    assert await item.get_url() is None
 
 
 def test_channel_message_from_batch_merges_media() -> None:
@@ -127,6 +134,51 @@ def test_extract_media_items_from_video_metadata() -> None:
 
     assert len(items) == 1
     assert items[0].type == "video"
+
+
+@pytest.mark.asyncio
+async def test_telegram_video_parser_defaults_to_mp4_mime_type() -> None:
+    parser = TelegramMessageParser()
+    message = SimpleNamespace(
+        caption=None,
+        video=SimpleNamespace(
+            file_id="vid",
+            file_size=None,
+            width=640,
+            height=480,
+            duration=3,
+            mime_type=None,
+        ),
+    )
+
+    content, media = await parser._parse_video(message)  # type: ignore[arg-type]
+
+    assert content == "[Video: 3s]"
+    assert media is not None
+    assert media["mime_type"] == "video/mp4"
+    assert callable(media["data_fetcher"])
+
+
+@pytest.mark.asyncio
+async def test_telegram_audio_parser_defaults_to_mpeg_mime_type() -> None:
+    parser = TelegramMessageParser()
+    message = SimpleNamespace(
+        audio=SimpleNamespace(
+            file_id="aud",
+            file_size=None,
+            duration=3,
+            mime_type=None,
+            title=None,
+            performer=None,
+        ),
+    )
+
+    content, media = await parser._parse_audio(message)  # type: ignore[arg-type]
+
+    assert content == "[Audio: Unknown (3s)]"
+    assert media is not None
+    assert media["mime_type"] == "audio/mpeg"
+    assert callable(media["data_fetcher"])
 
 
 def test_extract_media_items_from_document_metadata() -> None:
@@ -301,18 +353,84 @@ async def test_build_prompt_with_multiple_images(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_build_prompt_with_non_image_media_only_includes_text(tmp_path: Path) -> None:
+async def test_build_prompt_returns_video_url_part_with_video_media(tmp_path: Path) -> None:
+    _, impl = _build_impl(tmp_path)
+    message = ChannelMessage(
+        session_id="s",
+        channel="tg",
+        content="describe this video",
+        media=[MediaItem(type="video", mime_type="video/mp4", data_fetcher=_async_return(b"video"))],
+    )
+
+    result = await impl.build_prompt(message, session_id="s", state={})
+
+    assert isinstance(result, list)
+    assert len(result) == 2
+    assert result[0]["type"] == "text"
+    assert "describe this video" in result[0]["text"]
+    expected = base64.b64encode(b"video").decode("utf-8")
+    assert result[1] == {
+        "type": "video_url",
+        "video_url": {"url": f"data:video/mp4;base64,{expected}"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_build_prompt_skips_video_when_download_is_too_large(tmp_path: Path) -> None:
+    _, impl = _build_impl(tmp_path)
+    message = ChannelMessage(
+        session_id="s",
+        channel="tg",
+        content="describe this video",
+        media=[MediaItem(type="video", mime_type="video/mp4", data_fetcher=_async_return(None))],
+    )
+
+    result = await impl.build_prompt(message, session_id="s", state={})
+
+    assert isinstance(result, str)
+    assert "describe this video" in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mime_type", "expected_format"),
+    [("audio/mpeg", "mp3"), ("audio/ogg", "ogg"), ("audio/x-wav", "wav")],
+)
+async def test_build_prompt_returns_input_audio_part(tmp_path: Path, mime_type: str, expected_format: str) -> None:
     _, impl = _build_impl(tmp_path)
     message = ChannelMessage(
         session_id="s",
         channel="tg",
         content="listen to this",
-        media=[MediaItem(type="audio", mime_type="audio/ogg", data_fetcher=_async_return(b"\xff\xfb"))],
+        media=[MediaItem(type="audio", mime_type=mime_type, data_fetcher=_async_return(b"audio"))],
     )
 
     result = await impl.build_prompt(message, session_id="s", state={})
 
-    # Non-image media: only returns a text
+    assert isinstance(result, list)
+    assert result[0]["type"] == "text"
+    assert "listen to this" in result[0]["text"]
+    assert result[1] == {
+        "type": "input_audio",
+        "input_audio": {
+            "data": base64.b64encode(b"audio").decode("utf-8"),
+            "format": expected_format,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_build_prompt_skips_remote_audio_url(tmp_path: Path) -> None:
+    _, impl = _build_impl(tmp_path)
+    message = ChannelMessage(
+        session_id="s",
+        channel="tg",
+        content="listen to this",
+        media=[MediaItem(type="audio", mime_type="audio/ogg", url="https://example.com/audio.ogg")],
+    )
+
+    result = await impl.build_prompt(message, session_id="s", state={})
+
     assert isinstance(result, str)
     assert "listen to this" in result
 

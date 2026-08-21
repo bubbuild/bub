@@ -10,10 +10,52 @@ from any_llm.providers.anthropic.base import BaseAnthropicProvider
 from any_llm.providers.openai.base import BaseOpenAIProvider
 from any_llm.types.completion import ChatCompletionChunk, ChatCompletionMessageFunctionToolCall, Function
 
-from bub.builtin.model_runner import ModelRunner, tool_invocation_from_native
+from bub.builtin.model_runner import ModelRunner, _adapt_messages_for_provider, tool_invocation_from_native
 from bub.builtin.settings import AgentSettings, ModelCandidate
 from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, Tape, TapeContext
 from bub.tools import ToolExecutor
+
+
+@pytest.mark.parametrize("provider", [LLMProvider.GEMINI, LLMProvider.VERTEXAI])
+def test_adapt_messages_converts_video_url_for_google_providers(provider: LLMProvider) -> None:
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "describe this video"},
+                {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,dmlkZW8="}},
+                {"type": "input_audio", "input_audio": {"data": "YXVkaW8=", "format": "ogg"}},
+            ],
+        }
+    ]
+
+    result = _adapt_messages_for_provider(messages, provider)
+
+    assert result == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "describe this video"},
+                {"type": "file", "file": {"file_data": "data:video/mp4;base64,dmlkZW8="}},
+                {"type": "file", "file": {"file_data": "data:audio/ogg;base64,YXVkaW8="}},
+            ],
+        }
+    ]
+    assert messages[0]["content"][1]["type"] == "video_url"
+
+
+def test_adapt_messages_keeps_native_multimodal_blocks_for_openrouter() -> None:
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,dmlkZW8="}},
+                {"type": "input_audio", "input_audio": {"data": "YXVkaW8=", "format": "ogg"}},
+            ],
+        }
+    ]
+
+    assert _adapt_messages_for_provider(messages, LLMProvider.OPENROUTER) is messages
 
 
 @pytest.mark.asyncio

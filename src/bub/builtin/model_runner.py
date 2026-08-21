@@ -28,6 +28,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from bub.builtin.codex_provider import OpenaiCodexProvider, should_use_openai_codex_provider
 from bub.builtin.settings import AgentSettings, ModelCandidate
+from bub.channels.message import audio_mime_type_from_format
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import (
     AgentHooks,
@@ -45,6 +46,7 @@ CONTEXT_LENGTH_PATTERNS = re.compile(
 )
 TOOL_ARGUMENTS_ADAPTER = TypeAdapter(dict[str, Any])
 CompletionResult = ChatCompletion | ParsedChatCompletion[Any] | AsyncIterator[ChatCompletionChunk]
+GOOGLE_FILE_CONTENT_PROVIDERS = frozenset({LLMProvider.GEMINI, LLMProvider.VERTEXAI})
 
 
 def _extra_options(llm: AnyLLM, *, stream: bool) -> dict[str, Any]:
@@ -54,6 +56,48 @@ def _extra_options(llm: AnyLLM, *, stream: bool) -> dict[str, Any]:
     elif stream and isinstance(llm, BaseOpenAIProvider):
         return {"stream_options": {"include_usage": True}}
     return {}
+
+
+def _adapt_messages_for_provider(messages: list[dict[str, Any]], provider: LLMProvider) -> list[dict[str, Any]]:
+    """Translate canonical multimodal blocks when a provider uses a different wire format."""
+    if provider not in GOOGLE_FILE_CONTENT_PROVIDERS:
+        return messages
+
+    adapted_messages: list[dict[str, Any]] = []
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            adapted_messages.append(message)
+            continue
+
+        adapted_content: list[Any] = []
+        changed = False
+        for part in content:
+            if not isinstance(part, dict):
+                adapted_content.append(part)
+                continue
+
+            if part.get("type") == "video_url":
+                video_url = part.get("video_url")
+                url = video_url.get("url") if isinstance(video_url, dict) else None
+                if isinstance(url, str) and url:
+                    adapted_content.append({"type": "file", "file": {"file_data": url}})
+                    changed = True
+                    continue
+            elif part.get("type") == "input_audio":
+                input_audio = part.get("input_audio")
+                data = input_audio.get("data") if isinstance(input_audio, dict) else None
+                audio_format = input_audio.get("format") if isinstance(input_audio, dict) else None
+                if isinstance(data, str) and data and isinstance(audio_format, str) and audio_format:
+                    mime_type = audio_mime_type_from_format(audio_format)
+                    file_data = f"data:{mime_type};base64,{data}"
+                    adapted_content.append({"type": "file", "file": {"file_data": file_data}})
+                    changed = True
+                    continue
+            adapted_content.append(part)
+
+        adapted_messages.append({**message, "content": adapted_content} if changed else message)
+    return adapted_messages
 
 
 class ModelRunner:
@@ -90,12 +134,12 @@ class ModelRunner:
         reasoning_effort: str | None = None,
     ) -> CompletionResult:
         tool_payloads = [tool.to_schema() for tool in tools] or None
-        completion_messages: list[dict[str, Any] | ChatCompletionMessage] = list(messages)
         clients = list(self.iter_llm_clients(model))
         completion_error: Exception | None = None
         for index, (candidate, llm) in enumerate(clients):
             try:
                 streaming = llm.SUPPORTS_COMPLETION_STREAMING
+                completion_messages = _adapt_messages_for_provider(messages, candidate.provider)
                 completion_kwargs = {
                     **self.settings.completion_args,
                     **_extra_options(llm, stream=streaming),
