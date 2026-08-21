@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Any
 
 from loguru import logger
 from pydantic import Field
@@ -14,8 +13,7 @@ from pydantic_settings import SettingsConfigDict
 from bub import config
 from bub.configure import Settings
 from bub.errors import BubError, ErrorKind
-from bub.sidecars import sidecar_tape_name
-from bub.tape import TapeEntry, TapeQuery
+from bub.tape import Tape, TapeEntry, TapeQuery
 from bub.tools import ToolContext, tool
 
 SPILL_READ_TOOL_NAME = "spill.read"
@@ -37,10 +35,6 @@ class SpillSettings(Settings):
         ge=0,
         description="Estimated tokens (4 chars each) above which string tool results move to the spill sidecar.",
     )
-
-
-def spill_tape_name(session_tape: str) -> str:
-    return sidecar_tape_name(session_tape, SPILL_SIDECAR_NAME)
 
 
 def _chunk_anchor(handle: str, index: int) -> str:
@@ -118,18 +112,13 @@ class SpillStore:
     settings: SpillSettings
     name: str = field(default=SPILL_SIDECAR_NAME, init=False)
 
-    @classmethod
-    def mounted(cls, tape: Any) -> SpillStore | None:
-        sidecar = tape.get_sidecar(cls.name)
-        return sidecar if isinstance(sidecar, cls) else None
-
-    async def _record_write(self, tape: Any, data: dict[str, object], *, run_id: str) -> None:
+    async def _record_write(self, tape: Tape, data: dict[str, object], *, run_id: str) -> None:
         try:
             await tape.append_event("spill.write", data, run_id=run_id, context=False)
         except Exception as exc:
             logger.warning("spill write event failed run_id={} error={}", run_id, exc)
 
-    async def spill_tool_result(self, tape: Any, result: str, *, tool: str, run_id: str) -> str:
+    async def spill_tool_result(self, tape: Tape, result: str, *, tool: str, run_id: str) -> str:
         threshold = self.settings.threshold
         if threshold <= 0 or tool in {SPILL_READ_TOOL_NAME, SPILL_READ_MODEL_NAME} or len(result) < threshold * 4:
             return result
@@ -197,7 +186,7 @@ class SpillStore:
             f"{_preview(result)}"
         )
 
-    async def manifest(self, tape: Any, handle: str) -> SpillManifest | None:
+    async def manifest(self, tape: Tape, handle: str) -> SpillManifest | None:
         query = (
             TapeQuery(tape=tape.sidecar_tape_name(self.name), store=tape.store)
             .after_anchor(_manifest_anchor(handle))
@@ -216,7 +205,7 @@ class SpillStore:
 
     async def read(
         self,
-        tape: Any,
+        tape: Tape,
         handle: str,
         *,
         cursor: int,
@@ -288,8 +277,8 @@ async def spill_read(
     if count < 1:
         return "`count` must be >= 1."
 
-    spill = SpillStore.mounted(context.tape)
-    if spill is None:
+    spill = context.tape.get_sidecar(SPILL_SIDECAR_NAME)
+    if not isinstance(spill, SpillStore):
         return "spill sidecar unavailable in this context."
     try:
         page = await spill.read(

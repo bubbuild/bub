@@ -448,15 +448,15 @@ class BuiltinImpl:
         result: ToolCallResult,
         state: TurnState,
     ) -> None:
-        from bub.builtin.spill import SpillStore
+        from bub.builtin.spill import SPILL_SIDECAR_NAME, SpillStore
 
         if result.error is not None or not isinstance(result.result, str):
             return
         tape = state.get("_runtime_tape")
         if tape is None:
             return
-        spill = SpillStore.mounted(tape)
-        if spill is None:
+        spill = tape.get_sidecar(SPILL_SIDECAR_NAME)
+        if not isinstance(spill, SpillStore):
             return
         result.result = await spill.spill_tool_result(
             tape,

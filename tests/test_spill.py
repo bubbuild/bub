@@ -11,10 +11,10 @@ from bub.builtin.hook_impl import BuiltinImpl
 from bub.builtin.spill import (
     SPILL_READ_MODEL_NAME,
     SPILL_READ_TOOL_NAME,
+    SPILL_SIDECAR_NAME,
     SpillSettings,
     SpillStore,
     spill_read,
-    spill_tape_name,
 )
 from bub.builtin.tools import render_tools_prompt
 from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
@@ -178,7 +178,7 @@ def test_spill_read_uses_the_builtin_tool_naming_convention() -> None:
 async def test_tape_archive_preserves_spilled_results_and_clears_the_session(tmp_path: Path) -> None:
     parent = InMemoryTapeStore()
     root = _root_tape(tmp_path, parent)
-    sidecar = spill_tape_name(root.name)
+    sidecar = root.sidecar_tape_name(SPILL_SIDECAR_NAME)
     await root.ensure_bootstrap_anchor()
 
     async with root.fork_tape() as tape:
