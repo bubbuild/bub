@@ -88,3 +88,23 @@ async def test_tape_info_omits_cache_hit_rate_when_usage_has_no_cache_details(tm
     info = await tape.info()
 
     assert info.last_token_cache_hit_rate is None
+
+
+@pytest.mark.asyncio
+async def test_context_excluded_entries_do_not_reach_custom_context_selectors(tmp_path: Path) -> None:
+    def select_events(entries, _context):
+        return [
+            {"role": "assistant", "content": str(entry.payload.get("name"))}
+            for entry in entries
+            if entry.kind == "event"
+        ]
+
+    tape = Tape(
+        tmp_path,
+        AsyncTapeStoreAdapter(InMemoryTapeStore()),
+        TapeContext(anchor=None, select=select_events),
+    ).scoped("test-tape")
+    await tape.append_event("visible", {})
+    await tape.append_event("hidden", {}, context=False)
+
+    assert await tape.read_messages() == [{"role": "assistant", "content": "visible"}]

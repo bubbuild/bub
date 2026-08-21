@@ -4,6 +4,8 @@ import os
 from unittest.mock import patch
 
 from bub.builtin.settings import DEFAULT_MODEL, AgentSettings, load_settings
+from bub.builtin.spill import SpillSettings
+from bub.configure import ensure_config
 
 
 def _settings_with_env(env: dict[str, str]) -> AgentSettings:
@@ -132,6 +134,19 @@ def test_settings_client_args_can_be_disabled() -> None:
 
     assert settings.client_args == {}
     assert settings.completion_args == {}
+
+
+def test_spill_sidecar_settings_can_be_configured_or_disabled() -> None:
+    with patch.dict("os.environ", {"BUB_SPILL_THRESHOLD": "64"}, clear=True):
+        assert SpillSettings().threshold == 64
+    with patch.dict("os.environ", {"BUB_SPILL_THRESHOLD": "0"}, clear=True):
+        assert SpillSettings().threshold == 0
+
+
+def test_spill_sidecar_settings_load_from_the_plugin_section(load_config) -> None:
+    load_config("spill:\n  threshold: 64")
+
+    assert ensure_config(SpillSettings).threshold == 64
 
 
 def test_load_settings_returns_defaults_without_loaded_config() -> None:

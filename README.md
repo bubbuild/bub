@@ -120,6 +120,7 @@ Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-sk
 | `BUB_MAX_STEPS`             | unlimited                    | Tool-use loop limit; must be a positive integer      |
 | `BUB_MAX_TOKENS`            | `16384`                      | Max tokens per model call                            |
 | `BUB_MODEL_TIMEOUT_SECONDS` | —                            | Model call timeout (seconds)                         |
+| `BUB_SPILL_THRESHOLD`       | `4096`                       | Estimated tokens before tool output spills; `0` disables |
 
 ## Background
 

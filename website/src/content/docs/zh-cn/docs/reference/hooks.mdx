@@ -30,13 +30,14 @@ description: BubHookSpecs 中每个钩子的类型、签名、返回值与调用
 | `on_error` | observer | `(stage: str, error: Exception, message: Envelope \| None) -> None` | none | `HookRuntime.notify_error` / `notify_error_sync` | `on_error` 实现内部抛出的异常会被吞掉并写日志,确保其他观察者继续运行。 |
 | `system_prompt` | broadcast (joined) | `(prompt, state) -> str` | prompt fragment | `BubFramework.get_system_prompt` (`call_many_sync`) | 结果先反转再用 `\n\n` 拼接,只保留真值片段。 |
 | `provide_tape_store` | firstresult | `() -> TapeStore \| AsyncTapeStore` | tape store | `BubFramework.running()` | 仅在 runtime 作用域开启时解析一次;返回同步或异步迭代器时会被作为 context manager 进入。 |
+| `provide_tape_sidecar` | sync-only consumer（去重） | `() -> TapeSidecar` | 挂载的 sidecar | `BubFramework.get_tape_sidecars` | 每个实现提供一个 sidecar；按 `name` 去重，hook 优先级中最先出现的值生效。 |
 | `provide_channels` | sync-only consumer (deduped) | `(message_handler: MessageHandler) -> list[Channel]` | channels | `BubFramework.get_channels` (`call_many_sync`) | 按 `Channel.name` 去重；在钩子优先级顺序中最先出现的 channel 胜出。 |
 | `build_tape_context` | firstresult | `() -> TapeContext` | tape context | `BubFramework.build_tape_context` (`call_first_sync`) | 仅同步;awaitable 返回会被跳过。 |
 | `admit_message` | firstresult | `(session_id, message, turn) -> AdmitDecision \| None` | turn admission decision | `ChannelManager` | 调度 channel message 前调用。返回 `None` 保持默认并发调度；decision 类型见 [核心契约](/zh-cn/docs/reference/types/)。 |
 | `before_llm_call` | chained | `(request: LlmCallRequest, state: TurnState) -> LlmCallRequest \| LlmCallDecision \| None` | 修改后的 request 或 finish 决定 | `ModelRunner.run` 经 `AgentHooks` | 实现按 LIFO 链式执行,每个实现看到的是前一个实现修改后的 request。返回 `LlmCallDecision.finish(text)` 跳过 provider 调用。实现抛异常仅记日志并跳过。 |
 | `after_llm_call` | observer | `(request: LlmCallRequest, result: LlmCallResult, state: TurnState) -> None` | 无 | `ModelRunner.run` 经 `AgentHooks` | 每次完成的调用恰好触发一次:成功或 `Exception` 失败。取消 / 消费方 `aclose()` 不观察。`result.error` 是原始异常。 |
 | `before_tool_call` | chained | `(call: ToolCall, state: TurnState) -> ToolCallDecision \| None` | decision | `ToolExecutor` 经 `AgentHooks` | 逐次工具调用。`proceed(arguments=…)` 折叠参数修改;`replace(result)` / `deny(message)` 短路。否决只能通过 decision 对象——异常仅记日志并跳过。 |
-| `after_tool_call` | observer | `(call: ToolCall, result: ToolCallResult, state: TurnState) -> None` | 无 | `ToolExecutor` 经 `AgentHooks` | 成功、失败、deny/replace 会触发。取消不观察。`result.error` 是原始 `BubError`。 |
+| `after_tool_call` | 终态处理 | `(call: ToolCall, result: ToolCallResult, state: TurnState) -> None` | 无 | `ToolExecutor` 经 `AgentHooks` | 成功、失败、deny/replace 会触发。取消不观察。赋值 `result.result` 会替换返回给模型的成功结果；`result.error` 是原始 `BubError`。 |
 
 ## 钩子如何被调用
 
@@ -68,7 +69,7 @@ def _iter_hookimpls(self, hook_name: str) -> list[Any]:
 
 异步调用 (`call_first`、`call_many`) 会 `await` 任何 awaitable 返回值。同步调用 (`*_sync`) 通过 `inspect.isawaitable(value)` 判断,若为真则发出 `hook.async_not_supported hook=<name> adapter=<plugin>` 告警并跳过该值。
 
-启动期钩子 **必须** 同步:`register_cli_commands`、`onboard_config`、`provide_channels`、`provide_tape_store`、`build_tape_context`,以及 `system_prompt`。
+启动期钩子 **必须** 同步:`register_cli_commands`、`onboard_config`、`provide_channels`、`provide_tape_store`、`provide_tape_sidecar`、`build_tape_context`,以及 `system_prompt`。
 
 :::caution
 为 sync-only hook 定义 async coroutine 实现时，hook 仍会被注册；但同步分发会记录 `hook.async_not_supported` 并跳过其返回值。`bub hooks` 只能确认发现成功，不能确认它会在同步分发中生效。
@@ -94,6 +95,10 @@ def _kwargs_for_impl(impl: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
 
 `BubFramework.get_tape_store()` 在作用域之外返回 `None`。
 
+### Tape sidecar
+
+每个 `provide_tape_sidecar` 实现提供一个由 active `TapeStore` 中 sibling tape 支撑的具名能力。Bub 在创建 agent root `Tape` 时挂载聚合结果；例如 scoped session 会把 sidecar `spill` 映射为 `<session-tape>__sidecar__spill`。fork、merge、archive 和 reset 会处理所有已挂载 sidecar，不要求存储插件实现新接口。移除 provider 只会停止挂载，不会删除已存数据。
+
 ### `on_error` 观察者安全性
 
 `notify_error` 与 `notify_error_sync` 把每个实现包在 `try`/`except` 中;观察者失败会写入日志 (`hook.on_error_failed stage=… adapter=…`) 但不会向上传递。这样可以保证某个观察者出错不会阻塞其他观察者,也不会让 `on_error` 掩盖原始异常。
@@ -104,7 +109,7 @@ def _kwargs_for_impl(impl: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
 
 - **链式** — `before_llm_call` 与 `before_tool_call` 按 LIFO 顺序执行全部实现并**折叠**修改:每个实现收到的是前序实现修改后的 request/call。第一个短路决定(`LlmCallDecision.finish`、`ToolCallDecision.replace`/`deny`)终止链。
 - **错误隔离** — 实现抛异常只记日志(`hook.agent_hook_failed`)并跳过,绝不炸掉回合。阻断只能通过 decision 对象表达,坏掉的策略插件无法靠 crash 否决。
-- **终态恰好一次** — `after_llm_call` 与 `after_tool_call` 对真实完成的调用恰好触发一次:成功或 `Exception` 失败。取消与消费方关闭(`BaseException`)刻意不进入 after 钩子。`result.error` 携带**原始异常对象**(工具失败为完整 `BubError`,`kind`/`details` 保留)。
+- **终态处理恰好一次** — `after_llm_call` 与 `after_tool_call` 对真实完成的调用恰好触发一次：成功或 `Exception` 失败。取消与消费方关闭（`BaseException`）刻意不进入 after hook。`result.error` 携带**原始异常对象**（工具失败为完整 `BubError`，保留 `kind`/`details`）。所有 `after_tool_call` 实现共享同一个 outcome，因此赋值 `result.result` 会改变后续实现以及模型看到的成功结果。
 
 载荷数据类(`LlmCallRequest`、`LlmCallResult`、`ToolCall`、`ToolCallDecision`、`ToolCallResult`、`LlmCallDecision`)与执行语义一同位于 `src/bub/hooks/interception.py`。所有载荷携带 `run_id`,与 tape 条目 meta 中的 `run_id` 对应,观察者可将钩子事件与 tape 记录对齐。`before_llm_call` 改写的 `model`/`max_tokens` 全链路生效:provider 收到改写值,tape 记录 effective model。
 

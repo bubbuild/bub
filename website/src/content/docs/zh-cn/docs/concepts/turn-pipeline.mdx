@@ -92,6 +92,7 @@ hook 运行时会在两者间互相适配：若插件只实现 `run_model_stream
 - `dispatch_outbound` — 转发到绑定的 `ChannelRouter`。
 - `system_prompt` — 将默认 prompt 与 workspace 的 `AGENTS.md` 拼接。
 - `provide_tape_store` — 位于 `~/.bub/tapes` 下的文件型 tape store。
+- `provide_tape_sidecar` — 使用当前配置的 builtin spill sidecar。
 - `provide_channels` — 注册内置的 `cli` 与 `telegram` adapter。
 
 插件通过注册更高优先级的实现来覆写其中任一项；晚注册的插件先执行。

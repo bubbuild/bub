@@ -73,6 +73,23 @@ Provider-specific defaults are gathered at startup by scanning `os.environ` for 
 
 OpenAI Codex OAuth does not need a separate request-format setting. After `bub login openai`, Bub detects the stored Codex OAuth token when the selected model uses the `openai:` provider and no custom API base is set.
 
+## Spill sidecar — `SpillSettings`
+
+Defined in `src/bub/builtin/spill.py` and registered by the builtin sidecar plugin:
+
+```python
+@config(name="spill")
+class SpillSettings(Settings):
+    model_config = SettingsConfigDict(env_prefix="BUB_SPILL_", extra="ignore", env_file=".env")
+    threshold: int = Field(default=4096, ge=0)
+```
+
+Loaded under the YAML `spill:` section.
+
+| Env var | Default | YAML key (`spill.*`) | Description |
+| --- | --- | --- | --- |
+| `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | Estimated tokens (4 chars each) above which string tool results are stored in the spill sidecar. Set to `0` to stop creating new spills while keeping the sidecar mounted for existing handles and lifecycle operations. |
+
 ## Channels — `ChannelSettings`
 
 Defined in `src/bub/channels/manager.py`:

@@ -92,6 +92,7 @@ The default observer (`BuiltinImpl.on_error`) sends an error envelope through `d
 - `dispatch_outbound` — forwards through the bound `ChannelRouter`.
 - `system_prompt` — combines a default prompt with the workspace `AGENTS.md`.
 - `provide_tape_store` — file-backed tape store under `~/.bub/tapes`.
+- `provide_tape_sidecar` — the configured builtin spill sidecar.
 - `provide_channels` — registers the built-in `cli` and `telegram` adapters.
 
 Plugins override any of these by registering a higher-priority implementation; later-registered plugins run first.

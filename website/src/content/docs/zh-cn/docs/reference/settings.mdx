@@ -73,6 +73,23 @@ class AgentSettings(Settings):
 
 OpenAI Codex OAuth 不需要单独的请求格式设置。运行 `bub login openai` 后,当模型使用 `openai:` provider 且没有自定义 API base 时,Bub 会检测并使用本地保存的 Codex OAuth token。
 
+## Spill sidecar —— `SpillSettings`
+
+定义于 `src/bub/builtin/spill.py`，由 builtin sidecar 插件注册：
+
+```python
+@config(name="spill")
+class SpillSettings(Settings):
+    model_config = SettingsConfigDict(env_prefix="BUB_SPILL_", extra="ignore", env_file=".env")
+    threshold: int = Field(default=4096, ge=0)
+```
+
+从 YAML 的 `spill:` section 加载。
+
+| 环境变量 | 默认值 | YAML 字段（`spill.*`） | 描述 |
+| --- | --- | --- | --- |
+| `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | 字符串工具结果超过该估算 token 数（每 token 按 4 字符估算）时写入 spill sidecar。设为 `0` 会停止产生新 spill，但 sidecar 仍保持挂载，已有 handle 和生命周期操作不受影响。 |
+
 ## Channels —— `ChannelSettings`
 
 定义于 `src/bub/channels/manager.py`:

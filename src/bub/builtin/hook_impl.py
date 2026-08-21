@@ -19,8 +19,9 @@ from bub.channels.message import ChannelMessage, MediaItem, audio_format_from_mi
 from bub.envelope import Envelope, content_of, field_of
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
-from bub.hooks.interception import ToolCall, ToolCallDecision
+from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
 from bub.model_selection import ModelChoice, ModelOptions
+from bub.sidecars import TapeSidecar
 from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents, StreamState
 from bub.tape import Tape, TapeContext
@@ -77,7 +78,7 @@ class BuiltinImpl:
     """Default hook implementations for basic runtime operations."""
 
     def __init__(self, framework: BubFramework) -> None:
-        from bub.builtin import tools  # noqa: F401
+        from bub.builtin import spill, tools  # noqa: F401
 
         self.framework = framework
         self._agent: Agent | None = None
@@ -386,6 +387,13 @@ class BuiltinImpl:
         return FileTapeStore(directory=bub.home / "tapes")
 
     @hookimpl
+    def provide_tape_sidecar(self) -> TapeSidecar:
+        from bub.builtin.spill import SpillSettings, SpillStore
+        from bub.configure import ensure_config
+
+        return SpillStore(ensure_config(SpillSettings))
+
+    @hookimpl
     def build_tape_context(self) -> TapeContext:
         return default_tape_context()
 
@@ -432,3 +440,27 @@ class BuiltinImpl:
         else:
             guidance = f"Tool `{call.tool}` does not exist. No similar tool is available."
         return ToolCallDecision.replace(guidance)
+
+    @hookimpl
+    async def after_tool_call(
+        self,
+        call: ToolCall,
+        result: ToolCallResult,
+        state: TurnState,
+    ) -> None:
+        from bub.builtin.spill import SpillStore
+
+        if result.error is not None or not isinstance(result.result, str):
+            return
+        tape = state.get("_runtime_tape")
+        if tape is None:
+            return
+        spill = SpillStore.mounted(tape)
+        if spill is None:
+            return
+        result.result = await spill.spill_tool_result(
+            tape,
+            result.result,
+            tool=call.tool,
+            run_id=call.run_id,
+        )

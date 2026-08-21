@@ -95,9 +95,9 @@ class ToolCallDecision:
         return cls(action="deny", message=message)
 
 
-@dataclass(frozen=True)
+@dataclass
 class ToolCallResult:
-    """Terminal outcome of one tool invocation exposed to hooks."""
+    """Terminal outcome exposed to hooks; successful results may be replaced in place."""
 
     run_id: str
     tool: str
@@ -165,7 +165,7 @@ class AgentHooks:
         return call, ToolCallDecision.proceed()
 
     async def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: TurnState) -> None:
-        """Notify every observer; return values are ignored."""
+        """Notify every implementation with one shared, mutable outcome."""
 
         await self._safe_calls("after_tool_call", lambda: {"call": call, "state": state, "result": result})
 

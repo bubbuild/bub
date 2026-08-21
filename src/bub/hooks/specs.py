@@ -19,6 +19,7 @@ from bub.hooks.interception import (
     ToolCallResult,
 )
 from bub.model_selection import ModelOptions
+from bub.sidecars import TapeSidecar
 from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import AsyncStreamEvents, StreamState
 from bub.tape import Tape, TapeContext
@@ -164,10 +165,12 @@ class BubHookSpecs:
 
     @hookspec
     def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: TurnState) -> None:
-        """Observe the terminal outcome of one tool invocation.
+        """Handle the terminal outcome of one tool invocation.
 
         Fires for success, failure (``result.error`` set), denial and
-        replacement. Return values are ignored; exceptions are logged.
+        replacement. An implementation may replace a successful value by
+        assigning ``result.result``. Return values are ignored; exceptions
+        are logged.
         """
 
     @hookspec
@@ -178,6 +181,11 @@ class BubHookSpecs:
     @hookspec(firstresult=True)
     def provide_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         """Provide a tape store instance for Bub's conversation recording feature."""
+        raise NotImplementedError
+
+    @hookspec
+    def provide_tape_sidecar(self) -> TapeSidecar:
+        """Provide a capability backed by a sibling tape mounted on every session tape."""
         raise NotImplementedError
 
     @hookspec

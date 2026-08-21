@@ -243,6 +243,8 @@ class ToolExecutor:
             arguments=dict(tool_args),
         )
         hook_state = context.state if context is not None else {}
+        if self._hooks is not None and context is not None:
+            hook_state["_runtime_tape"] = context.tape
         started = time.monotonic()
         if self._hooks is not None:
             call, short_circuit = await self._apply_before_tool_call(call, hook_state, started)
@@ -255,8 +257,8 @@ class ToolExecutor:
             await self._fire_after_tool_call(call, hook_state, started, error=exc)
             raise
         else:
-            await self._fire_after_tool_call(call, hook_state, started, result=result)
-            return result
+            outcome = await self._fire_after_tool_call(call, hook_state, started, result=result)
+            return outcome.result
 
     async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:
         """Run the tool with errors normalized to BubError."""
@@ -310,8 +312,8 @@ class ToolExecutor:
 
             return call, raise_denied
         if decision.action == "replace":
-            await self._fire_after_tool_call(call, hook_state, started, result=decision.result)
-            return call, lambda: decision.result
+            outcome = await self._fire_after_tool_call(call, hook_state, started, result=decision.result)
+            return call, lambda: outcome.result
         return call, None
 
     async def _fire_after_tool_call(
@@ -322,9 +324,7 @@ class ToolExecutor:
         *,
         result: Any = None,
         error: Exception | None = None,
-    ) -> None:
-        if self._hooks is None:
-            return
+    ) -> ToolCallResult:
         duration_ms = int((time.monotonic() - started) * 1000)
         outcome = ToolCallResult(
             run_id=call.run_id,
@@ -334,7 +334,9 @@ class ToolExecutor:
             error=error,
             duration_ms=duration_ms,
         )
-        await self._hooks.after_tool_call(call, outcome, state=state)
+        if self._hooks is not None:
+            await self._hooks.after_tool_call(call, outcome, state=state)
+        return outcome
 
 
 # Central registry for tools. Tools defined with the @tool decorator are automatically added here.

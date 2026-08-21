@@ -118,6 +118,33 @@ def test_get_system_prompt_uses_priority_order_and_skips_empty_results() -> None
     assert prompt == "low\n\nhigh"
 
 
+def test_get_tape_sidecars_combines_plugins_and_prefers_the_highest_priority_name() -> None:
+    framework = BubFramework()
+
+    class Sidecar:
+        def __init__(self, name: str, source: str) -> None:
+            self.name = name
+            self.source = source
+
+    class SidecarPlugin:
+        def __init__(self, sidecar: Sidecar) -> None:
+            self.sidecar = sidecar
+
+        @hookimpl
+        def provide_tape_sidecar(self) -> Sidecar:
+            return self.sidecar
+
+    framework._plugin_manager.register(SidecarPlugin(Sidecar("shared", "low")), name="low-shared")
+    framework._plugin_manager.register(SidecarPlugin(Sidecar("low-only", "low")), name="low-only")
+    framework._plugin_manager.register(SidecarPlugin(Sidecar("shared", "high")), name="high-shared")
+    framework._plugin_manager.register(SidecarPlugin(Sidecar("high-only", "high")), name="high-only")
+
+    sidecars = {sidecar.name: sidecar for sidecar in framework.get_tape_sidecars()}
+
+    assert set(sidecars) == {"shared", "low-only", "high-only"}
+    assert cast(Any, sidecars["shared"]).source == "high"
+
+
 @pytest.mark.asyncio
 async def test_continue_prompt_awaits_high_priority_async_hook() -> None:
     framework = BubFramework()

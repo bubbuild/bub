@@ -135,6 +135,27 @@ def provide_tape_store():
 
 The full plugin lives at [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite). For stores that need cleanup, return a generator instead — Bub treats it as a context manager.
 
+### Mount a tape sidecar
+
+Use `provide_tape_sidecar` when a plugin needs a sibling tape with the same lifecycle as the session tape. A sidecar only declares a stable `name`; its plugin owns configuration and the data format.
+
+```python
+from bub import hookimpl
+
+
+class ArtifactSidecar:
+    name = "artifacts"
+
+
+@hookimpl
+def provide_tape_sidecar():
+    return ArtifactSidecar()
+```
+
+For a session tape named `session`, this mounts `session__sidecar__artifacts` in the active `TapeStore`. Tool code can retrieve its provider with `context.tape.get_sidecar("artifacts")` and resolve the physical name with `context.tape.sidecar_tape_name("artifacts")`. Each hook implementation contributes one sidecar. The main tape handles fork, merge, archive, and reset for every mounted sidecar. Providers with the same name follow normal hook priority: the first one wins.
+
+The builtin spill plugin owns `SpillStore`, the `spill.read` tool, its data format, and `SpillSettings`. The core does not import or recognize the spill implementation. Configuration uses the `spill:` section and `BUB_SPILL_*` environment variables independently of `AgentSettings`.
+
 ## 6. Add a channel
 
 A **channel** is an inbound/outbound surface — CLI, Telegram, WeChat, a scheduled trigger. `provide_channels` lets your plugin contribute one or more `Channel` subclasses.
@@ -266,7 +287,7 @@ class ShellPolicy:
         return None  # proceed unchanged
 ```
 
-Observe terminal outcomes — `after_llm_call` / `after_tool_call` receive the original exception object on failure (`result.error`); cancelled calls do not produce an observation:
+Handle terminal outcomes — `after_llm_call` / `after_tool_call` receive the original exception object on failure (`result.error`); cancelled calls do not produce an observation. An `after_tool_call` implementation may replace a successful value by assigning `result.result`:
 
 ```python
 from bub import hookimpl
@@ -281,6 +302,8 @@ class Metrics:
     @hookimpl
     def after_tool_call(self, call, result, state):
         print(f"tool {call.tool} {result.duration_ms}ms error={result.error!r}")
+        if result.error is None and call.tool == "web_search":
+            result.result = str(result.result)[:4_000]
 ```
 
 All payloads carry `run_id`, matching the tape entry meta, so metrics can be joined against the recorded conversation.

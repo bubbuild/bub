@@ -290,8 +290,7 @@ async def tape_search(param: SearchInput, *, context: ToolContext) -> str:
 @tool(context=True, name="tape.reset")
 async def tape_reset(archive: bool = False, *, context: ToolContext) -> str:
     """Reset the current tape, optionally archiving it."""
-    result = await context.tape.reset(archive=archive)
-    return result
+    return cast(str, await context.tape.reset(archive=archive))
 
 
 @tool(context=True, name="tape.handoff")
