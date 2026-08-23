@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import inspect
 import json
-from collections.abc import AsyncGenerator, Callable, Coroutine, Iterable, Mapping
+from collections.abc import Callable, Coroutine, Iterable, Mapping
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from bub.errors import BubError
-from bub.sidecars import TapeSidecar, sidecar_tape_name
+from bub.sidecars import TapeSidecar, sidecar_owns_tape, sidecar_tape_name
 
 __all__ = [
     "LAST_ANCHOR",
@@ -229,9 +228,15 @@ class Tape:
     def sidecar_tape_name(self, name: str) -> str:
         """Return the sibling tape name for a mounted sidecar."""
 
-        if self.get_sidecar(name) is None:
+        sidecar = self.get_sidecar(name)
+        if sidecar is None:
             raise KeyError(f"tape sidecar {name!r} is not mounted")
+        if not sidecar_owns_tape(sidecar):
+            raise KeyError(f"tape sidecar {name!r} does not own a sibling tape")
         return sidecar_tape_name(self.name, name)
+
+    def _tape_sidecars(self) -> tuple[TapeSidecar, ...]:
+        return tuple(sidecar for sidecar in self.sidecars if sidecar_owns_tape(sidecar))
 
     async def info(self) -> TapeInfo:
         entries = list(await self.store.fetch_all(self.query()))
@@ -442,6 +447,8 @@ class Tape:
         sidecar = self.get_sidecar(name)
         if sidecar is None:
             raise KeyError(f"tape sidecar {name!r} is not mounted")
+        if not sidecar_owns_tape(sidecar):
+            raise KeyError(f"tape sidecar {name!r} does not own a sibling tape")
         return sidecar
 
     async def archive_sidecar(self, name: str, *, reason: str = "manual") -> str:
@@ -490,7 +497,7 @@ class Tape:
         if archive:
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
             archive_path = await self._archive_tape(self.name, stamp)
-            for sidecar in self.sidecars:
+            for sidecar in self._tape_sidecars():
                 _, sidecar_archive = await self._try_archive_sidecar(sidecar, reason="tape.reset", stamp=stamp)
                 sidecar_archives[sidecar.name] = sidecar_archive
         await self.store.reset(self.name)
@@ -498,7 +505,7 @@ class Tape:
         if archive_path is not None:
             state["archived"] = str(archive_path)
         await self.handoff(name="session/start", state=state)
-        for sidecar in self.sidecars:
+        for sidecar in self._tape_sidecars():
             archive_data = sidecar_archives.get(sidecar.name)
             if archive_data is not None and archive_data["status"] == "error":
                 reset_data = self._sidecar_lifecycle_data(
@@ -520,16 +527,3 @@ class Tape:
             workspace_hash + "__" + hashlib.md5(session_id.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
         )
         return self.scoped(tape_name, context=context)
-
-    @contextlib.asynccontextmanager
-    async def fork_tape(self, merge_back: bool = True) -> AsyncGenerator[Tape, None]:
-        from bub.store import ForkTapeStore
-
-        managed_sidecars = tuple(sidecar_tape_name(self.name, sidecar.name) for sidecar in self.sidecars)
-        fork_store = ForkTapeStore(self.store, self.name, sidecars=managed_sidecars)
-        forked = replace(self, store=fork_store)
-        try:
-            yield forked
-        finally:
-            if merge_back:
-                await fork_store.merge_back()

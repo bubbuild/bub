@@ -4,8 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from bub.store import AsyncTapeStoreAdapter, ForkTapeStore, InMemoryTapeStore
-from bub.tape import Tape, TapeContext
+from bub.builtin.forkmerge import ForkMergeSidecar
+from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.tape import Tape, TapeContext, TapeEntry
 
 
 def test_tape_reexports_legacy_store_objects() -> None:
@@ -28,28 +29,71 @@ def test_tape_reexports_legacy_store_objects() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tape_fork_binds_temporary_fork_store_to_scoped_tape(tmp_path: Path) -> None:
+async def test_tape_fork_is_isolated_until_explicit_merge(tmp_path: Path) -> None:
     parent = InMemoryTapeStore()
-    root = Tape(tmp_path, AsyncTapeStoreAdapter(parent), TapeContext()).scoped("test-tape")
+    forkmerge = ForkMergeSidecar()
+    root = Tape(tmp_path, AsyncTapeStoreAdapter(parent), TapeContext(), sidecars=(forkmerge,)).scoped("test-tape")
 
-    async with root.fork_tape(merge_back=True) as forked:
-        first_store = forked.store
+    tape_fork = await forkmerge.fork(root)
 
-        assert isinstance(first_store, ForkTapeStore)
-        assert first_store is not root.store
+    await tape_fork.tape.append_event("step", {"value": 1})
+    assert parent.read("test-tape") is None
 
-        await forked.append_event("step", {"value": 1})
-        assert parent.read("test-tape") is None
+    await tape_fork.merge()
 
     assert [entry.payload["name"] for entry in parent.read("test-tape") or []] == ["step"]
 
-    async with root.fork_tape(merge_back=False) as forked:
-        second_store = forked.store
-        await forked.append_event("step", {"value": 2})
 
-    assert isinstance(second_store, ForkTapeStore)
-    assert second_store is not first_store
-    assert [entry.payload["data"]["value"] for entry in parent.read("test-tape") or []] == [1]
+@pytest.mark.asyncio
+async def test_discarded_session_does_not_change_parent(tmp_path: Path) -> None:
+    parent = InMemoryTapeStore()
+    forkmerge = ForkMergeSidecar()
+    root = Tape(tmp_path, AsyncTapeStoreAdapter(parent), TapeContext(), sidecars=(forkmerge,)).scoped("test-tape")
+    tape_fork = await forkmerge.fork(root)
+
+    await tape_fork.tape.append_event("step", {"value": 2})
+    await tape_fork.discard()
+
+    assert parent.read("test-tape") is None
+
+
+@pytest.mark.asyncio
+async def test_discarding_a_reset_fork_preserves_parent_entries(tmp_path: Path) -> None:
+    parent = InMemoryTapeStore()
+    parent.append("test-tape", TapeEntry.event(name="before"))
+    forkmerge = ForkMergeSidecar()
+    root = Tape(tmp_path, AsyncTapeStoreAdapter(parent), TapeContext(), sidecars=(forkmerge,)).scoped("test-tape")
+    tape_fork = await forkmerge.fork(root)
+
+    await tape_fork.tape.reset()
+    await tape_fork.tape.append_event("inside", {})
+    await tape_fork.discard()
+
+    assert [entry.payload["name"] for entry in parent.read("test-tape") or []] == ["before"]
+
+
+@pytest.mark.asyncio
+async def test_merging_a_reset_fork_replaces_parent_entries(tmp_path: Path) -> None:
+    parent = InMemoryTapeStore()
+    parent.append("test-tape", TapeEntry.event(name="before"))
+    forkmerge = ForkMergeSidecar()
+    root = Tape(tmp_path, AsyncTapeStoreAdapter(parent), TapeContext(), sidecars=(forkmerge,)).scoped("test-tape")
+    tape_fork = await forkmerge.fork(root)
+
+    await tape_fork.tape.reset()
+    await tape_fork.tape.append_event("inside", {})
+    assert [entry.payload["name"] for entry in await tape_fork.tape.store.fetch_all(tape_fork.tape.query())] == [
+        "session/start",
+        "handoff",
+        "inside",
+    ]
+    await tape_fork.merge()
+
+    assert [entry.payload["name"] for entry in parent.read("test-tape") or []] == [
+        "session/start",
+        "handoff",
+        "inside",
+    ]
 
 
 @pytest.mark.asyncio

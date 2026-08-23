@@ -328,6 +328,8 @@ async def web_fetch(url: str, headers: dict | None = None, timeout: int | None =
 @tool(name="subagent", context=True, model=SubAgentInput)
 async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
     """Run a task with sub-agent using specific model and session."""
+    from bub.builtin.forkmerge import ForkMergeSidecar
+
     agent = _get_agent(context)
     session_id = context.state.get("session_id", "temp/unknown")
     if param.session == "inherit":
@@ -338,19 +340,30 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
         subagent_session = param.session
     state = {**context.state, "session_id": subagent_session}
     allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"})
+    source = context.tape if param.session in {"inherit", "temp"} else None
+    tape = agent.session_tape(subagent_session, state, source=source)
+    tape_fork = await ForkMergeSidecar.mounted(tape).fork(tape)
     output = ""
-    async for event in await agent.run_stream(
-        session_id=subagent_session,
-        prompt=param.prompt,
-        state=state,
-        model=param.model,
-        allowed_tools=allowed_tools,
-        allowed_skills=param.allowed_skills,
-    ):
-        if event.kind == "error":
-            output += f"[Error: {event.data.get('message', 'unknown error')}]"
-        elif event.kind == "text":
-            output += str(event.data.get("delta", ""))
+    try:
+        events = await agent.run_stream(
+            tape=tape_fork.tape,
+            prompt=param.prompt,
+            model=param.model,
+            allowed_tools=allowed_tools,
+            allowed_skills=param.allowed_skills,
+        )
+        async for event in events:
+            if event.kind == "error":
+                output += f"[Error: {event.data.get('message', 'unknown error')}]"
+            elif event.kind == "text":
+                output += str(event.data.get("delta", ""))
+    except Exception:
+        await tape_fork.discard()
+        raise
+    if param.session == "temp":
+        await tape_fork.discard()
+    else:
+        await tape_fork.merge()
     return output
 
 

@@ -111,6 +111,7 @@ class SpillStore:
 
     settings: SpillSettings
     name: str = field(default=SPILL_SIDECAR_NAME, init=False)
+    owns_tape: bool = field(default=True, init=False)
 
     async def _record_write(self, tape: Tape, data: dict[str, object], *, run_id: str) -> None:
         try:

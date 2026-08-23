@@ -227,12 +227,17 @@ class BuiltinImpl:
 
     @hookimpl
     async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: TurnState) -> AsyncStreamEvents:
-        return await self._get_agent().run_stream(
-            session_id=session_id,
-            prompt=prompt,
-            state=state,
-            model=state.get("model"),
-        )
+        from bub.builtin.forkmerge import ForkMergeSidecar
+
+        agent = self._get_agent()
+        tape = agent.session_tape(session_id, state)
+        tape_fork = await ForkMergeSidecar.mounted(tape).fork(tape)
+        try:
+            events = await agent.run_stream(tape=tape_fork.tape, prompt=prompt, model=state.get("model"))
+        except Exception:
+            await tape_fork.discard()
+            raise
+        return agent.finalize_stream(events, tape_fork.merge)
 
     @hookimpl
     def continue_prompt(self, prompt: str | list[dict], tape: Tape, state: StreamState) -> str:
@@ -386,12 +391,18 @@ class BuiltinImpl:
 
         return FileTapeStore(directory=bub.home / "tapes")
 
-    @hookimpl
-    def provide_tape_sidecar(self) -> TapeSidecar:
+    @hookimpl(specname="provide_tape_sidecar")
+    def provide_spill_sidecar(self) -> TapeSidecar:
         from bub.builtin.spill import SpillSettings, SpillStore
         from bub.configure import ensure_config
 
         return SpillStore(ensure_config(SpillSettings))
+
+    @hookimpl(specname="provide_tape_sidecar")
+    def provide_forkmerge_sidecar(self) -> TapeSidecar:
+        from bub.builtin.forkmerge import ForkMergeSidecar
+
+        return ForkMergeSidecar()
 
     @hookimpl
     def build_tape_context(self) -> TapeContext:

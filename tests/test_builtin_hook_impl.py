@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from bub.builtin.forkmerge import ForkMergeSidecar
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_CONTINUE_PROMPT, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
@@ -32,6 +33,7 @@ def _fake_tape(home: Path) -> Tape:
         archive_path=home / "tapes",
         store=AsyncTapeStoreAdapter(InMemoryTapeStore()),
         context=TapeContext(),
+        sidecars=(ForkMergeSidecar(),),
     )
 
 
@@ -48,15 +50,32 @@ class FakeAgent:
         self.run_calls.append((session_id, prompt, state))
         return "agent-output"
 
+    def session_tape(self, session_id: str, state: dict[str, object], *, source=None) -> Tape:
+        state.setdefault("session_id", session_id)
+        context = TapeContext(state=state)
+        if source is not None:
+            return source.with_context(context)
+        return self.tape.session_tape(session_id, Path(state.get("_runtime_workspace", ".")), context=context)
+
+    def finalize_stream(self, events: AsyncStreamEvents, callback) -> AsyncStreamEvents:
+        async def iterator():
+            try:
+                async for event in events:
+                    yield event
+            finally:
+                await callback()
+
+        return AsyncStreamEvents(iterator())
+
     async def run_stream(
         self,
         *,
-        session_id: str,
+        tape: Tape,
         prompt: str,
-        state: dict[str, object],
         model: str | None = None,
     ) -> AsyncStreamEvents:
-        self.run_stream_calls.append((session_id, prompt, state, model))
+        state = tape.context.state
+        self.run_stream_calls.append((str(state["session_id"]), prompt, state, model))
 
         async def iterator():
             yield StreamEvent("text", {"delta": "agent-output"})

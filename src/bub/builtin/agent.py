@@ -8,7 +8,6 @@ import re
 import shlex
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Collection, Coroutine, Iterable
-from contextlib import AsyncExitStack
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import cached_property
@@ -74,7 +73,7 @@ class Agent:
         return AsyncStreamEvents(generator())
 
     @staticmethod
-    def _events_with_callback(
+    def finalize_stream(
         events: AsyncStreamEvents, callback: Callable[[], Coroutine[Any, Any, Any]]
     ) -> AsyncStreamEvents:
         async def generator() -> AsyncIterator[StreamEvent]:
@@ -89,9 +88,8 @@ class Agent:
     async def run_stream(
         self,
         *,
-        session_id: str,
+        tape: Tape,
         prompt: str | list[dict],
-        state: TurnState,
         model: str | None = None,
         allowed_skills: Collection[str] | None = None,
         allowed_tools: Collection[str] | None = None,
@@ -102,14 +100,6 @@ class Agent:
                 StreamEvent("final", {"text": "error: empty prompt", "ok": False}),
             ])
 
-        state.setdefault("session_id", session_id)
-        tape = self.tape.session_tape(
-            session_id, workspace_from_state(state), context=replace(self.tape.context, state=state)
-        )
-        merge_back = not session_id.startswith("temp/")
-        stack = AsyncExitStack()
-        # The fork_tape context manager must not be exited until the last chunk of the stream is consumed.
-        tape = await stack.enter_async_context(tape.fork_tape(merge_back=merge_back))
         await tape.ensure_bootstrap_anchor()
         if isinstance(prompt, str) and prompt.strip().startswith(","):
             result = await self._run_command(tape=tape, line=prompt.strip())
@@ -126,7 +116,25 @@ class Agent:
                 allowed_tools=allowed_tools,
             )
 
-        return self._events_with_callback(events, callback=stack.aclose)
+        return events
+
+    def session_tape(
+        self,
+        session_id: str,
+        state: TurnState,
+        *,
+        source: Tape | None = None,
+    ) -> Tape:
+        """Build a plain session tape, optionally from the current agent tape."""
+
+        state.setdefault("session_id", session_id)
+        if source is None:
+            return self.tape.session_tape(
+                session_id,
+                workspace_from_state(state),
+                context=replace(self.tape.context, state=state),
+            )
+        return source.with_context(replace(source.context, state=state))
 
     async def _run_command(self, tape: Tape, *, line: str) -> str:
         line = line[1:].strip()

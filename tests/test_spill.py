@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from bub.builtin.context import default_tape_context
+from bub.builtin.forkmerge import ForkMergeSidecar
 from bub.builtin.hook_impl import BuiltinImpl
 from bub.builtin.spill import (
     SPILL_READ_MODEL_NAME,
@@ -50,7 +51,12 @@ def _page_field(page: str, name: str) -> str:
 
 def _root_tape(tmp_path: Path, store: TapeStore, *, threshold: int = 1) -> Tape:
     spill = SpillStore(SpillSettings(threshold=threshold))
-    return Tape(tmp_path, AsyncTapeStoreAdapter(store), default_tape_context(), sidecars=(spill,)).scoped("session")
+    return Tape(
+        tmp_path,
+        AsyncTapeStoreAdapter(store),
+        default_tape_context(),
+        sidecars=(spill, ForkMergeSidecar()),
+    ).scoped("session")
 
 
 async def _read_page(
@@ -76,43 +82,45 @@ async def test_oversized_result_is_bounded_and_readable_across_merge(tmp_path: P
     root = _root_tape(tmp_path, parent)
     output = ("alpha🙂beta\n" * 5000) + "the-end"
 
-    async with root.fork_tape() as tape:
-        context = ToolContext(tape=tape, run_id="run-1")
-        tool = Tool(name="large", handler=lambda: output)
-        execution = await _spill_executor().execute_async([(tool, {})], context=context)
+    tape_fork = await ForkMergeSidecar.mounted(root).fork(root)
+    tape = tape_fork.tape
+    context = ToolContext(tape=tape, run_id="run-1")
+    tool = Tool(name="large", handler=lambda: output)
+    execution = await _spill_executor().execute_async([(tool, {})], context=context)
 
-        ref = execution.tool_results[0]
-        assert isinstance(ref, str)
-        assert "tool output spilled" in ref
-        assert len(ref) < 2000
-        handle = _handle_from_ref(ref)
+    ref = execution.tool_results[0]
+    assert isinstance(ref, str)
+    assert "tool output spilled" in ref
+    assert len(ref) < 2000
+    handle = _handle_from_ref(ref)
 
-        cursor = 0
-        restored: list[str] = []
-        while True:
-            page = await _read_page(context, handle, cursor=cursor, count=2)
-            restored.append(_page_content(page))
-            if _page_field(page, "complete") == "true":
-                break
-            cursor = int(_page_field(page, "next_cursor"))
+    cursor = 0
+    restored: list[str] = []
+    while True:
+        page = await _read_page(context, handle, cursor=cursor, count=2)
+        restored.append(_page_content(page))
+        if _page_field(page, "complete") == "true":
+            break
+        cursor = int(_page_field(page, "next_cursor"))
 
-        assert "".join(restored) == output
+    assert "".join(restored) == output
 
-        tail = await _read_page(context, handle, from_end=True)
-        assert _page_content(tail).endswith("the-end")
+    tail = await _read_page(context, handle, from_end=True)
+    assert _page_content(tail).endswith("the-end")
 
-        await tape.record_chat(
-            run_id="run-1",
-            system_prompt=None,
-            new_messages=[],
-            response_text=None,
-            tool_calls=[{"id": "call-1", "type": "function", "function": {"name": "large", "arguments": "{}"}}],
-            tool_results=execution.tool_results,
-        )
-        request_messages = await tape.read_messages()
-        request_body = json.dumps(request_messages, ensure_ascii=False)
-        assert handle in request_body
-        assert output not in request_body
+    await tape.record_chat(
+        run_id="run-1",
+        system_prompt=None,
+        new_messages=[],
+        response_text=None,
+        tool_calls=[{"id": "call-1", "type": "function", "function": {"name": "large", "arguments": "{}"}}],
+        tool_results=execution.tool_results,
+    )
+    request_messages = await tape.read_messages()
+    request_body = json.dumps(request_messages, ensure_ascii=False)
+    assert handle in request_body
+    assert output not in request_body
+    await tape_fork.merge()
 
     persisted_context = ToolContext(tape=root, run_id="run-2")
     persisted = await _read_page(persisted_context, handle)
@@ -124,20 +132,19 @@ async def test_spill_configuration_preserves_results_that_should_not_be_spilled(
     parent = InMemoryTapeStore()
     root = _root_tape(tmp_path, parent, threshold=100)
 
-    async with root.fork_tape() as tape:
-        context = ToolContext(tape=tape, run_id="run-1")
-        small = await _spill_executor().execute_async(
-            [(Tool(name="small", handler=lambda: "tiny"), {})], context=context
-        )
-
-        assert small.tool_results == ["tiny"]
+    tape_fork = await ForkMergeSidecar.mounted(root).fork(root)
+    context = ToolContext(tape=tape_fork.tape, run_id="run-1")
+    small = await _spill_executor().execute_async([(Tool(name="small", handler=lambda: "tiny"), {})], context=context)
+    assert small.tool_results == ["tiny"]
+    await tape_fork.merge()
 
     disabled = _root_tape(tmp_path, parent, threshold=0).scoped("disabled")
-    async with disabled.fork_tape() as tape:
-        execution = await _spill_executor().execute_async(
-            [(Tool(name="large", handler=lambda: "x" * 20_000), {})],
-            context=ToolContext(tape=tape, run_id="run-2"),
-        )
+    disabled_fork = await ForkMergeSidecar.mounted(disabled).fork(disabled)
+    execution = await _spill_executor().execute_async(
+        [(Tool(name="large", handler=lambda: "x" * 20_000), {})],
+        context=ToolContext(tape=disabled_fork.tape, run_id="run-2"),
+    )
+    await disabled_fork.merge()
     assert execution.tool_results == ["x" * 20_000]
 
 
@@ -146,13 +153,14 @@ async def test_temporary_fork_discards_spilled_content(tmp_path: Path) -> None:
     parent = InMemoryTapeStore()
     root = _root_tape(tmp_path, parent)
 
-    async with root.fork_tape(merge_back=False) as tape:
-        context = ToolContext(tape=tape, run_id="run-1")
-        execution = await _spill_executor().execute_async(
-            [(Tool(name="large", handler=lambda: "x" * 20_000), {})], context=context
-        )
-        handle = _handle_from_ref(execution.tool_results[0])
-        assert "content:" in await _read_page(context, handle)
+    tape_fork = await ForkMergeSidecar.mounted(root).fork(root)
+    context = ToolContext(tape=tape_fork.tape, run_id="run-1")
+    execution = await _spill_executor().execute_async(
+        [(Tool(name="large", handler=lambda: "x" * 20_000), {})], context=context
+    )
+    handle = _handle_from_ref(execution.tool_results[0])
+    assert "content:" in await _read_page(context, handle)
+    await tape_fork.discard()
 
     missing = await _read_page(ToolContext(tape=root), handle)
     assert "no spilled tool result" in missing
@@ -181,22 +189,24 @@ async def test_tape_archive_preserves_spilled_results_and_clears_the_session(tmp
     sidecar = root.sidecar_tape_name(SPILL_SIDECAR_NAME)
     await root.ensure_bootstrap_anchor()
 
-    async with root.fork_tape() as tape:
-        execution = await _spill_executor().execute_async(
-            [(Tool(name="large", handler=lambda: "archived output\n" * 5000), {})],
-            context=ToolContext(tape=tape, run_id="run-1"),
-        )
-        ref = execution.tool_results[0]
-        assert isinstance(ref, str)
-        handle = _handle_from_ref(ref)
-        await tape.record_chat(
-            run_id="run-1",
-            system_prompt=None,
-            new_messages=[{"role": "user", "content": "archive this"}],
-            response_text=None,
-            tool_calls=[{"id": "call-1", "type": "function", "function": {"name": "large", "arguments": "{}"}}],
-            tool_results=execution.tool_results,
-        )
+    tape_fork = await ForkMergeSidecar.mounted(root).fork(root)
+    tape = tape_fork.tape
+    execution = await _spill_executor().execute_async(
+        [(Tool(name="large", handler=lambda: "archived output\n" * 5000), {})],
+        context=ToolContext(tape=tape, run_id="run-1"),
+    )
+    ref = execution.tool_results[0]
+    assert isinstance(ref, str)
+    handle = _handle_from_ref(ref)
+    await tape.record_chat(
+        run_id="run-1",
+        system_prompt=None,
+        new_messages=[{"role": "user", "content": "archive this"}],
+        response_text=None,
+        tool_calls=[{"id": "call-1", "type": "function", "function": {"name": "large", "arguments": "{}"}}],
+        tool_results=execution.tool_results,
+    )
+    await tape_fork.merge()
 
     result = await root.reset(archive=True)
 
