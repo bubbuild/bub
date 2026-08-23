@@ -97,7 +97,7 @@ Each impl receives only the kwargs it declares. You can omit unused parameters f
 
 ### Tape sidecars
 
-Each `provide_tape_sidecar` implementation contributes one named capability backed by a sibling tape in the active `TapeStore`. Bub mounts the combined set when it constructs the agent's root `Tape`; a scoped session then maps sidecar `spill` to `<session-tape>__sidecar__spill`. Fork, merge, archive, and reset operate on every mounted sidecar without requiring a new storage interface. Removing a provider stops mounting its sidecar but does not delete stored data.
+Each `provide_tape_sidecar` implementation contributes one named capability. Storage sidecars own a sibling tape in the active `TapeStore`; for example, a scoped session maps `spill` to `<session-tape>__sidecar__spill`, and the main tape includes it in merge, archive, and reset operations. A capability-only sidecar sets `owns_tape = False` and manages its own lifecycle. The builtin `forkmerge` sidecar uses that form to isolate writes over a plain session tape; its caller chooses `merge()` or `discard()`. Removing a provider stops mounting its sidecar but does not delete stored data.
 
 ### `on_error` observer safety
 

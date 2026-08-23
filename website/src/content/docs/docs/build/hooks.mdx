@@ -137,7 +137,7 @@ The full plugin lives at [`bub-tapestore-sqlite`](https://github.com/bubbuild/bu
 
 ### Mount a tape sidecar
 
-Use `provide_tape_sidecar` when a plugin needs a sibling tape with the same lifecycle as the session tape. A sidecar only declares a stable `name`; its plugin owns configuration and the data format.
+Use `provide_tape_sidecar` to mount a named capability beside each session tape. A storage sidecar owns a sibling tape by default; its plugin owns configuration and the data format.
 
 ```python
 from bub import hookimpl
@@ -152,7 +152,11 @@ def provide_tape_sidecar():
     return ArtifactSidecar()
 ```
 
-For a session tape named `session`, this mounts `session__sidecar__artifacts` in the active `TapeStore`. Tool code can retrieve its provider with `context.tape.get_sidecar("artifacts")` and resolve the physical name with `context.tape.sidecar_tape_name("artifacts")`. Each hook implementation contributes one sidecar. The main tape handles fork, merge, archive, and reset for every mounted sidecar. Providers with the same name follow normal hook priority: the first one wins.
+For a session tape named `session`, this mounts `session__sidecar__artifacts` in the active `TapeStore`. Tool code can retrieve its provider with `context.tape.get_sidecar("artifacts")` and resolve the physical name with `context.tape.sidecar_tape_name("artifacts")`. The main tape includes storage sidecars in merge, archive, and reset operations.
+
+Set `owns_tape = False` for a capability-only sidecar. It receives no physical sibling tape and owns its lifecycle. The builtin `forkmerge` sidecar follows this shape: it isolates writes over a plain session tape and returns a tape fork whose caller explicitly invokes `merge()` or `discard()`.
+
+Each hook implementation contributes one sidecar. Providers with the same name follow normal hook priority: the first one wins.
 
 The builtin spill plugin owns `SpillStore`, the `spill.read` tool, its data format, and `SpillSettings`. The core does not import or recognize the spill implementation. Configuration uses the `spill:` section and `BUB_SPILL_*` environment variables independently of `AgentSettings`.
 

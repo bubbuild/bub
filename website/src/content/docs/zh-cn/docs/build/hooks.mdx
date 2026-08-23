@@ -137,7 +137,7 @@ def provide_tape_store():
 
 ### 挂载 tape sidecar
 
-当插件需要一个与 session tape 共享生命周期的 sibling tape 时，使用 `provide_tape_sidecar`。sidecar 只声明稳定的 `name`；配置与数据格式由插件自己管理。
+使用 `provide_tape_sidecar` 在每条 session tape 旁挂载具名能力。存储型 sidecar 默认拥有一条 sibling tape；配置与数据格式由插件自己管理。
 
 ```python
 from bub import hookimpl
@@ -152,7 +152,11 @@ def provide_tape_sidecar():
     return ArtifactSidecar()
 ```
 
-对名为 `session` 的 tape，这会在 active `TapeStore` 中挂载 `session__sidecar__artifacts`。工具代码可通过 `context.tape.get_sidecar("artifacts")` 取得 provider，并用 `context.tape.sidecar_tape_name("artifacts")` 得到物理名称。每个 hook implementation 提供一个 sidecar。主 tape 负责所有已挂载 sidecar 的 fork、merge、archive 和 reset。同名 provider 遵循普通 hook 优先级：最先出现的实现生效。
+对名为 `session` 的 tape，这会在 active `TapeStore` 中挂载 `session__sidecar__artifacts`。工具代码可通过 `context.tape.get_sidecar("artifacts")` 取得 provider，并用 `context.tape.sidecar_tape_name("artifacts")` 得到物理名称。主 tape 会在 merge、archive 和 reset 时一并处理存储型 sidecar。
+
+能力型 sidecar 应设置 `owns_tape = False`。它没有物理 sibling tape，并自行管理生命周期。builtin `forkmerge` sidecar 采用这种形态：它在朴素 session tape 之上隔离写入，并返回由调用方显式 `merge()` 或 `discard()` 的 tape fork。
+
+每个 hook implementation 提供一个 sidecar。同名 provider 遵循普通 hook 优先级：最先出现的实现生效。
 
 builtin spill 插件拥有 `SpillStore`、`spill.read` 工具、数据格式和 `SpillSettings`。核心层不导入或识别 spill 实现。配置使用 `spill:` section 和 `BUB_SPILL_*` 环境变量，与 `AgentSettings` 相互独立。
 

@@ -97,7 +97,7 @@ def _kwargs_for_impl(impl: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
 
 ### Tape sidecar
 
-每个 `provide_tape_sidecar` 实现提供一个由 active `TapeStore` 中 sibling tape 支撑的具名能力。Bub 在创建 agent root `Tape` 时挂载聚合结果；例如 scoped session 会把 sidecar `spill` 映射为 `<session-tape>__sidecar__spill`。fork、merge、archive 和 reset 会处理所有已挂载 sidecar，不要求存储插件实现新接口。移除 provider 只会停止挂载，不会删除已存数据。
+每个 `provide_tape_sidecar` 实现提供一个具名能力。存储型 sidecar 在 active `TapeStore` 中拥有一条 sibling tape；例如 scoped session 会把 `spill` 映射为 `<session-tape>__sidecar__spill`，主 tape 会在 merge、archive 和 reset 时一并处理它。能力型 sidecar 设置 `owns_tape = False`，自行管理生命周期。builtin `forkmerge` sidecar 采用这种形态，在朴素 session tape 之上隔离写入，由调用方选择 `merge()` 或 `discard()`。移除 provider 只会停止挂载，不会删除已存数据。
 
 ### `on_error` 观察者安全性
 
