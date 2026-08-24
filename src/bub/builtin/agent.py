@@ -7,7 +7,7 @@ import inspect
 import re
 import shlex
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Collection, Coroutine, Iterable
+from collections.abc import AsyncGenerator, AsyncIterator, Collection, Iterable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import cached_property
@@ -71,19 +71,6 @@ class Agent:
                 yield item
 
         return AsyncStreamEvents(generator())
-
-    @staticmethod
-    def finalize_stream(
-        events: AsyncStreamEvents, callback: Callable[[], Coroutine[Any, Any, Any]]
-    ) -> AsyncStreamEvents:
-        async def generator() -> AsyncIterator[StreamEvent]:
-            try:
-                async for event in events:
-                    yield event
-            finally:
-                await callback()
-
-        return AsyncStreamEvents(generator(), state=events._state)
 
     async def run_stream(
         self,

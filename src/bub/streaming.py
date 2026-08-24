@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -28,6 +28,18 @@ class AsyncStreamEvents:
 
     def __aiter__(self) -> AsyncIterator[StreamEvent]:
         return self._iterator
+
+    def attach(self, callback: Callable[[], Awaitable[None]]) -> AsyncStreamEvents:
+        """Return a stream that awaits the callback when iteration ends."""
+
+        async def iterator() -> AsyncIterator[StreamEvent]:
+            try:
+                async for event in self:
+                    yield event
+            finally:
+                await callback()
+
+        return AsyncStreamEvents(iterator(), state=self._state)
 
     @property
     def error(self) -> BubError | None:

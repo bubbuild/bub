@@ -65,7 +65,7 @@ Channels and adapters may present these protocol-neutral choices to users. `BubF
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
-`StreamEvent.kind` is one of `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, or `final`. `AsyncStreamEvents` wraps an async iterator and exposes terminal `error` and `usage` state.
+`StreamEvent.kind` is one of `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, or `final`. `AsyncStreamEvents` wraps an async iterator and exposes terminal `error` and `usage` state. `attach(callback)` returns a stream that shares the same state and awaits the callback when iteration ends.
 
 ### Errors — `bub.errors`
 

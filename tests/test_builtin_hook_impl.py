@@ -57,16 +57,6 @@ class FakeAgent:
             return source.with_context(context)
         return self.tape.session_tape(session_id, Path(state.get("_runtime_workspace", ".")), context=context)
 
-    def finalize_stream(self, events: AsyncStreamEvents, callback) -> AsyncStreamEvents:
-        async def iterator():
-            try:
-                async for event in events:
-                    yield event
-            finally:
-                await callback()
-
-        return AsyncStreamEvents(iterator())
-
     async def run_stream(
         self,
         *,

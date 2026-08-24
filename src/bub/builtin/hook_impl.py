@@ -237,7 +237,7 @@ class BuiltinImpl:
         except Exception:
             await tape_fork.discard()
             raise
-        return agent.finalize_stream(events, tape_fork.merge)
+        return events.attach(tape_fork.merge)
 
     @hookimpl
     def continue_prompt(self, prompt: str | list[dict], tape: Tape, state: StreamState) -> str:

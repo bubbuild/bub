@@ -65,7 +65,7 @@ Channel 与 adapter 可向用户展示这些协议无关的选择项。`BubFrame
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
-`StreamEvent.kind` 可以是 `text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error` 或 `final`。`AsyncStreamEvents` 包装异步迭代器，并暴露最终 `error` 与 `usage` 状态。
+`StreamEvent.kind` 可以是 `text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error` 或 `final`。`AsyncStreamEvents` 包装异步迭代器，并暴露最终 `error` 与 `usage` 状态。`attach(callback)` 返回共享相同状态的 stream，并在迭代结束时 await callback。
 
 ### Error — `bub.errors`
 
