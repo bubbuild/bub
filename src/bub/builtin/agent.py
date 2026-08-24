@@ -109,19 +109,15 @@ class Agent:
         self,
         session_id: str,
         state: TurnState,
-        *,
-        source: Tape | None = None,
     ) -> Tape:
-        """Build a plain session tape, optionally from the current agent tape."""
+        """Return the ordinary tape addressed by a logical session id."""
 
         state.setdefault("session_id", session_id)
-        if source is None:
-            return self.tape.session_tape(
-                session_id,
-                workspace_from_state(state),
-                context=replace(self.tape.context, state=state),
-            )
-        return source.with_context(replace(source.context, state=state))
+        return self.tape.session_tape(
+            session_id,
+            workspace_from_state(state),
+            context=replace(self.tape.context, state=state),
+        )
 
     async def _run_command(self, tape: Tape, *, line: str) -> str:
         line = line[1:].strip()

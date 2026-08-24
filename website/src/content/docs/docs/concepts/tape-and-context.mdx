@@ -36,7 +36,7 @@ A *handoff* is a constrained transition: write a new anchor, attach the minimum 
 
 ### Per-session tape
 
-Each session gets one tape. Bub computes the tape name from the workspace path and the session id (`TapeService.session_tape`):
+Each session gets one tape. Bub computes the tape name from the workspace path and the session id (`Tape.session_tape`):
 
 ```python
 workspace_hash = md5(str(workspace.resolve()).encode()).hexdigest()[:16]
@@ -62,7 +62,7 @@ Spill writes are recorded as `spill.write`. Framework-managed lifecycle outcomes
 
 ### ensure_bootstrap_anchor
 
-Before the first turn on a tape, `TapeService.ensure_bootstrap_anchor` checks for an anchor entry. If none exists, it writes a `session/start` handoff with `state={"owner": "human"}`. This guarantees that context reconstruction has a starting anchor on every tape.
+Before the first turn on a tape, `Tape.ensure_bootstrap_anchor` checks for an anchor entry. If none exists, it writes a `session/start` handoff with `state={"owner": "human"}`. This guarantees that context reconstruction has a starting anchor on every tape.
 
 ### default_tape_context: entries → OpenAI messages
 
@@ -77,9 +77,11 @@ The context selector is a hook (`build_tape_context`), so plugins can replace it
 
 Entries marked `context=False` are removed before the selector runs. This is how operational spill events remain queryable on the tape without appearing in either the default context or a plugin-defined context.
 
-### fork_tape
+### Session and turn isolation
 
-`TapeService.fork_tape(tape_name, merge_back=True)` is an async context manager backed by `ForkTapeStore.fork`. Inside the block, writes happen on a forked tape; on exit, they are merged back into the parent tape (or discarded if `merge_back=False`). Use this to run a sub-task without polluting the parent session's history until you decide to keep the result.
+Each session id addresses an ordinary session tape. An inherited subagent resolves the parent's session id, a temporary subagent uses a throwaway session id, and a named subagent session addresses its own tape.
+
+The builtin `forkmerge` sidecar isolates one turn with an in-memory tape overlay. Its caller merges persistent runs or discards temporary runs. The sidecar does not create logical sessions or persistent fork tapes.
 
 ### auto_handoff on context overflow
 

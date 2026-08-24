@@ -36,7 +36,7 @@ anchor **不是** 删除点。tape 完整保留 anchor 之前的所有内容；a
 
 ### per-session tape
 
-每个 session 对应一条 tape。Bub 用 workspace 路径与 session id 计算 tape 名（`TapeService.session_tape`）：
+每个 session 对应一条 tape。Bub 用 workspace 路径与 session id 计算 tape 名（`Tape.session_tape`）：
 
 ```python
 workspace_hash = md5(str(workspace.resolve()).encode()).hexdigest()[:16]
@@ -62,7 +62,7 @@ spill 写入以 `spill.write` event 记录。框架管理的生命周期结果�
 
 ### ensure_bootstrap_anchor
 
-在某条 tape 的第一次 turn 之前，`TapeService.ensure_bootstrap_anchor` 会检查是否存在 anchor entry。如果没有，则写入一条 `session/start` handoff，`state={"owner": "human"}`。这保证每条 tape 在 context 重建时都有起始 anchor。
+在某条 tape 的第一次 turn 之前，`Tape.ensure_bootstrap_anchor` 会检查是否存在 anchor entry。如果没有，则写入一条 `session/start` handoff，`state={"owner": "human"}`。这保证每条 tape 在 context 重建时都有起始 anchor。
 
 ### default_tape_context：entry → OpenAI 消息
 
@@ -77,9 +77,11 @@ context selector 本身是个 hook（`build_tape_context`），插件可以用�
 
 带有 `context=False` 标记的 entry 会在 selector 运行前被移除。spill 运维 event 因此仍可在 tape 上查询，但不会进入默认 context 或插件自定义 context。
 
-### fork_tape
+### session 与 turn 隔离
 
-`TapeService.fork_tape(tape_name, merge_back=True)` 是由 `ForkTapeStore.fork` 支撑的 async context manager。块内的写入发生在 fork 后的 tape 上；退出时合并回父 tape（若 `merge_back=False` 则丢弃）。可以用它跑子任务，避免污染父 session 的历史，直到决定保留结果。
+每个 session id 对应一条普通 session tape。inherited subagent 重新寻址 parent session id，临时 subagent 使用一次性 session id，命名 subagent session 则寻址自己的 tape。
+
+builtin `forkmerge` sidecar 通过内存 tape overlay 隔离一次 turn。调用方 merge 持久运行或 discard 临时运行。sidecar 不创建逻辑 session，也不创建持久 fork tape。
 
 ### context 溢出时的 auto_handoff
 

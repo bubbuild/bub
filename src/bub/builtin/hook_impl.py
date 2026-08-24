@@ -237,7 +237,8 @@ class BuiltinImpl:
         except Exception:
             await tape_fork.discard()
             raise
-        return events.attach(tape_fork.merge)
+        finish = tape_fork.discard if session_id.startswith("temp/") else tape_fork.merge
+        return events.attach(finish)
 
     @hookimpl
     def continue_prompt(self, prompt: str | list[dict], tape: Tape, state: StreamState) -> str:

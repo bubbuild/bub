@@ -340,10 +340,8 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
         subagent_session = param.session
     state = {**context.state, "session_id": subagent_session}
     allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"})
-    source = context.tape if param.session in {"inherit", "temp"} else None
-    tape = agent.session_tape(subagent_session, state, source=source)
+    tape = agent.session_tape(subagent_session, state)
     tape_fork = await ForkMergeSidecar.mounted(tape).fork(tape)
-    output = ""
     try:
         events = await agent.run_stream(
             tape=tape_fork.tape,
@@ -352,18 +350,17 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
             allowed_tools=allowed_tools,
             allowed_skills=param.allowed_skills,
         )
-        async for event in events:
-            if event.kind == "error":
-                output += f"[Error: {event.data.get('message', 'unknown error')}]"
-            elif event.kind == "text":
-                output += str(event.data.get("delta", ""))
     except Exception:
         await tape_fork.discard()
         raise
-    if param.session == "temp":
-        await tape_fork.discard()
-    else:
-        await tape_fork.merge()
+
+    finish = tape_fork.discard if param.session == "temp" else tape_fork.merge
+    output = ""
+    async for event in events.attach(finish):
+        if event.kind == "error":
+            output += f"[Error: {event.data.get('message', 'unknown error')}]"
+        elif event.kind == "text":
+            output += str(event.data.get("delta", ""))
     return output
 
 
