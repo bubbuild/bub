@@ -13,14 +13,14 @@ def _instrument_bub() -> None:
     from loguru import logger
 
     logger.remove()
-    logger.add(sys.stderr, colorize=True)
+    logger.add(sys.stderr, colorize=True, diagnose=False)
 
     try:
         import logfire
         from logfire.integrations.loguru import LogfireHandler
 
         logfire.configure()
-        logger.add(LogfireHandler(), format="{message}")
+        logger.add(LogfireHandler(), format="{message}", diagnose=False)
     except Exception as exc:
         logger.debug("logfire instrumentation disabled: {}", exc)
 
