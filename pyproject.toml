@@ -37,6 +37,8 @@ dependencies = [
     "aiohttp>=3.13.3",
     "httpx[socks]>=0.28.1",
     "typing-extensions>=4.13.0",
+    "cloudevents>=2.2.0",
+    "opentelemetry-util-genai>=1.0b0",
 ]
 
 [project.urls]

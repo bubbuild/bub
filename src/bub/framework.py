@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,7 +24,7 @@ from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.model_selection import ModelOptions
 from bub.sidecars import TapeSidecar
-from bub.store import AsyncTapeStore, TapeStore
+from bub.store import TapeStore
 from bub.streaming import StreamState
 from bub.tape import Tape, TapeContext
 from bub.turn import TurnResult, TurnState
@@ -56,7 +57,7 @@ class BubFramework:
         self._agent_hooks = AgentHooks(self._hook_runtime)
         self._plugin_status: dict[str, PluginStatus] = {}
         self._channel_router: ChannelRouter | None = None
-        self._tape_store: TapeStore | AsyncTapeStore | None = None
+        self._tape_store: TapeStore | None = None
         self._steering_inbox: SteeringInbox | None = None
         configure.load(self.config_file)
 
@@ -149,10 +150,12 @@ class BubFramework:
             if isinstance(inbound, dict):
                 inbound.setdefault("session_id", session_id)
             state = await self.build_state(inbound, session_id)
+            state.setdefault("session_id", session_id)
+            state.setdefault("turn_id", str(uuid.uuid4()))
             prompt = await self.build_prompt(inbound, session_id, state)
             model_output = ""
             try:
-                model_output = await self._run_model(inbound, prompt, session_id, state, stream_output)
+                model_output = await self._consume_model_stream(inbound, prompt, session_id, state, stream_output)
             finally:
                 await self._hook_runtime.call_many(
                     "save_state",
@@ -183,7 +186,7 @@ class BubFramework:
         resolved = await self._hook_runtime.call_first("resolve_session", message=message)
         return str(resolved or self._default_session_id(message))
 
-    async def _run_model(
+    async def _consume_model_stream(
         self,
         inbound: Envelope,
         prompt: str | list[dict],
@@ -191,38 +194,31 @@ class BubFramework:
         state: dict[str, Any],
         stream_output: bool,
     ) -> str:
-        if not stream_output:
-            output = await self._hook_runtime.run_model(prompt=prompt, session_id=session_id, state=state)
-            if output is None:
-                await self._hook_runtime.notify_error(
-                    stage="run_model",
-                    error=RuntimeError("no model skill returned output"),
-                    message=inbound,
-                )
-                return prompt if isinstance(prompt, str) else content_of(inbound)
-            return output
         stream = await self._hook_runtime.run_model_stream(prompt=prompt, session_id=session_id, state=state)
         if stream is None:
             await self._hook_runtime.notify_error(
-                stage="run_model",
-                error=RuntimeError("no model skill returned output"),
+                stage="run_model_stream",
+                error=RuntimeError("no run_model_stream implementation returned output"),
                 message=inbound,
             )
             return prompt if isinstance(prompt, str) else content_of(inbound)
-        else:
-            parts: list[str] = []
-            events = self._channel_router.wrap_stream(inbound, stream) if self._channel_router is not None else stream
-            async for event in events:
-                if event.kind == "text":
-                    parts.append(str(event.data.get("delta", "")))
-                elif event.kind == "error":
-                    # Turn "kind" to enum type otherwise BubError's __str__ won't work well.
-                    data = {
-                        **event.data,
-                        "kind": ErrorKind(event.data.get("kind", "unknown")),
-                    }
-                    await self._hook_runtime.notify_error(stage="run_model", error=BubError(**data), message=inbound)
-            return "".join(parts)
+        parts: list[str] = []
+        events = (
+            self._channel_router.wrap_stream(inbound, stream)
+            if stream_output and self._channel_router is not None
+            else stream
+        )
+        async for event in events:
+            if event.kind == "text":
+                parts.append(str(event.data.get("delta", "")))
+            elif event.kind == "error":
+                # Turn "kind" to enum type otherwise BubError's __str__ won't work well.
+                data = {
+                    **event.data,
+                    "kind": ErrorKind(event.data.get("kind", "unknown")),
+                }
+                await self._hook_runtime.notify_error(stage="run_model_stream", error=BubError(**data), message=inbound)
+        return "".join(parts)
 
     def hook_report(self) -> dict[str, list[str]]:
         """Return hook implementation summary for diagnostics."""
@@ -355,8 +351,7 @@ class BubFramework:
     async def running(self) -> AsyncGenerator[contextlib.AsyncExitStack, None]:
         async with contextlib.AsyncExitStack() as stack:
             tape_store = self._hook_runtime.call_first_sync("provide_tape_store")
-            # Allow plugins to return either TapeStore/AsyncTapeStore instances or context managers for them
-            # This benefits plugins that need to initialize and clean up resources with the tape store.
+            # Stores may be context managers when a backend owns connections or workers.
             self._tape_store = await maybe_context_manager(tape_store, stack)
 
             steering_inbox = self._hook_runtime.call_first_sync("provide_steering_inbox")
@@ -367,12 +362,14 @@ class BubFramework:
                 self._tape_store = None
                 self._steering_inbox = None
 
-    def get_tape_store(self) -> TapeStore | AsyncTapeStore | None:
+    def get_tape_store(self) -> TapeStore | None:
         return self._tape_store
 
     def get_tape_sidecars(self) -> tuple[TapeSidecar, ...]:
         sidecars: dict[str, TapeSidecar] = {}
         for sidecar in self._hook_runtime.call_many_sync("provide_tape_sidecar"):
+            if not isinstance(sidecar, TapeSidecar) or not sidecar.name:
+                raise TypeError("provide_tape_sidecar returned an invalid TapeSidecar spec")
             sidecars.setdefault(sidecar.name, sidecar)
         return tuple(sidecars.values())
 

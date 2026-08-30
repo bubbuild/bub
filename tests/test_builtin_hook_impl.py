@@ -10,7 +10,7 @@ import pytest
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_CONTINUE_PROMPT, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
-from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
+from bub.store import FileTapeStore, InMemoryTapeStore
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import Tape, TapeContext
 
@@ -29,8 +29,7 @@ class RecordingLifespan:
 
 def _fake_tape(home: Path) -> Tape:
     return Tape(
-        archive_path=home / "tapes",
-        store=AsyncTapeStoreAdapter(InMemoryTapeStore()),
+        store=InMemoryTapeStore(),
         context=TapeContext(),
     )
 
@@ -436,7 +435,7 @@ def test_before_tool_call_ignores_known_tool(tmp_path: Path) -> None:
     from bub.hooks.interception import ToolCall
 
     async def _do():
-        return await impl.before_tool_call(ToolCall(run_id="r", tool="bash", arguments={}), state={})
+        return await impl.before_tool_call(ToolCall(model_call_id="m", tool="bash", arguments={}), state={})
 
     assert asyncio.run(_do()) is None
 
@@ -448,7 +447,7 @@ def test_before_tool_call_ignores_known_model_alias(tmp_path: Path) -> None:
     from bub.hooks.interception import ToolCall
 
     async def _do():
-        return await impl.before_tool_call(ToolCall(run_id="r", tool="bash_output", arguments={}), state={})
+        return await impl.before_tool_call(ToolCall(model_call_id="m", tool="bash_output", arguments={}), state={})
 
     assert asyncio.run(_do()) is None
 
@@ -460,7 +459,7 @@ def test_before_tool_call_recovers_unknown_tool(tmp_path: Path) -> None:
     from bub.hooks.interception import ToolCall
 
     async def _do():
-        return await impl.before_tool_call(ToolCall(run_id="r", tool="tepadr", arguments={}), state={})
+        return await impl.before_tool_call(ToolCall(model_call_id="m", tool="tepadr", arguments={}), state={})
 
     decision = asyncio.run(_do())
     assert decision is not None and decision.action == "replace"
@@ -475,7 +474,7 @@ def test_before_tool_call_suggests_close_model_tool_name(tmp_path: Path) -> None
     from bub.hooks.interception import ToolCall
 
     async def _do():
-        return await impl.before_tool_call(ToolCall(run_id="r", tool="fs_reed", arguments={}), state={})
+        return await impl.before_tool_call(ToolCall(model_call_id="m", tool="fs_reed", arguments={}), state={})
 
     decision = asyncio.run(_do())
     assert decision is not None

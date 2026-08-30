@@ -37,7 +37,7 @@ Bub discovers plugins through Python entry points in the `bub` group. Add the en
 [project]
 name = "bub-myplugin"
 version = "0.1.0"
-dependencies = ["bub>=0.3"]
+dependencies = ["bub>=0.5,<0.6"]
 
 [project.entry-points."bub"]
 myplugin = "bub_myplugin.plugin"
@@ -145,11 +145,11 @@ Run the hook diagnostics command:
 uv run bub hooks
 ```
 
-Each registered hook lists the plugins that contribute to it. The command reports discovery order, not the exact firstresult winner; runtime priority is described in [Hook reference](/docs/reference/hooks/#iteration-order). Expected output for an `EchoPlugin` that overrides `build_prompt` and `run_model`:
+Each registered hook lists the plugins that contribute to it. The command reports discovery order, not the exact firstresult winner; runtime priority is described in [Hook reference](/docs/reference/hooks/#iteration-order). Expected output for an `EchoPlugin` that overrides `build_prompt` and `run_model_stream`:
 
 ```text
 build_prompt: builtin, echo
-run_model: builtin, echo
+run_model_stream: builtin, echo
 ...
 ```
 

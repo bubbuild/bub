@@ -288,10 +288,10 @@ uv run ${SKILL_DIR}/scripts/init_skill.py <skill-name> --path <output-directory>
 Examples:
 
 ```bash
-uv run ${SKILL_DIR}/scripts/init_skill.py my-skill --path "$workspace/.agent/skills"
-uv run ${SKILL_DIR}/scripts/init_skill.py my-skill --path "$workspace/.agent/skills" --resources scripts,references
-uv run ${SKILL_DIR}/scripts/init_skill.py my-skill --path "$workspace/.agent/skills" --resources scripts --examples
-uv run ${SKILL_DIR}/scripts/init_skill.py my-skill --path "~/.agent/skills"
+uv run ${SKILL_DIR}/scripts/init_skill.py my-skill --path "$workspace/.agents/skills"
+uv run ${SKILL_DIR}/scripts/init_skill.py my-skill --path "$workspace/.agents/skills" --resources scripts,references
+uv run ${SKILL_DIR}/scripts/init_skill.py my-skill --path "$workspace/.agents/skills" --resources scripts --examples
+uv run ${SKILL_DIR}/scripts/init_skill.py my-skill --path "~/.agents/skills"
 ```
 
 The script:

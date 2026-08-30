@@ -18,7 +18,6 @@ sidebar:
 - 已经把 Bub 安装到一个激活的虚拟环境中（`bub install` 必须在 venv 内运行），并且 `bub --help` 可以正常工作。
 - 已安装来自 [`bub-contrib`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) 的 `bub-extism` 插件。
 - 如果要构建 Go 示例，需要安装 Go 工具链。
-- 如果要构建 Rust 示例，需要安装 Rust 工具链，并添加 `wasm32-unknown-unknown` target。
 
 在动手之前，建议先浏览这些参考链接：
 
@@ -43,12 +42,9 @@ uv run bub hooks
 
 你应该能在输出中看到 `extism` 与 `builtin` 并列出现。
 
-## 第二步：用 Go 和 Rust 各实现一个 hook
+## 第二步：用 Go 实现 prompt hook
 
-我们使用 `bub-extism` 自带的两个经过验证的示例模块：
-
-- `go-build-prompt` 实现了 `build_prompt` hook
-- `rust-run-model` 实现了 `run_model` hook
+我们使用 `bub-extism` 自带的 `go-build-prompt` 示例模块。它实现 `build_prompt` hook，请求与返回值都是可直接跨越 Wasm 边界的有限值。
 
 构建 Go 示例：
 
@@ -57,18 +53,11 @@ cd bub-contrib/packages/bub-extism/examples/go-build-prompt
 GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o go-build-prompt.wasm .
 ```
 
-构建 Rust 示例：
-
-```bash
-cd bub-contrib/packages/bub-extism/examples/rust-run-model
-cargo build --release --target wasm32-unknown-unknown
-```
-
 如果需要完整的构建命令，请参考 [examples 指南](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples)。
 
-## 第三步：用 extism.json 连接两个模块
+## 第三步：用 extism.json 连接模块
 
-在项目根目录创建 `extism.json`，将 prompt hook 绑定到 Go 模块，model hook 绑定到 Rust 模块：
+在项目根目录创建 `extism.json`，将 prompt hook 绑定到 Go 模块：
 
 ```json
 {
@@ -84,18 +73,6 @@ cargo build --release --target wasm32-unknown-unknown
       "wasi": true,
       "hooks": {
         "build_prompt": "build_prompt"
-      }
-    },
-    "model": {
-      "manifest": {
-        "wasm": [
-          {
-            "path": "bub-contrib/packages/bub-extism/examples/rust-run-model/target/wasm32-unknown-unknown/release/bub_extism_rust_run_model.wasm"
-          }
-        ]
-      },
-      "hooks": {
-        "run_model": "run_model"
       }
     }
   }
@@ -114,9 +91,9 @@ cargo build --release --target wasm32-unknown-unknown
 export BUB_EXTISM_CONFIG_PATH=./extism.json
 ```
 
-## 第四步：跑一次跨语言的对话轮次
+## 第四步：跑一次使用跨语言 prompt 的对话轮次
 
-现在让 Bub 先用 Go 构建 prompt，再交给 Rust 执行 model hook：
+现在让 Go 模块先构建 prompt，再由 Bub 内置的流式 agent 执行：
 
 ```bash
 uv run bub run "Say hello from a prompt built outside Python."
@@ -125,19 +102,10 @@ uv run bub run "Say hello from a prompt built outside Python."
 如果一切配置正确，整个流程是：
 
 1. Bub 调用 Go 模块中的 `build_prompt`
-2. 将返回的 prompt 传递给 Rust 模块中的 `run_model`
-3. Rust 模块返回最终结果，完成本次对话轮次
+2. 将返回的 prompt 传递给选中的 `run_model_stream` 实现
+3. 消费其 `AsyncStreamEvents` 并渲染最终结果
 
-CLI 会按 `[channel:chat_id]` 的格式输出消息，默认的 `bub run` 通常会先显示 `[cli:local]`，然后是实际内容。
-
-示例输出大致如下：
-
-```text
-[cli:local]
-[rust-run-model:cli:local] [go-build-prompt:cli:local] Say hello from a prompt built outside Python.
-```
-
-Go 模块会在入站 prompt 前加上 `[go-build-prompt:<chat_id>]` 前缀；Rust 模块再把 Go 的输出包一层 `[rust-run-model:<chat_id>]`。开头的 `[cli:local]` 是 CLI 通道发出的频道头。
+Go 模块会用模块名与 chat 标识为入站 prompt 添加前缀。最终回复取决于已配置的模型；CLI 会在渲染结果前打印常规的 channel/chat 频道头。
 
 ## 第五步：理解这条路径的边界
 
@@ -146,6 +114,8 @@ Go 模块会在入站 prompt 前加上 `[go-build-prompt:<chat_id>]` 前缀；Ru
 - 某个 hook 用其他语言实现确实更自然
 - 团队希望更直接地掌控和共同维护具体实现
 - 仍然想让 Bub 作为核心编排宿主
+
+模型执行刻意使用更严格的边界。Bub 只有一个模型 hook：`run_model_stream`，其结果始终是 `AsyncStreamEvents`。外语言宿主 adapter 可以实现这个 stream bridge，但 Bub 不接受标量模型结果，也不会把它包装成伪造的 stream。因此，缓冲展示、实时展示、错误事件、usage 和 tool activity 始终走同一条执行路径。
 
 **不要**把它当作把 Bub 核心拆成多个独立语言版本的理由——那样会把这套架构原本要避免的维护负担重新引回来。这是一个扩展路径，不是重写计划。
 

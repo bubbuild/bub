@@ -1,13 +1,9 @@
 ---
 title: 核心契约
-description: Bub 中由 turn、model、stream、hook 与 channel 子系统分别拥有的契约。
+description: Bub 中由 turn、model、tape、stream、hook 与 channel 子系统分别拥有的契约。
 ---
 
 Bub 把契约放在拥有其行为的子系统旁边。请从定义它的模块导入；顶层 `bub` 包只暴露常用框架入口。
-
-:::caution
-为兼容旧代码，`bub.types` 暂时只重导出 `Envelope`、`State` 和 `MessageHandler`，并在导入时发出 `DeprecationWarning`。新代码应直接使用 `bub.envelope.Envelope`、`bub.turn.TurnState` 和 `bub.channels.contracts.MessageHandler`。
-:::
 
 ## 内核词汇
 
@@ -75,6 +71,18 @@ from bub.errors import BubError, ErrorKind
 
 `BubError` 是稳定的执行错误对象。其 `kind` 为 `ErrorKind`，`as_dict()` 返回适合传输的 payload。
 
+### Tape event 与 record — `bub.tape`
+
+```python
+from cloudevents.core.v1.event import CloudEvent
+from bub.tape import TapeRecord, bub_event
+
+event: CloudEvent = bub_event("diagnostic", {"status": "ok"})
+record = TapeRecord(cursor=1, event=event)
+```
+
+Bub 没有单独的 event wrapper：每个 event 都是官方 `CloudEvent`，其 `data` 是 ATIF StepObject。`TapeRecord` 只增加某个 committed 位置对应的 store-assigned cursor。identity、type、time、extension 和 ATIF data 都通过 CloudEvents API 读取。
+
 ## Hook 契约
 
 Hook 声明与 marker 位于 `bub.hooks`；agent-loop 拦截 payload 与它们的执行语义放在一起：
@@ -91,10 +99,16 @@ from bub.hooks.interception import (
     ToolCallResult,
 )
 from bub.hooks.runtime import HookRuntime
-from bub.sidecars import TapeSidecar, sidecar_tape_name
+from bub.sidecars import (
+    CommittedTapeSidecar,
+    SiblingTapeSidecar,
+    TapeOverlaySidecar,
+    TapeSidecar,
+    sidecar_tape_name,
+)
 ```
 
-插件作者通常只需要 `hookimpl` 与对应 hook 使用的 payload 类型。`TapeSidecar` 是 `provide_tape_sidecar` 返回的最小具名契约；`sidecar_tape_name` 用于解析 sibling tape 名称。分发和故障隔离语义见 [Hook 参考](/zh-cn/docs/reference/hooks/)。
+插件作者通常只需要 `hookimpl` 与对应 hook 使用的 payload 类型。`TapeSidecar` 是 `provide_tape_sidecar` 返回的公共具名 spec；sibling、overlay 和 committed-event protocol 在不增加更多 hook 的前提下提供对应能力。CloudEvents 与 ATIF 是 tape 原生数据，不是 sidecar。分发和故障隔离语义见 [Hook 参考](/zh-cn/docs/reference/hooks/)。
 
 ## Channel 契约
 

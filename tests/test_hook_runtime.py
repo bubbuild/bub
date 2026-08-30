@@ -108,7 +108,7 @@ def test_hook_report_lists_registered_implementations() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_model_uses_streaming_hook_when_plain_hook_absent() -> None:
+async def test_run_model_stream_uses_the_streaming_hook() -> None:
     class StreamPlugin:
         @hookimpl
         async def run_model_stream(self, prompt, session_id, state):
@@ -120,22 +120,8 @@ async def test_run_model_uses_streaming_hook_when_plain_hook_absent() -> None:
 
     runtime = _runtime_with_plugins(("stream", StreamPlugin()))
 
-    result = await runtime.run_model(prompt="hello", session_id="s", state={})
-
-    assert result == "streamed"
-
-
-@pytest.mark.asyncio
-async def test_run_model_stream_falls_back_to_plain_hook() -> None:
-    class PlainPlugin:
-        @hookimpl
-        async def run_model(self, prompt, session_id, state):
-            return "plain"
-
-    runtime = _runtime_with_plugins(("plain", PlainPlugin()))
-
     stream = await runtime.run_model_stream(prompt="hello", session_id="s", state={})
 
     assert stream is not None
     events = [event async for event in stream]
-    assert [(event.kind, event.data) for event in events] == [("text", {"delta": "plain"})]
+    assert "".join(str(event.data["delta"]) for event in events) == "streamed"

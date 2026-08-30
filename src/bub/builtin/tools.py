@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
+from bub.tape import bub_event_type, event_data, event_time
 from bub.tools import REGISTRY, Tool, ToolContext, tool
 
 if TYPE_CHECKING:
@@ -114,9 +115,9 @@ class SearchInput(BaseModel):
     limit: int = Field(20, description="Maximum number of search results to return.")
     start: str | None = Field(None, description="Optional start date to filter entries (ISO format).")
     end: str | None = Field(None, description="Optional end date to filter entries (ISO format).")
-    kinds: list[str] = Field(
-        default=["message", "tool_result"],
-        description="Optional list of entry kinds to filter search results. Can include 'event', 'anchor', 'system', 'message', 'tool_call', 'tool_result', 'error'.",
+    types: list[str] = Field(
+        default_factory=lambda: [bub_event_type("message")],
+        description="Optional exact CloudEvents types, such as 'build.bub.message.v1'.",
     )
 
 
@@ -271,18 +272,18 @@ async def tape_info(context: ToolContext) -> str:
 @tool(context=True, name="tape.search", model=SearchInput)
 async def tape_search(param: SearchInput, *, context: ToolContext) -> str:
     """Search for entries in the current tape that match the query. Returns a list of matching entries."""
-    query = context.tape.query().query(param.query).kinds(*param.kinds).limit(param.limit)
+    query = context.tape.query().query(param.query).types(*param.types).limit(param.limit)
     if param.start or param.end:
         query = query.between_dates(param.start or "", param.end or "")
 
-    entries = await context.tape.search(query)
+    records = [record async for record in context.tape.stream(query)]
     lines: list[str] = []
-    for entry in entries:
-        entry_str = json.dumps({"date": entry.date, "content": entry.payload})
+    for record in records:
+        entry_str = json.dumps({"time": event_time(record.event).isoformat(), "content": event_data(record.event)})
         if "[tape.search]" in entry_str:
             continue
         lines.append(entry_str)
-    return f"[tape.search]: {len(lines)} matches ({len(entries) - len(lines)} filtered)" + "".join(
+    return f"[tape.search]: {len(lines)} matches ({len(records) - len(lines)} filtered)" + "".join(
         f"\n{line}" for line in lines
     )
 

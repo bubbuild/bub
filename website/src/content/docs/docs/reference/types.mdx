@@ -1,13 +1,9 @@
 ---
 title: Core contracts
-description: Bub's subsystem-owned contracts for turns, models, streaming, hooks, and channels.
+description: Bub's subsystem-owned contracts for turns, models, tape, streaming, hooks, and channels.
 ---
 
 Bub keeps contracts beside the subsystem that owns their behavior. Import a contract from its defining module; the top-level `bub` package intentionally exposes only the common framework entry points.
-
-:::caution
-`bub.types` temporarily re-exports only `Envelope`, `State`, and `MessageHandler` for compatibility and emits a `DeprecationWarning` when imported. New code should use `bub.envelope.Envelope`, `bub.turn.TurnState`, and `bub.channels.contracts.MessageHandler` directly.
-:::
 
 ## Kernel vocabulary
 
@@ -75,6 +71,18 @@ from bub.errors import BubError, ErrorKind
 
 `BubError` is the stable execution error object. Its `kind` is an `ErrorKind`, and `as_dict()` returns a transport-friendly payload.
 
+### Tape events and records — `bub.tape`
+
+```python
+from cloudevents.core.v1.event import CloudEvent
+from bub.tape import TapeRecord, bub_event
+
+event: CloudEvent = bub_event("diagnostic", {"status": "ok"})
+record = TapeRecord(cursor=1, event=event)
+```
+
+Bub has no separate event wrapper: every event is an official `CloudEvent`, and its `data` is an ATIF StepObject. `TapeRecord` adds only the store-assigned cursor for one committed position. Use the CloudEvents API to read identity, type, time, extensions, and ATIF data.
+
 ## Hook contracts
 
 Hook declarations and markers live in `bub.hooks`; agent-loop interception payloads live with their execution semantics:
@@ -91,10 +99,16 @@ from bub.hooks.interception import (
     ToolCallResult,
 )
 from bub.hooks.runtime import HookRuntime
-from bub.sidecars import TapeSidecar, sidecar_tape_name
+from bub.sidecars import (
+    CommittedTapeSidecar,
+    SiblingTapeSidecar,
+    TapeOverlaySidecar,
+    TapeSidecar,
+    sidecar_tape_name,
+)
 ```
 
-Plugin authors normally need only `hookimpl` plus the payload types used by their hooks. `TapeSidecar` is the minimal named contract returned by `provide_tape_sidecar`; `sidecar_tape_name` resolves its sibling tape name. See the [Hook reference](/docs/reference/hooks/) for dispatch and fault-isolation semantics.
+Plugin authors normally need only `hookimpl` plus the payload types used by their hooks. `TapeSidecar` is the common named spec returned by `provide_tape_sidecar`; the sibling, overlay, and committed-event protocols add capability-specific behavior without adding more hooks. CloudEvents and ATIF are native tape data, not sidecars. See the [Hook reference](/docs/reference/hooks/) for dispatch and fault-isolation semantics.
 
 ## Channel contracts
 

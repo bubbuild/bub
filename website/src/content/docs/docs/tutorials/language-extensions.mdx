@@ -18,7 +18,6 @@ Make sure you have:
 - Bub installed into an active virtual environment (`bub install` requires running from inside a venv), with `bub --help` working.
 - The `bub-extism` plugin installed from [`bub-contrib`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism).
 - A Go toolchain if you plan to build the Go example.
-- A Rust toolchain with the `wasm32-unknown-unknown` target if you plan to build the Rust example.
 
 You'll probably want to keep these references handy:
 
@@ -43,12 +42,9 @@ uv run bub hooks
 
 You should see `extism` listed alongside `builtin`.
 
-## 2. Implement one hook in Go and one in Rust
+## 2. Implement a prompt hook in Go
 
-We'll use the two verified example modules that ship with `bub-extism`:
-
-- `go-build-prompt` implements the `build_prompt` hook
-- `rust-run-model` implements the `run_model` hook
+We'll use the `go-build-prompt` example module that ships with `bub-extism`. It implements the `build_prompt` hook, whose request and response are finite values that cross the Wasm boundary directly.
 
 Build the Go example:
 
@@ -57,18 +53,11 @@ cd bub-contrib/packages/bub-extism/examples/go-build-prompt
 GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o go-build-prompt.wasm .
 ```
 
-Build the Rust example:
+If you need the full build command, check the [examples guide](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples).
 
-```bash
-cd bub-contrib/packages/bub-extism/examples/rust-run-model
-cargo build --release --target wasm32-unknown-unknown
-```
+## 3. Wire the module into `extism.json`
 
-If you need the full build commands for either example, check the [examples guide](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples).
-
-## 3. Wire both modules into `extism.json`
-
-Create an `extism.json` in your project root that binds the prompt hook to the Go module and the model hook to the Rust module:
+Create an `extism.json` in your project root that binds the prompt hook to the Go module:
 
 ```json
 {
@@ -84,18 +73,6 @@ Create an `extism.json` in your project root that binds the prompt hook to the G
       "wasi": true,
       "hooks": {
         "build_prompt": "build_prompt"
-      }
-    },
-    "model": {
-      "manifest": {
-        "wasm": [
-          {
-            "path": "bub-contrib/packages/bub-extism/examples/rust-run-model/target/wasm32-unknown-unknown/release/bub_extism_rust_run_model.wasm"
-          }
-        ]
-      },
-      "hooks": {
-        "run_model": "run_model"
       }
     }
   }
@@ -114,9 +91,9 @@ Point Bub at the config file before running a turn:
 export BUB_EXTISM_CONFIG_PATH=./extism.json
 ```
 
-## 4. Run a turn that spans both languages
+## 4. Run a turn with a cross-language prompt
 
-Now let Bub build a prompt first, then execute the model hook:
+Now let the Go module build the prompt before Bub's builtin streaming agent executes it:
 
 ```bash
 uv run bub run "Say hello from a prompt built outside Python."
@@ -125,19 +102,10 @@ uv run bub run "Say hello from a prompt built outside Python."
 When everything is wired up correctly, Bub will:
 
 1. Call `build_prompt` inside the Go module
-2. Pass the returned prompt to `run_model` inside the Rust module
-3. Hand the final result back for this turn
+2. Pass the returned prompt to the selected `run_model_stream` implementation
+3. Consume its `AsyncStreamEvents` and render the final result
 
-The CLI prints outbound messages in `[channel:chat_id]` format, so a default `bub run` typically shows `[cli:local]` first, followed by the rendered output.
-
-You can expect output similar to:
-
-```text
-[cli:local]
-[rust-run-model:cli:local] [go-build-prompt:cli:local] Say hello from a prompt built outside Python.
-```
-
-The Go module wraps the inbound prompt with a `[go-build-prompt:<chat_id>]` prefix; the Rust module then wraps the Go output with `[rust-run-model:<chat_id>]`. The leading `[cli:local]` line is the channel header emitted by the CLI adapter.
+The Go module prefixes the inbound prompt with its module name and chat identifier. The final response depends on the configured model. The CLI prints its usual channel-and-chat header before the rendered output.
 
 ## 5. Know the boundary
 
@@ -146,6 +114,8 @@ This path works well when:
 - A particular hook genuinely fits better in another language
 - A team wants more direct ownership of the implementation
 - You still want Bub to act as the orchestration host
+
+Model execution is intentionally a stricter boundary. Bub has one model hook, `run_model_stream`, and its result is always `AsyncStreamEvents`. A foreign-language host adapter may implement that stream bridge, but Bub does not accept a scalar model result or wrap one into a synthetic stream. This keeps buffering, live presentation, error events, usage, and tool activity on the same execution path.
 
 **Don't** treat this as a reason to fragment the Bub core into separate rewrites in multiple languages. That would reintroduce exactly the kind of maintenance burden this architecture was designed to avoid. This is an extension path—not a rewrite plan.
 

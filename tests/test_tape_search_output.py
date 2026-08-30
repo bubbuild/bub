@@ -1,22 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import pytest
 
 import bub.builtin.tools as builtin_tools
 from bub.builtin.tools import tape_search
+from bub.tape import TapeRecord, bub_event
 from bub.tools import ToolContext
 
 
-@dataclass(frozen=True)
-class _FakeEntry:
-    date: str
-    payload: object
-
-
 class _FakeTapes:
-    def __init__(self, entries: list[_FakeEntry]) -> None:
+    def __init__(self, entries: list[TapeRecord]) -> None:
         self._entries = entries
 
     def scoped(self, _tape: str) -> _FakeTapes:
@@ -25,15 +20,16 @@ class _FakeTapes:
     def query(self) -> _FakeQuery:
         return _FakeQuery()
 
-    async def search(self, _query: object) -> list[_FakeEntry]:
-        return list(self._entries)
+    async def stream(self, _query: object):
+        for entry in self._entries:
+            yield entry
 
 
 class _FakeQuery:
     def query(self, _value: str) -> _FakeQuery:
         return self
 
-    def kinds(self, *_kinds: str) -> _FakeQuery:
+    def types(self, *_types: str) -> _FakeQuery:
         return self
 
     def limit(self, _value: int) -> _FakeQuery:
@@ -44,19 +40,28 @@ class _FakeQuery:
 
 
 class _FakeAgent:
-    def __init__(self, entries: list[_FakeEntry]) -> None:
+    def __init__(self, entries: list[TapeRecord]) -> None:
         self.tapes = _FakeTapes(entries)
 
 
 @pytest.mark.asyncio
 async def test_tape_search_reports_shown_matches_and_filtered_count(monkeypatch) -> None:
     entries = [
-        _FakeEntry(date="2026-01-01T00:00:00Z", payload={"content": "ok"}),
-        _FakeEntry(date="2026-01-01T00:00:01Z", payload={"content": "[tape.search]: 1 matches"}),
+        TapeRecord(1, bub_event("message", {"content": "ok"}, time=datetime(2026, 1, 1, tzinfo=UTC))),
+        TapeRecord(
+            2,
+            bub_event(
+                "message",
+                {"content": "[tape.search]: 1 matches"},
+                time=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC),
+            ),
+        ),
     ]
     monkeypatch.setattr(builtin_tools, "_get_agent", lambda _context: _FakeAgent(entries))
 
-    output = await tape_search.run(query="x", context=ToolContext(tape=_FakeTapes(entries), run_id="run", state={}))
+    output = await tape_search.run(
+        query="x", context=ToolContext(tape=_FakeTapes(entries), model_call_id="model", state={})
+    )
 
     assert output.splitlines()[0] == "[tape.search]: 1 matches (1 filtered)"
 
@@ -64,11 +69,16 @@ async def test_tape_search_reports_shown_matches_and_filtered_count(monkeypatch)
 @pytest.mark.asyncio
 async def test_tape_search_reports_zero_filtered_explicitly(monkeypatch) -> None:
     entries = [
-        _FakeEntry(date="2026-01-01T00:00:00Z", payload={"content": "a"}),
-        _FakeEntry(date="2026-01-01T00:00:01Z", payload={"content": "b"}),
+        TapeRecord(1, bub_event("message", {"content": "a"}, time=datetime(2026, 1, 1, tzinfo=UTC))),
+        TapeRecord(
+            2,
+            bub_event("message", {"content": "b"}, time=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)),
+        ),
     ]
     monkeypatch.setattr(builtin_tools, "_get_agent", lambda _context: _FakeAgent(entries))
 
-    output = await tape_search.run(query="x", context=ToolContext(tape=_FakeTapes(entries), run_id="run", state={}))
+    output = await tape_search.run(
+        query="x", context=ToolContext(tape=_FakeTapes(entries), model_call_id="model", state={})
+    )
 
     assert output.splitlines()[0] == "[tape.search]: 2 matches (0 filtered)"

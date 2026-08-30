@@ -20,7 +20,8 @@ from bub.hooks.interception import (
     ToolCallResult,
 )
 from bub.hooks.runtime import HookRuntime
-from bub.tools import Tool, ToolExecutor
+from bub.tape import bub_event_type, event_data, event_payload
+from bub.tools import Tool, ToolContext, ToolExecutor, ToolInvocation
 
 
 def make_hooks(*plugins: Any) -> AgentHooks:
@@ -32,7 +33,7 @@ def make_hooks(*plugins: Any) -> AgentHooks:
 
 
 def request() -> LlmCallRequest:
-    return LlmCallRequest(run_id="run-1", model="openai:gpt-x", messages=[{"role": "user", "content": "hi"}])
+    return LlmCallRequest(model_call_id="model-1", model="openai:gpt-x", messages=[{"role": "user", "content": "hi"}])
 
 
 class TestBeforeLlmCall:
@@ -106,7 +107,7 @@ class TestBeforeToolCall:
 
         hooks = make_hooks(Verify(), Rewrite())  # LIFO: Rewrite runs first
         call, decision = await hooks.before_tool_call(
-            ToolCall(run_id="run-1", tool="shell", arguments={"cmd": "ls"}), state={}
+            ToolCall(model_call_id="model-1", tool="shell", arguments={"cmd": "ls"}), state={}
         )
         assert decision.action == "proceed"
         assert call.arguments == {"cmd": "ls", "safe": True}
@@ -127,7 +128,9 @@ class TestBeforeToolCall:
                 return None
 
         hooks = make_hooks(Later(), Deny())  # LIFO: Deny runs first
-        _, decision = await hooks.before_tool_call(ToolCall(run_id="run-1", tool="shell", arguments={}), state={})
+        _, decision = await hooks.before_tool_call(
+            ToolCall(model_call_id="model-1", tool="shell", arguments={}), state={}
+        )
         assert decision.action == "deny"
         assert decision.message == "dangerous command"
         assert seen == []
@@ -148,22 +151,31 @@ class TestToolExecutorIntegration:
                 return ToolCallDecision.deny("blocked by policy")
 
         executor = ToolExecutor(hooks=make_hooks(Deny()))
-        execution = await executor.execute_async([(self.tool(), {"cmd": "rm -rf /"})])
+        execution = await executor.execute_async([ToolInvocation(self.tool(), {"cmd": "rm -rf /"})])
         assert execution.error is not None
         assert "blocked by policy" in execution.error.message
         assert execution.tool_results[0]["message"] == "blocked by policy"
 
     @pytest.mark.asyncio
     async def test_replace_skips_handler(self) -> None:
+        observed: list[ToolCallResult] = []
+
         class Replace:
             @hookimpl
             def before_tool_call(self, call: ToolCall, state: dict) -> ToolCallDecision:
                 return ToolCallDecision.replace("cached result")
 
-        executor = ToolExecutor(hooks=make_hooks(Replace()))
-        execution = await executor.execute_async([(self.tool(), {"cmd": "ls"})])
+        class Observe:
+            @hookimpl
+            def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict) -> None:
+                observed.append(result)
+
+        executor = ToolExecutor(hooks=make_hooks(Observe(), Replace()))
+        execution = await executor.execute_async([ToolInvocation(self.tool(), {"cmd": "ls"})])
         assert execution.error is None
         assert execution.tool_results == ["cached result"]
+        assert len(observed) == 1
+        assert observed[0].result == "cached result"
 
     @pytest.mark.asyncio
     async def test_after_tool_call_observes_success_and_error(self) -> None:
@@ -178,8 +190,10 @@ class TestToolExecutorIntegration:
             raise ValueError("nope")
 
         executor = ToolExecutor(hooks=make_hooks(Observe()))
-        await executor.execute_async([(self.tool(), {"cmd": "ls"})])
-        await executor.execute_async([(Tool(name="bad", handler=failing, description="", parameters={}), {"cmd": "x"})])
+        await executor.execute_async([ToolInvocation(self.tool(), {"cmd": "ls"})])
+        await executor.execute_async([
+            ToolInvocation(Tool(name="bad", handler=failing, description="", parameters={}), {"cmd": "x"})
+        ])
         assert observed[0].result == "ran:ls"
         assert observed[0].error is None
         assert isinstance(observed[1].error, BubError)  # original error object, kind/details preserved
@@ -195,7 +209,7 @@ class TestToolExecutorIntegration:
                     result.result = f"bounded:{result.result}"
 
         executor = ToolExecutor(hooks=make_hooks(BoundResult()))
-        execution = await executor.execute_async([(self.tool(), {"cmd": "ls"})])
+        execution = await executor.execute_async([ToolInvocation(self.tool(), {"cmd": "ls"})])
 
         assert execution.tool_results == ["bounded:ran:ls"]
 
@@ -207,12 +221,12 @@ class TestToolExecutorIntegration:
                 return ToolCallDecision.proceed(arguments={"cmd": "safe-ls"})
 
         executor = ToolExecutor(hooks=make_hooks(Rewrite()))
-        execution = await executor.execute_async([(self.tool(), {"cmd": "rm"})])
+        execution = await executor.execute_async([ToolInvocation(self.tool(), {"cmd": "rm"})])
         assert execution.tool_results == ["ran:safe-ls"]
 
     @pytest.mark.asyncio
     async def test_no_hooks_keeps_current_behavior(self) -> None:
-        execution = await ToolExecutor().execute_async([(self.tool(), {"cmd": "ls"})])
+        execution = await ToolExecutor().execute_async([ToolInvocation(self.tool(), {"cmd": "ls"})])
         assert execution.tool_results == ["ran:ls"]
 
 
@@ -232,7 +246,7 @@ class TestAfterLlmCall:
                 observed.append(result)
 
         hooks = make_hooks(Boom(), Observe())
-        result = LlmCallResult(run_id="run-1", text="hello", usage={"total_tokens": 5}, duration_ms=12)
+        result = LlmCallResult(model_call_id="model-1", text="hello", usage={"total_tokens": 5}, duration_ms=12)
         await hooks.after_llm_call(request(), result, state={})
         assert observed == [result]
 
@@ -260,10 +274,9 @@ class TestModelRunnerHookIntegration:
     """Regression tests for PR #255 review findings (effective request, exactly-once)."""
 
     def _runner_and_tape(self, hooks: AgentHooks, captured: dict):
-        import bub
         from bub.builtin.model_runner import ModelRunner
         from bub.builtin.settings import AgentSettings
-        from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+        from bub.store import InMemoryTapeStore
         from bub.tape import Tape, TapeContext
 
         class FakeRunner(ModelRunner):
@@ -278,8 +291,8 @@ class TestModelRunnerHookIntegration:
 
         settings = AgentSettings.model_construct(model="openai:orig", max_tokens=100, model_timeout_seconds=None)
         runner = FakeRunner(settings, hooks=hooks)
-        store = AsyncTapeStoreAdapter(InMemoryTapeStore())
-        tape = Tape(bub.home / "tapes", store, TapeContext(anchor=None)).scoped("t1")
+        store = InMemoryTapeStore()
+        tape = Tape(store, TapeContext(anchor=None)).scoped("t1")
         return runner, tape
 
     @pytest.mark.asyncio
@@ -295,9 +308,8 @@ class TestModelRunnerHookIntegration:
         async for _ in events:
             pass
         assert captured == {"model": "anthropic:new", "max_tokens": 42}
-        entries = list(await tape.store.fetch_all(tape.query().kinds("event")))
-        run_events = [e for e in entries if e.payload.get("name") == "run"]
-        assert run_events[-1].payload["data"]["model"] == "anthropic:new"
+        records = [record async for record in tape.store.scan(tape.query().types(bub_event_type("message")))]
+        assert event_data(records[-1].event)["model_name"] == "anthropic:new"
 
     @pytest.mark.asyncio
     async def test_after_llm_call_not_fired_on_early_close(self) -> None:
@@ -327,6 +339,11 @@ class TestModelRunnerHookIntegration:
         # Consumer close is intentionally NOT a terminal observation:
         # after_llm_call fires only for real completions and Exception failures.
         assert observed == []
+        records = [record async for record in tape.store.scan(tape.query())]
+        assert [record.event.get_type() for record in records] == [
+            bub_event_type("model.started"),
+            bub_event_type("model.cancelled"),
+        ]
 
     @pytest.mark.asyncio
     async def test_after_llm_call_fires_exactly_once_on_success(self) -> None:
@@ -344,6 +361,46 @@ class TestModelRunnerHookIntegration:
             pass
         assert len(observed) == 1
         assert observed[0].error is None
+
+    @pytest.mark.asyncio
+    async def test_finish_decision_is_a_deterministic_atif_agent_step(self) -> None:
+        class Finish:
+            @hookimpl
+            def before_llm_call(self, request: LlmCallRequest, state: dict) -> LlmCallDecision:
+                return LlmCallDecision.finish("budget exhausted")
+
+        captured: dict = {}
+        runner, tape = self._runner_and_tape(make_hooks(Finish()), captured)
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+
+        assert [event async for event in events][-1].data["text"] == "budget exhausted"
+        assert captured == {}
+        records = [record async for record in tape.store.scan(tape.query().types(bub_event_type("message")))]
+        step = event_data(records[-1].event)
+        assert step["source"] == "agent"
+        assert step["llm_call_count"] == 0
+        assert "model_name" not in step
+        assert "metrics" not in step
+
+    @pytest.mark.asyncio
+    async def test_model_failure_persists_operational_lifecycle(self) -> None:
+        runner, tape = self._runner_and_tape(make_hooks(), {})
+
+        async def fail(**_kwargs):
+            raise RuntimeError("provider unavailable")
+
+        runner.completion_response = fail  # type: ignore[method-assign]
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+
+        with pytest.raises(RuntimeError, match="provider unavailable"):
+            [event async for event in events]
+
+        records = [record async for record in tape.store.scan(tape.query())]
+        assert [record.event.get_type() for record in records] == [
+            bub_event_type("model.started"),
+            bub_event_type("model.failed"),
+        ]
+        assert event_payload(records[-1].event)["error"]["message"] == "provider unavailable"
 
 
 class TestToolCancellation:
@@ -366,10 +423,16 @@ class TestToolCancellation:
             return "unreachable"
 
         executor = ToolExecutor(hooks=make_hooks(Observe()))
+        from bub.store import InMemoryTapeStore
+        from bub.tape import Tape, TapeContext
+
+        tape = Tape(InMemoryTapeStore(), TapeContext(anchor=None)).scoped("tools")
+        context = ToolContext(tape=tape, model_call_id="model-1", state={"session_id": "session-1"})
         task = asyncio.create_task(
-            executor.execute_async([
-                (Tool(name="block", handler=blocking, description="", parameters={}), {"cmd": "x"})
-            ])
+            executor.execute_async(
+                [ToolInvocation(Tool(name="block", handler=blocking, description="", parameters={}), {"cmd": "x"})],
+                context=context,
+            )
         )
         await started.wait()
         task.cancel()
@@ -378,3 +441,8 @@ class TestToolCancellation:
         # Cancellation is intentionally NOT a terminal observation:
         # after_tool_call fires only for success, failure and deny/replace.
         assert observed == []
+        records = [record async for record in tape.store.scan(tape.query())]
+        assert [record.event.get_type() for record in records] == [
+            bub_event_type("tool.started"),
+            bub_event_type("tool.cancelled"),
+        ]

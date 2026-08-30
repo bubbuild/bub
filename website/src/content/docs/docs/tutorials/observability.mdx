@@ -19,16 +19,10 @@ You need:
 - Bub installed and runnable with `uv run bub --help`.
 - One workspace where `uv run bub run "What tools do you have?"` can call your configured model.
 - Docker or Podman if you want to run Phoenix locally.
-- The Logfire extra installed before starting Bub with Phoenix:
+- The Logfire extra installed before starting Bub with Phoenix. It configures the OpenTelemetry provider and OTLP exporter used by Bub's native GenAI spans:
 
 ```bash
 uv sync --extra logfire
-```
-
-- The `bub-tapestore-otel` contrib plugin installed for richer tape and agent spans:
-
-```bash
-bub install bub-tapestore-otel@main
 ```
 
 ## 1. Ask Bub for its current tape
@@ -101,18 +95,15 @@ Open the UI:
 http://localhost:6006
 ```
 
-## 4. Run Bub with contrib and OTLP
+## 4. Run Bub with OTLP
 
-Bub already supports Logfire during CLI startup when the `logfire` extra is installed. The `bub-tapestore-otel` contrib plugin adds GenAI-oriented spans from Bub's tape store, including `invoke_agent bub`, `bub.agent.step`, chat, and tool execution spans. This tutorial sends both to Phoenix through OTLP.
+Bub projects committed runtime tape events through the official OpenTelemetry GenAI instrumentation utility as `invoke_agent`, `chat`, and `execute_tool` telemetry. Logfire configures the SDK and sends the result to Phoenix through OTLP. Content attributes remain disabled by default; operation lifecycle, model usage, duration, and errors follow the utility's OpenTelemetry semantic conventions.
 
 In another terminal, run:
 
 ```bash
 LOGFIRE_SEND_TO_LOGFIRE=false \
 LOGFIRE_SERVICE_NAME=bub \
-BUB_TAPESTORE_OTEL_ENABLED=true \
-BUB_TAPESTORE_OTEL_SERVICE_NAME=bub \
-BUB_TAPESTORE_OTEL_AGENT_NAME=bub \
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces \
 OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf \
 uv run --extra logfire bub run "What tools do you have, and what small tasks are they useful for?"
@@ -123,9 +114,6 @@ Then run the local tape check with the same telemetry settings:
 ```bash
 LOGFIRE_SEND_TO_LOGFIRE=false \
 LOGFIRE_SERVICE_NAME=bub \
-BUB_TAPESTORE_OTEL_ENABLED=true \
-BUB_TAPESTORE_OTEL_SERVICE_NAME=bub \
-BUB_TAPESTORE_OTEL_AGENT_NAME=bub \
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces \
 OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf \
 uv run --extra logfire bub run ",tape.info"
@@ -139,7 +127,7 @@ In Phoenix:
 
 1. Open the default project.
 2. Open the most recent trace.
-3. Look for `invoke_agent bub`, `bub.agent.step`, `chat <model>`, and `execute_tool <tool>` spans.
+3. Look for `invoke_agent bub`, `chat <model>`, and `execute_tool <tool>` spans.
 
 ![A Phoenix screenshot showing Bub GenAI telemetry exported through OTLP](/docs/observability/phoenix-otel.png)
 
@@ -149,6 +137,10 @@ This path complements tape inspection:
 - Phoenix answers "how did this Bub agent turn run across model calls, tool calls, and tape updates?"
 
 Use both when debugging production behavior: start with `,tape.info` to understand the session state, then use Phoenix to inspect timing, errors, model calls, and tool calls.
+
+:::caution
+`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` enables message and tool content capture in the OpenTelemetry GenAI instrumentation utility. Leave it unset unless your telemetry destination and retention policy are approved for that content.
+:::
 
 ## Clean up
 

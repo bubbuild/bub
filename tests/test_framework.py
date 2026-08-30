@@ -145,6 +145,23 @@ def test_get_tape_sidecars_combines_plugins_and_prefers_the_highest_priority_nam
     assert cast(Any, sidecars["shared"]).source == "high"
 
 
+def test_get_tape_sidecars_collects_multiple_implementations_from_one_plugin() -> None:
+    framework = BubFramework()
+
+    class MultiSidecarPlugin:
+        @hookimpl(specname="provide_tape_sidecar")
+        def provide_overlay_sidecar(self):
+            return SimpleNamespace(name="overlay")
+
+        @hookimpl(specname="provide_tape_sidecar")
+        def provide_observer_sidecar(self):
+            return SimpleNamespace(name="observer")
+
+    framework._plugin_manager.register(MultiSidecarPlugin(), name="multi-sidecar")
+
+    assert {sidecar.name for sidecar in framework.get_tape_sidecars()} == {"observer", "overlay"}
+
+
 @pytest.mark.asyncio
 async def test_continue_prompt_awaits_high_priority_async_hook() -> None:
     framework = BubFramework()
@@ -300,11 +317,11 @@ def test_collect_onboard_config_passes_accumulated_updates_to_later_hooks(write_
 
 
 @pytest.mark.asyncio
-async def test_process_inbound_defaults_to_non_streaming_run_model() -> None:
+async def test_process_inbound_consumes_model_stream_without_presenting_chunks_by_default() -> None:
     framework = BubFramework()
     saved_outputs: list[str] = []
 
-    class NonStreamingPlugin:
+    class StreamingPlugin:
         @hookimpl
         def resolve_session(self, message) -> str:
             return "session"
@@ -318,8 +335,11 @@ async def test_process_inbound_defaults_to_non_streaming_run_model() -> None:
             return "prompt"
 
         @hookimpl
-        async def run_model(self, prompt, session_id, state) -> str:
-            return "plain-text"
+        async def run_model_stream(self, prompt, session_id, state) -> AsyncStreamEvents:
+            async def events():
+                yield StreamEvent("text", {"delta": "plain-text"})
+
+            return AsyncStreamEvents(events())
 
         @hookimpl
         async def save_state(self, session_id, state, message, model_output) -> None:
@@ -333,7 +353,7 @@ async def test_process_inbound_defaults_to_non_streaming_run_model() -> None:
         async def dispatch_outbound(self, message) -> bool:
             return True
 
-    framework._plugin_manager.register(NonStreamingPlugin(), name="non-streaming")
+    framework._plugin_manager.register(StreamingPlugin(), name="streaming")
 
     result = await framework.process_inbound(
         ChannelMessage(session_id="s", channel="cli", chat_id="room", content="hi")

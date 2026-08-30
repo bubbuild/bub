@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import pathlib
 import re
 import sys
 from dataclasses import dataclass
@@ -109,20 +108,6 @@ class AgentSettings(Settings):
         if isinstance(value, dict):
             return value.get(provider.value)
         return value
-
-    @property
-    def home(self) -> pathlib.Path:
-        import warnings
-
-        import bub
-
-        warnings.warn(
-            "Using the 'home' property from AgentSettings is deprecated. Please use 'bub.home' instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        return bub.home
 
 
 def load_settings() -> AgentSettings:

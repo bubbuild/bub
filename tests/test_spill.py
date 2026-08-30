@@ -6,7 +6,6 @@ from typing import Any
 
 import pytest
 
-from bub.builtin.context import default_tape_context
 from bub.builtin.hook_impl import BuiltinImpl
 from bub.builtin.spill import (
     SPILL_READ_MODEL_NAME,
@@ -18,9 +17,12 @@ from bub.builtin.spill import (
 )
 from bub.builtin.tools import render_tools_prompt
 from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
-from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore, TapeStore
-from bub.tape import Tape
-from bub.tools import Tool, ToolContext, ToolExecutor, model_tools
+from bub.sidecars import ForkOverlaySidecar
+from bub.store import FileTapeStore, InMemoryTapeStore, TapeStore
+from bub.tape import Tape, TapeContext
+from bub.tape_archive import FileTapeArchiver
+from bub.tape_codec import CloudEventJsonTapeCodec
+from bub.tools import Tool, ToolContext, ToolExecutor, ToolInvocation, model_tools
 
 
 class _SpillHooks:
@@ -50,7 +52,12 @@ def _page_field(page: str, name: str) -> str:
 
 def _root_tape(tmp_path: Path, store: TapeStore, *, threshold: int = 1) -> Tape:
     spill = SpillStore(SpillSettings(threshold=threshold))
-    return Tape(tmp_path, AsyncTapeStoreAdapter(store), default_tape_context(), sidecars=(spill,)).scoped("session")
+    return Tape(
+        store,
+        TapeContext(),
+        archiver=FileTapeArchiver(tmp_path, CloudEventJsonTapeCodec()),
+        sidecars=(ForkOverlaySidecar(), spill),
+    ).scoped("session")
 
 
 async def _read_page(
@@ -62,7 +69,7 @@ async def _read_page(
     from_end: bool = False,
 ) -> str:
     execution = await _spill_executor().execute_async(
-        [(spill_read, {"handle": handle, "cursor": cursor, "count": count, "from_end": from_end})],
+        [ToolInvocation(spill_read, {"handle": handle, "cursor": cursor, "count": count, "from_end": from_end})],
         context=context,
     )
     page = execution.tool_results[0]
@@ -72,14 +79,15 @@ async def _read_page(
 
 @pytest.mark.asyncio
 async def test_oversized_result_is_bounded_and_readable_across_merge(tmp_path: Path) -> None:
-    parent = FileTapeStore(tmp_path / "tapes")
+    parent = FileTapeStore(tmp_path / "tapes", codec=CloudEventJsonTapeCodec())
     root = _root_tape(tmp_path, parent)
     output = ("alpha🙂beta\n" * 5000) + "the-end"
+    await root.ensure_bootstrap_anchor()
 
     async with root.fork_tape() as tape:
-        context = ToolContext(tape=tape, run_id="run-1")
+        context = ToolContext(tape=tape, model_call_id="model-1")
         tool = Tool(name="large", handler=lambda: output)
-        execution = await _spill_executor().execute_async([(tool, {})], context=context)
+        execution = await _spill_executor().execute_async([ToolInvocation(tool, {})], context=context)
 
         ref = execution.tool_results[0]
         assert isinstance(ref, str)
@@ -102,7 +110,7 @@ async def test_oversized_result_is_bounded_and_readable_across_merge(tmp_path: P
         assert _page_content(tail).endswith("the-end")
 
         await tape.record_chat(
-            run_id="run-1",
+            model_call_id="model-1",
             system_prompt=None,
             new_messages=[],
             response_text=None,
@@ -114,7 +122,7 @@ async def test_oversized_result_is_bounded_and_readable_across_merge(tmp_path: P
         assert handle in request_body
         assert output not in request_body
 
-    persisted_context = ToolContext(tape=root, run_id="run-2")
+    persisted_context = ToolContext(tape=root, model_call_id="model-2")
     persisted = await _read_page(persisted_context, handle)
     assert _page_content(persisted) == restored[0][: len(_page_content(persisted))]
 
@@ -125,9 +133,9 @@ async def test_spill_configuration_preserves_results_that_should_not_be_spilled(
     root = _root_tape(tmp_path, parent, threshold=100)
 
     async with root.fork_tape() as tape:
-        context = ToolContext(tape=tape, run_id="run-1")
+        context = ToolContext(tape=tape, model_call_id="model-1")
         small = await _spill_executor().execute_async(
-            [(Tool(name="small", handler=lambda: "tiny"), {})], context=context
+            [ToolInvocation(Tool(name="small", handler=lambda: "tiny"), {})], context=context
         )
 
         assert small.tool_results == ["tiny"]
@@ -135,8 +143,8 @@ async def test_spill_configuration_preserves_results_that_should_not_be_spilled(
     disabled = _root_tape(tmp_path, parent, threshold=0).scoped("disabled")
     async with disabled.fork_tape() as tape:
         execution = await _spill_executor().execute_async(
-            [(Tool(name="large", handler=lambda: "x" * 20_000), {})],
-            context=ToolContext(tape=tape, run_id="run-2"),
+            [ToolInvocation(Tool(name="large", handler=lambda: "x" * 20_000), {})],
+            context=ToolContext(tape=tape, model_call_id="model-2"),
         )
     assert execution.tool_results == ["x" * 20_000]
 
@@ -147,9 +155,9 @@ async def test_temporary_fork_discards_spilled_content(tmp_path: Path) -> None:
     root = _root_tape(tmp_path, parent)
 
     async with root.fork_tape(merge_back=False) as tape:
-        context = ToolContext(tape=tape, run_id="run-1")
+        context = ToolContext(tape=tape, model_call_id="model-1")
         execution = await _spill_executor().execute_async(
-            [(Tool(name="large", handler=lambda: "x" * 20_000), {})], context=context
+            [ToolInvocation(Tool(name="large", handler=lambda: "x" * 20_000), {})], context=context
         )
         handle = _handle_from_ref(execution.tool_results[0])
         assert "content:" in await _read_page(context, handle)
@@ -183,14 +191,14 @@ async def test_tape_archive_preserves_spilled_results_and_clears_the_session(tmp
 
     async with root.fork_tape() as tape:
         execution = await _spill_executor().execute_async(
-            [(Tool(name="large", handler=lambda: "archived output\n" * 5000), {})],
-            context=ToolContext(tape=tape, run_id="run-1"),
+            [ToolInvocation(Tool(name="large", handler=lambda: "archived output\n" * 5000), {})],
+            context=ToolContext(tape=tape, model_call_id="model-1"),
         )
         ref = execution.tool_results[0]
         assert isinstance(ref, str)
         handle = _handle_from_ref(ref)
         await tape.record_chat(
-            run_id="run-1",
+            model_call_id="model-1",
             system_prompt=None,
             new_messages=[{"role": "user", "content": "archive this"}],
             response_text=None,

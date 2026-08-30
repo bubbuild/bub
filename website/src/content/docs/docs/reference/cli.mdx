@@ -38,7 +38,7 @@ Behavior notes:
 
 - Opens `framework.running()` for the duration of one turn — `provide_tape_store` is entered and exited around the call.
 - Outbounds are formatted as `[channel:chat_id]\n<content>`.
-- Streaming output is **not** enabled; the model hook is invoked through `HookRuntime.run_model`.
+- Streaming presentation is **not** enabled; the framework still consumes the model through the sole `HookRuntime.run_model_stream` path and buffers its text for final output.
 
 ## `bub chat`
 

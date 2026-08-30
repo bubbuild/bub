@@ -21,12 +21,12 @@ A distribution is, first, a Python package whose dependencies include Bub. Pin a
 name = "visual-base"
 version = "0.2.0"
 dependencies = [
-    "bub>=0.3.6,<0.4",
+    "bub>=0.5,<0.6",
     "loguru>=0.7",
 ]
 ```
 
-Bub follows the [stability promise](/docs/build/#stability-promise) — kernel hardened, plugins loose. The `>=0.3.6,<0.4` range opts into patch-level fixes within the `0.3` minor line.
+Bub follows the [stability promise](/docs/build/#stability-promise) — kernel hardened, plugins loose. The `>=0.5,<0.6` range opts into the 0.5 contracts without silently crossing another breaking minor release.
 
 ## 2. Ship a custom CLI
 
@@ -87,7 +87,7 @@ eye = "bub_eye.plugin:EyeImpl"
 packages = ["src/visual_base", "src/bub_kimi", "src/bub_eye", "src/skills"]
 ```
 
-`bub_kimi` is a module-shaped plugin (a `run_model` hook that delegates to the Kimi CLI). `bub_eye` is a callable-class plugin that holds a framework reference (a background channel that records the screen). One `uv pip install visual-base` registers both with Bub.
+`bub_kimi` is a module-shaped plugin (a `run_model_stream` hook that delegates to the Kimi CLI). `bub_eye` is a callable-class plugin that holds a framework reference (a background channel that records the screen). One `uv pip install visual-base` registers both with Bub.
 
 ## 4. Ship skills with the distribution
 

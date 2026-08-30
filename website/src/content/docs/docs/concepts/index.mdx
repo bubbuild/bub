@@ -29,7 +29,7 @@ flowchart TB
     inbound(["inbound envelope"]) --> resolve["resolve_session"]
     resolve --> load["load_state"]
     load --> prompt["build_prompt"]
-    prompt --> model["run_model<br/>[_stream]"]
+    prompt --> model["run_model_stream"]
   end
   subgraph row2[" "]
     direction RL

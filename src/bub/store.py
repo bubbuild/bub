@@ -1,69 +1,50 @@
+"""Async, streaming persistence contracts for Bub tapes."""
+
 from __future__ import annotations
 
 import asyncio
-import inspect
-import itertools
-import json
-import re
+import copy
 import threading
-from collections.abc import Coroutine, Iterable, Sequence
-from dataclasses import asdict, dataclass, field, replace
+from collections.abc import AsyncIterable, AsyncIterator, Iterator
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, time
 from datetime import date as date_type
 from pathlib import Path
-from typing import Any, NoReturn, Protocol, Self, overload
+from typing import Protocol, Self
 
+from cloudevents.core.v1.event import CloudEvent
 from loguru import logger
-from typing_extensions import TypeIs
 
 from bub.errors import BubError, ErrorKind
-from bub.tape import TapeEntry
-from bub.utils import get_entry_text
-
-WORD_PATTERN = re.compile(r"[a-z0-9_/-]+")
-MIN_FUZZY_QUERY_LENGTH = 3
-MIN_FUZZY_SCORE = 80
-MAX_FUZZY_CANDIDATES = 128
+from bub.tape import TapeRecord, bub_event, bub_event_type, event_data, event_payload
+from bub.tape_codec import TapeCodec, TapeCodecError
+from bub.utils import get_entry_text, iterate_in_thread
 
 
 class TapeStore(Protocol):
-    """Append-only tape storage interface."""
-
-    def list_tapes(self) -> list[str]: ...
-
-    def reset(self, tape: str) -> None: ...
-
-    def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
-
-    def append(self, tape: str, entry: TapeEntry) -> None: ...
-
-
-class AsyncTapeStore(Protocol):
-    """Async append-only tape storage interface."""
+    """Append-only, asynchronous storage for semantic tape entries."""
 
     async def list_tapes(self) -> list[str]: ...
 
     async def reset(self, tape: str) -> None: ...
 
-    async def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
+    def scan(self, query: TapeQuery) -> AsyncIterator[TapeRecord]: ...
 
-    async def append(self, tape: str, entry: TapeEntry) -> None: ...
-
-
-def is_async_tape_store(store: TapeStore | AsyncTapeStore) -> TypeIs[AsyncTapeStore]:
-    return hasattr(store, "append") and inspect.iscoroutinefunction(store.append)
+    async def append(self, tape: str, event: CloudEvent) -> TapeRecord: ...
 
 
 @dataclass(frozen=True)
-class TapeQuery[T: TapeStore | AsyncTapeStore]:
+class TapeQuery:
+    """A store-independent description of a finite tape scan."""
+
     tape: str
-    store: T
     _query: str | None = None
     _after_anchor: str | None = None
     _after_last: bool = False
     _between_anchors: tuple[str, str] | None = None
     _between_dates: tuple[str, str] | None = None
-    _kinds: tuple[str, ...] = field(default_factory=tuple)
+    _types: tuple[str, ...] = field(default_factory=tuple)
+    _after_cursor: int | None = None
     _limit: int | None = None
 
     def query(self, value: str) -> Self:
@@ -72,52 +53,36 @@ class TapeQuery[T: TapeStore | AsyncTapeStore]:
     def after_anchor(self, name: str) -> Self:
         if not name:
             return replace(self, _after_anchor=None, _after_last=False)
-        return replace(self, _after_anchor=name, _after_last=False)
+        return replace(self, _after_anchor=name, _after_last=False, _between_anchors=None)
 
     def last_anchor(self) -> Self:
-        return replace(self, _after_anchor=None, _after_last=True)
+        return replace(self, _after_anchor=None, _after_last=True, _between_anchors=None)
 
     def between_anchors(self, start: str, end: str) -> Self:
-        return replace(self, _between_anchors=(start, end))
+        return replace(
+            self,
+            _after_anchor=None,
+            _after_last=False,
+            _between_anchors=(start, end),
+        )
 
     def between_dates(self, start: str | date_type, end: str | date_type) -> Self:
         start_value = start.isoformat() if isinstance(start, date_type) else start
         end_value = end.isoformat() if isinstance(end, date_type) else end
         return replace(self, _between_dates=(start_value, end_value))
 
-    def kinds(self, *kinds: str) -> Self:
-        return replace(self, _kinds=kinds)
+    def types(self, *event_types: str) -> Self:
+        return replace(self, _types=event_types)
+
+    def after(self, cursor: int) -> Self:
+        if cursor < 0:
+            raise BubError(ErrorKind.INVALID_INPUT, "Tape cursor must be non-negative.")
+        return replace(self, _after_cursor=cursor)
 
     def limit(self, value: int) -> Self:
+        if value < 1:
+            raise BubError(ErrorKind.INVALID_INPUT, "Tape query limit must be positive.")
         return replace(self, _limit=value)
-
-    @overload
-    def all(self: TapeQuery[TapeStore]) -> Iterable[TapeEntry]: ...
-
-    @overload
-    async def all(self: TapeQuery[AsyncTapeStore]) -> Iterable[TapeEntry]: ...
-
-    def all(self) -> Iterable[TapeEntry] | Coroutine[None, None, Iterable[TapeEntry]]:
-        return self.store.fetch_all(self)
-
-
-def _anchor_index(
-    entries: Sequence[TapeEntry],
-    name: str | None,
-    *,
-    default: int,
-    forward: bool,
-    start: int = 0,
-) -> int:
-    rng = range(start, len(entries)) if forward else range(len(entries) - 1, start - 1, -1)
-    for idx in rng:
-        entry = entries[idx]
-        if entry.kind != "anchor":
-            continue
-        if name is not None and entry.payload.get("name") != name:
-            continue
-        return idx
-    return default
 
 
 def _parse_datetime_boundary(value: str, *, is_end: bool) -> datetime:
@@ -143,418 +108,349 @@ def _parse_datetime_boundary(value: str, *, is_end: bool) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def _entry_in_datetime_range(entry: TapeEntry, start_dt: datetime, end_dt: datetime) -> bool:
-    entry_dt = _parse_datetime_boundary(entry.date, is_end=False)
-    return start_dt <= entry_dt <= end_dt
+def _record_in_datetime_range(record: TapeRecord, start: datetime, end: datetime) -> bool:
+    entry_date = record.event.get_time()
+    if entry_date is None:
+        return False
+    return start <= entry_date <= end
 
 
-def _entry_matches_query(entry: TapeEntry, query: str) -> bool:
-    needle = query.casefold()
-    haystack = json.dumps(
-        {
-            "kind": entry.kind,
-            "date": entry.date,
-            "payload": entry.payload,
-            "meta": entry.meta,
-        },
-        sort_keys=True,
-        default=str,
-    ).casefold()
-    return needle in haystack
+def _record_matches_query(record: TapeRecord, query: str) -> bool:
+    needle = query.strip().casefold()
+    if not needle:
+        return True
+    return needle in get_entry_text(record).casefold()
 
 
-class InMemoryQueryMixin:
-    """Mixin to implement in-memory query support for simple stores."""
-
-    def read(self, tape: str) -> list[TapeEntry] | None:
-        raise NotImplementedError("InMemoryQueryMixin requires a read() method to be implemented.")
-
-    def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]:  # noqa: C901
-        entries = self.read(query.tape) or []
-        start_index = 0
-        end_index: int | None = None
-
-        if query._between_anchors is not None:
-            start_name, end_name = query._between_anchors
-            start_idx = _anchor_index(entries, start_name, default=-1, forward=False)
-            if start_idx < 0:
-                raise BubError(ErrorKind.NOT_FOUND, f"Anchor '{start_name}' was not found.")
-            end_idx = _anchor_index(entries, end_name, default=-1, forward=True, start=start_idx + 1)
-            if end_idx < 0:
-                raise BubError(ErrorKind.NOT_FOUND, f"Anchor '{end_name}' was not found.")
-            start_index = min(start_idx + 1, len(entries))
-            end_index = min(max(start_index, end_idx), len(entries))
-        elif query._after_last:
-            anchor_index = _anchor_index(entries, None, default=-1, forward=False)
-            if anchor_index < 0:
-                raise BubError(ErrorKind.NOT_FOUND, "No anchors found in tape.")
-            start_index = min(anchor_index + 1, len(entries))
-        elif query._after_anchor is not None:
-            anchor_index = _anchor_index(entries, query._after_anchor, default=-1, forward=False)
-            if anchor_index < 0:
-                raise BubError(ErrorKind.NOT_FOUND, f"Anchor '{query._after_anchor}' was not found.")
-            start_index = min(anchor_index + 1, len(entries))
-
-        sliced = entries[start_index:end_index]
-        if query._between_dates is not None:
-            start_date, end_date = query._between_dates
-            start_dt = _parse_datetime_boundary(start_date, is_end=False)
-            end_dt = _parse_datetime_boundary(end_date, is_end=True)
-            if start_dt > end_dt:
-                raise BubError(ErrorKind.INVALID_INPUT, "Start date must be earlier than or equal to end date.")
-            sliced = [entry for entry in sliced if _entry_in_datetime_range(entry, start_dt, end_dt)]
-        if query._query:
-            sliced = [entry for entry in sliced if _entry_matches_query(entry, query._query)]
-        if query._kinds:
-            sliced = [entry for entry in sliced if entry.kind in query._kinds]
-        if query._limit is not None:
-            sliced = sliced[: query._limit]
-        return sliced
+async def _between_anchor_entries(
+    records: AsyncIterable[TapeRecord], start_name: str, end_name: str
+) -> AsyncIterator[TapeRecord]:
+    found_start = False
+    found_end = False
+    buffered: list[TapeRecord] = []
+    anchor_type = bub_event_type("context.anchor")
+    async for record in records:
+        if record.event.get_type() == anchor_type and event_payload(record.event).get("name") == start_name:
+            found_start = True
+            found_end = False
+            buffered.clear()
+            continue
+        if not found_start:
+            continue
+        if record.event.get_type() == anchor_type and event_payload(record.event).get("name") == end_name:
+            found_end = True
+            continue
+        if not found_end:
+            buffered.append(record)
+    if not found_start:
+        raise BubError(ErrorKind.NOT_FOUND, f"Anchor '{start_name}' was not found.")
+    if not found_end:
+        raise BubError(ErrorKind.NOT_FOUND, f"Anchor '{end_name}' was not found after '{start_name}'.")
+    for record in buffered:
+        yield record
 
 
-class InMemoryTapeStore(InMemoryQueryMixin):
-    """In-memory tape storage."""
+async def _after_anchor_entries(
+    records: AsyncIterable[TapeRecord], anchor_name: str | None
+) -> AsyncIterator[TapeRecord]:
+    found = False
+    buffered: list[TapeRecord] = []
+    anchor_type = bub_event_type("context.anchor")
+    async for record in records:
+        matches = record.event.get_type() == anchor_type and (
+            anchor_name is None or event_payload(record.event).get("name") == anchor_name
+        )
+        if matches:
+            found = True
+            buffered.clear()
+            continue
+        if found:
+            buffered.append(record)
+    if not found:
+        message = "No anchors found in tape." if anchor_name is None else f"Anchor '{anchor_name}' was not found."
+        raise BubError(ErrorKind.NOT_FOUND, message)
+    for record in buffered:
+        yield record
+
+
+def _window_entries(records: AsyncIterable[TapeRecord], query: TapeQuery) -> AsyncIterator[TapeRecord]:
+    if query._between_anchors is not None:
+        return _between_anchor_entries(records, *query._between_anchors)
+    if query._after_last:
+        return _after_anchor_entries(records, None)
+    if query._after_anchor is not None:
+        return _after_anchor_entries(records, query._after_anchor)
+    return records.__aiter__()
+
+
+async def _scan_query(records: AsyncIterable[TapeRecord], query: TapeQuery) -> AsyncIterator[TapeRecord]:
+    date_range: tuple[datetime, datetime] | None = None
+    if query._between_dates is not None:
+        start_value, end_value = query._between_dates
+        start = _parse_datetime_boundary(start_value, is_end=False)
+        end = _parse_datetime_boundary(end_value, is_end=True)
+        if start > end:
+            raise BubError(ErrorKind.INVALID_INPUT, "Start date must be earlier than or equal to end date.")
+        date_range = (start, end)
+
+    yielded = 0
+    async for record in _window_entries(records, query):
+        if query._after_cursor is not None and record.cursor <= query._after_cursor:
+            continue
+        if date_range is not None and not _record_in_datetime_range(record, *date_range):
+            continue
+        if query._query and not _record_matches_query(record, query._query):
+            continue
+        if query._types and record.event.get_type() not in query._types:
+            continue
+        yield record
+        yielded += 1
+        if query._limit is not None and yielded >= query._limit:
+            return
+
+
+async def _iter_snapshot(records: list[TapeRecord]) -> AsyncIterator[TapeRecord]:
+    for record in records:
+        yield record
+
+
+class InMemoryTapeStore:
+    """In-memory implementation of the async tape store contract."""
 
     def __init__(self) -> None:
-        self._tapes: dict[str, list[TapeEntry]] = {}
+        self._tapes: dict[str, list[TapeRecord]] = {}
         self._next_id: dict[str, int] = {}
 
-    def list_tapes(self) -> list[str]:
-        return sorted(self._tapes.keys())
+    async def list_tapes(self) -> list[str]:
+        return sorted(self._tapes)
 
-    def reset(self, tape: str) -> None:
+    async def reset(self, tape: str) -> None:
         self._tapes.pop(tape, None)
         self._next_id.pop(tape, None)
 
-    def read(self, tape: str) -> list[TapeEntry] | None:
-        entries = self._tapes.get(tape)
-        if entries is None:
-            return None
-        return [entry.copy() for entry in entries]
+    def scan(self, query: TapeQuery) -> AsyncIterator[TapeRecord]:
+        snapshot = [record.copy() for record in self._tapes.get(query.tape, ())]
+        return _scan_query(_iter_snapshot(snapshot), query)
 
-    def append(self, tape: str, entry: TapeEntry) -> None:
+    async def append(self, tape: str, event: CloudEvent) -> TapeRecord:
         next_id = self._next_id.get(tape, 1)
         self._next_id[tape] = next_id + 1
-        stored = TapeEntry(next_id, entry.kind, dict(entry.payload), dict(entry.meta), entry.date)
+        stored = TapeRecord(next_id, event)
         self._tapes.setdefault(tape, []).append(stored)
-
-
-class AsyncTapeStoreAdapter:
-    """Adapt a sync TapeStore to AsyncTapeStore."""
-
-    def __init__(self, store: TapeStore) -> None:
-        self._store = store
-
-    async def list_tapes(self) -> list[str]:
-        return await asyncio.to_thread(self._store.list_tapes)
-
-    async def reset(self, tape: str) -> None:
-        await asyncio.to_thread(self._store.reset, tape)
-
-    async def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]:
-        return await asyncio.to_thread(self._store.fetch_all, query)
-
-    async def append(self, tape: str, entry: TapeEntry) -> None:
-        await asyncio.to_thread(self._store.append, tape, entry)
-
-
-class UnavailableTapeStore:
-    """Sync TapeStore sentinel that always fails with a clear message."""
-
-    def __init__(self, message: str) -> None:
-        self._message = message
-
-    def _raise(self) -> NoReturn:
-        raise BubError(ErrorKind.INVALID_INPUT, self._message)
-
-    def list_tapes(self) -> list[str]:
-        self._raise()
-
-    def reset(self, tape: str) -> None:
-        self._raise()
-
-    def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]:
-        self._raise()
-
-    def append(self, tape: str, entry: TapeEntry) -> None:
-        self._raise()
+        return stored.copy()
 
 
 class ForkTapeStore:
-    def __init__(self, parent: AsyncTapeStore, tape: str, *, sidecars: Iterable[str] = ()) -> None:
+    """Write-isolated overlay retained until session contexts own execution scopes."""
+
+    def __init__(self, parent: TapeStore, tape: str, *, sidecars: tuple[str, ...] = ()) -> None:
         self._parent = parent
-        self._store = InMemoryTapeStore()
+        self._overlay = InMemoryTapeStore()
         self._tape = tape
         self._sidecars = tuple(dict.fromkeys(sidecars))
         self._managed_tapes = {tape, *self._sidecars}
         self._reset_tapes: set[str] = set()
+        self._base_cursors: dict[str, int] = {}
+        self._initialize_lock = asyncio.Lock()
+
+    async def _base_cursor(self, tape: str) -> int:
+        if tape in self._base_cursors:
+            return self._base_cursors[tape]
+        async with self._initialize_lock:
+            if tape in self._base_cursors:
+                return self._base_cursors[tape]
+            cursor = 0
+            async for record in self._parent.scan(TapeQuery(tape)):
+                cursor = record.cursor
+            self._base_cursors[tape] = cursor
+            return cursor
 
     async def list_tapes(self) -> list[str]:
         return await self._parent.list_tapes()
+
+    @property
+    def reset_tapes(self) -> frozenset[str]:
+        return frozenset(self._reset_tapes)
 
     async def reset(self, tape: str) -> None:
         if tape not in self._managed_tapes:
             await self._parent.reset(tape)
             return
-        self._store.reset(tape)
+        await self._base_cursor(tape)
+        await self._overlay.reset(tape)
         self._reset_tapes.add(tape)
 
-    async def fetch_all(self, query: TapeQuery[AsyncTapeStore]) -> Iterable[TapeEntry]:
+    def scan(self, query: TapeQuery) -> AsyncIterator[TapeRecord]:
         if query.tape not in self._managed_tapes:
-            return await self._parent.fetch_all(query)
+            return self._parent.scan(query)
 
-        parent_entries: Iterable[TapeEntry] = []
-        if query.tape not in self._reset_tapes:
-            try:
-                parent_entries = await self._parent.fetch_all(query)
-            except Exception:
-                parent_entries = []
-        this_entries: list[TapeEntry] = []
-        for entry in self._store.read(query.tape) or []:
-            if entry.kind == "anchor":  # noqa: SIM102
-                if query._after_last or (query._after_anchor and entry.payload.get("name") == query._after_anchor):
-                    this_entries.clear()
-                    parent_entries = []
-                    continue
-            if query._kinds and entry.kind not in query._kinds:
-                continue
-            this_entries.append(entry)
-        entries = itertools.chain(parent_entries, this_entries)
-        return itertools.islice(entries, query._limit) if query._limit is not None else entries
+        async def combined() -> AsyncIterator[TapeRecord]:
+            raw_query = TapeQuery(query.tape)
+            base_cursor = await self._base_cursor(query.tape)
+            if query.tape not in self._reset_tapes:
+                async for record in self._parent.scan(raw_query):
+                    if record.cursor > base_cursor:
+                        break
+                    yield record
+            async for record in self._overlay.scan(raw_query):
+                visible_base = 0 if query.tape in self._reset_tapes else base_cursor
+                yield record.copy(cursor=visible_base + record.cursor)
+
+        return _scan_query(combined(), query)
 
     @staticmethod
-    def _redact_prompt(prompt: list[dict]) -> Any:
-        if not isinstance(prompt, list):
-            return prompt
-        new_prompt = []
-        for part in prompt:
-            if part.get("type") == "text":
-                new_prompt.append(part)
-        return new_prompt
+    def _redacted_data(data: dict) -> dict:
+        redacted = copy.deepcopy(data)
+        message = redacted.get("message")
+        if not isinstance(message, list):
+            return redacted
+        redacted["message"] = [part for part in message if isinstance(part, dict) and part.get("type") == "text"]
+        return redacted
 
-    @staticmethod
-    def _redact_payload(payload: dict) -> None:
-        if "content" in payload:
-            payload["content"] = ForkTapeStore._redact_prompt(payload["content"])
-        elif "prompt" in payload:
-            payload["prompt"] = ForkTapeStore._redact_prompt(payload["prompt"])
-
-    async def append(self, tape: str, entry: TapeEntry) -> None:
-        self._redact_payload(entry.payload)
+    async def append(self, tape: str, event: CloudEvent) -> TapeRecord:
+        redacted = CloudEvent(copy.deepcopy(event.get_attributes()), self._redacted_data(event_data(event)))
         if tape not in self._managed_tapes:
-            await self._parent.append(tape, entry)
-            return
-        self._store.append(tape, entry)
+            return await self._parent.append(tape, redacted)
+        base_cursor = await self._base_cursor(tape)
+        stored = await self._overlay.append(tape, redacted)
+        visible_base = 0 if tape in self._reset_tapes else base_cursor
+        return stored.copy(cursor=visible_base + stored.cursor)
 
     async def merge_back(self) -> None:
         total = 0
         for sidecar in self._sidecars:
-            entries = self._store.read(sidecar) or []
             try:
                 if sidecar in self._reset_tapes:
                     await self._parent.reset(sidecar)
-                for entry in entries:
-                    await self._parent.append(sidecar, entry)
+                async for record in self._overlay.scan(TapeQuery(sidecar)):
+                    await self._parent.append(sidecar, record.event)
+                    total += 1
             except Exception as exc:
                 logger.warning('Failed to merge sidecar "{}" into tape "{}": {}', sidecar, self._tape, exc)
-                self._store.append(
+                await self._overlay.append(
                     self._tape,
-                    TapeEntry.event(
+                    bub_event(
                         "sidecar.merge",
                         {"tape": sidecar, "status": "error", "error": str(exc)},
-                        context=False,
                     ),
                 )
-            else:
-                total += len(entries)
 
         if self._tape in self._reset_tapes:
             await self._parent.reset(self._tape)
-        entries = self._store.read(self._tape) or []
-        for entry in entries:
-            await self._parent.append(self._tape, entry)
-        total += len(entries)
+        async for record in self._overlay.scan(TapeQuery(self._tape)):
+            await self._parent.append(self._tape, record.event)
+            total += 1
         if total:
             logger.info('Merged {} entries into tape fork "{}"', total, self._tape)
 
 
-class FileTapeStore(InMemoryQueryMixin):
-    """TapeStore implementation that persists tapes as JSONL files under a directory."""
+class FileTapeStore:
+    """Line-oriented file persistence with an injected record codec."""
 
-    def __init__(self, directory: Path) -> None:
+    def __init__(self, directory: Path, *, codec: TapeCodec) -> None:
         self._directory = directory
         self._directory.mkdir(parents=True, exist_ok=True)
+        self._codec = codec
         self._tape_files: dict[str, TapeFile] = {}
-
-    def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]:
-        if not query._query:
-            result: Iterable[TapeEntry] = super().fetch_all(query)
-            return result
-        unlimited_query = replace(query, _limit=None)
-        entries: Iterable[TapeEntry] = super().fetch_all(unlimited_query)
-        return self._filter_entries(list(entries), query._query, query._limit or 20)
-
-    def _filter_entries(self, entries: list[TapeEntry], query: str, limit: int) -> list[TapeEntry]:
-        normalized_query = query.strip().lower()
-        if not normalized_query:
-            return []
-        results: list[TapeEntry] = []
-        seen: set[str] = set()
-
-        count = 0
-        for entry in reversed(entries):
-            payload_text = get_entry_text(entry).lower()
-            if payload_text in seen:
-                continue
-            seen.add(payload_text)
-
-            if normalized_query in payload_text or self._is_fuzzy_match(normalized_query, payload_text):
-                results.append(entry)
-                count += 1
-                if count >= limit:
-                    break
-        return results
-
-    @staticmethod
-    def _is_fuzzy_match(normalized_query: str, payload_text: str) -> bool:
-        from rapidfuzz import fuzz, process
-
-        if len(normalized_query) < MIN_FUZZY_QUERY_LENGTH:
-            return False
-
-        query_tokens = WORD_PATTERN.findall(normalized_query)
-        if not query_tokens:
-            return False
-        query_phrase = " ".join(query_tokens)
-        window_size = len(query_tokens)
-
-        source_tokens = WORD_PATTERN.findall(payload_text)
-        if not source_tokens:
-            return False
-
-        candidates: list[str] = []
-        for token in source_tokens:
-            candidates.append(token)
-            if len(candidates) >= MAX_FUZZY_CANDIDATES:
-                break
-
-        if window_size > 1:
-            max_window_start = len(source_tokens) - window_size + 1
-            for idx in range(max(0, max_window_start)):
-                candidates.append(" ".join(source_tokens[idx : idx + window_size]))
-                if len(candidates) >= MAX_FUZZY_CANDIDATES:
-                    break
-
-        best_match = process.extractOne(
-            query_phrase,
-            candidates,
-            scorer=fuzz.WRatio,
-            score_cutoff=MIN_FUZZY_SCORE,
-        )
-        return best_match is not None
 
     def _tape_file(self, tape: str) -> TapeFile:
         if tape not in self._tape_files:
-            self._tape_files[tape] = TapeFile(self._directory / f"{tape}.jsonl")
+            path = self._directory / f"{tape}{self._codec.file_suffix}"
+            self._tape_files[tape] = TapeFile(path, self._codec)
         return self._tape_files[tape]
 
-    def list_tapes(self) -> list[str]:
-        return sorted(file.stem for file in self._directory.glob("*.jsonl") if file.stem.count("__") == 1)
+    async def list_tapes(self) -> list[str]:
+        suffix = self._codec.file_suffix
 
-    def reset(self, tape: str) -> None:
-        self._tape_file(tape).reset()
+        def list_files() -> list[str]:
+            return sorted(
+                path.name[: -len(suffix)]
+                for path in self._directory.glob(f"*{suffix}")
+                if path.name[: -len(suffix)].count("__") == 1
+            )
 
-    def append(self, tape: str, entry: TapeEntry) -> None:
-        self._tape_file(tape).append(entry)
+        return await asyncio.to_thread(list_files)
 
-    def read(self, tape: str) -> list[TapeEntry] | None:
-        return self._tape_file(tape).read()
+    async def reset(self, tape: str) -> None:
+        await asyncio.to_thread(self._tape_file(tape).reset)
+
+    def scan(self, query: TapeQuery) -> AsyncIterator[TapeRecord]:
+        iterator = self._tape_file(query.tape).iter_entries()
+        return _scan_query(iterate_in_thread(iterator), query)
+
+    async def append(self, tape: str, event: CloudEvent) -> TapeRecord:
+        return await asyncio.to_thread(self._tape_file(tape).append, event)
 
 
 class TapeFile:
-    """Helper for one tape file."""
+    """Thread-safe append and snapshot scan operations for one framed tape file."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, codec: TapeCodec) -> None:
         self.path = path
+        self._codec = codec
         self._lock = threading.Lock()
-        self._read_entries: list[TapeEntry] = []
-        self._read_offset = 0
-
-    def _next_id(self) -> int:
-        if self._read_entries:
-            return self._read_entries[-1].id + 1
-        return 1
-
-    def _reset(self) -> None:
-        self._read_entries = []
-        self._read_offset = 0
+        self._next_id: int | None = None
 
     def reset(self) -> None:
         with self._lock:
-            if self.path.exists():
-                self.path.unlink()
-            self._reset()
+            self.path.unlink(missing_ok=True)
+            self._next_id = None
 
-    def read(self) -> list[TapeEntry]:
+    def iter_entries(self) -> Iterator[TapeRecord]:
         with self._lock:
-            return self._read_locked()
+            end_offset = self.path.stat().st_size if self.path.exists() else 0
+        return self._iter_entries_until(end_offset)
 
-    def _read_locked(self) -> list[TapeEntry]:
-        if not self.path.exists():
-            self._reset()
-            return []
-
-        file_size = self.path.stat().st_size
-        if file_size < self._read_offset:
-            # The file was truncated or replaced, so cached entries are stale.
-            self._reset()
-
-        with self.path.open("r", encoding="utf-8") as handle:
-            handle.seek(self._read_offset)
-            for raw_line in handle:
-                line = raw_line.strip()
-                if not line:
+    def _iter_entries_until(self, end_offset: int) -> Iterator[TapeRecord]:
+        if end_offset == 0 or not self.path.exists():
+            return
+        cursor = 0
+        with self.path.open("rb") as handle:
+            while handle.tell() < end_offset:
+                frame = handle.readline()
+                if not frame:
+                    return
+                if not frame.endswith(b"\n"):
+                    return
+                payload = frame[:-1]
+                if not payload:
                     continue
-                try:
-                    payload = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                entry = self.entry_from_payload(payload)
-                if entry is not None:
-                    self._read_entries.append(entry)
-            self._read_offset = handle.tell()
+                cursor += 1
+                yield TapeRecord(cursor, self._codec.decode(payload))
 
-        return list(self._read_entries)
+    def _repair_tail_locked(self) -> None:
+        if not self.path.exists() or self.path.stat().st_size == 0:
+            return
+        with self.path.open("rb+") as handle:
+            handle.seek(-1, 2)
+            if handle.read(1) == b"\n":
+                return
+            position = handle.tell() - 1
+            while position >= 0:
+                handle.seek(position)
+                if handle.read(1) == b"\n":
+                    handle.truncate(position + 1)
+                    return
+                position -= 1
+            handle.truncate(0)
 
-    @staticmethod
-    def entry_from_payload(payload: object) -> TapeEntry | None:
-        if not isinstance(payload, dict):
-            return None
-        entry_id = payload.get("id")
-        kind = payload.get("kind")
-        entry_payload = payload.get("payload")
-        meta = payload.get("meta")
-        if not isinstance(entry_id, int):
-            return None
-        if not isinstance(kind, str):
-            return None
-        if not isinstance(entry_payload, dict):
-            return None
-        if not isinstance(meta, dict):
-            meta = {}
-        if "date" in payload:
-            date = payload["date"]
-        else:
-            date = datetime.fromtimestamp(payload.get("timestamp", 0.0), tz=UTC).isoformat()
-        return TapeEntry(entry_id, kind, dict(entry_payload), dict(meta), date)
+    def _load_next_id_locked(self) -> int:
+        end_offset = self.path.stat().st_size if self.path.exists() else 0
+        next_id = 1
+        for record in self._iter_entries_until(end_offset):
+            next_id = max(next_id, record.cursor + 1)
+        return next_id
 
-    def append(self, entry: TapeEntry) -> None:
+    def append(self, event: CloudEvent) -> TapeRecord:
         with self._lock:
-            # Keep cache and offset in sync before allocating new IDs.
-            self._read_locked()
-            with self.path.open("a", encoding="utf-8") as handle:
-                next_id = self._next_id()
-                stored = TapeEntry(next_id, entry.kind, dict(entry.payload), dict(entry.meta), entry.date)
-                handle.write(json.dumps(asdict(stored), ensure_ascii=False) + "\n")
-                self._read_entries.append(stored)
-                self._read_offset = handle.tell()
+            self._repair_tail_locked()
+            if self._next_id is None:
+                self._next_id = self._load_next_id_locked()
+            stored = TapeRecord(self._next_id, event)
+            frame = self._codec.encode(stored.event)
+            if b"\n" in frame:
+                raise TapeCodecError("line tape codecs must encode exactly one newline-free frame")
+            with self.path.open("ab") as handle:
+                handle.write(frame + b"\n")
+            self._next_id += 1
+            return stored.copy()

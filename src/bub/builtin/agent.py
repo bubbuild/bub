@@ -7,13 +7,14 @@ import inspect
 import re
 import shlex
 import time
+import uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Collection, Coroutine, Iterable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import cached_property
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
 
@@ -23,11 +24,14 @@ from bub.builtin.model_runner import (
 )
 from bub.builtin.settings import load_settings
 from bub.envelope import field_of
+from bub.errors import error_payload, is_cancellation
 from bub.framework import BubFramework
 from bub.skills import discover_skills, render_skills_prompt
-from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore, is_async_tape_store
+from bub.store import InMemoryTapeStore
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import Tape
+from bub.tape_archive import FileTapeArchiver
+from bub.tape_codec import CloudEventJsonTapeCodec
 from bub.tools import (
     REGISTRY,
     Tool,
@@ -56,12 +60,10 @@ class Agent:
         tape_store = self.framework.get_tape_store()
         if tape_store is None:
             tape_store = InMemoryTapeStore()
-        if not is_async_tape_store(tape_store):
-            tape_store = AsyncTapeStoreAdapter(tape_store)
         return Tape(
-            bub.home / "tapes",
             tape_store,
             self.framework.build_tape_context(),
+            archiver=FileTapeArchiver(bub.home / "tapes", CloudEventJsonTapeCodec()),
             sidecars=self.framework.get_tape_sidecars(),
         )
 
@@ -73,14 +75,53 @@ class Agent:
 
         return AsyncStreamEvents(generator())
 
-    @staticmethod
-    def _events_with_callback(
-        events: AsyncStreamEvents, callback: Callable[[], Coroutine[Any, Any, Any]]
+    def _invocation_events(
+        self,
+        events: AsyncStreamEvents,
+        *,
+        tape: Tape,
+        invocation_id: str,
+        model: str,
+        callback: Callable[[], Coroutine[Any, Any, Any]],
     ) -> AsyncStreamEvents:
         async def generator() -> AsyncIterator[StreamEvent]:
+            started = time.monotonic()
+            await tape.record_operation(
+                "agent.invocation",
+                "started",
+                {"agent": "bub", "model": model},
+                invocation_id=invocation_id,
+            )
             try:
                 async for event in events:
                     yield event
+            except BaseException as exc:
+                phase: Literal["failed", "cancelled"] = "cancelled" if is_cancellation(exc) else "failed"
+                await tape.record_operation(
+                    "agent.invocation",
+                    phase,
+                    {"duration_ms": int((time.monotonic() - started) * 1000), "error": error_payload(exc)},
+                    invocation_id=invocation_id,
+                )
+                raise
+            else:
+                if events.error is not None:
+                    await tape.record_operation(
+                        "agent.invocation",
+                        "failed",
+                        {
+                            "duration_ms": int((time.monotonic() - started) * 1000),
+                            "error": error_payload(events.error),
+                        },
+                        invocation_id=invocation_id,
+                    )
+                else:
+                    await tape.record_operation(
+                        "agent.invocation",
+                        "completed",
+                        {"duration_ms": int((time.monotonic() - started) * 1000)},
+                        invocation_id=invocation_id,
+                    )
             finally:
                 await callback()
 
@@ -103,6 +144,8 @@ class Agent:
             ])
 
         state.setdefault("session_id", session_id)
+        invocation_id = str(uuid.uuid4())
+        state["invocation_id"] = invocation_id
         tape = self.tape.session_tape(
             session_id, workspace_from_state(state), context=replace(self.tape.context, state=state)
         )
@@ -126,7 +169,13 @@ class Agent:
                 allowed_tools=allowed_tools,
             )
 
-        return self._events_with_callback(events, callback=stack.aclose)
+        return self._invocation_events(
+            events,
+            tape=tape,
+            invocation_id=invocation_id,
+            model=model or self.settings.model,
+            callback=stack.aclose,
+        )
 
     async def _run_command(self, tape: Tape, *, line: str) -> str:
         line = line[1:].strip()
@@ -135,7 +184,7 @@ class Agent:
 
         name, arg_tokens = _parse_internal_command(line)
         start = time.monotonic()
-        context = ToolContext(tape=tape, run_id="run_command", state=tape.context.state)
+        context = ToolContext(tape=tape, model_call_id="command", state=tape.context.state)
         output = ""
         status = "ok"
         try:

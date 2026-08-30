@@ -12,7 +12,8 @@ from any_llm.types.completion import ChatCompletionChunk, ChatCompletionMessageF
 
 from bub.builtin.model_runner import ModelRunner, _adapt_messages_for_provider, tool_invocation_from_native
 from bub.builtin.settings import AgentSettings, ModelCandidate
-from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, Tape, TapeContext
+from bub.store import InMemoryTapeStore, TapeQuery
+from bub.tape import Tape, TapeContext, bub_event_type, event_data
 from bub.tools import ToolExecutor
 
 
@@ -69,6 +70,7 @@ async def test_unknown_tool_placeholder_surfaces_error_without_hooks() -> None:
 
     execution = await ToolExecutor().execute_async([invocation])
 
+    assert invocation.tool_call_id == "call-1"
     assert execution.error is not None
     assert "missing_tool" in execution.error.message
 
@@ -149,7 +151,7 @@ class _FakeAnthropicModelRunner(ModelRunner):
 @pytest.mark.asyncio
 async def test_streaming_openai_usage_is_requested_and_recorded_in_tape(tmp_path: Path) -> None:
     store = InMemoryTapeStore()
-    tape = Tape(tmp_path, AsyncTapeStoreAdapter(store), TapeContext()).scoped("test-tape")
+    tape = Tape(store, TapeContext()).scoped("test-tape")
     llm = _FakeStreamingOpenAIProvider()
     runner = _FakeOpenAIModelRunner(
         AgentSettings.model_construct(model="openai:gpt-test", max_tokens=100, model_timeout_seconds=None),
@@ -168,14 +170,15 @@ async def test_streaming_openai_usage_is_requested_and_recorded_in_tape(tmp_path
         ("text", {"delta": "done"}),
         ("final", {"ok": True, "text": "done"}),
     ]
-    run_events = [
-        entry for entry in store.read("test-tape") or [] if entry.kind == "event" and entry.payload.get("name") == "run"
+    model_messages = [
+        record
+        async for record in store.scan(TapeQuery("test-tape").types(bub_event_type("message")))
+        if event_data(record.event).get("source") == "agent"
     ]
-    assert len(run_events) == 1
-    assert run_events[0].payload["data"]["usage"] == {
+    assert len(model_messages) == 1
+    assert event_data(model_messages[0].event)["metrics"] == {
         "completion_tokens": 2,
         "prompt_tokens": 3,
-        "total_tokens": 5,
     }
 
 
@@ -198,8 +201,7 @@ async def test_anthropic_prompt_caching_is_requested() -> None:
 @pytest.mark.asyncio
 async def test_run_applies_reasoning_effort_from_tape_state(tmp_path: Path) -> None:
     tape = Tape(
-        tmp_path,
-        AsyncTapeStoreAdapter(InMemoryTapeStore()),
+        InMemoryTapeStore(),
         TapeContext(state={"reasoning_effort": "high"}),
     ).scoped("test-tape")
     llm = _FakeStreamingOpenAIProvider()

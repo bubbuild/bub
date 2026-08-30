@@ -12,7 +12,7 @@ interface Props {
 
 const { eyebrow, heading, description = [] }: Props = Astro.props;
 
-type TapeEntry = {
+type TapeRow = {
   ts: string;
   kind: 'event' | 'anchor';
   op: string;
@@ -21,7 +21,7 @@ type TapeEntry = {
   corrects?: string;
 };
 
-const tapeEntries: TapeEntry[] = [
+const tapeEntries: TapeRow[] = [
   { ts: '14:32:01', kind: 'event',  op: 'user_msg',    key: 'e_101', value: '"explain hooks"' },
   { ts: '14:32:02', kind: 'event',  op: 'build_prompt', key: 'e_102', value: 'system + 12 msgs' },
   { ts: '14:32:04', kind: 'event',  op: 'model_reply',  key: 'e_103', value: '"Hooks are pluggy…"' },

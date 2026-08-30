@@ -1,0 +1,88 @@
+---
+title: Tape API 与 0.5 迁移
+description: Bub 0.5 的 CloudEvents、原生 ATIF 数据、tape record、异步 store、流式读取，以及有意打破 0.4 的边界。
+slug: zh-cn/docs/reference/tape-0-5-migration
+---
+
+Bub 0.5 有意打破 0.4 的 tape API，并移除了 Bub 自定义 event object：Bub event 就是官方 CloudEvents 1.0 `CloudEvent`。
+
+## Event 与 record 模型
+
+event identity 和存储位置分开表达：
+
+```text
+CloudEvent                         TapeRecord
++ id                              + cursor
++ source                          + event ──────────> CloudEvent
++ type
++ time
++ data ──────────────────────────> ATIF StepObject
++ Bub extension attributes
+```
+
+CloudEvents `id` 是 occurrence 的稳定 identity，在复制和 fork merge 后保持不变。`TapeRecord.cursor` 是 store 在单条 tape 中分配的正数位置；同一个 event append 到另一个 store 时，cursor 可以改变。
+
+Bub event type 使用 `build.bub.<name>.v<version>`。关联词汇统一为 `session_id`、`turn_id`、`invocation_id`、`model_call_id` 和 `tool_call_id`，由 Bub CloudEvents extension attribute 表达。event `data` 直接是 ATIF StepObject；模型回复的 `tool_calls`、`observation`、`model_name` 和 `metrics` 都位于同一个 step。
+
+## Store 契约
+
+存储插件只实现一个异步、流式 protocol：
+
+```python
+from collections.abc import AsyncIterator
+
+from cloudevents.core.v1.event import CloudEvent
+
+class TapeStore(Protocol):
+    async def list_tapes(self) -> list[str]: ...
+    async def reset(self, tape: str) -> None: ...
+    def scan(self, query: TapeQuery) -> AsyncIterator[TapeRecord]: ...
+    async def append(self, tape: str, event: CloudEvent) -> TapeRecord: ...
+```
+
+`append()` 持久化 CloudEvent、分配 cursor，并返回 committed record。`scan()` 是有限、惰性的读取。同步 store protocol、`AsyncTapeStoreAdapter` 和 `fetch_all()` 已移除。
+
+```python
+query = tape.query().types("build.bub.message.v1").after(120).limit(50)
+
+async for record in tape.stream(query, follow=True):
+    event = record.event
+    saved_cursor = record.cursor
+```
+
+通知只负责唤醒 follower。每次唤醒后仍从最后一个 cursor 继续扫描持久化 store；只有 `append()` 成功后 Bub 才发布通知。
+
+## 持久化格式
+
+`TapeStore` 不定义序列化格式。`FileTapeStore` 必须显式接收 `TapeCodec`；builtin 组装层传入唯一支持的 `CloudEventJsonTapeCodec`。它在每一行直接写一个官方 structured CloudEvent，不再有 Bub record envelope，也不重复写 cursor：JSONL 行序恢复 `TapeRecord.cursor`，committed ATIF `step_id` 表达相同的 trajectory 位置。`FileTapeArchiver` 是独立能力，也必须显式接收 codec。
+
+codec 只接受 0.5 structured CloudEvent 形式。Bub 有意不为 0.4 record 提供兼容 reader 或另一条 append 路径；旧文件应在 0.5 runtime 边界之外完成转换或归档。
+
+## CloudEvents 与 ATIF
+
+CloudEvents 是内化的事件模型，不是投影。系统中没有 `CloudEventsProjector`，也没有 `cloudevents` sidecar。需要 structured JSON 时直接使用官方 SDK：
+
+```python
+from cloudevents.core.formats.json import JSONFormat
+
+async for record in tape.stream():
+    frame = JSONFormat().write(record.event)
+```
+
+不需要导出 ATIF。读取 CloudEvent 时已经在读取 ATIF step：
+
+```python
+async for record in tape.stream():
+    step = record.event.get_data()
+    assert step["step_id"] == record.cursor
+    source = step["source"]
+    message = step["message"]
+```
+
+Tape stream 本身就是 trajectory：用户、系统和 agent 消息是 ATIF step；模型回复、tool calls、对应 observations 和 metrics 位于同一个 agent step。运行诊断事实是 system observation step，并继续保留在同一条权威 Tape 中。
+
+## OpenTelemetry
+
+OpenTelemetry sidecar 只消费 committed `TapeRecord`，并使用官方 GenAI instrumentation utility 生成 agent、model 和 tool telemetry。telemetry 失败不能回滚 tape。运行 event 持久化用于自诊断，并带有 Bub `context=false` extension，因此不会进入模型 prompt。
+
+content capture 默认关闭。只有当目的端和数据保留策略合适时，才启用 `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`。

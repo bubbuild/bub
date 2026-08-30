@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from collections.abc import AsyncGenerator, AsyncIterator, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -24,12 +25,12 @@ from any_llm.types.completion import (
     ParsedChatCompletion,
 )
 from loguru import logger
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from bub.builtin.codex_provider import OpenaiCodexProvider, should_use_openai_codex_provider
 from bub.builtin.settings import AgentSettings, ModelCandidate
 from bub.channels.message import audio_mime_type_from_format
-from bub.errors import BubError, ErrorKind
+from bub.errors import BubError, ErrorKind, error_payload, is_cancellation
 from bub.hooks.interception import (
     AgentHooks,
     LlmCallDecision,
@@ -38,7 +39,7 @@ from bub.hooks.interception import (
 )
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import Tape
-from bub.tools import Tool, ToolContext, ToolExecutor
+from bub.tools import Tool, ToolContext, ToolExecutor, ToolInvocation
 
 CONTEXT_LENGTH_PATTERNS = re.compile(
     r"context.{0,20}(?:length|window)|maximum.{0,20}context|token.{0,10}limit|prompt.{0,10}too long|tokens? > \d+ maximum",
@@ -56,6 +57,16 @@ def _extra_options(llm: AnyLLM, *, stream: bool) -> dict[str, Any]:
     elif stream and isinstance(llm, BaseOpenAIProvider):
         return {"stream_options": {"include_usage": True}}
     return {}
+
+
+def _usage_from_response(response: object) -> dict[str, Any] | None:
+    usage = getattr(response, "usage", None)
+    if isinstance(usage, dict):
+        return usage
+    if isinstance(usage, BaseModel):
+        payload = usage.model_dump(exclude_none=True)
+        return payload if isinstance(payload, dict) else None
+    return None
 
 
 def _adapt_messages_for_provider(messages: list[dict[str, Any]], provider: LLMProvider) -> list[dict[str, Any]]:
@@ -101,7 +112,11 @@ def _adapt_messages_for_provider(messages: list[dict[str, Any]], provider: LLMPr
 
 
 class ModelRunner:
-    def __init__(self, settings: AgentSettings, hooks: AgentHooks | None = None) -> None:
+    def __init__(
+        self,
+        settings: AgentSettings,
+        hooks: AgentHooks | None = None,
+    ) -> None:
         self.settings = settings
         self.hooks = hooks
 
@@ -161,7 +176,7 @@ class ModelRunner:
 
         raise RuntimeError("no model candidates available")
 
-    def run(
+    def run(  # noqa: C901
         self,
         *,
         tape: Tape,
@@ -174,18 +189,17 @@ class ModelRunner:
         state = StreamState()
 
         async def iterator() -> AsyncGenerator[StreamEvent, None]:
-            run_id = self.generate_run_id()
+            model_call_id = self.generate_model_call_id()
             messages, new_messages = await self.build_messages(
                 tape=tape,
-                run_id=run_id,
+                model_call_id=model_call_id,
                 system_prompt=system_prompt,
                 prompt=prompt,
-                model=model,
                 steering_messages=steering_messages,
             )
             output = ModelOutputAccumulator()
             request = LlmCallRequest(
-                run_id=run_id,
+                model_call_id=model_call_id,
                 model=model,
                 messages=messages,
                 tool_names=tuple(tool_item.name for tool_item in tools),
@@ -195,13 +209,12 @@ class ModelRunner:
             if self.hooks is not None:
                 request, decision = await self.hooks.before_llm_call(request, state=tape.context.state)
             if decision is not None:
-                await self.record_chat(
-                    tape=tape,
-                    run_id=run_id,
+                await tape.record_chat(
+                    model_call_id=model_call_id,
                     system_prompt=system_prompt,
                     new_messages=new_messages,
                     response_text=decision.text,
-                    model=request.model,
+                    llm_call_count=0,
                 )
                 yield StreamEvent("text", {"delta": decision.text})
                 yield StreamEvent("final", {"ok": True, "text": decision.text})
@@ -218,6 +231,17 @@ class ModelRunner:
                 after_fired = True
                 await self._fire_after_llm_call(request, output, state, llm_started, tape, error=error)
 
+            provider, separator, requested_model = request.model.partition(":")
+            operation_started = time.monotonic()
+            await tape.record_operation(
+                "model",
+                "started",
+                {
+                    "provider": provider if separator else "custom",
+                    "model": requested_model if separator else request.model,
+                },
+                model_call_id=model_call_id,
+            )
             try:
                 async with asyncio.timeout(self.settings.model_timeout_seconds):
                     completion = await self.completion_response(
@@ -230,11 +254,29 @@ class ModelRunner:
                     async for event in self._completion_events(completion, state, output):
                         yield event
             except Exception as exc:
-                # Cancellation / consumer close (BaseException) intentionally
-                # bypasses after_llm_call: only real completions and failures
-                # are terminal observations.
+                await tape.record_operation(
+                    "model",
+                    "failed",
+                    {"duration_ms": int((time.monotonic() - operation_started) * 1000), "error": error_payload(exc)},
+                    model_call_id=model_call_id,
+                )
                 await fire_after(exc)
                 raise
+            except BaseException as exc:
+                await tape.record_operation(
+                    "model",
+                    "cancelled" if is_cancellation(exc) else "failed",
+                    {"duration_ms": int((time.monotonic() - operation_started) * 1000), "error": error_payload(exc)},
+                    model_call_id=model_call_id,
+                )
+                raise
+            else:
+                await tape.record_operation(
+                    "model",
+                    "completed",
+                    {"duration_ms": int((time.monotonic() - operation_started) * 1000), "usage": state.usage},
+                    model_call_id=model_call_id,
+                )
             await fire_after()
 
             tool_calls = output.tool_calls
@@ -243,20 +285,18 @@ class ModelRunner:
                 serialized_tool_calls = [tool_call.model_dump(exclude_none=True) for tool_call in tool_calls]
                 tool_invocations = [tool_invocation_from_native(tool_call, tool_map) for tool_call in tool_calls]
                 yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
-                context = ToolContext(tape=tape, run_id=run_id, state=tape.context.state)
+                context = ToolContext(tape=tape, model_call_id=model_call_id, state=tape.context.state)
                 execution = await ToolExecutor(hooks=self.hooks).execute_async(
                     tool_invocations,
                     context=context,
                 )
-                await self.record_chat(
-                    tape=tape,
-                    run_id=run_id,
+                await tape.record_chat(
+                    model_call_id=model_call_id,
                     system_prompt=system_prompt,
                     new_messages=new_messages,
                     response_text=None,
                     tool_calls=serialized_tool_calls,
                     tool_results=execution.tool_results,
-                    response=output.response,
                     model=request.model,
                     usage=state.usage,
                 )
@@ -267,13 +307,11 @@ class ModelRunner:
                 return
 
             text = output.text
-            await self.record_chat(
-                tape=tape,
-                run_id=run_id,
+            await tape.record_chat(
+                model_call_id=model_call_id,
                 system_prompt=system_prompt,
                 new_messages=new_messages,
                 response_text=text,
-                response=output.response,
                 model=request.model,
                 usage=state.usage,
             )
@@ -282,8 +320,8 @@ class ModelRunner:
         return AsyncStreamEvents(iterator(), state=state)
 
     @staticmethod
-    def generate_run_id() -> str:
-        return f"run-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}"
+    def generate_model_call_id() -> str:
+        return f"model-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}"
 
     async def _fire_after_llm_call(
         self,
@@ -298,7 +336,7 @@ class ModelRunner:
             return
         duration_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
         result = LlmCallResult(
-            run_id=request.run_id,
+            model_call_id=request.model_call_id,
             text=output.text or None,
             tool_calls=[call.model_dump(exclude_none=True) for call in output.tool_calls],
             usage=state.usage,
@@ -311,22 +349,22 @@ class ModelRunner:
         self,
         *,
         tape: Tape,
-        run_id: str,
+        model_call_id: str,
         system_prompt: str | None,
         prompt: str | list[dict],
-        model: str,
         steering_messages: list[list[dict[str, Any]] | str] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         prompt_message: dict[str, Any] = {"role": "user", "content": prompt}
         try:
             messages = await tape.read_messages()
         except BubError as exc:
-            await self.record_context_error(
-                tape=tape,
-                run_id=run_id,
+            await tape.record_chat(
+                model_call_id=model_call_id,
                 system_prompt=system_prompt,
+                context_error=exc,
+                new_messages=[],
+                response_text=None,
                 error=exc,
-                model=model,
             )
             raise
         steering_messages_native = [{"role": "user", "content": message} for message in (steering_messages or [])]
@@ -336,58 +374,6 @@ class ModelRunner:
         messages.extend(new_messages)
         return messages, new_messages
 
-    async def record_context_error(
-        self,
-        *,
-        tape: Tape,
-        run_id: str,
-        system_prompt: str | None,
-        error: BubError,
-        model: str,
-    ) -> None:
-        await self.record_chat(
-            tape=tape,
-            run_id=run_id,
-            system_prompt=system_prompt,
-            context_error=error,
-            new_messages=[],
-            response_text=None,
-            error=error,
-            model=model,
-        )
-
-    async def record_chat(
-        self,
-        *,
-        tape: Tape,
-        run_id: str,
-        system_prompt: str | None,
-        new_messages: list[dict[str, Any]],
-        response_text: str | None,
-        context_error: BubError | None = None,
-        tool_calls: list[dict[str, Any]] | None = None,
-        tool_results: list[Any] | None = None,
-        error: BubError | None = None,
-        response: Any | None = None,
-        provider: str | None = None,
-        model: str | None = None,
-        usage: dict[str, Any] | None = None,
-    ) -> None:
-        await tape.record_chat(
-            run_id=run_id,
-            system_prompt=system_prompt,
-            new_messages=new_messages,
-            response_text=response_text,
-            context_error=context_error,
-            tool_calls=tool_calls,
-            tool_results=tool_results,
-            error=error,
-            response=response,
-            provider=provider,
-            model=model,
-            usage=usage,
-        )
-
     async def _completion_events(
         self,
         completion: CompletionResult,
@@ -395,9 +381,8 @@ class ModelRunner:
         output: ModelOutputAccumulator,
     ) -> AsyncGenerator[StreamEvent, None]:
         if isinstance(completion, ChatCompletion):
-            if usage := Tape._extract_usage(completion):
+            if usage := _usage_from_response(completion):
                 state.usage = usage
-            output.response = completion
             message = completion.choices[0].message
             for event in self._completion_message_events(message, output):
                 yield event
@@ -425,7 +410,7 @@ class ModelRunner:
         state: StreamState,
         output: ModelOutputAccumulator,
     ) -> AsyncGenerator[StreamEvent, None]:
-        if usage := Tape._extract_usage(chunk):
+        if usage := _usage_from_response(chunk):
             state.usage = usage
         for choice in chunk.choices:
             delta = choice.delta
@@ -475,7 +460,6 @@ class StreamToolCall:
 
 class ModelOutputAccumulator:
     def __init__(self) -> None:
-        self.response: ChatCompletion | ParsedChatCompletion[Any] | None = None
         self._text_parts: list[str] = []
         self._message_calls: list[ChatCompletionMessageToolCall] = []
         self._stream_calls: dict[int, StreamToolCall] = {}
@@ -504,8 +488,8 @@ class ModelOutputAccumulator:
 def tool_invocation_from_native(
     tool_call: ChatCompletionMessageToolCall,
     tool_map: dict[str, Tool],
-) -> tuple[Tool, dict[str, Any]]:
-    """Resolve a model tool call to (runtime tool, arguments).
+) -> ToolInvocation:
+    """Resolve a model tool call while retaining its provider call identity.
 
     An unknown tool name is not treated as a fatal error: it is surfaced as a
     placeholder ``Tool`` so the invocation flows through ``ToolExecutor`` and
@@ -521,8 +505,8 @@ def tool_invocation_from_native(
         def raise_unknown_tool(**_: Any) -> None:
             raise BubError(ErrorKind.TOOL, f"Unknown tool name: {tool_name}.")
 
-        return Tool(name=tool_name, handler=raise_unknown_tool), arguments
-    return tool_obj, arguments
+        tool_obj = Tool(name=tool_name, handler=raise_unknown_tool)
+    return ToolInvocation(tool=tool_obj, arguments=arguments, tool_call_id=tool_call.id)
 
 
 def parse_native_function_call(tool_call: ChatCompletionMessageToolCall) -> tuple[str, dict[str, Any]]:

@@ -22,14 +22,14 @@ from bub.builtin.tools import (
     tape_info,
 )
 from bub.errors import ErrorKind
-from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.tape import Tape, TapeContext
-from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, tool
+from bub.store import InMemoryTapeStore
+from bub.tape import Tape, TapeContext, bub_event_type, event_payload
+from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, ToolInvocation, tool
 
 
 def _tool_context(tmp_path, **state) -> ToolContext:
-    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
-    return ToolContext(tape=tape, run_id="test-run", state={"_runtime_workspace": str(tmp_path), **state})
+    tape = Tape(InMemoryTapeStore(), TapeContext()).scoped("test-tape")
+    return ToolContext(tape=tape, model_call_id="test-model", state={"_runtime_workspace": str(tmp_path), **state})
 
 
 def _python_shell(code: str) -> str:
@@ -40,10 +40,11 @@ def _python_shell(code: str) -> str:
 async def test_tape_info_formats_token_cache_hit_rate(tmp_path) -> None:
     context = _tool_context(tmp_path)
     await context.tape.record_chat(
-        run_id="run-1",
+        model_call_id="model-1",
         system_prompt=None,
         new_messages=[],
-        response_text=None,
+        response_text="done",
+        model="test-model",
         usage={
             "prompt_tokens": 8,
             "completion_tokens": 2,
@@ -161,10 +162,10 @@ async def test_set_model_writes_model_into_state_and_records_on_tape(tmp_path) -
     assert "next turn" in result.lower()
     # The switch is also persisted as a `model_switch` event on the session
     # tape, which load_state recovers on the next turn / after restart.
-    entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
-    switches = [entry for entry in entries if entry.kind == "event" and entry.payload.get("name") == "model_switch"]
+    records = [record async for record in context.tape.store.scan(context.tape.query())]
+    switches = [record for record in records if record.event.get_type() == bub_event_type("model_switch")]
     assert len(switches) == 1
-    assert switches[0].payload.get("data") == {"model": "openai:gpt-4o"}
+    assert event_payload(switches[0].event) == {"model": "openai:gpt-4o"}
 
 
 @pytest.mark.asyncio
@@ -195,12 +196,10 @@ async def test_set_reasoning_effort_writes_state_and_records_on_tape(tmp_path) -
 
     assert context.state["reasoning_effort"] == "high"
     assert result == "Session reasoning effort set to high (applies from the next turn)."
-    entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
-    switches = [
-        entry for entry in entries if entry.kind == "event" and entry.payload.get("name") == "reasoning_effort_switch"
-    ]
+    records = [record async for record in context.tape.store.scan(context.tape.query())]
+    switches = [record for record in records if record.event.get_type() == bub_event_type("reasoning_effort_switch")]
     assert len(switches) == 1
-    assert switches[0].payload.get("data") == {"reasoning_effort": "high"}
+    assert event_payload(switches[0].event) == {"reasoning_effort": "high"}
 
 
 @pytest.mark.asyncio
@@ -263,7 +262,7 @@ async def test_bash_non_zero_exit_is_returned_as_tool_error(tmp_path) -> None:
     command = _python_shell("import sys; print('boom'); sys.exit(7)")
     executor = ToolExecutor()
 
-    result = await executor.execute_async([(bash, {"cmd": command})], context=_tool_context(tmp_path))
+    result = await executor.execute_async([ToolInvocation(bash, {"cmd": command})], context=_tool_context(tmp_path))
 
     assert result.error is not None
     assert result.error.kind is ErrorKind.TOOL

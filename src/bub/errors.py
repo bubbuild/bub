@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -19,7 +20,7 @@ class ErrorKind(StrEnum):
     UNKNOWN = "unknown"
 
 
-@dataclass(frozen=True)
+@dataclass
 class BubError(Exception):
     """Public error type for Bub execution failures."""
 
@@ -38,3 +39,17 @@ class BubError(Exception):
         if self.details:
             payload["details"] = self.details
         return payload
+
+
+def error_payload(error: BaseException) -> dict[str, Any]:
+    """Return a stable diagnostic representation for a runtime error."""
+
+    if isinstance(error, BubError):
+        return error.as_dict()
+    return {"type": type(error).__name__, "message": str(error)}
+
+
+def is_cancellation(error: BaseException) -> bool:
+    """Return whether an async operation ended through cancellation or stream close."""
+
+    return isinstance(error, asyncio.CancelledError | GeneratorExit)

@@ -11,10 +11,11 @@ sidebar:
 
 ## tape 原语
 
-Bub 复用了 tape 模型的四个原语：
+Bub 复用了 tape 模型的五个原语：
 
 - **Tape** — 单个 session 的事实序列，按时间排列。
-- **Entry** — tape 上的一条不可变记录（message、tool call、tool result、event、anchor）。
+- **Event** — 直接由官方 CloudEvents 1.0 `CloudEvent` 表达的一项事实。
+- **Record** — 已提交 event 及其在某条 tape 中的 cursor。
 - **Anchor** — 携带结构化 state 负载的检查点。可以从 anchor 重建 context，无需重扫整条 tape。
 - **View** — 由 entry 派生的、面向具体任务的 context window。
 
@@ -30,13 +31,13 @@ anchor **不是** 删除点。tape 完整保留 anchor 之前的所有内容；a
 
 ### handoff 是带状态的阶段过渡
 
-*handoff* 是受约束的过渡：写入新 anchor、附上最小继承 state、把执行起点推过新 anchor。在 Bub 中，调用 handoff 时给出名字与可选 state dict；结果是同一条 tape 上新增一条 anchor entry。
+*handoff* 是受约束的过渡：只写入一个新 anchor、附上最小继承 state、把执行起点推过它。在 Bub 中，调用 handoff 时给出名字与可选 state dict；这一条 `context.anchor` CloudEvent 同时是过渡事实和上下文重建边界。
 
 ## Bub 的具体实现
 
 ### per-session tape
 
-每个 session 对应一条 tape。Bub 用 workspace 路径与 session id 计算 tape 名（`TapeService.session_tape`）：
+每个 session 对应一条 tape。Bub 用 workspace 路径与 session id 计算 tape 名（`Tape.session_tape`）：
 
 ```python
 workspace_hash = md5(str(workspace.resolve()).encode()).hexdigest()[:16]
@@ -48,7 +49,13 @@ tape_name      = f"{workspace_hash}__{session_hash}"
 
 默认的 `provide_tape_store` 返回根目录在 `~/.bub/tapes/` 的 `FileTapeStore`。插件通过提供自己的 `provide_tape_store`（例如 SQLite 或 HTTP 后端）来替换它。
 
-### spill sidecar
+store 契约是异步且与格式无关的：它 append `CloudEvent`，返回已提交的 `TapeRecord`，并惰性扫描 `TapeQuery`，但不定义 JSON、JSONL 或其他编码。builtin file store 接收独立的 `TapeCodec`。
+
+CloudEvents `id` 标识 occurrence，在复制或 fork merge 后保持不变；`TapeRecord.cursor` 由 store 分配，只表示 event 在某一条 tape 中的位置。`Tape.stream(..., follow=True)` 通过 cursor 继续扫描已提交记录，不会把进程内通知当成持久化状态。
+
+### sidecar spec 与 spill
+
+`provide_tape_sidecar` 是 tape 旁路运维能力唯一的挂载点。builtin hook 提供 sibling storage（`spill`）、overlay（`fork-overlay`）和只消费 committed event 的 OpenTelemetry observer（`otel`）。CloudEvents 与 ATIF 都没有 sidecar：每个持久化 event 已经是 `data` 为 ATIF StepObject 的 structured CloudEvent。
 
 builtin spill 插件通过 `provide_tape_sidecar` 挂载 `SpillStore`、注册 `spill.read`，并通过现有 `after_tool_call` hook 限制大结果。sidecar 本身没有工具结果拦截约定。较大的结果存放在名为 `<session-tape>__sidecar__spill` 的 sibling tape 中。sidecar 与 session tape 使用同一个 `TapeStore`，因此现有存储插件不需要实现 spill 专用接口。Bub 依次写入 UTF-8 安全的 chunk，最后写入 manifest；manifest 是该结果已完整存储的提交标记。
 
@@ -62,24 +69,28 @@ spill 写入以 `spill.write` event 记录。框架管理的生命周期结果�
 
 ### ensure_bootstrap_anchor
 
-在某条 tape 的第一次 turn 之前，`TapeService.ensure_bootstrap_anchor` 会检查是否存在 anchor entry。如果没有，则写入一条 `session/start` handoff，`state={"owner": "human"}`。这保证每条 tape 在 context 重建时都有起始 anchor。
+在某条 tape 的第一次 turn 之前，`Tape.ensure_bootstrap_anchor` 会检查是否存在 anchor entry。如果没有，则写入一条 `session/start` handoff，`state={"owner": "human"}`。这保证每条 tape 在 context 重建时都有起始 anchor。
 
-### default_tape_context：entry → OpenAI 消息
+### 默认 context：entry → OpenAI 消息
 
-`default_tape_context()` 构造一个 `TapeContext`，其 `select` 函数（`_select_messages`）遍历 tape entry 并产出 OpenAI 兼容的消息。映射规则如下：
+当 `TapeContext.select` 未被覆盖时，Bub 使用唯一的 builtin selector 遍历 tape record，从 `record.event.data` 读取 ATIF step，并产出 OpenAI 兼容的消息。映射规则如下：
 
 - `anchor` → 形如 `[Anchor created: <name>]: <state-as-json>` 的 `assistant` 消息。
-- `message` → 直接以 entry payload 作为 chat 消息 dict。
-- `tool_call` → 带空 content 与 `tool_calls` 数组的 `assistant` 消息。
-- `tool_result` → 每个 result 一条 `tool` role 消息；若前面有 pending `tool_call`，Bub 会按 result 位置复制对应 call 的 `id` 到 `tool_call_id`。
+- ATIF user/system/agent step → 对应的 OpenAI `user`/`system`/`assistant` 消息。
+- 带 `tool_calls` 的 agent step → 同一条带 OpenAI 兼容 `tool_calls` 数组的 assistant 消息。
+- step `observation` 中的每个 result → 一条通过 `source_call_id` 关联的 `tool` role 消息。
 
 context selector 本身是个 hook（`build_tape_context`），插件可以用其他策略（压缩、摘要、检索）替换它，而无需触动 pipeline 其余部分。
 
-带有 `context=False` 标记的 entry 会在 selector 运行前被移除。spill 运维 event 因此仍可在 tape 上查询，但不会进入默认 context 或插件自定义 context。
+带有 Bub `context=false` extension 的 event 会在 selector 运行前被移除。agent invocation、model call 和 tool execution 的 start/terminal event 都使用这个标记，spill 运维 event 也一样。它们会持久化并继续服务于自诊断和流式消费，但不会进入默认 context 或插件自定义 context。
 
 ### fork_tape
 
-`TapeService.fork_tape(tape_name, merge_back=True)` 是由 `ForkTapeStore.fork` 支撑的 async context manager。块内的写入发生在 fork 后的 tape 上；退出时合并回父 tape（若 `merge_back=False` 则丢弃）。可以用它跑子任务，避免污染父 session 的历史，直到决定保留结果。
+`Tape.fork_tape(merge_back=True)` 是由 `ForkTapeStore` 支撑的 async context manager。块内写入隔离 overlay；退出时以新的父 tape cursor append 回去，但保留 event identity。`merge_back=False` 时 overlay 会被丢弃。
+
+### CloudEvents 与 ATIF 原生持久化
+
+Bub 的每个 event 都是官方 CloudEvents 1.0 对象，tape 是持久化权威。它的 `data` 是 ATIF StepObject，因此 tape stream 本身就是 trajectory。`CloudEventJsonTapeCodec` 每行直接写一个 structured CloudEvent；行序提供 record cursor 和 committed ATIF `step_id`。`FileTapeArchiver` 独立负责 archive 输出，OpenTelemetry GenAI 只观察 committed record。系统中没有 CloudEvents wrapper、ATIF export 或 projection sidecar。精确契约见 [Tape API 与 0.5 迁移](/zh-cn/docs/reference/tape-0-5-migration/)。
 
 ### context 溢出时的 auto_handoff
 

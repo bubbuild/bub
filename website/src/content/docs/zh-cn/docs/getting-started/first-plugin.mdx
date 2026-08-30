@@ -38,7 +38,7 @@ build-backend = "hatchling.build"
 name = "bub-echo-plugin"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["bub>=0.1"]
+dependencies = ["bub>=0.5,<0.6"]
 
 [project.entry-points."bub"]
 echo = "bub_echo_plugin.plugin:echo_plugin"
@@ -55,6 +55,7 @@ packages = ["src/bub_echo_plugin"]
 from __future__ import annotations
 
 from bub import hookimpl
+from bub.streaming import AsyncStreamEvents, StreamEvent
 
 
 class EchoPlugin:
@@ -67,15 +68,19 @@ class EchoPlugin:
         return str(message)
 
     @hookimpl
-    def run_model(self, prompt, session_id, state):
+    def run_model_stream(self, prompt, session_id, state):
         text = prompt if isinstance(prompt, str) else str(prompt)
-        return f"[echo:{session_id}] {text}"
+
+        async def events():
+            yield StreamEvent("text", {"delta": f"[echo:{session_id}] {text}"})
+
+        return AsyncStreamEvents(events())
 
 
 echo_plugin = EchoPlugin()
 ```
 
-`build_prompt` 是 `firstresult` hook —— 第一个非 None 的返回值胜出。`run_model` 同样是 `firstresult`，所以本实现完全覆写了内置 agent。
+`build_prompt` 是 `firstresult` hook —— 第一个非 None 的返回值胜出。`run_model_stream` 同样是 `firstresult`，所以本实现完全覆写了内置 agent。即使 CLI 最后缓冲后再展示文本，模型执行也始终使用这一 stream 契约。
 
 ## 3. 创建插件环境
 
@@ -97,7 +102,7 @@ uv sync
 uv run bub hooks
 ```
 
-你应当在 `build_prompt` 与 `run_model` hook 项下看到 `echo` 与 `builtin` 并列。
+你应当在 `build_prompt` 与 `run_model_stream` hook 项下看到 `echo` 与 `builtin` 并列。
 
 接着运行一次单次 turn：
 

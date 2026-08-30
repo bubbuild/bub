@@ -13,7 +13,17 @@ from pydantic_settings import SettingsConfigDict
 from bub import config
 from bub.configure import Settings
 from bub.errors import BubError, ErrorKind
-from bub.tape import Tape, TapeEntry, TapeQuery
+from bub.sidecars import sidecar_tape_name
+from bub.store import TapeQuery
+from bub.tape import (
+    Tape,
+    TapeRecord,
+    anchor_event,
+    bub_event,
+    bub_event_type,
+    event_extension,
+    event_payload,
+)
 from bub.tools import ToolContext, tool
 
 SPILL_READ_TOOL_NAME = "spill.read"
@@ -73,11 +83,11 @@ class SpillManifest:
     lines: int
 
     @classmethod
-    def from_entry(cls, entry: TapeEntry, handle: str) -> SpillManifest | None:
-        if entry.kind != "event" or entry.payload.get("name") != "spill.manifest":
+    def from_record(cls, record: TapeRecord, handle: str) -> SpillManifest | None:
+        if record.event.get_type() != bub_event_type("spill.manifest"):
             return None
-        data = entry.payload.get("data")
-        if not isinstance(data, dict) or data.get("handle") != handle:
+        data = event_payload(record.event)
+        if data.get("handle") != handle:
             return None
         values = (data.get("chunks"), data.get("bytes"), data.get("chars"), data.get("lines"))
         if not all(isinstance(value, int) and not isinstance(value, bool) and value >= 0 for value in values):
@@ -112,13 +122,16 @@ class SpillStore:
     settings: SpillSettings
     name: str = field(default=SPILL_SIDECAR_NAME, init=False)
 
-    async def _record_write(self, tape: Tape, data: dict[str, object], *, run_id: str) -> None:
-        try:
-            await tape.append_event("spill.write", data, run_id=run_id, context=False)
-        except Exception as exc:
-            logger.warning("spill write event failed run_id={} error={}", run_id, exc)
+    def sibling_tapes(self, owner: str) -> tuple[str]:
+        return (sidecar_tape_name(owner, self.name),)
 
-    async def spill_tool_result(self, tape: Tape, result: str, *, tool: str, run_id: str) -> str:
+    async def _record_write(self, tape: Tape, data: dict[str, object], *, model_call_id: str) -> None:
+        try:
+            await tape.append_event("spill.write", data, model_call_id=model_call_id)
+        except Exception as exc:
+            logger.warning("spill write event failed model_call_id={} error={}", model_call_id, exc)
+
+    async def spill_tool_result(self, tape: Tape, result: str, *, tool: str, model_call_id: str) -> str:
         threshold = self.settings.threshold
         if threshold <= 0 or tool in {SPILL_READ_TOOL_NAME, SPILL_READ_MODEL_NAME} or len(result) < threshold * 4:
             return result
@@ -130,16 +143,20 @@ class SpillStore:
         spill_tape = tape.sidecar_tape_name(self.name)
         try:
             for index, chunk in enumerate(_utf8_chunks(encoded)):
-                await tape.store.append(spill_tape, TapeEntry.anchor(_chunk_anchor(handle, index)))
-                await tape.store.append(
-                    spill_tape,
-                    TapeEntry.tool_result([chunk], spill_handle=handle, spill_chunk=index),
+                await tape.append(anchor_event(_chunk_anchor(handle, index)), tape=spill_tape)
+                await tape.append(
+                    bub_event(
+                        "spill.chunk",
+                        {"content": chunk},
+                        spill_handle=handle,
+                        spill_chunk=index,
+                    ),
+                    tape=spill_tape,
                 )
                 chunk_count = index + 1
-            await tape.store.append(spill_tape, TapeEntry.anchor(_manifest_anchor(handle)))
-            await tape.store.append(
-                spill_tape,
-                TapeEntry.event(
+            await tape.append(anchor_event(_manifest_anchor(handle)), tape=spill_tape)
+            await tape.append(
+                bub_event(
                     "spill.manifest",
                     {
                         "handle": handle,
@@ -150,8 +167,9 @@ class SpillStore:
                         "tool": tool,
                     },
                     spill_handle=handle,
-                    run_id=run_id,
+                    model_call_id=model_call_id,
                 ),
+                tape=spill_tape,
             )
         except Exception as exc:
             logger.warning("tool result spill failed tool={} error={}", tool, exc)
@@ -164,7 +182,7 @@ class SpillStore:
                     "tool": tool,
                     "error": str(exc),
                 },
-                run_id=run_id,
+                model_call_id=model_call_id,
             )
             return f"[tool output truncated: {encoded_bytes:,} bytes; spill storage failed]\n{_preview(result)}"
 
@@ -177,7 +195,7 @@ class SpillStore:
                 "chunks": chunk_count,
                 "tool": tool,
             },
-            run_id=run_id,
+            model_call_id=model_call_id,
         )
 
         return (
@@ -188,20 +206,20 @@ class SpillStore:
 
     async def manifest(self, tape: Tape, handle: str) -> SpillManifest | None:
         query = (
-            TapeQuery(tape=tape.sidecar_tape_name(self.name), store=tape.store)
+            TapeQuery(tape=tape.sidecar_tape_name(self.name))
             .after_anchor(_manifest_anchor(handle))
-            .kinds("event")
+            .types(bub_event_type("spill.manifest"))
             .limit(1)
         )
         try:
-            entries = list(await tape.store.fetch_all(query))
+            entries = [entry async for entry in tape.store.scan(query)]
         except BubError as exc:
             if exc.kind is ErrorKind.NOT_FOUND:
                 return None
             raise
         if not entries:
             return None
-        return SpillManifest.from_entry(entries[0], handle)
+        return SpillManifest.from_record(entries[0], handle)
 
     async def read(
         self,
@@ -232,13 +250,13 @@ class SpillStore:
             return SpillPage(manifest, "", start, stop, next_cursor, True)
 
         query = (
-            TapeQuery(tape=tape.sidecar_tape_name(self.name), store=tape.store)
+            TapeQuery(tape=tape.sidecar_tape_name(self.name))
             .after_anchor(_chunk_anchor(handle, start))
-            .kinds("tool_result")
+            .types(bub_event_type("spill.chunk"))
             .limit(stop - start)
         )
         try:
-            entries = list(await tape.store.fetch_all(query))
+            entries = [entry async for entry in tape.store.scan(query)]
         except BubError as exc:
             if exc.kind is ErrorKind.NOT_FOUND:
                 raise IncompleteSpillError(f"missing chunk {start} for handle {handle!r}") from exc
@@ -247,17 +265,15 @@ class SpillStore:
             raise IncompleteSpillError(f"missing chunks for handle {handle!r}")
 
         chunks: list[str] = []
-        for index, entry in enumerate(entries, start=start):
-            results = entry.payload.get("results")
+        for index, record in enumerate(entries, start=start):
+            content = event_payload(record.event).get("content")
             if (
-                entry.meta.get("spill_handle") != handle
-                or entry.meta.get("spill_chunk") != index
-                or not isinstance(results, list)
-                or len(results) != 1
-                or not isinstance(results[0], str)
+                event_extension(record.event, "spill_handle") != handle
+                or event_extension(record.event, "spill_chunk") != index
+                or not isinstance(content, str)
             ):
                 raise IncompleteSpillError(f"invalid chunk {index} for handle {handle!r}")
-            chunks.append(results[0])
+            chunks.append(content)
 
         return SpillPage(manifest, "".join(chunks), start, stop, next_cursor, complete)
 

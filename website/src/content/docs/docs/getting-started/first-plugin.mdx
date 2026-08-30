@@ -38,7 +38,7 @@ build-backend = "hatchling.build"
 name = "bub-echo-plugin"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["bub>=0.1"]
+dependencies = ["bub>=0.5,<0.6"]
 
 [project.entry-points."bub"]
 echo = "bub_echo_plugin.plugin:echo_plugin"
@@ -55,6 +55,7 @@ Create `src/bub_echo_plugin/plugin.py`. A plugin is any object whose methods are
 from __future__ import annotations
 
 from bub import hookimpl
+from bub.streaming import AsyncStreamEvents, StreamEvent
 
 
 class EchoPlugin:
@@ -67,15 +68,19 @@ class EchoPlugin:
         return str(message)
 
     @hookimpl
-    def run_model(self, prompt, session_id, state):
+    def run_model_stream(self, prompt, session_id, state):
         text = prompt if isinstance(prompt, str) else str(prompt)
-        return f"[echo:{session_id}] {text}"
+
+        async def events():
+            yield StreamEvent("text", {"delta": f"[echo:{session_id}] {text}"})
+
+        return AsyncStreamEvents(events())
 
 
 echo_plugin = EchoPlugin()
 ```
 
-`build_prompt` is a `firstresult` hook — the first non-None return value wins. `run_model` is also `firstresult`, so this implementation overrides the built-in agent entirely.
+`build_prompt` is a `firstresult` hook — the first non-None return value wins. `run_model_stream` is also `firstresult`, so this implementation overrides the built-in agent entirely. Model execution always uses this stream contract, even when the CLI buffers the text for final display.
 
 ## 3. Create the plugin environment
 
@@ -97,7 +102,7 @@ Ask Bub for its hook report:
 uv run bub hooks
 ```
 
-You should see `echo` listed under the `build_prompt` and `run_model` hook entries alongside `builtin`.
+You should see `echo` listed under the `build_prompt` and `run_model_stream` hook entries alongside `builtin`.
 
 Now run a one-shot turn:
 

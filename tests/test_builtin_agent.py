@@ -120,10 +120,13 @@ class _FakeTape:
     async def append_event(self, name: str, payload: dict[str, Any], **meta: Any) -> None:
         self.events.append((self.name, name, payload))
 
+    async def record_operation(self, operation: str, phase: str, payload: dict[str, Any], **meta: Any) -> None:
+        await self.append_event(f"{operation}.{phase}", payload, **meta)
+
     async def record_chat(
         self,
         *,
-        run_id: str,
+        model_call_id: str,
         system_prompt: str | None,
         new_messages: list[dict[str, Any]],
         response_text: str | None,
@@ -131,8 +134,6 @@ class _FakeTape:
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,
         error: BubError | None = None,
-        response: Any | None = None,
-        provider: str | None = None,
         model: str | None = None,
         usage: dict[str, Any] | None = None,
     ) -> None:
@@ -149,7 +150,6 @@ class _FakeTape:
             self.events.append((self.name, "error", error.as_dict()))
         if response_text is not None:
             self.messages.append({"role": "assistant", "content": response_text})
-        self.events.append((self.name, "run", {"run_id": run_id, "model": model, "error": error is not None}))
 
 
 class _FakeTapeFactory:
@@ -171,7 +171,8 @@ async def test_agent_run_regular_session_merges_back() -> None:
     """A regular (non-temp) session should merge tape entries back."""
     agent = _make_agent()
     fork_capture = _ForkCapture()
-    agent.tape = _FakeTapeFactory(fork_capture)  # type: ignore[assignment]
+    fake_tapes = _FakeTapeFactory(fork_capture)
+    agent.tape = fake_tapes  # type: ignore[assignment]
 
     result = await agent.run_stream(session_id="user/session1", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
 
@@ -182,6 +183,9 @@ async def test_agent_run_regular_session_merges_back() -> None:
 
     assert fork_capture.merge_back_values == [True]
     assert fork_capture.exit_count == 1
+    event_names = [name for _, name, _ in fake_tapes.tape.events]
+    assert "agent.invocation.started" in event_names
+    assert "agent.invocation.completed" in event_names
 
 
 @pytest.mark.asyncio

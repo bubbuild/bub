@@ -6,14 +6,15 @@ import contextvars
 import inspect
 import json
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Protocol, overload
+from typing import TYPE_CHECKING, Any, Literal, Protocol, overload
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
-from bub.errors import BubError, ErrorKind
+from bub.errors import BubError, ErrorKind, error_payload, is_cancellation
 from bub.hooks.interception import ToolCall, ToolCallResult
 from bub.tape import Tape
 
@@ -26,7 +27,7 @@ class ToolContext:
     """Runtime context passed to tools that opt into context."""
 
     tape: Tape
-    run_id: str | None = None
+    model_call_id: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
 
 
@@ -157,6 +158,15 @@ class ToolExecution:
     error: BubError | None = None
 
 
+@dataclass(frozen=True)
+class ToolInvocation:
+    """A resolved tool call whose identity survives execution and observation."""
+
+    tool: Tool
+    arguments: dict[str, Any]
+    tool_call_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+
 class ToolCallReporter(Protocol):
     def start(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Awaitable[None] | None: ...
 
@@ -192,7 +202,7 @@ class ToolExecutor:
 
     async def execute_async(
         self,
-        invocations: Sequence[tuple[Tool, dict[str, Any]]],
+        invocations: Sequence[ToolInvocation],
         *,
         context: ToolContext | None = None,
     ) -> ToolExecution:
@@ -202,7 +212,15 @@ class ToolExecutor:
         results: list[Any] = []
         error: BubError | None = None
         gathered = await asyncio.gather(
-            *(self._handle_tool_response_async(tool_obj, tool_args, context) for tool_obj, tool_args in invocations),
+            *(
+                self._handle_tool_response_async(
+                    invocation.tool,
+                    invocation.arguments,
+                    invocation.tool_call_id,
+                    context,
+                )
+                for invocation in invocations
+            ),
             return_exceptions=True,
         )
         for result in gathered:
@@ -230,34 +248,77 @@ class ToolExecutor:
             return tool_obj.run(context=context, **tool_args)
         return tool_obj.run(**tool_args)
 
+    @staticmethod
+    async def _record_operation(
+        context: ToolContext | None,
+        call: ToolCall,
+        phase: Literal["started", "completed", "failed", "cancelled"],
+        payload: dict[str, Any],
+    ) -> None:
+        if context is None:
+            return
+        await context.tape.record_operation(
+            "tool",
+            phase,
+            payload,
+            model_call_id=call.model_call_id,
+            tool_call_id=call.tool_call_id,
+        )
+
     async def _handle_tool_response_async(
         self,
         tool_obj: Tool,
         tool_args: dict[str, Any],
+        tool_call_id: str,
         context: ToolContext | None,
     ) -> Any:
         tool_name = tool_obj.name
         call = ToolCall(
-            run_id=(context.run_id if context is not None else None) or "",
+            model_call_id=(context.model_call_id if context is not None else None) or "",
             tool=tool_name,
             arguments=dict(tool_args),
+            tool_call_id=tool_call_id,
         )
         hook_state = context.state if context is not None else {}
         if self._hooks is not None and context is not None:
             hook_state["_runtime_tape"] = context.tape
         started = time.monotonic()
+        decision = None
         if self._hooks is not None:
-            call, short_circuit = await self._apply_before_tool_call(call, hook_state, started)
-            if short_circuit is not None:
-                return short_circuit()
-
+            call, decision = await self._hooks.before_tool_call(call, state=hook_state)
+        await self._record_operation(context, call, "started", {"name": call.tool, "arguments": call.arguments})
         try:
-            result = await self._invoke_normalized(tool_obj, call, context)
-        except BubError as exc:
-            await self._fire_after_tool_call(call, hook_state, started, error=exc)
+            if decision is not None and decision.action == "deny":
+                raise BubError(  # noqa: TRY301
+                    ErrorKind.TOOL,
+                    decision.message or f"Tool '{call.tool}' call denied by policy hook.",
+                )
+            if decision is not None and decision.action == "replace":
+                result = decision.result
+            else:
+                result = await self._invoke_normalized(tool_obj, call, context)
+        except BaseException as exc:
+            await self._record_operation(
+                context,
+                call,
+                "cancelled" if is_cancellation(exc) else "failed",
+                {
+                    "name": call.tool,
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                    "error": error_payload(exc),
+                },
+            )
+            if isinstance(exc, BubError) and self._hooks is not None:
+                await self._fire_after_tool_call(call, hook_state, started, error=exc)
             raise
         else:
             outcome = await self._fire_after_tool_call(call, hook_state, started, result=result)
+            await self._record_operation(
+                context,
+                call,
+                "completed",
+                {"name": call.tool, "duration_ms": outcome.duration_ms, "result": outcome.result},
+            )
             return outcome.result
 
     async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:
@@ -289,33 +350,6 @@ class ToolExecutor:
             ) from exc
         return value
 
-    async def _apply_before_tool_call(
-        self,
-        call: ToolCall,
-        hook_state: dict[str, Any],
-        started: float,
-    ) -> tuple[ToolCall, Callable[[], Any] | None]:
-        """Run before_tool_call and translate deny/replace into a short-circuit thunk."""
-
-        if self._hooks is None:
-            return call, None
-        call, decision = await self._hooks.before_tool_call(call, state=hook_state)
-        if decision.action == "deny":
-            error = BubError(
-                ErrorKind.TOOL,
-                decision.message or f"Tool '{call.tool}' call denied by policy hook.",
-            )
-            await self._fire_after_tool_call(call, hook_state, started, error=error)
-
-            def raise_denied() -> Any:
-                raise error
-
-            return call, raise_denied
-        if decision.action == "replace":
-            outcome = await self._fire_after_tool_call(call, hook_state, started, result=decision.result)
-            return call, lambda: outcome.result
-        return call, None
-
     async def _fire_after_tool_call(
         self,
         call: ToolCall,
@@ -327,9 +361,10 @@ class ToolExecutor:
     ) -> ToolCallResult:
         duration_ms = int((time.monotonic() - started) * 1000)
         outcome = ToolCallResult(
-            run_id=call.run_id,
+            model_call_id=call.model_call_id,
             tool=call.tool,
             arguments=call.arguments,
+            tool_call_id=call.tool_call_id,
             result=None if error is not None else result,
             error=error,
             duration_ms=duration_ms,

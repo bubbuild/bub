@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
@@ -20,7 +21,7 @@ class LlmCallRequest:
     ``tool_names`` is observational and altering the toolset is out of scope.
     """
 
-    run_id: str
+    model_call_id: str
     model: str
     messages: list[dict[str, Any]]
     tool_names: tuple[str, ...] = ()
@@ -37,7 +38,7 @@ class LlmCallResult:
     close are not observed.
     """
 
-    run_id: str
+    model_call_id: str
     text: str | None = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, Any] | None = None
@@ -63,9 +64,10 @@ class LlmCallDecision:
 class ToolCall:
     """One tool invocation exposed to interception hooks."""
 
-    run_id: str
+    model_call_id: str
     tool: str
     arguments: dict[str, Any]
+    tool_call_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
 
 @dataclass(frozen=True)
@@ -99,9 +101,10 @@ class ToolCallDecision:
 class ToolCallResult:
     """Terminal outcome exposed to hooks; successful results may be replaced in place."""
 
-    run_id: str
+    model_call_id: str
     tool: str
     arguments: dict[str, Any]
+    tool_call_id: str = ""
     result: Any = None
     error: Exception | None = None
     duration_ms: int = 0

@@ -1,0 +1,88 @@
+---
+title: Tape API and 0.5 migration
+description: Bub 0.5 CloudEvents with native ATIF data, tape records, async stores, streaming reads, and the deliberate 0.4 break.
+slug: docs/reference/tape-0-5-migration
+---
+
+Bub 0.5 deliberately breaks the 0.4 tape API. It removes the Bub-specific event object: a Bub event is an official CloudEvents 1.0 `CloudEvent`.
+
+## Event and record model
+
+Event identity and storage position are separate:
+
+```text
+CloudEvent                         TapeRecord
++ id                              + cursor
++ source                          + event ──────────> CloudEvent
++ type
++ time
++ data ──────────────────────────> ATIF StepObject
++ Bub extension attributes
+```
+
+The CloudEvents `id` is the stable occurrence identity. It survives copying and fork merge. `TapeRecord.cursor` is a positive, store-assigned position in one tape and may change when the same event is appended to another store.
+
+Bub event types use `build.bub.<name>.v<version>`. Correlation vocabulary is `session_id`, `turn_id`, `invocation_id`, `model_call_id`, and `tool_call_id`, represented as Bub CloudEvents extension attributes. Event `data` is an ATIF StepObject. Model responses carry `tool_calls`, `observation`, `model_name`, and `metrics` directly in that step.
+
+## Store contract
+
+Storage plugins implement one async, streaming protocol:
+
+```python
+from collections.abc import AsyncIterator
+
+from cloudevents.core.v1.event import CloudEvent
+
+class TapeStore(Protocol):
+    async def list_tapes(self) -> list[str]: ...
+    async def reset(self, tape: str) -> None: ...
+    def scan(self, query: TapeQuery) -> AsyncIterator[TapeRecord]: ...
+    async def append(self, tape: str, event: CloudEvent) -> TapeRecord: ...
+```
+
+`append()` persists the CloudEvent, assigns a cursor, and returns the committed record. `scan()` is finite and lazy. The synchronous store protocol, `AsyncTapeStoreAdapter`, and `fetch_all()` no longer exist.
+
+```python
+query = tape.query().types("build.bub.message.v1").after(120).limit(50)
+
+async for record in tape.stream(query, follow=True):
+    event = record.event
+    saved_cursor = record.cursor
+```
+
+Notifications only wake a follower. Each wake-up resumes the durable store scan from the last cursor, and Bub publishes the notification only after `append()` succeeds.
+
+## Persistence formats
+
+`TapeStore` does not define a serialization format. `FileTapeStore` requires an explicit `TapeCodec`; the builtin composition supplies the sole supported `CloudEventJsonTapeCodec`. It writes one official structured CloudEvent directly on each JSONL line. There is no Bub record envelope and no duplicate cursor field: line order recovers `TapeRecord.cursor`, while the committed ATIF `step_id` carries the same trajectory position. `FileTapeArchiver` is a separate capability and also requires an explicit codec.
+
+The codec accepts only the 0.5 structured CloudEvent form. Bub deliberately has no compatibility reader or alternate append path for 0.4 records; convert or archive old files outside the 0.5 runtime boundary.
+
+## CloudEvents and ATIF
+
+CloudEvents is internal, not a projection. There is no `CloudEventsProjector` or `cloudevents` sidecar. Use the official SDK directly when structured JSON is needed:
+
+```python
+from cloudevents.core.formats.json import JSONFormat
+
+async for record in tape.stream():
+    frame = JSONFormat().write(record.event)
+```
+
+No ATIF export is required. Reading the CloudEvent already reads the ATIF step:
+
+```python
+async for record in tape.stream():
+    step = record.event.get_data()
+    assert step["step_id"] == record.cursor
+    source = step["source"]
+    message = step["message"]
+```
+
+The Tape stream is the trajectory: user, system, and agent messages are ATIF steps, and one agent step keeps the model response, tool calls, their observations, and metrics together. Runtime diagnostics are system observation steps and remain on the same authoritative tape.
+
+## OpenTelemetry
+
+The OpenTelemetry sidecar consumes only committed `TapeRecord` values and uses the official GenAI instrumentation utility for live agent, model, and tool telemetry. A telemetry failure cannot roll back tape. Runtime events remain on tape for self-diagnosis and carry Bub's `context=false` extension, so they never enter a model prompt.
+
+Content capture is disabled by default. Enable `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` only when the destination and retention policy are appropriate.

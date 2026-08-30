@@ -20,7 +20,7 @@ from bub.hooks.interception import (
 )
 from bub.model_selection import ModelOptions
 from bub.sidecars import TapeSidecar
-from bub.store import AsyncTapeStore, TapeStore
+from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents, StreamState
 from bub.tape import Tape, TapeContext
 from bub.turn import TurnState
@@ -51,13 +51,8 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def run_model(self, prompt: str | list[dict], session_id: str, state: TurnState) -> str:
-        """Run model for one turn and return plain text output. Should not be implemented if `run_model_stream` is implemented."""
-        raise NotImplementedError
-
-    @hookspec(firstresult=True)
     def run_model_stream(self, prompt: str | list[dict], session_id: str, state: TurnState) -> AsyncStreamEvents:
-        """Run model for one turn and return a stream of events. Should not be implemented if `run_model` is implemented.
+        """Run model for one turn and return a stream of events.
 
         Implementations may honor a runtime model override by reading
         ``state["model"]`` (any ``provider:model`` string). The value takes
@@ -179,13 +174,13 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def provide_tape_store(self) -> TapeStore | AsyncTapeStore | None:
+    def provide_tape_store(self) -> TapeStore | None:
         """Provide a tape store instance for Bub's conversation recording feature."""
         raise NotImplementedError
 
     @hookspec
     def provide_tape_sidecar(self) -> TapeSidecar:
-        """Provide a capability backed by a sibling tape mounted on every session tape."""
+        """Provide one sidecar spec implementation mounted on every session tape."""
         raise NotImplementedError
 
     @hookspec

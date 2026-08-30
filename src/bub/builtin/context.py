@@ -6,62 +6,51 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
-from bub.tape import TapeContext, TapeEntry
+from bub.tape import TapeContext, TapeRecord, bub_event_type, event_data, event_payload
 
 
-def default_tape_context() -> TapeContext:
-    """Return the default context selection for Bub."""
+def select_messages(records: Iterable[TapeRecord], _context: TapeContext) -> list[dict[str, Any]]:
+    """Map ATIF-native tape records to the model's message vocabulary."""
 
-    return TapeContext(select=_select_messages)
-
-
-def _select_messages(entries: Iterable[TapeEntry], _context: TapeContext) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = []
-    pending_calls: list[dict[str, Any]] = []
+    anchor_type = bub_event_type("context.anchor")
+    message_type = bub_event_type("message")
 
-    for entry in entries:
-        match entry.kind:
-            case "anchor":
-                _append_anchor_entry(messages, entry)
-            case "message":
-                _append_message_entry(messages, entry)
-            case "tool_call":
-                pending_calls = _append_tool_call_entry(messages, entry)
-            case "tool_result":
-                _append_tool_result_entry(messages, pending_calls, entry)
-                pending_calls = []
+    for record in records:
+        event_type = record.event.get_type()
+        if event_type == anchor_type:
+            _append_anchor_record(messages, record)
+        elif event_type == message_type:
+            _append_message_record(messages, record)
     return messages
 
 
-def _append_anchor_entry(messages: list[dict[str, Any]], entry: TapeEntry) -> None:
-    payload = entry.payload
-    content = f"[Anchor created: {payload.get('name')}]: {json.dumps(payload.get('state'), ensure_ascii=False)}"
+def _append_anchor_record(messages: list[dict[str, Any]], record: TapeRecord) -> None:
+    data = event_payload(record.event)
+    content = f"[Anchor created: {data.get('name')}]: {json.dumps(data.get('state'), ensure_ascii=False)}"
     messages.append({"role": "assistant", "content": content})
 
 
-def _append_message_entry(messages: list[dict[str, Any]], entry: TapeEntry) -> None:
-    payload = entry.payload
-    if isinstance(payload, dict):
-        messages.append(dict(payload))
-
-
-def _append_tool_call_entry(messages: list[dict[str, Any]], entry: TapeEntry) -> list[dict[str, Any]]:
-    calls = _normalize_tool_calls(entry.payload.get("calls"))
+def _append_message_record(messages: list[dict[str, Any]], record: TapeRecord) -> None:
+    data = event_data(record.event)
+    source = data.get("source")
+    role = "assistant" if source == "agent" else "system" if source == "system" else "user"
+    message: dict[str, Any] = {"role": role, "content": _provider_content(data.get("message", ""))}
+    extra = data.get("extra")
+    bub_extra = extra.get("bub") if isinstance(extra, dict) else None
+    if isinstance(bub_extra, dict) and isinstance(bub_extra.get("message"), dict):
+        message.update(bub_extra["message"])
+    calls = _normalize_tool_calls(data.get("tool_calls"))
     if calls:
-        messages.append({"role": "assistant", "content": "", "tool_calls": calls})
-    return calls
+        message["tool_calls"] = calls
+    messages.append(message)
 
-
-def _append_tool_result_entry(
-    messages: list[dict[str, Any]],
-    pending_calls: list[dict[str, Any]],
-    entry: TapeEntry,
-) -> None:
-    results = entry.payload.get("results")
+    observation = data.get("observation")
+    results = observation.get("results") if isinstance(observation, dict) else None
     if not isinstance(results, list):
         return
     for index, result in enumerate(results):
-        messages.append(_build_tool_result_message(result, pending_calls, index))
+        messages.append(_build_tool_result_message(result, calls, index))
 
 
 def _build_tool_result_message(
@@ -69,7 +58,12 @@ def _build_tool_result_message(
     pending_calls: list[dict[str, Any]],
     index: int,
 ) -> dict[str, Any]:
-    message: dict[str, Any] = {"role": "tool", "content": _render_tool_result(result)}
+    if not isinstance(result, dict):
+        return {"role": "tool", "content": _render_tool_result(result)}
+    message: dict[str, Any] = {"role": "tool", "content": _render_tool_result(result.get("content", ""))}
+    source_call_id = result.get("source_call_id")
+    if isinstance(source_call_id, str) and source_call_id:
+        message["tool_call_id"] = source_call_id
     if index >= len(pending_calls):
         return message
 
@@ -91,9 +85,39 @@ def _normalize_tool_calls(value: object) -> list[dict[str, Any]]:
         return []
     calls: list[dict[str, Any]] = []
     for item in value:
-        if isinstance(item, dict):
-            calls.append(dict(item))
+        if not isinstance(item, dict):
+            continue
+        call_id = item.get("tool_call_id")
+        name = item.get("function_name")
+        arguments = item.get("arguments")
+        calls.append({
+            "id": str(call_id or ""),
+            "type": "function",
+            "function": {
+                "name": str(name or "unknown"),
+                "arguments": json.dumps(arguments if isinstance(arguments, dict) else {}, ensure_ascii=False),
+            },
+        })
     return calls
+
+
+def _provider_content(value: object) -> object:
+    """Map ATIF text/image content to the model provider message vocabulary."""
+
+    if not isinstance(value, list):
+        return value
+    parts: list[dict[str, Any]] = []
+    for part in value:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text" and isinstance(part.get("text"), str):
+            parts.append({"type": "text", "text": part["text"]})
+            continue
+        source = part.get("source")
+        path = source.get("path") if isinstance(source, dict) else None
+        if part.get("type") == "image" and isinstance(path, str):
+            parts.append({"type": "image_url", "image_url": {"url": path}})
+    return parts
 
 
 def _render_tool_result(result: object) -> str:

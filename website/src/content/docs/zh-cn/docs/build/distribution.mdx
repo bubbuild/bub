@@ -21,12 +21,12 @@ sidebar:
 name = "visual-base"
 version = "0.2.0"
 dependencies = [
-    "bub>=0.3.6,<0.4",
+    "bub>=0.5,<0.6",
     "loguru>=0.7",
 ]
 ```
 
-Bub 遵循[稳定性承诺](/zh-cn/docs/build/#stability-promise) —— 内核硬化、插件松散。`>=0.3.6,<0.4` 这个范围让你接收 `0.3` 次要线内的补丁修复。
+Bub 遵循[稳定性承诺](/zh-cn/docs/build/#stability-promise) —— 内核硬化、插件松散。`>=0.5,<0.6` 使用 0.5 契约，同时不会静默跨越下一个可能 breaking 的次要版本。
 
 ## 2. 提供自定义 CLI
 
@@ -87,7 +87,7 @@ eye = "bub_eye.plugin:EyeImpl"
 packages = ["src/visual_base", "src/bub_kimi", "src/bub_eye", "src/skills"]
 ```
 
-`bub_kimi` 是模块形态插件（一个把模型委派给 Kimi CLI 的 `run_model` 钩子）。`bub_eye` 是持有框架引用的可调用类插件（一个录屏的背景通道）。一次 `uv pip install visual-base` 就把两者都注册进 Bub。
+`bub_kimi` 是模块形态插件（一个把模型委派给 Kimi CLI 的 `run_model_stream` 钩子）。`bub_eye` 是持有框架引用的可调用类插件（一个录屏的背景通道）。一次 `uv pip install visual-base` 就把两者都注册进 Bub。
 
 ## 4. 随发行版分发技能
 

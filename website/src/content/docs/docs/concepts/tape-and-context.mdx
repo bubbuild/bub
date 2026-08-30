@@ -11,10 +11,11 @@ The deeper model is documented at [tape.systems](https://tape.systems). This pag
 
 ## Tape primitives
 
-Bub uses four primitives from the tape model:
+Bub uses five primitives from the tape model:
 
 - **Tape** — a chronological sequence of facts for one session.
-- **Entry** — one immutable record on a tape (a message, a tool call, a tool result, an event, an anchor).
+- **Event** — one fact represented directly by an official CloudEvents 1.0 `CloudEvent`.
+- **Record** — a committed event plus its cursor in one tape.
 - **Anchor** — a checkpoint that carries a structured state payload. Context can be rebuilt from an anchor without rescanning the entire tape.
 - **View** — a task-oriented assembled context window derived from entries.
 
@@ -30,13 +31,13 @@ An anchor is **not** a deletion point. The tape preserves everything written bef
 
 ### Handoff as a state-bearing phase transition
 
-A *handoff* is a constrained transition: write a new anchor, attach the minimum inherited state, and shift execution origin past the new anchor. In Bub a handoff is invoked with a name and an optional state dict; the result is a new anchor entry on the same tape.
+A *handoff* is a constrained transition: write one new anchor, attach the minimum inherited state, and shift execution origin past it. In Bub a handoff is invoked with a name and an optional state dict; that single `context.anchor` CloudEvent is both the transition fact and the reconstruction boundary.
 
 ## Bub specifics
 
 ### Per-session tape
 
-Each session gets one tape. Bub computes the tape name from the workspace path and the session id (`TapeService.session_tape`):
+Each session gets one tape. Bub computes the tape name from the workspace path and the session id (`Tape.session_tape`):
 
 ```python
 workspace_hash = md5(str(workspace.resolve()).encode()).hexdigest()[:16]
@@ -48,7 +49,13 @@ This means the same `session_id` produces a different tape in a different worksp
 
 The default `provide_tape_store` returns a `FileTapeStore` rooted at `~/.bub/tapes/`. Plugins replace it by providing their own `provide_tape_store` (for example, a SQLite or HTTP-backed store).
 
-### Spill sidecar
+The store contract is asynchronous and format-neutral. It appends `CloudEvent` objects, returns committed `TapeRecord` values, and lazily scans a `TapeQuery`; it does not define JSON, JSONL, or any other encoding. The builtin file store receives a separate `TapeCodec`.
+
+The CloudEvents `id` identifies the occurrence and survives copying or fork merge. `TapeRecord.cursor` is assigned by a store and identifies the event's position in one tape. `Tape.stream(..., follow=True)` uses cursor-based rescans to follow new committed records without treating in-process notifications as durable state.
+
+### Sidecar specs and spill
+
+`provide_tape_sidecar` is the sole mount point for operational capabilities beside tape. The builtin hook contributes sibling storage (`spill`), an overlay (`fork-overlay`), and a committed-event OpenTelemetry observer (`otel`). CloudEvents and ATIF have no sidecars: every persisted event is already a structured CloudEvent whose `data` is an ATIF StepObject.
 
 The builtin spill plugin mounts a `SpillStore` through `provide_tape_sidecar`, registers `spill.read`, and bounds large results through the existing `after_tool_call` hook. The sidecar itself has no tool-result interception contract. Large results are stored in a sibling tape named `<session-tape>__sidecar__spill`. The sidecar uses the same `TapeStore` as the session tape, so existing storage plugins do not need a spill-specific interface. Bub writes UTF-8-safe chunks followed by a manifest; the manifest is the completion marker for the stored result.
 
@@ -62,24 +69,28 @@ Spill writes are recorded as `spill.write`. Framework-managed lifecycle outcomes
 
 ### ensure_bootstrap_anchor
 
-Before the first turn on a tape, `TapeService.ensure_bootstrap_anchor` checks for an anchor entry. If none exists, it writes a `session/start` handoff with `state={"owner": "human"}`. This guarantees that context reconstruction has a starting anchor on every tape.
+Before the first turn on a tape, `Tape.ensure_bootstrap_anchor` checks for an anchor entry. If none exists, it writes a `session/start` handoff with `state={"owner": "human"}`. This guarantees that context reconstruction has a starting anchor on every tape.
 
-### default_tape_context: entries → OpenAI messages
+### Default context: entries → OpenAI messages
 
-`default_tape_context()` builds a `TapeContext` whose `select` function (`_select_messages`) walks tape entries and emits OpenAI-compatible messages. The mapping is:
+When `TapeContext.select` is not overridden, Bub uses its single builtin selector to read each ATIF step from `record.event.data` and emit OpenAI-compatible messages. The mapping is:
 
 - `anchor` → an `assistant` message of the form `[Anchor created: <name>]: <state-as-json>`.
-- `message` → the entry payload, used as a chat message dict.
-- `tool_call` → an `assistant` message with empty content and a `tool_calls` array.
-- `tool_result` → one `tool` role message per result; when a preceding `tool_call` is pending, Bub copies the call's `id` into `tool_call_id` by result position.
+- an ATIF user/system/agent step → the corresponding OpenAI `user`/`system`/`assistant` message.
+- an agent step with `tool_calls` → the same assistant message with an OpenAI-compatible `tool_calls` array.
+- each result in the step's `observation` → one `tool` role message correlated by `source_call_id`.
 
 The context selector is a hook (`build_tape_context`), so plugins can replace it with a different strategy — compaction, summarization, retrieval — without touching the rest of the pipeline.
 
-Entries marked `context=False` are removed before the selector runs. This is how operational spill events remain queryable on the tape without appearing in either the default context or a plugin-defined context.
+Events carrying Bub's `context=false` extension are removed before the selector runs. Agent invocation, model-call, and tool-execution start/terminal events use this marker, as do operational spill events. They remain durable and queryable for self-diagnosis and streaming consumers, but cannot appear in either the default context or a plugin-defined context.
 
 ### fork_tape
 
-`TapeService.fork_tape(tape_name, merge_back=True)` is an async context manager backed by `ForkTapeStore.fork`. Inside the block, writes happen on a forked tape; on exit, they are merged back into the parent tape (or discarded if `merge_back=False`). Use this to run a sub-task without polluting the parent session's history until you decide to keep the result.
+`Tape.fork_tape(merge_back=True)` is an async context manager backed by `ForkTapeStore`. Inside the block, writes happen in an isolated overlay; on exit, they are appended to the parent tape with new parent cursors while retaining their event identities. With `merge_back=False`, the overlay is discarded.
+
+### CloudEvents and ATIF-native persistence
+
+Every Bub event is an official CloudEvents 1.0 object and tape is the durable authority. Its `data` is an ATIF StepObject, so the tape stream itself is the trajectory. `CloudEventJsonTapeCodec` writes one structured CloudEvent directly per JSONL line; line order supplies the record cursor and committed ATIF `step_id`. `FileTapeArchiver` owns archive output, while OpenTelemetry GenAI observes committed records. There is no CloudEvents wrapper, ATIF export, or projection sidecar. See [Tape API and 0.5 migration](/docs/reference/tape-0-5-migration/) for the exact contracts.
 
 ### auto_handoff on context overflow
 

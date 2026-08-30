@@ -9,7 +9,6 @@ from loguru import logger
 
 from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
-from bub.builtin.context import default_tape_context
 from bub.builtin.settings import DEFAULT_MODEL, load_settings
 from bub.builtin.steering import InMemorySteeringInbox
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
@@ -21,10 +20,11 @@ from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
 from bub.model_selection import ModelChoice, ModelOptions
-from bub.sidecars import TapeSidecar
+from bub.sidecars import ForkOverlaySidecar, TapeSidecar
+from bub.standards import OpenTelemetrySidecar
 from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents, StreamState
-from bub.tape import Tape, TapeContext
+from bub.tape import Tape, TapeContext, bub_event_type, event_payload
 from bub.turn import TurnState
 
 AGENTS_FILE_NAME = "AGENTS.md"
@@ -98,21 +98,21 @@ class BuiltinImpl:
         never inherits another session's model.
         """
         session = self._get_agent().tape.session_tape(session_id, self.framework.workspace)
-        entries = list(await session.store.fetch_all(session.query().kinds("event")))
-        for entry in reversed(entries):
-            if entry.kind == "event" and entry.payload.get("name") == "model_switch":
-                model = (entry.payload.get("data") or {}).get("model")
-                return str(model) if model else None
+        query = session.query().types(bub_event_type("model_switch"))
+        records = [record async for record in session.store.scan(query)]
+        for record in reversed(records):
+            model = event_payload(record.event).get("model")
+            return str(model) if model else None
         return None
 
     async def _recover_session_reasoning_effort(self, session_id: str) -> str | None:
         """Recover the latest per-session reasoning effort override."""
         session = self._get_agent().tape.session_tape(session_id, self.framework.workspace)
-        entries = list(await session.store.fetch_all(session.query().kinds("event")))
-        for entry in reversed(entries):
-            if entry.kind == "event" and entry.payload.get("name") == "reasoning_effort_switch":
-                reasoning_effort = (entry.payload.get("data") or {}).get("reasoning_effort")
-                return str(reasoning_effort) if reasoning_effort else None
+        query = session.query().types(bub_event_type("reasoning_effort_switch"))
+        records = [record async for record in session.store.scan(query)]
+        for record in reversed(records):
+            reasoning_effort = event_payload(record.event).get("reasoning_effort")
+            return str(reasoning_effort) if reasoning_effort else None
         return None
 
     @staticmethod
@@ -383,19 +383,28 @@ class BuiltinImpl:
     def provide_tape_store(self) -> TapeStore:
         import bub
         from bub.store import FileTapeStore
+        from bub.tape_codec import CloudEventJsonTapeCodec
 
-        return FileTapeStore(directory=bub.home / "tapes")
+        return FileTapeStore(directory=bub.home / "tapes", codec=CloudEventJsonTapeCodec())
 
-    @hookimpl
-    def provide_tape_sidecar(self) -> TapeSidecar:
+    @hookimpl(specname="provide_tape_sidecar")
+    def provide_spill_sidecar(self) -> TapeSidecar:
         from bub.builtin.spill import SpillSettings, SpillStore
         from bub.configure import ensure_config
 
         return SpillStore(ensure_config(SpillSettings))
 
+    @hookimpl(specname="provide_tape_sidecar")
+    def provide_fork_overlay_sidecar(self) -> TapeSidecar:
+        return ForkOverlaySidecar()
+
+    @hookimpl(specname="provide_tape_sidecar")
+    def provide_otel_sidecar(self) -> TapeSidecar:
+        return OpenTelemetrySidecar()
+
     @hookimpl
     def build_tape_context(self) -> TapeContext:
-        return default_tape_context()
+        return TapeContext()
 
     @hookimpl
     def provide_steering_inbox(self) -> SteeringInbox:
@@ -462,5 +471,5 @@ class BuiltinImpl:
             tape,
             result.result,
             tool=call.tool,
-            run_id=call.run_id,
+            model_call_id=call.model_call_id,
         )

@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import string
 import sys
-import warnings
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,7 +15,6 @@ import yaml
 import bub.configure as configure
 
 PROJECT_SKILLS_DIR = ".agents/skills"
-LEGACY_SKILLS_DIR = ".agent/skills"
 SKILL_FILE_NAME = "SKILL.md"
 SKILL_SOURCES = ("project", "global", "builtin")
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -173,14 +171,6 @@ def _iter_skill_roots(workspace_path: Path) -> list[tuple[Path, str]]:
     for source in SKILL_SOURCES:
         if source == "project":
             roots.append((workspace_path / PROJECT_SKILLS_DIR, source))
-            legacy_path = workspace_path / LEGACY_SKILLS_DIR
-            if legacy_path.is_dir():
-                warnings.warn(
-                    f"Found legacy skills directory at '{legacy_path}'. Please move it to '{PROJECT_SKILLS_DIR}' to avoid this warning in the future.",
-                    category=UserWarning,
-                    stacklevel=2,
-                )
-                roots.append((legacy_path, source))
         elif source == "global":
             roots.append((Path.home() / PROJECT_SKILLS_DIR, source))
         elif source == "builtin":

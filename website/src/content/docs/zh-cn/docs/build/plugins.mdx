@@ -37,7 +37,7 @@ Bub 通过 `bub` 组的 Python 入口点发现插件。在 `pyproject.toml` 里�
 [project]
 name = "bub-myplugin"
 version = "0.1.0"
-dependencies = ["bub>=0.3"]
+dependencies = ["bub>=0.5,<0.6"]
 
 [project.entry-points."bub"]
 myplugin = "bub_myplugin.plugin"
@@ -145,11 +145,11 @@ Bub 从当前 Python 环境加载入口点，因此可编辑安装能在不重�
 uv run bub hooks
 ```
 
-每个已注册钩子会列出贡献它的插件。该命令展示发现到的实现顺序，不等价于精确的 firstresult 胜出者；运行时优先级见[钩子参考](/zh-cn/docs/reference/hooks/#iteration-order)。一个覆盖了 `build_prompt` 与 `run_model` 的 `EchoPlugin`，预期输出形如：
+每个已注册钩子会列出贡献它的插件。该命令展示发现到的实现顺序，不等价于精确的 firstresult 胜出者；运行时优先级见[钩子参考](/zh-cn/docs/reference/hooks/#iteration-order)。一个覆盖了 `build_prompt` 与 `run_model_stream` 的 `EchoPlugin`，预期输出形如：
 
 ```text
 build_prompt: builtin, echo
-run_model: builtin, echo
+run_model_stream: builtin, echo
 ...
 ```
 

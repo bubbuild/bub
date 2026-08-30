@@ -31,33 +31,33 @@ class PrefixPrompt:
         return f"[prefix] {content}"
 ```
 
-若要直接观察该行为，请配套一个返回 prompt 的 echo `run_model` hook，或在测试中检查 prompt。普通 `uv run bub run "hello"` 打印的是最终 outbound 文本，不是发给模型的原始 prompt。
+若要直接观察该行为，请配套一个发出 prompt 的 echo `run_model_stream` hook，或在测试中检查 prompt。普通 `uv run bub run "hello"` 打印的是最终 outbound 文本，不是发给模型的原始 prompt。
 
 ## 2. 替换模型
 
-实现 `run_model` 把模型阶段换成任意返回字符串的可调用对象。下面的形态镜像 [`bub-codex`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-codex)，它把模型委派给另一个代理 CLI：
+实现 `run_model_stream` 来替换模型阶段。所有实现都返回 `AsyncStreamEvents`；一次性后端也通过同一契约发出一个文本事件：
 
 ```python
 import asyncio
 
 from bub import hookimpl
+from bub.streaming import AsyncStreamEvents, StreamEvent
 from bub.turn import TurnState
 
 
 @hookimpl
-async def run_model(prompt: str, session_id: str, state: TurnState) -> str:
-    proc = await asyncio.create_subprocess_exec(
-        "codex", "e", prompt,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    return stdout.decode()
-```
+def run_model_stream(prompt: str, session_id: str, state: TurnState) -> AsyncStreamEvents:
+    async def events():
+        proc = await asyncio.create_subprocess_exec(
+            "codex", "e", prompt,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        yield StreamEvent("text", {"delta": stdout.decode()})
 
-:::caution
-实现 `run_model` **或** `run_model_stream`，二选一。如果某个插件只实现 `run_model`，框架会在需要流式输出时把结果包成单段流。
-:::
+    return AsyncStreamEvents(events())
+```
 
 ## 3. 包裹父级流
 
@@ -137,14 +137,18 @@ def provide_tape_store():
 
 ### 挂载 tape sidecar
 
-当插件需要一个与 session tape 共享生命周期的 sibling tape 时，使用 `provide_tape_sidecar`。sidecar 只声明稳定的 `name`；配置与数据格式由插件自己管理。
+当插件需要 session tape 旁路的运维能力时，使用 `provide_tape_sidecar`。同一个 hook 通过对应的 sidecar spec 承载 sibling storage、overlay 和 committed-event observer。CloudEvents 与 ATIF 是 tape 原生数据，不需要 sidecar。
 
 ```python
 from bub import hookimpl
+from bub.sidecars import sidecar_tape_name
 
 
 class ArtifactSidecar:
     name = "artifacts"
+
+    def sibling_tapes(self, owner: str):
+        return (sidecar_tape_name(owner, self.name),)
 
 
 @hookimpl
@@ -152,7 +156,7 @@ def provide_tape_sidecar():
     return ArtifactSidecar()
 ```
 
-对名为 `session` 的 tape，这会在 active `TapeStore` 中挂载 `session__sidecar__artifacts`。工具代码可通过 `context.tape.get_sidecar("artifacts")` 取得 provider，并用 `context.tape.sidecar_tape_name("artifacts")` 得到物理名称。每个 hook implementation 提供一个 sidecar。主 tape 负责所有已挂载 sidecar 的 fork、merge、archive 和 reset。同名 provider 遵循普通 hook 优先级：最先出现的实现生效。
+对名为 `session` 的 tape，这会在 active `TapeStore` 中挂载 `session__sidecar__artifacts`。工具代码可通过 `context.tape.get_sidecar("artifacts")` 取得 provider，并用 `context.tape.sidecar_tape_name("artifacts")` 得到物理名称。每个 hook implementation 只返回一个 sidecar；一个插件通过同一 spec 的多个 implementation 贡献多个 sidecar，Python 方法名不同时使用 `@hookimpl(specname="provide_tape_sidecar")`。同名 provider 遵循普通 hook 优先级：最先出现的实现生效。
 
 builtin spill 插件拥有 `SpillStore`、`spill.read` 工具、数据格式和 `SpillSettings`。核心层不导入或识别 spill 实现。配置使用 `spill:` section 和 `BUB_SPILL_*` 环境变量，与 `AgentSettings` 相互独立。
 
@@ -306,7 +310,7 @@ class Metrics:
             result.result = str(result.result)[:4_000]
 ```
 
-所有载荷携带 `run_id`,与 tape 条目 meta 对应,指标可与记录的会话对齐。
+所有载荷携带 `model_call_id`，tool 载荷还携带 `tool_call_id`。这些字段与 tape entry attributes 对应，因此指标关联不需要混淆 session、turn、invocation、model-call 和 tool-call scope。
 
 ## 下一步
 

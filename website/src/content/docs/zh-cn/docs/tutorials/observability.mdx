@@ -19,16 +19,10 @@ sidebar:
 - Bub 已安装，且 `uv run bub --help` 可以运行。
 - 一个 workspace，其中 `uv run bub run "What tools do you have?"` 能调用已配置的模型。
 - 如果要本地运行 Phoenix，需要 Docker 或 Podman。
-- 启动带 Phoenix 的 Bub 之前，安装 Logfire extra：
+- 启动带 Phoenix 的 Bub 之前，安装 Logfire extra。它负责配置 Bub 原生 GenAI span 使用的 OpenTelemetry provider 和 OTLP exporter：
 
 ```bash
 uv sync --extra logfire
-```
-
-- 安装 `bub-tapestore-otel` contrib 插件，获得更丰富的 tape 与 agent span：
-
-```bash
-bub install bub-tapestore-otel@main
 ```
 
 ## 1. 询问 Bub 当前 tape
@@ -101,18 +95,15 @@ docker run --rm --name bub-phoenix \
 http://localhost:6006
 ```
 
-## 4. 使用 contrib 与 OTLP 运行 Bub
+## 4. 使用 OTLP 运行 Bub
 
-安装 `logfire` extra 后，Bub 在 CLI 启动时已经支持 Logfire。`bub-tapestore-otel` contrib 插件会从 Bub tape store 生成面向 GenAI 的 span，包括 `invoke_agent bub`、`bub.agent.step`、chat 和 tool execution span。本教程通过 OTLP 把两者发送到 Phoenix。
+Bub 把已提交的运行 tape event 通过官方 OpenTelemetry GenAI instrumentation utility 投影为 `invoke_agent`、`chat` 和 `execute_tool` telemetry。Logfire 负责配置 SDK，并通过 OTLP 把结果发送到 Phoenix。内容属性默认关闭；operation lifecycle、model usage、duration 和 error 遵循该 utility 的 OpenTelemetry semantic conventions。
 
 在另一个终端运行：
 
 ```bash
 LOGFIRE_SEND_TO_LOGFIRE=false \
 LOGFIRE_SERVICE_NAME=bub \
-BUB_TAPESTORE_OTEL_ENABLED=true \
-BUB_TAPESTORE_OTEL_SERVICE_NAME=bub \
-BUB_TAPESTORE_OTEL_AGENT_NAME=bub \
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces \
 OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf \
 uv run --extra logfire bub run "What tools do you have, and what small tasks are they useful for?"
@@ -123,9 +114,6 @@ uv run --extra logfire bub run "What tools do you have, and what small tasks are
 ```bash
 LOGFIRE_SEND_TO_LOGFIRE=false \
 LOGFIRE_SERVICE_NAME=bub \
-BUB_TAPESTORE_OTEL_ENABLED=true \
-BUB_TAPESTORE_OTEL_SERVICE_NAME=bub \
-BUB_TAPESTORE_OTEL_AGENT_NAME=bub \
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces \
 OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf \
 uv run --extra logfire bub run ",tape.info"
@@ -139,7 +127,7 @@ uv run --extra logfire bub run ",tape.info"
 
 1. 打开 default project。
 2. 打开最近的 trace。
-3. 查找 `invoke_agent bub`、`bub.agent.step`、`chat <model>` 和 `execute_tool <tool>` span。
+3. 查找 `invoke_agent bub`、`chat <model>` 和 `execute_tool <tool>` span。
 
 ![展示 Bub GenAI telemetry 通过 OTLP 导出到 Phoenix 的截图](/docs/observability/phoenix-otel.png)
 
@@ -149,6 +137,10 @@ uv run --extra logfire bub run ",tape.info"
 - Phoenix 回答“这个 Bub agent turn 如何经过 model call、tool call 和 tape update？”
 
 排查生产行为时建议两者一起使用：先用 `,tape.info` 判断 session 状态，再用 Phoenix 查看耗时、错误、model call 和 tool call。
+
+:::caution
+`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` 会启用 OpenTelemetry GenAI instrumentation utility 的消息和工具内容采集。除非 telemetry 目的端与数据保留策略已获批准，否则请保持未设置。
+:::
 
 ## 清理
 

@@ -2,10 +2,26 @@ import asyncio
 from collections.abc import AsyncIterator, Coroutine, Iterator
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from bub.tape import TapeEntry
+from bub.tape import TapeRecord
 from bub.turn import TurnState
+
+_ITERATION_END = object()
+
+
+def _next_or_end[T](iterator: Iterator[T]) -> T | object:
+    try:
+        return next(iterator)
+    except StopIteration:
+        return _ITERATION_END
+
+
+async def iterate_in_thread[T](iterator: Iterator[T]) -> AsyncIterator[T]:
+    """Advance a blocking iterator without blocking the event loop."""
+
+    while (item := await asyncio.to_thread(_next_or_end, iterator)) is not _ITERATION_END:
+        yield cast("T", item)
 
 
 def exclude_none(d: dict[str, Any]) -> dict[str, Any]:
@@ -34,10 +50,10 @@ def workspace_from_state(state: TurnState) -> Path:
     return Path.cwd().resolve()
 
 
-def get_entry_text(entry: TapeEntry) -> str:
+def get_entry_text(record: TapeRecord) -> str:
     import yaml
 
-    return yaml.safe_dump(entry.payload)
+    return yaml.safe_dump(record.event.get_data())
 
 
 async def maybe_context_manager(obj: Any, stack: AsyncExitStack) -> Any:

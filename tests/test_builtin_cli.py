@@ -17,6 +17,7 @@ import bub.configure as configure
 import bub.inquirer as bub_inquirer
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
+from bub.streaming import AsyncStreamEvents, StreamEvent
 
 TEST_ACCESS_TOKEN = "access"  # noqa: S105
 TEST_REFRESH_TOKEN = "refresh"  # noqa: S105
@@ -310,9 +311,13 @@ def test_run_command_processes_inbound_inside_framework_runtime(tmp_path: Path) 
             return "prompt"
 
         @hookimpl
-        async def run_model(self, prompt, session_id, state) -> str:
+        async def run_model_stream(self, prompt, session_id, state) -> AsyncStreamEvents:
             observed["tape_store"] = framework.get_tape_store()
-            return "model output"
+
+            async def events():
+                yield StreamEvent("text", {"delta": "model output"})
+
+            return AsyncStreamEvents(events())
 
         @hookimpl
         def render_outbound(self, message, session_id, state, model_output):
