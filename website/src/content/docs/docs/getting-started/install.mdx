@@ -12,26 +12,51 @@ This page explains how to install Bub for the three supported workflows: running
 You should have:
 
 - Python 3.12 or newer
-- [`uv`](https://docs.astral.sh/uv/) — used by every example below
+- [`uv`](https://docs.astral.sh/uv/) for direct installation and source development; the guided installer can bootstrap it
 - a working terminal in the workspace where you want to run Bub
 
-## 1. Install from PyPI
+## 1. Install with the guided installer
 
-For most operators, install the released package into a virtual environment managed by `uv`:
+The standalone installer runs before Bub is installed. Download it first so you can inspect what it will execute:
 
 ```bash
-uv tool install bub
+curl -sSLO https://raw.githubusercontent.com/bubbuild/bub/main/install-bub.py
+python3 install-bub.py
 ```
 
-Verify the binary is on `PATH`:
+It first asks for one execution-surface preset:
+
+| Preset | Required plugin | Intended use |
+| --- | --- | --- |
+| `chat` | none | Terminal chat and one-shot commands. |
+| `lody` | `bub-acp-server` | ACP sessions launched by Lody. |
+
+The next screen toggles optional plugins that are independent of the selected surface: web search, MCP tools, and semantic memory. A preset's required plugin is not shown as a toggle; selecting `lody` always installs the ACP server.
+
+For automation, CI, or a reproducible machine setup, skip all prompts:
+
+```bash
+python3 install-bub.py \
+  --preset lody \
+  --plugin web-search \
+  --no-interactive
+```
+
+Repeat `--plugin` for curated options or `--with REQUIREMENT` for an additional Python package. Use `--dry-run` to print the complete `uv` command without changing the machine.
+
+The installer delegates environment ownership to `uv tool install`. If `uv` is unavailable, it bootstraps uv in a temporary environment, then injects uv into Bub's tool environment so `bub install` continues to work. The selected intent is recorded at `~/.bub/install.json` (or `$BUB_HOME/install.json`); uv's receipt remains the source of truth for the installed environment.
+
+Verify that the binary is on `PATH`:
 
 ```bash
 bub --help
 ```
 
-If you prefer `pip`, the equivalent is:
+To bypass the guided installer, install the released package directly:
 
 ```bash
+uv tool install bub
+# or
 pip install bub
 ```
 

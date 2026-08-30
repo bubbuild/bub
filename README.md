@@ -19,9 +19,20 @@ Built on [agents.md](https://agents.md/) and [Agent Skills](https://agentskills.
 
 ## Quick Start
 
+Download and inspect the standalone installer, then run it to choose a surface preset and optional plugins:
+
 ```bash
-pip install bub
+curl -sSLO https://raw.githubusercontent.com/bubbuild/bub/main/install-bub.py
+python3 install-bub.py
 ```
+
+For a reproducible Lody installation without prompts:
+
+```bash
+python3 install-bub.py --preset lody --no-interactive
+```
+
+The `lody` preset includes `bub-acp-server`; the `chat` preset does not. Optional plugin toggles are shared by both presets. Direct installation remains available with `uv tool install bub` or `pip install bub`.
 
 Or from source:
 

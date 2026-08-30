@@ -23,22 +23,22 @@ This tutorial does not configure a model provider. Bub reads its normal configur
 
 ## 1. Install the ACP server plugin
 
-`bub-acp-server` lives in [`bubbuild/bub-contrib`](https://github.com/bubbuild/bub-contrib). Install it into the same environment that provides your `bub` command:
+For a new Bub installation, choose the `lody` preset so the ACP server is part of the initial environment:
 
 ```bash
-bub install bub-acp-server@main
+python3 install-bub.py --preset lody --no-interactive
+```
+
+If Bub is already installed, add `bub-acp-server` to the same environment that provides your `bub` command:
+
+```bash
+bub install bub-acp-server
 ```
 
 Verify that the command is available:
 
 ```bash
-bub acp serve --help
-```
-
-Expected output includes:
-
-```text
-Usage: bub acp serve [OPTIONS]
+bub acp --help
 ```
 
 If `bub acp` is missing, the plugin was installed into a different Python environment than the one your shell resolves as `bub`.
@@ -62,10 +62,10 @@ cd /path/to/your/project
 set -a
 . ./.env
 set +a
-exec bub acp serve
+exec bub acp
 ```
 
-Use this wrapper only when you need it. If `bub run` already works from the editor's environment, you can launch `bub acp serve` directly.
+Use this wrapper only when you need it. If `bub run` already works from the editor's environment, you can launch `bub acp` directly.
 
 ## 3. Configure Zed
 
@@ -123,8 +123,8 @@ When the editor reopens an existing thread, `bub-acp-server` loads the matching 
 |---|---|
 | `bub acp` is missing | Reinstall `bub-acp-server` into the environment that provides the `bub` executable used by the editor. |
 | The editor says it cannot start Bub | Use an absolute `command` path, or point `command` at a wrapper script that activates the right environment. |
-| Bub starts but reports a configuration error | Confirm `bub run` works in the same environment. If required settings are in `.env`, load that file before `bub acp serve`. |
-| The editor cannot load or resume a thread | Confirm the editor is launching the same `bub` environment where `bub acp serve --help` works, and keep `BUB_HOME` stable across launches. |
+| Bub starts but reports a configuration error | Confirm `bub run` works in the same environment. If required settings are in `.env`, load that file before `bub acp`. |
+| The editor cannot load or resume a thread | Confirm the editor is launching the same `bub` environment where `bub acp --help` works, and keep `BUB_HOME` stable across launches. |
 | Previous threads disappear after restarting the editor | Keep the same Bub environment and `BUB_HOME` across launches. `bub-acp-server` stores ACP session metadata under Bub home and loads history from Bub tapes. |
 | A turn starts but no activity is visible | Open Zed's `dev: open acp logs` command and inspect the JSON-RPC messages between Zed and Bub. |
 

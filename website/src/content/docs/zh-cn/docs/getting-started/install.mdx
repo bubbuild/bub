@@ -12,16 +12,39 @@ sidebar:
 你需要准备：
 
 - Python 3.12 或更高版本
-- [`uv`](https://docs.astral.sh/uv/) — 下面的每个示例都会使用
+- 直接安装和源码开发需要 [`uv`](https://docs.astral.sh/uv/)；引导式安装器可以自行 bootstrap
 - 在你打算运行 Bub 的 workspace 中已可用的终端
 
-## 1. 从 PyPI 安装
+## 1. 使用引导式安装器
 
-大多数运维者应当将正式发布版本安装到由 `uv` 管理的虚拟环境：
+独立安装器会在 Bub 尚未安装时运行。先下载脚本，以便检查它将要执行的内容：
 
 ```bash
-uv tool install bub
+curl -sSLO https://raw.githubusercontent.com/bubbuild/bub/main/install-bub.py
+python3 install-bub.py
 ```
+
+安装器首先要求选择一个执行界面 preset：
+
+| Preset | 必选插件 | 用途 |
+| --- | --- | --- |
+| `chat` | 无 | 终端聊天与一次性命令。 |
+| `lody` | `bub-acp-server` | 由 Lody 启动的 ACP session。 |
+
+下一屏只 toggle 与执行界面无关的可选插件：网页搜索、MCP tools 和语义记忆。preset 的必选插件不会作为 toggle 出现；选择 `lody` 就一定会安装 ACP server。
+
+用于自动化、CI 或可复现的机器配置时，可以跳过全部 prompt：
+
+```bash
+python3 install-bub.py \
+  --preset lody \
+  --plugin web-search \
+  --no-interactive
+```
+
+重复传入 `--plugin` 可以选择多个内置选项，`--with REQUIREMENT` 可以添加任意 Python package。使用 `--dry-run` 可以只输出完整的 `uv` 命令而不修改机器。
+
+安装器把环境所有权交给 `uv tool install`。如果系统里没有 uv，它会在临时环境中 bootstrap uv，再把 uv 注入 Bub 的 tool 环境，确保后续 `bub install` 仍然可用。用户选择记录在 `~/.bub/install.json`（或 `$BUB_HOME/install.json`）；实际安装状态仍以 uv receipt 为准。
 
 确认二进制已加入 `PATH`：
 
@@ -29,9 +52,11 @@ uv tool install bub
 bub --help
 ```
 
-如果你倾向使用 `pip`，等价命令是：
+如果不使用引导式安装器，也可以直接安装发布包：
 
 ```bash
+uv tool install bub
+# 或
 pip install bub
 ```
 
