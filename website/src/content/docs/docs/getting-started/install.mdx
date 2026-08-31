@@ -5,6 +5,8 @@ sidebar:
   order: 1
 ---
 
+import { TabItem, Tabs } from '@astrojs/starlight/components';
+
 This page explains how to install Bub for the three supported workflows: running the CLI, contributing to the framework from source, and depending on Bub from another package.
 
 ## Before you begin
@@ -18,21 +20,51 @@ The installer bootstraps [`uv`](https://docs.astral.sh/uv/) when needed. `uv` th
 
 ## 1. Use the standalone installer
 
-On macOS and Linux:
+<Tabs syncKey="install-platform">
+  <TabItem label="macOS / Linux">
 
-```bash
-curl -fsSL https://bub.build/install.sh | bash
-```
+    ```bash
+    curl -fsSL https://bub.build/install.sh | bash
+    ```
 
-On Windows PowerShell:
+  </TabItem>
+  <TabItem label="Windows">
 
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
-```
+    ```powershell
+    powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
+    ```
 
-The installer places `uv` and the `bub` executable in user-level directories. It also asks `uv` to add its executable directory to your shell profile. Restart your shell after installation, then run `bub --help`.
+  </TabItem>
+</Tabs>
 
-You can inspect the scripts before running them at [install.sh](https://bub.build/install.sh) and [install.ps1](https://bub.build/install.ps1).
+The installer places `uv` and the `bub` executable in user-level directories. In an interactive terminal, it runs the colored, keyboard- and mouse-enabled preset picker through `inquirer-textual`, prompts for additional plugin dependencies, installs them with `bub install`, and then runs `bub onboard`. The UI dependency is provisioned ephemerally with `uv run --with`; it is not added to Bub. Set [`NO_COLOR`](https://no-color.org/) to disable colored output.
+
+Preset membership is defined only in the versioned [preset catalog](https://bub.build/presets.json), so plugin bundles can evolve without changing the installers. `recommended` is the default bundle and `minimal` installs no optional plugins.
+
+For automation, pass `--preset` explicitly. `--dependency` is repeatable and adds packages outside the selected preset (`--plugin` is an alias):
+
+<Tabs syncKey="install-platform">
+  <TabItem label="macOS / Linux">
+
+    ```bash
+    curl -fsSL https://bub.build/install.sh | bash -s -- \
+      --preset recommended \
+      --dependency extra-plugin
+    ```
+
+  </TabItem>
+  <TabItem label="Windows">
+
+    ```powershell
+    powershell -ExecutionPolicy ByPass -c "& ([scriptblock]::Create((irm https://bub.build/install.ps1))) --preset recommended --dependency extra-plugin"
+    ```
+
+  </TabItem>
+</Tabs>
+
+Non-interactive installs do not run onboarding; run `bub onboard` explicitly when configuration is required. The installer also asks `uv` to add its executable directory to your shell profile. Restart your shell after installation, then run `bub --help`.
+
+You can inspect the scripts and the versioned preset catalog before running them at [install.sh](https://bub.build/install.sh), [install.ps1](https://bub.build/install.ps1), and [presets.json](https://bub.build/presets.json).
 
 ## 2. Install with an existing uv
 

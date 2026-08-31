@@ -31,6 +31,16 @@ Windows PowerShell:
 powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
 ```
 
+The interactive installer uses a colored preset picker, accepts additional plugin dependencies, and runs `bub onboard` after installation. For automation, select a preset explicitly; non-interactive installs skip onboarding:
+
+```bash
+curl -fsSL https://bub.build/install.sh | bash -s -- --preset recommended --dependency extra-plugin
+```
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "& ([scriptblock]::Create((irm https://bub.build/install.ps1))) --preset recommended --dependency extra-plugin"
+```
+
 Or from source:
 
 ```bash

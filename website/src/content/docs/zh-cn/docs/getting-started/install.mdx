@@ -5,6 +5,8 @@ sidebar:
   order: 1
 ---
 
+import { TabItem, Tabs } from '@astrojs/starlight/components';
+
 本页说明三种受支持的安装方式：运行 CLI、从源码贡献框架，以及在另一个包中依赖 Bub。
 
 ## 在开始之前
@@ -18,21 +20,51 @@ sidebar:
 
 ## 1. 使用独立安装器
 
-在 macOS 与 Linux 上运行：
+<Tabs syncKey="install-platform">
+  <TabItem label="macOS / Linux">
 
-```bash
-curl -fsSL https://bub.build/install.sh | bash
-```
+    ```bash
+    curl -fsSL https://bub.build/install.sh | bash
+    ```
 
-在 Windows PowerShell 上运行：
+  </TabItem>
+  <TabItem label="Windows">
 
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
-```
+    ```powershell
+    powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
+    ```
 
-安装器会把 `uv` 和 `bub` 可执行文件放进用户级目录，并让 `uv` 将其可执行目录加入 shell profile。安装完成后重启 shell，再运行 `bub --help`。
+  </TabItem>
+</Tabs>
 
-执行前可以先检查 [install.sh](https://bub.build/install.sh) 和 [install.ps1](https://bub.build/install.ps1) 的内容。
+安装器会把 `uv` 和 `bub` 可执行文件放进用户级目录。在交互式终端中，它会通过 `inquirer-textual` 显示支持键盘、鼠标和颜色的 preset 选择器，询问额外插件依赖，通过 `bub install` 安装依赖，最后运行 `bub onboard`。UI 依赖由 `uv run --with` 临时提供，不会加入 Bub。设置 [`NO_COLOR`](https://no-color.org/) 可以关闭颜色输出。
+
+各 preset 的成员只在版本化的 [preset 清单](https://bub.build/presets.json) 中定义，因此插件集合可以独立演进，而不必修改安装器。`recommended` 是默认集合，`minimal` 不安装可选插件。
+
+自动化场景需要显式传入 `--preset`。`--dependency` 可以重复使用，用于添加 preset 之外的 Python 包；`--plugin` 是其别名：
+
+<Tabs syncKey="install-platform">
+  <TabItem label="macOS / Linux">
+
+    ```bash
+    curl -fsSL https://bub.build/install.sh | bash -s -- \
+      --preset recommended \
+      --dependency extra-plugin
+    ```
+
+  </TabItem>
+  <TabItem label="Windows">
+
+    ```powershell
+    powershell -ExecutionPolicy ByPass -c "& ([scriptblock]::Create((irm https://bub.build/install.ps1))) --preset recommended --dependency extra-plugin"
+    ```
+
+  </TabItem>
+</Tabs>
+
+非交互式安装不会执行 onboarding；需要配置时请显式运行 `bub onboard`。安装器也会让 `uv` 将可执行目录加入 shell profile。安装完成后重启 shell，再运行 `bub --help`。
+
+执行前可以先检查 [install.sh](https://bub.build/install.sh)、[install.ps1](https://bub.build/install.ps1) 和版本化的 [presets.json](https://bub.build/presets.json)。
 
 ## 2. 使用已有的 uv 安装
 
