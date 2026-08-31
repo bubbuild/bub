@@ -16,8 +16,8 @@ sidebar:
 
 你需要：
 
-- Bub 已安装，且 `uv run bub --help` 可以运行。
-- 一个 workspace，其中 `uv run bub run "What tools do you have?"` 能调用已配置的模型。
+- Bub 已安装，且 `bub --help` 可以运行。
+- 一个 workspace，其中 `bub run "What tools do you have?"` 能调用已配置的模型。
 - 如果要本地运行 Phoenix，需要 Docker 或 Podman。
 - 启动带 Phoenix 的 Bub 之前，安装 Logfire extra：
 
@@ -36,13 +36,13 @@ bub install bub-tapestore-otel@main
 先运行一个英文自然语言任务：
 
 ```bash
-uv run bub run "What tools do you have, and what small tasks are they useful for?"
+bub run "What tools do you have, and what small tasks are they useful for?"
 ```
 
 然后让 Bub 检查刚刚被这个 turn 更新过的 tape：
 
 ```bash
-uv run bub run ",tape.info"
+bub run ",tape.info"
 ```
 
 期望输出类似：
@@ -74,13 +74,13 @@ last_token_cache_hit_rate: 72.50%
 需要查找之前的 tool call、error 或 handoff 时，使用 `tape.search`：
 
 ```bash
-uv run bub run ",tape.search query=loop.step"
+bub run ",tape.search query=loop.step"
 ```
 
 你也可以让模型检查 tape 并解释它看到的变化：
 
 ```bash
-uv run bub run "Inspect the current tape and summarize the last turn."
+bub run "Inspect the current tape and summarize the last turn."
 ```
 
 第二条命令可能会调用模型，因此只在 provider credential 已配置后使用。

@@ -1,32 +1,78 @@
 ---
 title: Install Bub
-description: Install Bub from PyPI or from source, pin it as a framework dependency, and verify the install with the hook report.
+description: Install Bub with the standalone installer or from source, pin it as a framework dependency, and verify the install with the hook report.
 sidebar:
   order: 1
 ---
+
+import { TabItem, Tabs } from '@astrojs/starlight/components';
 
 This page explains how to install Bub for the three supported workflows: running the CLI, contributing to the framework from source, and depending on Bub from another package.
 
 ## Before you begin
 
-You should have:
+For the standalone installer, you only need:
 
-- Python 3.12 or newer
-- [`uv`](https://docs.astral.sh/uv/) — used by every example below
-- a working terminal in the workspace where you want to run Bub
+- `curl` on macOS and Linux, or PowerShell on Windows
+- a network connection that can reach `bub.build`, `astral.sh`, and PyPI
 
-## 1. Install from PyPI
+The installer bootstraps [`uv`](https://docs.astral.sh/uv/) when needed. `uv` then installs a compatible Python automatically, so a system Python is not required.
 
-For most operators, install the released package into a virtual environment managed by `uv`:
+## 1. Use the standalone installer
+
+<Tabs syncKey="install-platform">
+  <TabItem label="macOS / Linux">
+
+    ```bash
+    curl -fsSL https://bub.build/install.sh | bash
+    ```
+
+  </TabItem>
+  <TabItem label="Windows">
+
+    ```powershell
+    powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
+    ```
+
+  </TabItem>
+</Tabs>
+
+The installer places `uv` and the `bub` executable in user-level directories. In an interactive terminal, it runs the colored, keyboard- and mouse-enabled preset picker through `inquirer-textual`, prompts for additional plugin dependencies, installs them with `bub install`, and then runs `bub onboard`. The UI dependency is provisioned ephemerally with `uv run --with`; it is not added to Bub. Set [`NO_COLOR`](https://no-color.org/) to disable colored output.
+
+Preset membership is defined only in the versioned [preset catalog](https://bub.build/presets.json), so plugin bundles can evolve without changing the installers. `recommended` is the default bundle and `minimal` installs no optional plugins.
+
+For automation, pass `--preset` explicitly. `--dependency` is repeatable and adds packages outside the selected preset (`--plugin` is an alias):
+
+<Tabs syncKey="install-platform">
+  <TabItem label="macOS / Linux">
+
+    ```bash
+    curl -fsSL https://bub.build/install.sh | bash -s -- \
+      --preset recommended \
+      --dependency extra-plugin
+    ```
+
+  </TabItem>
+  <TabItem label="Windows">
+
+    ```powershell
+    powershell -ExecutionPolicy ByPass -c "& ([scriptblock]::Create((irm https://bub.build/install.ps1))) --preset recommended --dependency extra-plugin"
+    ```
+
+  </TabItem>
+</Tabs>
+
+Non-interactive installs do not run onboarding; run `bub onboard` explicitly when configuration is required. The installer also asks `uv` to add its executable directory to your shell profile. Restart your shell after installation, then run `bub --help`.
+
+You can inspect the scripts and the versioned preset catalog before running them at [install.sh](https://bub.build/install.sh), [install.ps1](https://bub.build/install.ps1), and [presets.json](https://bub.build/presets.json).
+
+## 2. Install with an existing uv
+
+If `uv` is already available, the equivalent user-level installation is:
 
 ```bash
-uv tool install bub
-```
-
-Verify the binary is on `PATH`:
-
-```bash
-bub --help
+uv tool install "bub@latest"
+uv tool update-shell
 ```
 
 If you prefer `pip`, the equivalent is:
@@ -35,7 +81,7 @@ If you prefer `pip`, the equivalent is:
 pip install bub
 ```
 
-## 2. Install from source
+## 3. Install from source
 
 Use this path if you want to contribute to the framework or follow `main`:
 
@@ -47,7 +93,7 @@ uv sync
 
 `uv sync` creates a project-local virtual environment under `.venv/` with every dev dependency. After sync, every example in these docs that uses `uv run bub` will work from the repo root.
 
-## 3. Pin Bub as a framework dependency
+## 4. Pin Bub as a framework dependency
 
 Plugin and distribution authors should depend on Bub as a normal Python package. The plugin's `pyproject.toml` should declare the dependency and register one entry point under the `bub` group:
 
@@ -67,15 +113,15 @@ Bub discovers plugins through `importlib.metadata.entry_points(group="bub")`, so
 Pin Bub to a compatible release range rather than to `main`. The kernel is small and stable, but plugin contracts may evolve before 1.0.
 :::
 
-## 4. Verify the install
+## 5. Verify the install
 
 The fastest way to confirm Bub loaded its built-in hooks is the `bub hooks` command:
 
 ```bash
-uv run bub hooks
+bub hooks
 ```
 
-You should see a summary that includes the `builtin` plugin and a list of hook implementations such as `resolve_session`, `build_prompt`, `run_model_stream`, `render_outbound`, and `dispatch_outbound`. If `builtin` is missing or marked failed, re-run `uv sync` and check the error printed by the loader.
+You should see a summary that includes the `builtin` plugin and a list of hook implementations such as `resolve_session`, `build_prompt`, `run_model_stream`, `render_outbound`, and `dispatch_outbound`. If you installed from source, use `uv run bub hooks` instead. If `builtin` is missing or marked failed, reinstall Bub and check the error printed by the loader.
 
 ## Next steps
 

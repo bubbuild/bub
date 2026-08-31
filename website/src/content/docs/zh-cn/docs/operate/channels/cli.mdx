@@ -16,7 +16,7 @@ CLI 本身就是一个 channel，注册名为 `cli`。它实现了与 Telegram �
 `bub chat` 会基于 `cli` channel 打开一个 prompt-toolkit REPL：
 
 ```bash
-uv run bub chat
+bub chat
 ```
 
 默认值：
@@ -27,7 +27,7 @@ uv run bub chat
 任意一个都可以用参数覆盖：
 
 ```bash
-uv run bub chat --chat-id review --session-id cli:review
+bub chat --chat-id review --session-id cli:review
 ```
 
 每行输入对应一条入站 `ChannelMessage`。Ctrl-D 退出，`,quit` 与 `,exit` 也会干净退出。
@@ -37,7 +37,7 @@ uv run bub chat --chat-id review --session-id cli:review
 `bub run "..."` 把单条消息送入框架，并打印每条出站：
 
 ```bash
-uv run bub run "summarize CHANGELOG.md"
+bub run "summarize CHANGELOG.md"
 ```
 
 输出按出站分块：
@@ -54,9 +54,9 @@ uv run bub run "summarize CHANGELOG.md"
 任何以 `,` 开头的输入都是 **逗号命令**：它走内置工具或 shell，而不进入模型。逗号命令会跳过 LLM 调用以及 channel 的防抖逻辑。
 
 ```bash
-uv run bub run ",help"
-uv run bub run ",fs.read path=README.md"
-uv run bub run ",echo hello"   # 找不到的命令会回落到 shell
+bub run ",help"
+bub run ",fs.read path=README.md"
+bub run ",echo hello"   # 找不到的命令会回落到 shell
 ```
 
 在 `bub chat` 内同样有效。`Ctrl-X` 切换 "shell mode"，会把 `,` 自动加在每行前。

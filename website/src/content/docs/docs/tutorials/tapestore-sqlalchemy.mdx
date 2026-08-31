@@ -17,8 +17,8 @@ The [`,tape.info`](/docs/tutorials/observability/) and `,tape.search` workflow s
 
 You need:
 
-- Bub installed and runnable with `uv run bub --help` (see [Install](/docs/getting-started/install/)).
-- A workspace where `uv run bub run "What tools do you have?"` can call your configured model.
+- Bub installed and runnable with `bub --help` (see [Install](/docs/getting-started/install/)).
+- A workspace where `bub run "What tools do you have?"` can call your configured model.
 - The `sqlite3` CLI for the optional database check.
 
 ## 1. Install the plugin
@@ -30,13 +30,13 @@ export BUB_HOME="${BUB_HOME:-$HOME/.bub}"
 ```
 
 ```bash
-uv run bub install bub-tapestore-sqlalchemy@main
+bub install bub-tapestore-sqlalchemy@main
 ```
 
 Confirm Bub picked up the entry point:
 
 ```bash
-uv run bub hooks
+bub hooks
 ```
 
 ```text
@@ -58,8 +58,8 @@ This URL is passed to SQLAlchemy. The `sqlite+pysqlite` dialect uses Python's st
 Run a small natural-language task, then ask Bub to inspect the tape it just wrote:
 
 ```bash
-uv run bub run "Reply with one short sentence: hello from local SQLAlchemy."
-uv run bub run ",tape.info"
+bub run "Reply with one short sentence: hello from local SQLAlchemy."
+bub run ",tape.info"
 ```
 
 ```text

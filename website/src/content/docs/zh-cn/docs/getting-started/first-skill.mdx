@@ -14,7 +14,7 @@ skill 是包含 `SKILL.md` 文件的目录，文件里有 frontmatter（`name`�
 你需要准备：
 
 - 一个来自 [运行你的第一次 turn](/zh-cn/docs/getting-started/first-turn/) 的 workspace
-- `uv run bub hooks` 报告 `builtin` 插件
+- `bub hooks` 报告 `builtin` 插件
 
 ## 1. 创建 skill 目录
 
@@ -48,7 +48,7 @@ frontmatter 字段是必需的——`name` 必须等于目录名，`description`
 通过内置的 `,skill` 命令请 Bub 运行该 skill：
 
 ```bash
-uv run bub run ",skill name=repo-map"
+bub run ",skill name=repo-map"
 ```
 
 Bub 会打印渲染后的 skill 正文。如果 Bub 报告 `(no such skill)`，请检查 `SKILL.md` 是否在正确路径，以及 frontmatter 是否能被解析为合法 YAML。
@@ -62,7 +62,7 @@ Bub 按优先级从三个根目录发现 skill：项目（`.agents/skills/`）�
 agent 在 system prompt 中以 `<available_skills>` 形式看到 skill。在普通 turn 中按名字引用：
 
 ```bash
-uv run bub run 'Use the $repo-map skill, then list the top-level modules you found.'
+bub run 'Use the $repo-map skill, then list the top-level modules you found.'
 ```
 
 `$repo-map` 提示会把该 skill 的正文展开到本次 turn 的模型 prompt 中。

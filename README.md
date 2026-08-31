@@ -19,8 +19,26 @@ Built on [agents.md](https://agents.md/) and [Agent Skills](https://agentskills.
 
 ## Quick Start
 
+macOS and Linux:
+
 ```bash
-pip install bub
+curl -fsSL https://bub.build/install.sh | bash
+```
+
+Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
+```
+
+The interactive installer uses a colored preset picker, accepts additional plugin dependencies, and runs `bub onboard` after installation. For automation, select a preset explicitly; non-interactive installs skip onboarding:
+
+```bash
+curl -fsSL https://bub.build/install.sh | bash -s -- --preset recommended --dependency extra-plugin
+```
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "& ([scriptblock]::Create((irm https://bub.build/install.ps1))) --preset recommended --dependency extra-plugin"
 ```
 
 Or from source:
@@ -34,9 +52,9 @@ uv sync  # enough to run Bub from source
 For local development, use `make install` instead so the website toolchain and `prek` hooks are installed too.
 
 ```bash
-uv run bub chat                         # interactive session
-uv run bub run "summarize this repo"    # one-shot task
-uv run bub gateway                      # channel listener mode
+bub chat                         # interactive session
+bub run "summarize this repo"    # one-shot task
+bub gateway                      # channel listener mode
 ```
 
 ## Why Bub

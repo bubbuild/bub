@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "presets": [
+    {
+      "name": "recommended",
+      "title": "Recommended",
+      "description": "Bub living in your IM, with recommended plugins.",
+      "default": true,
+      "dependencies": [
+        "bub-discord@main",
+        "bub-qq@main",
+        "bub-slack@main",
+        "bub-feishu@main",
+        "bub-wechat@main",
+        "bub-mcp@main",
+        "bub-schedule@main",
+        "bub-session-prompt@main",
+        "bub-context-budget@main",
+        "bub-web-search@main"
+      ]
+    },
+    {
+      "name": "minimal",
+      "title": "Minimal",
+      "description": "Bub without optional plugins.",
+      "default": false,
+      "dependencies": []
+    },
+    {
+      "name": "acp",
+      "title": "ACP",
+      "description": "Bub with Agent Client Protocol integration.",
+      "default": false,
+      "dependencies": [
+        "bub-acp-server@main",
+        "bub-context-budget@main",
+        "bub-web-search@main"
+      ]
+    }
+  ]
+}

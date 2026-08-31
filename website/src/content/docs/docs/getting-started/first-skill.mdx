@@ -14,7 +14,7 @@ A skill is a directory containing a `SKILL.md` file with frontmatter (`name`, `d
 You should have:
 
 - a workspace from [Run Your First Turn](/docs/getting-started/first-turn/)
-- `uv run bub hooks` reporting the `builtin` plugin
+- `bub hooks` reporting the `builtin` plugin
 
 ## 1. Create the skill directory
 
@@ -48,7 +48,7 @@ The frontmatter fields are required — `name` must equal the directory name, an
 Ask Bub to run the skill via the built-in `,skill` command:
 
 ```bash
-uv run bub run ",skill name=repo-map"
+bub run ",skill name=repo-map"
 ```
 
 Bub will print the rendered skill body. If Bub reports `(no such skill)`, check that `SKILL.md` is at the right path and the frontmatter parses as YAML.
@@ -62,7 +62,7 @@ Bub discovers skills from three roots in priority order: project (`.agents/skill
 The agent sees skills in the system prompt as `<available_skills>`. Reference the skill by name from a normal turn:
 
 ```bash
-uv run bub run 'Use the $repo-map skill, then list the top-level modules you found.'
+bub run 'Use the $repo-map skill, then list the top-level modules you found.'
 ```
 
 The `$repo-map` hint expands that skill's body into the model prompt for this turn.

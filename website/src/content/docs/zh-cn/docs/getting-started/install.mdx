@@ -1,32 +1,78 @@
 ---
 title: 安装 Bub
-description: 从 PyPI 或源码安装 Bub，将其固定为框架依赖，并用 hook 报告验证安装。
+description: 使用独立安装器或源码安装 Bub，将其固定为框架依赖，并用 hook 报告验证安装。
 sidebar:
   order: 1
 ---
+
+import { TabItem, Tabs } from '@astrojs/starlight/components';
 
 本页说明三种受支持的安装方式：运行 CLI、从源码贡献框架，以及在另一个包中依赖 Bub。
 
 ## 在开始之前
 
-你需要准备：
+使用独立安装器只需要：
 
-- Python 3.12 或更高版本
-- [`uv`](https://docs.astral.sh/uv/) — 下面的每个示例都会使用
-- 在你打算运行 Bub 的 workspace 中已可用的终端
+- macOS 与 Linux 上的 `curl`，或 Windows 上的 PowerShell
+- 可以访问 `bub.build`、`astral.sh` 和 PyPI 的网络连接
 
-## 1. 从 PyPI 安装
+安装器会在需要时引导安装 [`uv`](https://docs.astral.sh/uv/)。`uv` 随后会自动安装兼容的 Python，因此不要求系统预装 Python。
 
-大多数运维者应当将正式发布版本安装到由 `uv` 管理的虚拟环境：
+## 1. 使用独立安装器
+
+<Tabs syncKey="install-platform">
+  <TabItem label="macOS / Linux">
+
+    ```bash
+    curl -fsSL https://bub.build/install.sh | bash
+    ```
+
+  </TabItem>
+  <TabItem label="Windows">
+
+    ```powershell
+    powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
+    ```
+
+  </TabItem>
+</Tabs>
+
+安装器会把 `uv` 和 `bub` 可执行文件放进用户级目录。在交互式终端中，它会通过 `inquirer-textual` 显示支持键盘、鼠标和颜色的 preset 选择器，询问额外插件依赖，通过 `bub install` 安装依赖，最后运行 `bub onboard`。UI 依赖由 `uv run --with` 临时提供，不会加入 Bub。设置 [`NO_COLOR`](https://no-color.org/) 可以关闭颜色输出。
+
+各 preset 的成员只在版本化的 [preset 清单](https://bub.build/presets.json) 中定义，因此插件集合可以独立演进，而不必修改安装器。`recommended` 是默认集合，`minimal` 不安装可选插件。
+
+自动化场景需要显式传入 `--preset`。`--dependency` 可以重复使用，用于添加 preset 之外的 Python 包；`--plugin` 是其别名：
+
+<Tabs syncKey="install-platform">
+  <TabItem label="macOS / Linux">
+
+    ```bash
+    curl -fsSL https://bub.build/install.sh | bash -s -- \
+      --preset recommended \
+      --dependency extra-plugin
+    ```
+
+  </TabItem>
+  <TabItem label="Windows">
+
+    ```powershell
+    powershell -ExecutionPolicy ByPass -c "& ([scriptblock]::Create((irm https://bub.build/install.ps1))) --preset recommended --dependency extra-plugin"
+    ```
+
+  </TabItem>
+</Tabs>
+
+非交互式安装不会执行 onboarding；需要配置时请显式运行 `bub onboard`。安装器也会让 `uv` 将可执行目录加入 shell profile。安装完成后重启 shell，再运行 `bub --help`。
+
+执行前可以先检查 [install.sh](https://bub.build/install.sh)、[install.ps1](https://bub.build/install.ps1) 和版本化的 [presets.json](https://bub.build/presets.json)。
+
+## 2. 使用已有的 uv 安装
+
+如果系统中已有 `uv`，等价的用户级安装命令是：
 
 ```bash
-uv tool install bub
-```
-
-确认二进制已加入 `PATH`：
-
-```bash
-bub --help
+uv tool install "bub@latest"
+uv tool update-shell
 ```
 
 如果你倾向使用 `pip`，等价命令是：
@@ -35,7 +81,7 @@ bub --help
 pip install bub
 ```
 
-## 2. 从源码安装
+## 3. 从源码安装
 
 如果你想为框架贡献代码或跟随 `main` 分支，使用本路径：
 
@@ -47,7 +93,7 @@ uv sync
 
 `uv sync` 会在 `.venv/` 下创建项目本地虚拟环境并装好所有开发依赖。完成后，文档中所有 `uv run bub` 示例都可以在仓库根目录使用。
 
-## 3. 将 Bub 固定为框架依赖
+## 4. 将 Bub 固定为框架依赖
 
 插件作者与发行版作者应当像普通 Python 包那样依赖 Bub。在插件的 `pyproject.toml` 中声明依赖，并在 `bub` entry-point 组下注册一个入口：
 
@@ -67,15 +113,15 @@ Bub 通过 `importlib.metadata.entry_points(group="bub")` 发现插件，因此�
 请把 Bub 固定到兼容的发布范围，而非 `main`。内核较小且稳定，但插件契约在 1.0 之前可能发生变化。
 :::
 
-## 4. 验证安装
+## 5. 验证安装
 
 确认 Bub 加载了内置 hook 的最快方法是 `bub hooks` 命令：
 
 ```bash
-uv run bub hooks
+bub hooks
 ```
 
-你应当看到一份摘要，包含 `builtin` 插件以及 `resolve_session`、`build_prompt`、`run_model_stream`、`render_outbound`、`dispatch_outbound` 等 hook 的实现。如果 `builtin` 缺失或被标记为失败，请重新执行 `uv sync` 并查看 loader 打印的错误。
+你应当看到一份摘要，包含 `builtin` 插件以及 `resolve_session`、`build_prompt`、`run_model_stream`、`render_outbound`、`dispatch_outbound` 等 hook 的实现。如果是从源码安装，请改用 `uv run bub hooks`。如果 `builtin` 缺失或被标记为失败，请重新安装 Bub 并查看 loader 打印的错误。
 
 ## 下一步
 

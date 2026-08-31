@@ -15,7 +15,7 @@ sidebar:
 
 你需要：
 
-- Bub 已安装，且 `uv run bub --help` 可以运行。
+- Bub 已安装，且 `bub --help` 可以运行。
 - 已安装 Docker。
 - `~/.cache/llama.cpp/` 下有 GGUF 模型文件。
 - 系统内存足够运行所选量化版本。Gemma 4 E2B 的 Q8 GGUF 文件约 5 GB；实际运行内存还会受上下文长度、batching、GPU offload 等设置影响。
@@ -90,13 +90,13 @@ export BUB_MODEL="openai:gemma-4-E2B-it"
 运行一个 Bub turn：
 
 ```bash
-uv run bub run "Reply with one short sentence: hello from a local model."
+bub run "Reply with one short sentence: hello from a local model."
 ```
 
 现在 Bub 会通过本地 OpenAI-compatible endpoint 进行模型调用。turn pipeline、channels、tools 和 tapes 都不需要改变。
 
 ```bash
-~/bubbuild/bub$ uv run bub run "Reply with one short sentence: hello from a local model."
+~/bubbuild/bub$ bub run "Reply with one short sentence: hello from a local model."
 2026-05-19 01:32:40.601 | INFO     | bub.builtin.agent:_run_tools_with_auto_handoff:271 - loop.step step=1 tape=becda04eb9f7369c__0b871d5e50e7c192 model=openai:gemma-4-E2B-it
 2026-05-19 01:32:46.747 | INFO     | bub.builtin.store:fork:122 - Merged 7 entries into tape "becda04eb9f7369c__0b871d5e50e7c192"
 [cli:local]

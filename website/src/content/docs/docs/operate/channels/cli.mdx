@@ -16,7 +16,7 @@ The CLI is itself a channel, registered under the name `cli`. It implements the 
 `bub chat` opens a prompt-toolkit REPL backed by the `cli` channel:
 
 ```bash
-uv run bub chat
+bub chat
 ```
 
 By default this sets:
@@ -27,7 +27,7 @@ By default this sets:
 Override either with flags:
 
 ```bash
-uv run bub chat --chat-id review --session-id cli:review
+bub chat --chat-id review --session-id cli:review
 ```
 
 Each line you type becomes one inbound `ChannelMessage`. Ctrl-D exits, `,quit` and `,exit` also exit cleanly.
@@ -37,7 +37,7 @@ Each line you type becomes one inbound `ChannelMessage`. Ctrl-D exits, `,quit` a
 `bub run "..."` sends a single message through the framework and prints every outbound:
 
 ```bash
-uv run bub run "summarize CHANGELOG.md"
+bub run "summarize CHANGELOG.md"
 ```
 
 Output is one block per outbound:
@@ -54,9 +54,9 @@ The default session id is `<channel>:<chat_id>`, so `bub run "..."` with no flag
 Any input that starts with `,` is a **comma command**: it routes to a builtin tool or shell command instead of going to the model. Comma commands skip both the LLM call and the channel's debounce logic.
 
 ```bash
-uv run bub run ",help"
-uv run bub run ",fs.read path=README.md"
-uv run bub run ",echo hello"   # falls through to shell
+bub run ",help"
+bub run ",fs.read path=README.md"
+bub run ",echo hello"   # falls through to shell
 ```
 
 Inside `bub chat`, the same prefix works at any prompt. `Ctrl-X` toggles "shell mode", which auto-prepends `,` to every line.

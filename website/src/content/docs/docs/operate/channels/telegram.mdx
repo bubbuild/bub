@@ -52,7 +52,7 @@ The same proxy is used for both the polling connection and outbound API calls.
 ## 4. Launch the gateway
 
 ```bash
-uv run bub gateway --enable-channel telegram
+bub gateway --enable-channel telegram
 ```
 
 `--enable-channel telegram` pins the listener to one channel. Without it, `bub gateway` enables every non-`Interface` channel in the default runtime set, which includes Telegram when its token is set and also starts enabled `Lifecycle` runtimes. On startup you should see:

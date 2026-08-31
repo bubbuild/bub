@@ -17,8 +17,8 @@ sidebar:
 
 你需要：
 
-- Bub 已安装，且 `uv run bub --help` 可以运行（参考 [安装](/zh-cn/docs/getting-started/install/)）。
-- 一个 workspace，其中 `uv run bub run "What tools do you have?"` 能调用已配置的模型。
+- Bub 已安装，且 `bub --help` 可以运行（参考 [安装](/zh-cn/docs/getting-started/install/)）。
+- 一个 workspace，其中 `bub run "What tools do you have?"` 能调用已配置的模型。
 - `sqlite3` CLI，用于可选的数据库检查。
 
 ## 1. 安装插件
@@ -30,13 +30,13 @@ export BUB_HOME="${BUB_HOME:-$HOME/.bub}"
 ```
 
 ```bash
-uv run bub install bub-tapestore-sqlalchemy@main
+bub install bub-tapestore-sqlalchemy@main
 ```
 
 确认 Bub 加载了 entry point：
 
 ```bash
-uv run bub hooks
+bub hooks
 ```
 
 ```text
@@ -58,8 +58,8 @@ export BUB_TAPESTORE_SQLALCHEMY_URL="sqlite+pysqlite:///$PWD/bub-tapes.db"
 跑一个小的自然语言任务，然后让 Bub 检查刚刚写入的 tape：
 
 ```bash
-uv run bub run "Reply with one short sentence: hello from local SQLAlchemy."
-uv run bub run ",tape.info"
+bub run "Reply with one short sentence: hello from local SQLAlchemy."
+bub run ",tape.info"
 ```
 
 ```text

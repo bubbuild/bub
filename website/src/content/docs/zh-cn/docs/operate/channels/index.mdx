@@ -21,19 +21,19 @@ sidebar:
 启用单个 channel：
 
 ```bash
-uv run bub gateway --enable-channel telegram
+bub gateway --enable-channel telegram
 ```
 
 启用多个：
 
 ```bash
-uv run bub gateway --enable-channel telegram --enable-channel wechat
+bub gateway --enable-channel telegram --enable-channel wechat
 ```
 
 排除默认 lifecycle channel：
 
 ```bash
-uv run bub gateway --enable-channel all --enable-channel '!mcp.lifecycle'
+bub gateway --enable-channel all --enable-channel '!mcp.lifecycle'
 ```
 
 要在配置中固化默认值，设置 `enabled_channels`（逗号分隔，或 `all`）：

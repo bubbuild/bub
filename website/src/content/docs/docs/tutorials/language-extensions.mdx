@@ -15,7 +15,7 @@ The goal here is not to replace the Bub kernel. It's to provide a pragmatic exte
 
 Make sure you have:
 
-- Bub installed into an active virtual environment (`bub install` requires running from inside a venv), with `bub --help` working.
+- Bub installed with the standalone installer or into an active virtual environment, with `bub --help` working. Both paths satisfy the virtual-environment requirement of `bub install`.
 - The `bub-extism` plugin installed from [`bub-contrib`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism).
 - A Go toolchain if you plan to build the Go example.
 - A Rust toolchain with the `wasm32-unknown-unknown` target if you plan to build the Rust example.
@@ -38,7 +38,7 @@ bub install bub-extism@main
 Verify that Bub picks it up:
 
 ```bash
-uv run bub hooks
+bub hooks
 ```
 
 You should see `extism` listed alongside `builtin`.
@@ -119,7 +119,7 @@ export BUB_EXTISM_CONFIG_PATH=./extism.json
 Now let Bub build a prompt first, then execute the model hook:
 
 ```bash
-uv run bub run "Say hello from a prompt built outside Python."
+bub run "Say hello from a prompt built outside Python."
 ```
 
 When everything is wired up correctly, Bub will:
