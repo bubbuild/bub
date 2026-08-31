@@ -52,7 +52,7 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
 ## 4. 启动 gateway
 
 ```bash
-uv run bub gateway --enable-channel telegram
+bub gateway --enable-channel telegram
 ```
 
 `--enable-channel telegram` 把监听器固定到一个 channel。不带它时，`bub gateway` 会启用所有不是 `Interface` 的默认运行时 channel，其中会在 token 已设置时包含 Telegram，并同时启动已启用的 `Lifecycle` 后台服务。启动时应看到：

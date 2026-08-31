@@ -15,7 +15,7 @@ sidebar:
 
 开始前，请确保：
 
-- 已经把 Bub 安装到一个激活的虚拟环境中（`bub install` 必须在 venv 内运行），并且 `bub --help` 可以正常工作。
+- 已使用独立安装器安装 Bub，或已将 Bub 安装进一个激活的虚拟环境，并且 `bub --help` 可以正常工作。两种路径都满足 `bub install` 的 virtualenv 要求。
 - 已安装来自 [`bub-contrib`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) 的 `bub-extism` 插件。
 - 如果要构建 Go 示例，需要安装 Go 工具链。
 - 如果要构建 Rust 示例，需要安装 Rust 工具链，并添加 `wasm32-unknown-unknown` target。
@@ -38,7 +38,7 @@ bub install bub-extism@main
 安装后，确认 Bub 已经识别到它：
 
 ```bash
-uv run bub hooks
+bub hooks
 ```
 
 你应该能在输出中看到 `extism` 与 `builtin` 并列出现。
@@ -119,7 +119,7 @@ export BUB_EXTISM_CONFIG_PATH=./extism.json
 现在让 Bub 先用 Go 构建 prompt，再交给 Rust 执行 model hook：
 
 ```bash
-uv run bub run "Say hello from a prompt built outside Python."
+bub run "Say hello from a prompt built outside Python."
 ```
 
 如果一切配置正确，整个流程是：

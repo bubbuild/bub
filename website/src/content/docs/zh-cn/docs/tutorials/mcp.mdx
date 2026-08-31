@@ -13,7 +13,7 @@ sidebar:
 
 你需要：
 
-- 已安装 Bub 并可通过 `uv run bub --help` 运行。
+- 已安装 Bub 并可通过 `bub --help` 运行。
 - 系统 `PATH` 中存在 [`uv`](https://docs.astral.sh/uv/)，以便 `uvx mcp-server-time` 能按需启动 [time MCP 服务器](https://pypi.org/project/mcp-server-time/)。
 - 如果想在真实 turn 中调用 MCP 工具，需要一个可用的模型提供商（参见最后一节）。
 
@@ -25,12 +25,12 @@ sidebar:
 bub install bub-mcp@main
 ```
 
-这要求 Bub 自身运行在 virtualenv 中（参见 [`bub install`](/zh-cn/docs/reference/cli/#bub-install)）；如未激活该 venv，请先激活。
+`bub install` 要求 Bub 自身运行在 virtualenv 中（参见 [`bub install`](/zh-cn/docs/reference/cli/#bub-install)）。独立安装器通过 `uv tool` 为 Bub 创建隔离环境，已经满足该条件。如果从源码 checkout 运行，请改用 `uv run bub install bub-mcp@main`。
 
 验证插件已加载：
 
 ```bash
-uv run bub hooks
+bub hooks
 ```
 
 应能看到 `mcp` 与 `builtin` 并列：
@@ -41,7 +41,7 @@ provide_channels: builtin, mcp
 register_cli_commands: builtin, mcp
 ```
 
-如果没有 `mcp`，说明插件被装到了与 `uv run bub` 解析出的环境不同的地方。
+如果没有 `mcp`，说明插件被装到了与 `bub` 解析出的环境不同的地方。
 
 ## 2. 注册时间服务器
 
@@ -66,7 +66,7 @@ stdio 服务器中，`command` 必填；`args`、`env` 可选。**存在 `comman
 ## 3. 验证服务器已连接
 
 ```bash
-uv run bub mcp list
+bub mcp list
 ```
 
 预期输出：
@@ -99,7 +99,7 @@ uvx mcp-server-time
 同时启用输入 channel 与 MCP 生命周期 channel 来运行 gateway：
 
 ```bash
-uv run bub gateway --enable-channel cli --enable-channel mcp.lifecycle
+bub gateway --enable-channel cli --enable-channel mcp.lifecycle
 ```
 
 看到 `channel.manager started listening` 后**等几秒**让 MCP 完成 bootstrap，再向 Bub 提一个会用到时间服务器的问题（例如 `What time is it right now in UTC?`）。模型应该会调用 `mcp.time_get_current_time` 并把结果纳入回复。
@@ -154,16 +154,16 @@ uv run bub gateway --enable-channel cli --enable-channel mcp.lifecycle
 
 ```bash
 # stdio
-uv run bub mcp add --transport stdio time -- uvx mcp-server-time
-uv run bub mcp add --transport stdio --env API_KEY=secret example -- node ./my-server.js
+bub mcp add --transport stdio time -- uvx mcp-server-time
+bub mcp add --transport stdio --env API_KEY=secret example -- node ./my-server.js
 
 # http / sse
-uv run bub mcp add --transport http weather https://weather.example.com/mcp
-uv run bub mcp add --transport sse --header "Authorization: Bearer token" \
+bub mcp add --transport http weather https://weather.example.com/mcp
+bub mcp add --transport sse --header "Authorization: Bearer token" \
     events https://events.example.com/mcp
 
 # 移除
-uv run bub mcp remove time
+bub mcp remove time
 ```
 
 `--env` 仅在 `--transport stdio` 下可用；`--header` 仅在 `--transport http` 或 `--transport sse` 下可用。
@@ -172,7 +172,7 @@ uv run bub mcp remove time
 
 | 症状 | 检查项 |
 |---|---|
-| `bub hooks` 中没有 `mcp` | 插件被装到了与 `uv run bub` 解析出的环境不同的地方。重新装入当前 Bub venv。 |
+| `bub hooks` 中没有 `mcp` | 插件没有装进 `bub` 使用的环境。请使用同一个 `bub` 可执行文件重新安装。 |
 | `bub mcp list` 显示 `Status: Disconnected` | 在 Bub 之外直接运行配置的 `command`（或访问 `url`）确认能正常启动；错误信息会显示根本原因。 |
 | `bub mcp add` 在 `Added MCP server …` 之后打印 `CancelledError` | 仅是表面问题——条目已写入。用 `bub mcp list` 复核，或改为手动编辑 `mcp.json`。 |
 | turn 中工具未被调用 | 确认 `bub mcp list` 显示 `Status: Connected` 且列出了预期工具，然后提一个明显需要该工具的问题。 |

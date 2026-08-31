@@ -1,6 +1,6 @@
 ---
 title: 安装 Bub
-description: 从 PyPI 或源码安装 Bub，将其固定为框架依赖，并用 hook 报告验证安装。
+description: 使用独立安装器或源码安装 Bub，将其固定为框架依赖，并用 hook 报告验证安装。
 sidebar:
   order: 1
 ---
@@ -9,24 +9,38 @@ sidebar:
 
 ## 在开始之前
 
-你需要准备：
+使用独立安装器只需要：
 
-- Python 3.12 或更高版本
-- [`uv`](https://docs.astral.sh/uv/) — 下面的每个示例都会使用
-- 在你打算运行 Bub 的 workspace 中已可用的终端
+- macOS 与 Linux 上的 `curl`，或 Windows 上的 PowerShell
+- 可以访问 `bub.build`、`astral.sh` 和 PyPI 的网络连接
 
-## 1. 从 PyPI 安装
+安装器会在需要时引导安装 [`uv`](https://docs.astral.sh/uv/)。`uv` 随后会自动安装兼容的 Python，因此不要求系统预装 Python。
 
-大多数运维者应当将正式发布版本安装到由 `uv` 管理的虚拟环境：
+## 1. 使用独立安装器
+
+在 macOS 与 Linux 上运行：
 
 ```bash
-uv tool install bub
+curl -fsSL https://bub.build/install.sh | bash
 ```
 
-确认二进制已加入 `PATH`：
+在 Windows PowerShell 上运行：
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
+```
+
+安装器会把 `uv` 和 `bub` 可执行文件放进用户级目录，并让 `uv` 将其可执行目录加入 shell profile。安装完成后重启 shell，再运行 `bub --help`。
+
+执行前可以先检查 [install.sh](https://bub.build/install.sh) 和 [install.ps1](https://bub.build/install.ps1) 的内容。
+
+## 2. 使用已有的 uv 安装
+
+如果系统中已有 `uv`，等价的用户级安装命令是：
 
 ```bash
-bub --help
+uv tool install "bub@latest"
+uv tool update-shell
 ```
 
 如果你倾向使用 `pip`，等价命令是：
@@ -35,7 +49,7 @@ bub --help
 pip install bub
 ```
 
-## 2. 从源码安装
+## 3. 从源码安装
 
 如果你想为框架贡献代码或跟随 `main` 分支，使用本路径：
 
@@ -47,7 +61,7 @@ uv sync
 
 `uv sync` 会在 `.venv/` 下创建项目本地虚拟环境并装好所有开发依赖。完成后，文档中所有 `uv run bub` 示例都可以在仓库根目录使用。
 
-## 3. 将 Bub 固定为框架依赖
+## 4. 将 Bub 固定为框架依赖
 
 插件作者与发行版作者应当像普通 Python 包那样依赖 Bub。在插件的 `pyproject.toml` 中声明依赖，并在 `bub` entry-point 组下注册一个入口：
 
@@ -67,15 +81,15 @@ Bub 通过 `importlib.metadata.entry_points(group="bub")` 发现插件，因此�
 请把 Bub 固定到兼容的发布范围，而非 `main`。内核较小且稳定，但插件契约在 1.0 之前可能发生变化。
 :::
 
-## 4. 验证安装
+## 5. 验证安装
 
 确认 Bub 加载了内置 hook 的最快方法是 `bub hooks` 命令：
 
 ```bash
-uv run bub hooks
+bub hooks
 ```
 
-你应当看到一份摘要，包含 `builtin` 插件以及 `resolve_session`、`build_prompt`、`run_model_stream`、`render_outbound`、`dispatch_outbound` 等 hook 的实现。如果 `builtin` 缺失或被标记为失败，请重新执行 `uv sync` 并查看 loader 打印的错误。
+你应当看到一份摘要，包含 `builtin` 插件以及 `resolve_session`、`build_prompt`、`run_model_stream`、`render_outbound`、`dispatch_outbound` 等 hook 的实现。如果是从源码安装，请改用 `uv run bub hooks`。如果 `builtin` 缺失或被标记为失败，请重新安装 Bub 并查看 loader 打印的错误。
 
 ## 下一步
 

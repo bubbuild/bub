@@ -98,7 +98,7 @@ The same outcome with `uv_build` or `pdm-backend`: include the `src/skills` dire
 After installing the package into the active environment, load a specific discovered skill via the builtin command channel:
 
 ```bash
-uv run bub run ",skill name=my-skill"
+bub run ",skill name=my-skill"
 ```
 
 If the skill is on the discovery path, Bub prints its rendered body. If not, the command returns `(no such skill)` — re-check the directory name, the frontmatter `name` field, and that `skills/` made it into the installed package (`uv pip show -f my-distribution | grep skills`).

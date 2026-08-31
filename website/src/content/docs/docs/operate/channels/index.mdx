@@ -21,19 +21,19 @@ A **channel** is one inbound/outbound surface — a CLI prompt, a chat platform,
 Enable a specific channel:
 
 ```bash
-uv run bub gateway --enable-channel telegram
+bub gateway --enable-channel telegram
 ```
 
 Enable several:
 
 ```bash
-uv run bub gateway --enable-channel telegram --enable-channel wechat
+bub gateway --enable-channel telegram --enable-channel wechat
 ```
 
 Exclude a default lifecycle channel:
 
 ```bash
-uv run bub gateway --enable-channel all --enable-channel '!mcp.lifecycle'
+bub gateway --enable-channel all --enable-channel '!mcp.lifecycle'
 ```
 
 To pin the default in config, set `enabled_channels` (comma-separated, or `all`):

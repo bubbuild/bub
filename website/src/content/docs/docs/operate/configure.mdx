@@ -17,15 +17,15 @@ Downstream model SDKs may still read their own provider variables, such as `OPEN
 
 ## Before you begin
 
-- Bub is installed (`uv run bub --help` works).
-- You have one model provider's API key, or you have run `uv run bub login openai` for OAuth.
+- Bub is installed (`bub --help` works).
+- You have one model provider's API key, or you have run `bub login openai` for OAuth.
 
 ## 1. Run the interactive setup
 
 `bub onboard` walks through the minimum config — model, API key, enabled channels, and streaming settings — and writes the result to `~/.bub/config.yml`. Plugins may add their own prompts through the `onboard_config` hook.
 
 ```bash
-uv run bub onboard
+bub onboard
 ```
 
 The file lives at `~/.bub/config.yml` by default. `BUB_HOME` controls `bub.home`, including history, tapes, and the managed plugin project; it does not move the default config file. Use `BubFramework(config_file=...)` when embedding Bub and you need a different config path.
@@ -62,7 +62,7 @@ Every YAML key has a matching environment variable. The pattern is `BUB_<UPPERCA
 | `BUB_<PROVIDER>_API_KEY` | Per-provider key, e.g. `BUB_OPENROUTER_API_KEY`. |
 | `BUB_<PROVIDER>_API_BASE` | Per-provider base URL. |
 
-When you use `uv run bub login openai`, Bub reads Codex OAuth credentials from `CODEX_HOME` or `~/.codex` and refreshes them automatically. Use a model id under the `openai:` provider and keep both `BUB_API_KEY` and `BUB_API_BASE` unset for that path.
+When you use `bub login openai`, Bub reads Codex OAuth credentials from `CODEX_HOME` or `~/.codex` and refreshes them automatically. Use a model id under the `openai:` provider and keep both `BUB_API_KEY` and `BUB_API_BASE` unset for that path.
 
 For the full table, including channel debounce knobs and advanced model-client settings, see [Settings reference](/docs/reference/settings/).
 
@@ -84,13 +84,13 @@ For the message-handling and access-control behavior these variables drive, see 
 Print the loaded hook mapping:
 
 ```bash
-uv run bub hooks
+bub hooks
 ```
 
 Then run one turn end-to-end:
 
 ```bash
-uv run bub run "say hi"
+bub run "say hi"
 ```
 
 Expected output prints each outbound as a prefix line (`[<channel>:<chat_id>]`) followed by the message content.

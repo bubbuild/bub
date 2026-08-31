@@ -15,7 +15,7 @@ The example uses [`ggml-org/gemma-4-E2B-it-GGUF`](https://huggingface.co/ggml-or
 
 You need:
 
-- Bub installed and runnable with `uv run bub --help`.
+- Bub installed and runnable with `bub --help`.
 - Docker installed.
 - A GGUF model file under `~/.cache/llama.cpp/`.
 - Enough system memory for the quantization you choose. The Q8 Gemma 4 E2B GGUF file is about 5 GB on disk; runtime memory also depends on context size, batching, and GPU offload.
@@ -90,13 +90,13 @@ export BUB_MODEL="openai:gemma-4-E2B-it"
 Run one Bub turn:
 
 ```bash
-uv run bub run "Reply with one short sentence: hello from a local model."
+bub run "Reply with one short sentence: hello from a local model."
 ```
 
 Bub now uses the local OpenAI-compatible endpoint for model calls. The turn pipeline, channels, tools, and tapes are unchanged.
 
 ```bash
-~/bubbuild/bub$ uv run bub run "Reply with one short sentence: hello from a local model."
+~/bubbuild/bub$ bub run "Reply with one short sentence: hello from a local model."
 2026-05-19 01:32:40.601 | INFO     | bub.builtin.agent:_run_tools_with_auto_handoff:271 - loop.step step=1 tape=becda04eb9f7369c__0b871d5e50e7c192 model=openai:gemma-4-E2B-it
 2026-05-19 01:32:46.747 | INFO     | bub.builtin.store:fork:122 - Merged 7 entries into tape "becda04eb9f7369c__0b871d5e50e7c192"
 [cli:local]

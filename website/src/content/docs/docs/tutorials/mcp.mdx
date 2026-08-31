@@ -13,7 +13,7 @@ By the end you will have the official `mcp-server-time` registered with Bub and 
 
 You need:
 
-- Bub installed and runnable with `uv run bub --help`.
+- Bub installed and runnable with `bub --help`.
 - [`uv`](https://docs.astral.sh/uv/) on `PATH` so `uvx mcp-server-time` can launch the [time MCP server](https://pypi.org/project/mcp-server-time/) on demand.
 - A working model provider if you want to call the MCP tool from a real turn (see the final section).
 
@@ -25,12 +25,12 @@ You need:
 bub install bub-mcp@main
 ```
 
-This requires Bub to be running inside a virtualenv (see [`bub install`](/docs/reference/cli/#bub-install)); activate it first if needed.
+`bub install` requires Bub itself to run from a virtual environment (see [`bub install`](/docs/reference/cli/#bub-install)). The standalone installer already satisfies this because `uv tool` gives Bub an isolated environment. When running from a source checkout, invoke the command with `uv run bub install bub-mcp@main` instead.
 
 Verify the plugin loaded:
 
 ```bash
-uv run bub hooks
+bub hooks
 ```
 
 You should see `mcp` listed alongside `builtin`:
@@ -41,7 +41,7 @@ provide_channels: builtin, mcp
 register_cli_commands: builtin, mcp
 ```
 
-If `mcp` is missing, the plugin landed in a different environment than the one `uv run bub` resolves.
+If `mcp` is missing, the plugin landed outside the environment used by `bub`.
 
 ## 2. Register the time server
 
@@ -66,7 +66,7 @@ For stdio servers, `command` is required; `args` and `env` are optional. The pre
 ## 3. Verify the server is connected
 
 ```bash
-uv run bub mcp list
+bub mcp list
 ```
 
 Expected output:
@@ -99,7 +99,7 @@ The process should start without exiting. Press `Ctrl-C` to stop it, fix the und
 Run the gateway with both the input channel and the MCP lifecycle channel enabled:
 
 ```bash
-uv run bub gateway --enable-channel cli --enable-channel mcp.lifecycle
+bub gateway --enable-channel cli --enable-channel mcp.lifecycle
 ```
 
 Wait a few seconds after `channel.manager started listening` so the MCP bootstrap can complete, then ask Bub a question that needs the time server (for example, `What time is it right now in UTC?`). The model should call `mcp.time_get_current_time` and include the result in its reply.
@@ -154,16 +154,16 @@ If you prefer the CLI over editing JSON, `bub mcp add` writes the same entries:
 
 ```bash
 # stdio
-uv run bub mcp add --transport stdio time -- uvx mcp-server-time
-uv run bub mcp add --transport stdio --env API_KEY=secret example -- node ./my-server.js
+bub mcp add --transport stdio time -- uvx mcp-server-time
+bub mcp add --transport stdio --env API_KEY=secret example -- node ./my-server.js
 
 # http / sse
-uv run bub mcp add --transport http weather https://weather.example.com/mcp
-uv run bub mcp add --transport sse --header "Authorization: Bearer token" \
+bub mcp add --transport http weather https://weather.example.com/mcp
+bub mcp add --transport sse --header "Authorization: Bearer token" \
     events https://events.example.com/mcp
 
 # remove
-uv run bub mcp remove time
+bub mcp remove time
 ```
 
 `--env` is only allowed with `--transport stdio`; `--header` is only allowed with `--transport http` or `--transport sse`.
@@ -172,7 +172,7 @@ uv run bub mcp remove time
 
 | Symptom | Check |
 |---|---|
-| `mcp` does not appear in `bub hooks` | The plugin was installed in a different environment than `uv run bub` resolves. Re-install into the active Bub venv. |
+| `mcp` does not appear in `bub hooks` | The plugin was installed outside the environment used by `bub`. Re-install it with the same `bub` executable. |
 | `bub mcp list` reports `Status: Disconnected` | Run the configured `command` (or open the `url`) outside Bub and confirm it starts cleanly; the error column shows the underlying cause. |
 | `bub mcp add` prints `CancelledError` after `Added MCP server …` | Cosmetic only — the entry is written. Use `bub mcp list` to verify, or edit `mcp.json` by hand. |
 | Tool never called during a turn | Confirm `bub mcp list` shows `Status: Connected` and lists the expected tool, then ask a question that clearly maps to that tool. |

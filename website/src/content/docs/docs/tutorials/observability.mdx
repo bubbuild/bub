@@ -16,8 +16,8 @@ By the end, you will have a quick local health check and a Phoenix trace view fo
 
 You need:
 
-- Bub installed and runnable with `uv run bub --help`.
-- One workspace where `uv run bub run "What tools do you have?"` can call your configured model.
+- Bub installed and runnable with `bub --help`.
+- One workspace where `bub run "What tools do you have?"` can call your configured model.
 - Docker or Podman if you want to run Phoenix locally.
 - The Logfire extra installed before starting Bub with Phoenix:
 
@@ -36,13 +36,13 @@ bub install bub-tapestore-otel@main
 Run an English natural-language task first:
 
 ```bash
-uv run bub run "What tools do you have, and what small tasks are they useful for?"
+bub run "What tools do you have, and what small tasks are they useful for?"
 ```
 
 Then ask Bub to inspect the tape that was updated by that turn:
 
 ```bash
-uv run bub run ",tape.info"
+bub run ",tape.info"
 ```
 
 Expected output looks like this:
@@ -74,13 +74,13 @@ Because Bub uses the [tape model](/docs/concepts/tape-and-context/) from [tape.s
 Use `tape.search` when you need to find a prior tool call, error, or handoff:
 
 ```bash
-uv run bub run ",tape.search query=loop.step"
+bub run ",tape.search query=loop.step"
 ```
 
 You can also ask the model to inspect the tape and explain what it sees:
 
 ```bash
-uv run bub run "Inspect the current tape and summarize the last turn."
+bub run "Inspect the current tape and summarize the last turn."
 ```
 
 That second command may call the model, so use it only after provider credentials are configured.
