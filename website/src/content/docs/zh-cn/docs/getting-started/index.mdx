@@ -13,8 +13,8 @@ Bub 是一个用于在共享环境中构建 agent 的小型 Python 框架。内�
 
 你需要准备：
 
-- Python 3.12 或更高版本
-- 已加入 `PATH` 的 [`uv`](https://docs.astral.sh/uv/)
+- macOS 与 Linux 上的 `curl`，或 Windows 上的 PowerShell
+- 可以访问 `bub.build`、`astral.sh` 和 PyPI 的网络连接
 - 一种模型访问方式，用于 model-backed 阶段：
   - 通过 `BUB_API_KEY` 或提供商专用 `BUB_<PROVIDER>_API_KEY` 导出的 API key，或
   - 通过 `bub login openai` 完成 OpenAI Codex OAuth，并设置 `BUB_MODEL=openai:<codex-model>`
