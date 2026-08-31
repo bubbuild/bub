@@ -250,9 +250,10 @@ def attach_terminal() -> None:
         input_stream = open("/dev/tty", encoding="utf-8")  # noqa: SIM115
         output_stream = open("/dev/tty", "w", encoding="utf-8", buffering=1)  # noqa: SIM115
 
-    sys.stdin = input_stream
-    sys.stdout = output_stream
-    sys.stderr = output_stream
+    # Textual reads the original standard streams directly.
+    sys.stdin = sys.__stdin__ = input_stream
+    sys.stdout = sys.__stdout__ = output_stream
+    sys.stderr = sys.__stderr__ = output_stream
 
 
 def choose_preset(presets: list[dict[str, object]]) -> tuple[dict[str, object], list[str]]:
