@@ -4,7 +4,8 @@ set -euo pipefail
 
 readonly UV_INSTALL_URL="https://astral.sh/uv/install.sh"
 readonly DEFAULT_PRESETS_URL="https://bub.build/presets.json"
-readonly BUB_PACKAGE="bub@latest"
+readonly BUB_PACKAGE="bub"
+readonly BUB_PYTHON="3.12"
 readonly INQUIRER_PACKAGE="inquirer-textual==0.6.1"
 
 UV_BIN=""
@@ -17,7 +18,6 @@ COLOR_RESET=""
 COLOR_BOLD=""
 COLOR_CYAN=""
 COLOR_GREEN=""
-COLOR_YELLOW=""
 
 configure_colors() {
     if [[ "$INTERACTIVE" == true && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
@@ -25,7 +25,6 @@ configure_colors() {
         COLOR_BOLD=$'\033[1m'
         COLOR_CYAN=$'\033[36m'
         COLOR_GREEN=$'\033[32m'
-        COLOR_YELLOW=$'\033[33m'
     fi
 }
 
@@ -39,10 +38,6 @@ say_step() {
     else
         say "$*"
     fi
-}
-
-warn() {
-    printf '%swarning:%s %s\n' "$COLOR_YELLOW" "$COLOR_RESET" "$*" >&2
 }
 
 fail() {
@@ -144,6 +139,17 @@ install_uv() {
 
     UV_BIN="$uv_install_dir/uv"
     [[ -x "$UV_BIN" ]] || fail "uv was installed, but $UV_BIN is not executable"
+}
+
+link_bub_executable() {
+    local source=$1
+    local destination=$2
+
+    mkdir -p "$(dirname "$destination")"
+    if [[ -e "$destination" || -L "$destination" ]]; then
+        rm -f -- "$destination"
+    fi
+    ln -s "$source" "$destination"
 }
 
 download_presets() {
@@ -340,17 +346,21 @@ main() {
     local selected_preset=${resolved_lines[0]}
     local dependencies=("${resolved_lines[@]:1}")
 
+    local bub_root="$HOME/.bub"
+    local venv_dir="$bub_root/.venv"
+    local venv_python="$venv_dir/bin/python"
+    local venv_bub="$venv_dir/bin/bub"
+    local executable_dir="$HOME/.local/bin"
+    local bub_bin="$executable_dir/bub"
+
+    say_step "Creating Bub virtual environment"
+    mkdir -p "$bub_root"
+    "$UV_BIN" venv --python "$BUB_PYTHON" --allow-existing "$venv_dir"
+
     say_step "Installing Bub"
-    "$UV_BIN" tool install "$BUB_PACKAGE"
-
-    if ! "$UV_BIN" tool update-shell; then
-        warn "uv could not update your shell profile"
-    fi
-
-    local tool_bin
-    tool_bin="$("$UV_BIN" tool dir --bin)"
-    local bub_bin="$tool_bin/bub"
-    [[ -x "$bub_bin" ]] || fail "Bub was installed, but $bub_bin is not executable"
+    "$UV_BIN" pip install --python "$venv_python" --upgrade "$BUB_PACKAGE"
+    [[ -x "$venv_bub" ]] || fail "Bub was installed, but $venv_bub is not executable"
+    link_bub_executable "$venv_bub" "$bub_bin"
 
     if ((${#dependencies[@]})); then
         say_step "Installing plugins for preset $selected_preset"
@@ -369,8 +379,9 @@ main() {
         say "Bub was installed successfully."
     fi
     say "Preset: $selected_preset"
-    say "Executable directory: $tool_bin"
-    say "Restart your shell, then run: bub --help"
+    say "Virtual environment: $venv_dir"
+    say "Executable link: $bub_bin"
+    say "Ensure $executable_dir is on PATH, then run: bub --help"
 }
 
 main "$@"

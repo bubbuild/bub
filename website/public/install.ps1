@@ -3,7 +3,8 @@ Set-StrictMode -Version Latest
 
 $UvInstallUrl = "https://astral.sh/uv/install.ps1"
 $DefaultPresetsUrl = "https://bub.build/presets.json"
-$BubPackage = "bub@latest"
+$BubPackage = "bub"
+$BubPython = "3.12"
 $InquirerPackage = "inquirer-textual==0.6.1"
 $script:UvPath = $null
 $script:Interactive = $false
@@ -20,18 +21,6 @@ function Write-Step {
     }
     else {
         Write-Host $Message
-    }
-}
-
-function Write-InstallerWarning {
-    param([Parameter(Mandatory = $true)][string]$Message)
-
-    if ($script:UseColor) {
-        Write-Host "warning:" -ForegroundColor Yellow -NoNewline
-        Write-Host " $Message" -ForegroundColor Yellow
-    }
-    else {
-        Write-Warning $Message
     }
 }
 
@@ -139,6 +128,26 @@ function Install-Uv {
     if (-not (Test-Path -LiteralPath $script:UvPath -PathType Leaf)) {
         throw "uv was installed, but $script:UvPath does not exist"
     }
+}
+
+function Set-BubExecutableLink {
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetPath,
+        [Parameter(Mandatory = $true)][string]$LinkPath
+    )
+
+    $LinkDirectory = Split-Path -Parent $LinkPath
+    [IO.Directory]::CreateDirectory($LinkDirectory) | Out-Null
+
+    $ExistingItem = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+    if ($null -ne $ExistingItem) {
+        if ($ExistingItem.PSIsContainer) {
+            throw "$LinkPath already exists and is a directory"
+        }
+        Remove-Item -LiteralPath $LinkPath -Force
+    }
+
+    New-Item -ItemType HardLink -Path $LinkPath -Target $TargetPath | Out-Null
 }
 
 function Get-PresetResolution {
@@ -344,27 +353,27 @@ finally {
 $SelectedPreset = $ResolvedLines[0]
 $Dependencies = @($ResolvedLines | Select-Object -Skip 1)
 
+$BubRoot = Join-Path $HOME ".bub"
+$VenvPath = Join-Path $BubRoot ".venv"
+$VenvPython = Join-Path $VenvPath "Scripts\python.exe"
+$VenvBub = Join-Path $VenvPath "Scripts\bub.exe"
+$ExecutableDirectory = Join-Path $HOME ".local\bin"
+$script:BubPath = Join-Path $ExecutableDirectory "bub.exe"
+
+Write-Step "Creating Bub virtual environment"
+[IO.Directory]::CreateDirectory($BubRoot) | Out-Null
+Invoke-Uv -Arguments @("venv", "--python", $BubPython, "--allow-existing", $VenvPath)
+
 Write-Step "Installing Bub"
-Invoke-Uv -Arguments @("tool", "install", $BubPackage)
-
-& $script:UvPath tool update-shell
-if ($LASTEXITCODE -ne 0) {
-    Write-InstallerWarning "uv could not update your PowerShell profile"
+Invoke-Uv -Arguments @("pip", "install", "--python", $VenvPython, "--upgrade", $BubPackage)
+if (-not (Test-Path -LiteralPath $VenvBub -PathType Leaf)) {
+    throw "Bub was installed, but $VenvBub does not exist"
 }
-
-$ToolBinOutput = & $script:UvPath tool dir --bin
-if ($LASTEXITCODE -ne 0) {
-    throw "uv tool dir --bin failed with exit code $LASTEXITCODE"
-}
-$ToolBin = ($ToolBinOutput | Select-Object -Last 1).Trim()
-$script:BubPath = Join-Path $ToolBin "bub.exe"
-if (-not (Test-Path -LiteralPath $script:BubPath -PathType Leaf)) {
-    throw "Bub was installed, but $script:BubPath does not exist"
-}
+Set-BubExecutableLink -TargetPath $VenvBub -LinkPath $script:BubPath
 
 $PathEntries = $env:PATH -split [IO.Path]::PathSeparator
-if ($ToolBin -notin $PathEntries) {
-    $env:PATH = "$ToolBin$([IO.Path]::PathSeparator)$env:PATH"
+if ($ExecutableDirectory -notin $PathEntries) {
+    $env:PATH = "$ExecutableDirectory$([IO.Path]::PathSeparator)$env:PATH"
 }
 
 if ($Dependencies.Count -gt 0) {
@@ -385,5 +394,6 @@ else {
     Write-Host "Bub was installed successfully."
 }
 Write-Host "Preset: $SelectedPreset"
-Write-Host "Executable directory: $ToolBin"
-Write-Host "Restart your shell, then run: bub --help"
+Write-Host "Virtual environment: $VenvPath"
+Write-Host "Executable link: $script:BubPath"
+Write-Host "Ensure $ExecutableDirectory is on PATH, then run: bub --help"

@@ -54,8 +54,28 @@ if [[ "$1" == "run" && "$2" == "--no-project" && "$3" == "python" && "$4" == "-"
     shift 4
     exec "$BUB_TEST_PYTHON" - "$@"
 fi
-if [[ "$*" == "tool dir --bin" ]]; then
-    printf '%s\\n' "$BUB_TEST_TOOL_BIN"
+if [[ "$1" == "venv" ]]; then
+    venv_path=""
+    for argument in "$@"; do
+        venv_path=$argument
+    done
+    mkdir -p "$venv_path/bin"
+    touch "$venv_path/bin/python"
+    chmod +x "$venv_path/bin/python"
+fi
+if [[ "$1" == "pip" && "$2" == "install" ]]; then
+    shift 2
+    python_path=""
+    while (($#)); do
+        if [[ "$1" == "--python" ]]; then
+            python_path=$2
+            break
+        fi
+        shift
+    done
+    [[ -n "$python_path" ]]
+    cp "$BUB_TEST_FAKE_BUB" "$(dirname "$python_path")/bub"
+    chmod +x "$(dirname "$python_path")/bub"
 fi
 """
 
@@ -82,11 +102,10 @@ cp "$BUB_TEST_PRESETS" "$destination"
 
 def installer_environment(tmp_path: Path, bin_dir: Path) -> dict[str, str]:
     home_dir = tmp_path / "home"
-    tool_bin = tmp_path / "tool-bin"
     home_dir.mkdir(exist_ok=True)
-    tool_bin.mkdir(exist_ok=True)
+    fake_bub = tmp_path / "fake-bub"
     write_executable(
-        tool_bin / "bub",
+        fake_bub,
         """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$BUB_TEST_BUB_LOG"
 """,
@@ -97,9 +116,9 @@ printf '%s\\n' "$*" >> "$BUB_TEST_BUB_LOG"
         "BUB_INSTALLER_PRESETS_URL": "https://example.test/presets.json",
         "BUB_TEST_BUB_LOG": str(tmp_path / "bub.log"),
         "BUB_TEST_CURL_LOG": str(tmp_path / "curl.log"),
+        "BUB_TEST_FAKE_BUB": str(fake_bub),
         "BUB_TEST_PRESETS": str(PRESETS_JSON),
         "BUB_TEST_PYTHON": sys.executable,
-        "BUB_TEST_TOOL_BIN": str(tool_bin),
         "BUB_TEST_UV_LOG": str(tmp_path / "uv.log"),
         "HOME": str(home_dir),
         "PATH": f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin",
@@ -141,17 +160,23 @@ def test_install_sh_uses_existing_uv_with_minimal_preset(tmp_path: Path) -> None
     bin_dir.mkdir()
     write_executable(bin_dir / "uv", fake_uv_script())
     environment = installer_environment(tmp_path, bin_dir)
+    old_executable = tmp_path / "home" / ".local" / "bin" / "bub"
+    old_executable.parent.mkdir(parents=True)
+    write_executable(old_executable, "#!/usr/bin/env bash\nexit 0\n")
 
     result = run_installer(tmp_path, environment, "--preset", "minimal")
 
     uv_calls = (tmp_path / "uv.log").read_text().splitlines()
     assert uv_calls[0].startswith("run --no-project python - ")
     assert " noninteractive minimal " in uv_calls[0]
+    venv_path = tmp_path / "home" / ".bub" / ".venv"
     assert uv_calls[1:] == [
-        "tool install bub@latest",
-        "tool update-shell",
-        "tool dir --bin",
+        f"venv --python 3.12 --allow-existing {venv_path}",
+        f"pip install --python {venv_path / 'bin' / 'python'} --upgrade bub",
     ]
+    executable_link = tmp_path / "home" / ".local" / "bin" / "bub"
+    assert executable_link.is_symlink()
+    assert executable_link.resolve() == venv_path / "bin" / "bub"
     assert not (tmp_path / "bub.log").exists()
     assert "Bub was installed successfully." in result.stdout
     assert "Preset: minimal" in result.stdout
@@ -190,7 +215,7 @@ def test_install_sh_rejects_unknown_preset_before_installing_bub(tmp_path: Path)
     assert result.returncode != 0
     available_presets = ", ".join(preset["name"] for preset in load_preset_catalog()["presets"])
     assert f"available presets: {available_presets}" in result.stderr
-    assert (tmp_path / "uv.log").read_text().count("tool install") == 0
+    assert (tmp_path / "uv.log").read_text().count("pip install") == 0
     assert not (tmp_path / "bub.log").exists()
 
 
@@ -204,7 +229,7 @@ def test_install_sh_rejects_unsafe_dependency(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "not a safe package specification" in result.stderr
-    assert (tmp_path / "uv.log").read_text().count("tool install") == 0
+    assert (tmp_path / "uv.log").read_text().count("pip install") == 0
 
 
 def test_install_sh_requires_preset_without_terminal(tmp_path: Path) -> None:
@@ -261,14 +286,23 @@ def test_install_scripts_expose_interactive_color_and_onboarding_contract() -> N
         assert "NO_COLOR" in content
         assert "--preset" in content
         assert "--dependency" in content
-        assert "bub@latest" in content
+        assert ".bub" in content
+        assert ".venv" in content
+        assert "pip" in content
         assert "presets.json" in content
         assert "onboard" in content
         assert "install" in content
         assert "inquirer-textual==0.6.1" in content
         assert "prompts.select" in content
+        assert "tool install" not in content
     assert "$'\\033[" in bash_content
+    assert 'local venv_dir="$bub_root/.venv"' in bash_content
+    assert 'local executable_dir="$HOME/.local/bin"' in bash_content
+    assert 'ln -s "$source" "$destination"' in bash_content
     assert "ForegroundColor" in powershell_content
+    assert '$VenvPath = Join-Path $BubRoot ".venv"' in powershell_content
+    assert '$ExecutableDirectory = Join-Path $HOME ".local\\bin"' in powershell_content
+    assert "New-Item -ItemType HardLink" in powershell_content
     assert '"bub-mcp@main"' in PRESETS_JSON.read_text()
 
 
