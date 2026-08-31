@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+from io import StringIO
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -304,6 +305,31 @@ def test_install_scripts_expose_interactive_color_and_onboarding_contract() -> N
     assert '$ExecutableDirectory = Join-Path $HOME ".local\\bin"' in powershell_content
     assert "New-Item -ItemType HardLink" in powershell_content
     assert '"bub-mcp@main"' in PRESETS_JSON.read_text()
+
+
+def test_embedded_resolver_attaches_textual_standard_streams(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = embedded_bash_resolver()
+    assert source == embedded_powershell_resolver()
+
+    namespace: dict[str, object] = {"__name__": "installer_resolver"}
+    exec(compile(source, "installer_resolver.py", "exec"), namespace)  # noqa: S102
+
+    input_stream = StringIO()
+    output_stream = StringIO()
+    original_streams = (sys.stdin, sys.stdout, sys.stderr, sys.__stdin__, sys.__stdout__, sys.__stderr__)
+
+    def open_terminal(path: str, mode: str = "r", **_: object) -> StringIO:
+        assert path == "/dev/tty"
+        return output_stream if "w" in mode else input_stream
+
+    monkeypatch.setattr("builtins.open", open_terminal)
+    try:
+        namespace["attach_terminal"]()
+        assert sys.stdin is sys.__stdin__ is input_stream
+        assert sys.stdout is sys.__stdout__ is output_stream
+        assert sys.stderr is sys.__stderr__ is output_stream
+    finally:
+        sys.stdin, sys.stdout, sys.stderr, sys.__stdin__, sys.__stdout__, sys.__stderr__ = original_streams
 
 
 def test_embedded_resolver_interactive_picker_uses_inquirer_textual(
