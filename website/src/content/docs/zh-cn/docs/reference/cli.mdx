@@ -70,12 +70,19 @@ bub gateway [OPTIONS]
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
 | `--enable-channel` | TEXT (repeatable) | 空列表(读取 `BUB_ENABLED_CHANNELS`) | 限制 gateway 仅启用列出的 channel 名。可重复传入。 |
+| `--install` | flag | 关闭 | 把 gateway 安装并启动为当前用户的后台服务。 |
+| `--uninstall` | flag | 关闭 | 停止并卸载当前用户的 gateway 后台服务。 |
 
 行为说明:
 
 - 未传 `--enable-channel` 时,Manager 读取 `ChannelSettings.enabled_channels`(`BUB_ENABLED_CHANNELS`,默认 `all`)。
 - `all` 会启动所有已启用且不是 `Interface` 的 channel。显式列出且至少包含一个非 `Lifecycle` channel 时，会自动附着已启用的 `Lifecycle` 后台服务；可用 `!name` 排除其中某个 channel。
 - `framework.running()` 持续到 manager 主循环退出;关闭时执行 `provide_tape_store` 的清理。
+- Linux 上，`--install` 会把 `bub-gateway.service` 写入 `${XDG_CONFIG_HOME:-~/.config}/systemd/user/`，为用户的 default target 启用它，并启动或重启服务；如需在退出登录后继续运行，需另行执行 `loginctl enable-linger`。
+- Windows 上，`--install` 会注册并启动当前用户的 `Bub Gateway` Task Scheduler 任务。任务在该用户登录时以有限权限运行，并在失败后重启。
+- 安装会固化当前 Python 解释器、workspace 与显式传入的 `--enable-channel`。重复执行会替换并重启现有服务；移动或替换 Python 环境后应重新执行安装命令。
+- `--uninstall` 会停止并删除对应的 systemd user unit 或 Windows 计划任务。服务已经不存在时仍视为成功，且不要求当前存在已启用的 channel。
+- `--install` 与 `--uninstall` 不能同时使用。
 
 部署细节见 [运维 › Channels](/zh-cn/docs/operate/channels/)。
 
@@ -96,13 +103,14 @@ bub onboard [OPTIONS]
 - builtin 的 onboarding fragment 会询问:provider(`openrouter`、`openai`、`anthropic`、`gemini`、`azure`、`bedrock`、`ollama`、`groq`、`mistral`、`deepseek` 之一,或 `custom`)、模型名、可选 API key、可选 API base、启用的 channel、是否流式输出。
 - 每个插件的 `onboard_config` 钩子都会拿到当前已累计的 dict;返回值不是 dict 时抛 `TypeError` 并中止。
 - 合并后的 dict 会经过 `configure.validate` 验证后才写入。
+- Linux 或 Windows 上保存了至少一个 channel 后，onboarding 会询问是否把 gateway 安装为当前用户的后台服务，默认选择否。安装失败不会回滚已保存的配置，并以退出码 `1` 结束。
 
 退出码:
 
 | 退出码 | 含义 |
 | --- | --- |
 | `0` | 配置已保存。 |
-| `1` | 验证或写入失败;错误信息打印到 stderr。 |
+| `1` | 验证、写入或用户请求的 gateway 安装失败;错误信息打印到 stderr。 |
 
 ## `bub install`
 

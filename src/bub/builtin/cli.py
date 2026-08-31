@@ -80,11 +80,26 @@ def list_hooks(ctx: typer.Context) -> None:
 def gateway(
     ctx: typer.Context,
     enable_channels: list[str] = typer.Option([], "--enable-channel", help="Channels to enable for CLI (default: all)"),
+    install: bool = typer.Option(False, "--install", help="Install and start the gateway as a per-user service"),
+    uninstall: bool = typer.Option(False, "--uninstall", help="Stop and uninstall the per-user gateway service"),
 ) -> None:
     """Start message listeners(like telegram)."""
-    from bub.channels.manager import ChannelManager
-
     framework = ctx.ensure_object(BubFramework)
+
+    if install and uninstall:
+        raise typer.BadParameter("--install and --uninstall cannot be used together")
+    if uninstall:
+        from bub.gateway_installer import GatewayServiceError, uninstall_gateway
+
+        try:
+            removed = uninstall_gateway()
+        except GatewayServiceError as exc:
+            typer.secho(f"Gateway uninstallation failed: {exc}", err=True, fg="red")
+            raise typer.Exit(1) from exc
+        typer.echo(f"Stopped and uninstalled the gateway from {removed.backend}: {removed.destination}")
+        return
+
+    from bub.channels.manager import ChannelManager
 
     manager = ChannelManager(framework, enabled_channels=enable_channels or None)
     if not manager.enabled_channels():
@@ -94,6 +109,16 @@ def gateway(
             fg="red",
         )
         raise typer.Exit(1)
+    if install:
+        from bub.gateway_installer import GatewayServiceError, install_gateway
+
+        try:
+            installed = install_gateway(framework.workspace, enable_channels)
+        except GatewayServiceError as exc:
+            typer.secho(f"Gateway installation failed: {exc}", err=True, fg="red")
+            raise typer.Exit(1) from exc
+        typer.echo(f"Installed and started the gateway with {installed.backend}: {installed.destination}")
+        return
     asyncio.run(manager.listen_and_run())
 
 
@@ -133,6 +158,26 @@ def onboard(ctx: typer.Context) -> None:
         raise typer.Exit(1) from exc
 
     typer.echo(f"Saved config to {framework.config_file}")
+
+    from bub import inquirer as bub_inquirer
+    from bub.gateway_installer import GatewayServiceError, install_gateway, is_gateway_service_supported
+
+    enabled_channels = str(config_data.get("enabled_channels", "")).strip()
+    if not enabled_channels or not is_gateway_service_supported():
+        return
+    if not bub_inquirer.ask_confirm("Install gateway as a background service?", default=False):
+        return
+
+    try:
+        installed = install_gateway(framework.workspace, [])
+    except GatewayServiceError as exc:
+        typer.secho(
+            f"Gateway installation failed: {exc}. Configuration remains saved at {framework.config_file}.",
+            err=True,
+            fg="red",
+        )
+        raise typer.Exit(1) from exc
+    typer.echo(f"Installed and started the gateway with {installed.backend}: {installed.destination}")
 
 
 @lru_cache(maxsize=1)

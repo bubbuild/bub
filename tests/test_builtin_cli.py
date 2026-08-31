@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -149,7 +150,7 @@ def test_onboard_collects_builtin_runtime_config(tmp_path: Path, monkeypatch) ->
         monkeypatch.setattr(
             bub_inquirer,
             "ask_confirm",
-            lambda message, default=False: True,
+            lambda message, default=False: message == "Stream output",
         )
         monkeypatch.setattr(
             bub_inquirer,
@@ -174,6 +175,7 @@ def test_onboard_collects_builtin_runtime_config(tmp_path: Path, monkeypatch) ->
 def test_onboard_allows_no_channels(tmp_path: Path, monkeypatch) -> None:
     config_file = tmp_path / "config.yml"
     checkbox_validate: list[object] = []
+    confirm_messages: list[str] = []
 
     with patch.dict(os.environ, {}, clear=True):
         monkeypatch.chdir(tmp_path)
@@ -189,7 +191,12 @@ def test_onboard_allows_no_channels(tmp_path: Path, monkeypatch) -> None:
             return []
 
         monkeypatch.setattr(bub_inquirer, "ask_checkbox", ask_checkbox)
-        monkeypatch.setattr(bub_inquirer, "ask_confirm", lambda message, default=False: default)
+
+        def ask_confirm(message: str, default: bool = False) -> bool:
+            confirm_messages.append(message)
+            return default
+
+        monkeypatch.setattr(bub_inquirer, "ask_confirm", ask_confirm)
         monkeypatch.setattr(bub_inquirer, "ask_secret", lambda message: "")
 
         result = CliRunner().invoke(app, ["onboard"])
@@ -197,7 +204,68 @@ def test_onboard_allows_no_channels(tmp_path: Path, monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert checkbox_validate == [None]
+    assert confirm_messages == ["Stream output"]
     assert loaded["enabled_channels"] == ""
+
+
+def test_onboard_can_install_gateway_after_saving_config(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / "config.yml"
+    framework = BubFramework(config_file=config_file)
+    framework.load_hooks()
+    app = framework.create_cli_app()
+    installed = SimpleNamespace(backend="systemd", destination=os.fspath(tmp_path / "bub-gateway.service"))
+    observed: dict[str, Any] = {}
+    monkeypatch.setattr(
+        framework,
+        "collect_onboard_config",
+        lambda: {"enabled_channels": "telegram", "telegram": {"token": "token"}},
+    )
+    monkeypatch.setattr("bub.gateway_installer.is_gateway_service_supported", lambda: True)
+
+    def confirm_install(message: str, default: bool = False) -> bool:
+        assert message == "Install gateway as a background service?"
+        assert default is False
+        assert configure.load(config_file)["enabled_channels"] == "telegram"
+        return True
+
+    monkeypatch.setattr(bub_inquirer, "ask_confirm", confirm_install)
+
+    def install_gateway(workspace: Path, channels: list[str]) -> SimpleNamespace:
+        observed["workspace"] = workspace
+        observed["channels"] = channels
+        return installed
+
+    monkeypatch.setattr("bub.gateway_installer.install_gateway", install_gateway)
+
+    result = CliRunner().invoke(app, ["--workspace", os.fspath(tmp_path), "onboard"])
+
+    assert result.exit_code == 0
+    assert f"Saved config to {config_file.resolve()}" in result.output
+    assert "Installed and started the gateway with systemd" in result.output
+    assert observed == {"workspace": tmp_path.resolve(), "channels": []}
+
+
+def test_onboard_keeps_saved_config_when_gateway_installation_fails(tmp_path: Path, monkeypatch) -> None:
+    from bub.gateway_installer import GatewayServiceError
+
+    config_file = tmp_path / "config.yml"
+    framework = BubFramework(config_file=config_file)
+    framework.load_hooks()
+    app = framework.create_cli_app()
+    monkeypatch.setattr(framework, "collect_onboard_config", lambda: {"enabled_channels": "telegram"})
+    monkeypatch.setattr("bub.gateway_installer.is_gateway_service_supported", lambda: True)
+    monkeypatch.setattr(bub_inquirer, "ask_confirm", lambda message, default=False: True)
+
+    def fail_install(workspace: Path, channels: list[str]) -> None:
+        raise GatewayServiceError("user service unavailable")
+
+    monkeypatch.setattr("bub.gateway_installer.install_gateway", fail_install)
+
+    result = CliRunner().invoke(app, ["onboard"])
+
+    assert result.exit_code == 1
+    assert "Configuration remains saved" in result.output
+    assert configure.load(config_file)["enabled_channels"] == "telegram"
 
 
 def test_onboard_aborts_immediately_when_builtin_prompt_is_interrupted(tmp_path: Path, monkeypatch) -> None:
@@ -275,6 +343,54 @@ def test_gateway_fails_when_no_channels_are_enabled(tmp_path: Path, monkeypatch)
 
     assert result.exit_code == 1
     assert "No channels are enabled." in result.output
+
+
+def test_gateway_install_uses_current_workspace_and_channels(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / "config.yml"
+    configure.save(config_file, {"enabled_channels": "telegram", "telegram": {"token": "token"}})
+    framework = BubFramework(config_file=config_file)
+    framework.load_hooks()
+    app = framework.create_cli_app()
+    installed = SimpleNamespace(backend="systemd", destination=os.fspath(tmp_path / "bub-gateway.service"))
+    observed: dict[str, Any] = {}
+
+    def install_gateway(workspace: Path, channels: list[str]) -> SimpleNamespace:
+        observed["workspace"] = workspace
+        observed["channels"] = channels
+        return installed
+
+    monkeypatch.setattr("bub.gateway_installer.install_gateway", install_gateway)
+
+    result = CliRunner().invoke(
+        app,
+        ["--workspace", os.fspath(tmp_path), "gateway", "--install", "--enable-channel", "telegram"],
+    )
+
+    assert result.exit_code == 0
+    assert "Installed and started the gateway with systemd" in result.output
+    assert observed == {"workspace": tmp_path.resolve(), "channels": ["telegram"]}
+
+
+def test_gateway_uninstall_does_not_require_enabled_channels(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / "config.yml"
+    configure.save(config_file, {"enabled_channels": ""})
+    framework = BubFramework(config_file=config_file)
+    framework.load_hooks()
+    app = framework.create_cli_app()
+    removed = SimpleNamespace(backend="systemd", destination=os.fspath(tmp_path / "bub-gateway.service"))
+    monkeypatch.setattr("bub.gateway_installer.uninstall_gateway", lambda: removed)
+
+    result = CliRunner().invoke(app, ["gateway", "--uninstall"])
+
+    assert result.exit_code == 0
+    assert "Stopped and uninstalled the gateway from systemd" in result.output
+
+
+def test_gateway_install_and_uninstall_are_mutually_exclusive() -> None:
+    result = CliRunner().invoke(_create_app(), ["gateway", "--install", "--uninstall"])
+
+    assert result.exit_code == 2
+    assert "cannot be used together" in result.output
 
 
 def test_run_command_processes_inbound_inside_framework_runtime(tmp_path: Path) -> None:
