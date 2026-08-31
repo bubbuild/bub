@@ -70,12 +70,19 @@ bub gateway [OPTIONS]
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--enable-channel` | TEXT (repeatable) | empty list (use `BUB_ENABLED_CHANNELS`) | Restrict gateway to the listed channel names. Pass multiple times. |
+| `--install` | flag | disabled | Install and start the gateway as a per-user background service. |
+| `--uninstall` | flag | disabled | Stop and uninstall the per-user gateway service. |
 
 Behavior notes:
 
 - When `--enable-channel` is omitted the manager reads `ChannelSettings.enabled_channels` (`BUB_ENABLED_CHANNELS`, default `all`).
 - `all` starts every enabled non-`Interface` channel. When you list at least one non-`Lifecycle` channel explicitly, enabled `Lifecycle` runtimes are attached automatically. Use `!name` to exclude one.
 - `framework.running()` is held open until the manager loop exits; `provide_tape_store` cleanup runs on shutdown.
+- On Linux, `--install` writes `bub-gateway.service` under `${XDG_CONFIG_HOME:-~/.config}/systemd/user/`, enables it for the user's default target, and starts or restarts it. Use `loginctl enable-linger` separately if it must remain active after logout.
+- On Windows, `--install` registers and starts a current-user `Bub Gateway` Task Scheduler task. It runs at that user's logon with limited privileges and restarts after failures.
+- Installation captures the current Python executable, workspace, and explicit `--enable-channel` values. Re-running the command replaces and restarts the existing service; do so after moving or replacing the Python environment.
+- `--uninstall` stops and removes the corresponding systemd user unit or Windows scheduled task. It succeeds when the service is already absent and does not require an enabled channel.
+- `--install` and `--uninstall` are mutually exclusive.
 
 See [Operate › Channels](/docs/operate/channels/) for per-channel deployment notes.
 
@@ -96,13 +103,14 @@ Behavior notes:
 - The builtin onboarding fragment prompts for: provider (one of `openrouter`, `openai`, `anthropic`, `gemini`, `azure`, `bedrock`, `ollama`, `groq`, `mistral`, `deepseek`, plus `custom`), model name, optional API key, optional API base, enabled channels, and stream output.
 - Each plugin's `onboard_config` hook receives the accumulated dict so far; non-dict returns abort with `TypeError`.
 - The merged dict is validated through `configure.validate` before being written.
+- After saving a configuration with at least one channel on Linux or Windows, onboarding asks whether to install the gateway as a per-user background service. The default is no. Installation failure leaves the saved configuration intact and exits with code `1`.
 
 Exit codes:
 
 | Code | Meaning |
 | --- | --- |
 | `0` | Config saved. |
-| `1` | Validation or write error; message printed to stderr. |
+| `1` | Validation, write, or requested gateway installation error; message printed to stderr. |
 
 ## `bub install`
 

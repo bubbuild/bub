@@ -225,6 +225,8 @@ def test_builtin_cli_exposes_gateway_command(write_config) -> None:
     assert gateway_result.exit_code == 0
     assert "bub gateway" in gateway_result.stdout
     assert "Start message listeners" in gateway_result.stdout
+    assert "--install" in gateway_result.stdout
+    assert "--uninstall" in gateway_result.stdout
 
 
 def test_load_hooks_loads_root_and_named_config_sections(monkeypatch: pytest.MonkeyPatch, write_config) -> None:
