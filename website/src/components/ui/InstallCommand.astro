@@ -1,0 +1,170 @@
+---
+import Icon from '@/components/ui/Icon.astro';
+
+interface Props {
+  commands: {
+    posix: string;
+    windows: string;
+  };
+  platformLabel: string;
+  posixLabel: string;
+  windowsLabel: string;
+  copyLabel: string;
+  copiedLabel: string;
+}
+
+const { commands, platformLabel, posixLabel, windowsLabel, copyLabel, copiedLabel } = Astro.props;
+const installOptions = [
+  { id: 'posix', label: posixLabel, command: commands.posix },
+  { id: 'windows', label: windowsLabel, command: commands.windows },
+];
+---
+
+<div
+  class="min-w-0 border border-border bg-card/80 shadow-[var(--site-shadow)]"
+  data-install-command
+  data-command={commands.posix}
+  data-copied-label={copiedLabel}
+>
+  <div
+    class="flex border-b border-border"
+    role="group"
+    aria-label={platformLabel}
+  >
+    {installOptions.map((option, index) => (
+      <button
+        type="button"
+        class:list={[
+          'install-platform min-h-11 w-1/2 cursor-pointer px-3 font-mono text-xs font-medium',
+          'text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground',
+          'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring',
+          index === 0 && 'border-r border-border',
+        ]}
+        aria-pressed={index === 0 ? 'true' : 'false'}
+        data-platform={option.id}
+        data-command={option.command}
+      >
+        {option.label}
+      </button>
+    ))}
+  </div>
+  <div class="flex min-w-0 items-center">
+    <span class="shrink-0 pl-4 font-mono text-sm text-muted-foreground" aria-hidden="true">$</span>
+    <code
+      class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap px-2 py-3 font-mono text-sm text-foreground"
+      data-command-value
+    >
+      {commands.posix}
+    </code>
+    <button
+      type="button"
+      class:list={[
+        'flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center border-l border-border',
+        'text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
+        'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring',
+      ]}
+      aria-label={copyLabel}
+      title={copyLabel}
+      data-copy-command
+    >
+      <span data-copy-icon>
+        <Icon name="copy" size={16} aria-hidden="true" />
+      </span>
+      <span class="hidden text-primary" data-copied-icon>
+        <Icon name="check" size={16} aria-hidden="true" />
+      </span>
+    </button>
+  </div>
+  <span class="sr-only" aria-live="polite" data-copy-status></span>
+</div>
+
+<style>
+  .install-platform[aria-pressed='true'] {
+    background: var(--secondary);
+    color: var(--foreground);
+  }
+</style>
+
+<script>
+  async function copyText(value: string) {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await Promise.race([
+          navigator.clipboard.writeText(value),
+          new Promise<never>((_, reject) => {
+            window.setTimeout(() => reject(new Error('Clipboard API timed out')), 500);
+          }),
+        ]);
+        return;
+      } catch {
+        // Fall back when the Clipboard API exists but permission is denied.
+      }
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.append(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+
+    if (!copied) {
+      throw new Error('Unable to copy the install command');
+    }
+  }
+
+  for (const container of document.querySelectorAll<HTMLElement>('[data-install-command]')) {
+    if (container.dataset.copyReady === 'true') continue;
+    container.dataset.copyReady = 'true';
+
+    const button = container.querySelector<HTMLButtonElement>('[data-copy-command]');
+    const commandValue = container.querySelector<HTMLElement>('[data-command-value]');
+    const platformOptions = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[data-platform]'),
+    );
+    const copyIcon = container.querySelector<HTMLElement>('[data-copy-icon]');
+    const copiedIcon = container.querySelector<HTMLElement>('[data-copied-icon]');
+    const status = container.querySelector<HTMLElement>('[data-copy-status]');
+
+    const selectPlatform = (selectedOption: HTMLButtonElement) => {
+      for (const option of platformOptions) {
+        option.setAttribute('aria-pressed', String(option === selectedOption));
+      }
+      container.dataset.command = selectedOption.dataset.command ?? '';
+      if (commandValue) commandValue.textContent = container.dataset.command;
+    };
+
+    for (const option of platformOptions) {
+      option.addEventListener('click', () => selectPlatform(option));
+    }
+
+    const navigatorWithUserAgentData = navigator as Navigator & {
+      userAgentData?: { platform?: string };
+    };
+    const platform =
+      navigatorWithUserAgentData.userAgentData?.platform ?? navigator.platform ?? navigator.userAgent;
+    const initialPlatform = /win/i.test(platform) ? 'windows' : 'posix';
+    const initialOption = platformOptions.find((option) => option.dataset.platform === initialPlatform);
+    if (initialOption) selectPlatform(initialOption);
+
+    button?.addEventListener('click', async () => {
+      try {
+        await copyText(container.dataset.command ?? '');
+      } catch {
+        return;
+      }
+
+      copyIcon?.classList.add('hidden');
+      copiedIcon?.classList.remove('hidden');
+      if (status) status.textContent = container.dataset.copiedLabel ?? '';
+
+      window.setTimeout(() => {
+        copyIcon?.classList.remove('hidden');
+        copiedIcon?.classList.add('hidden');
+        if (status) status.textContent = '';
+      }, 2000);
+    });
+  }
+</script>

@@ -9,6 +9,15 @@ export type HeroData = {
   badge?: string;
   title?: string;
   description?: string;
+  installCommands: {
+    posix: string;
+    windows: string;
+  };
+  installPlatformLabel: string;
+  posixInstallLabel: string;
+  windowsInstallLabel: string;
+  copyInstallCommandLabel: string;
+  copiedInstallCommandLabel: string;
   primaryHref: string;
   primaryLabel?: string;
   contributorsLabel?: string;
@@ -60,6 +69,15 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       title: 'Bub is a tiny runtime for agents that live alongside people.',
       description:
         '~200 lines of core code. Hooks reshape every turn stage. Tapes record every decision. Channels adapt to any surface — CLI, Telegram, or your own.',
+      installCommands: {
+        posix: 'curl -fsSL https://bub.build/install.sh | bash',
+        windows: 'powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"',
+      },
+      installPlatformLabel: 'Choose installation platform',
+      posixInstallLabel: 'macOS / Linux',
+      windowsInstallLabel: 'Windows',
+      copyInstallCommandLabel: 'Copy install command',
+      copiedInstallCommandLabel: 'Install command copied',
       primaryHref: '/docs/getting-started/',
       primaryLabel: 'Get Started',
       contributorsLabel: 'Developed by contributors worldwide',
@@ -143,6 +161,15 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       title: 'Bub，与 Human 同在的轻量级 Agent 运行时。',
       description:
         '核心代码约 200 行。每个阶段通过 Hook 驱动。由 Tape 模型记录每次决策。 随时接入 CLI、Telegram 或任意你喜欢的 Channel。',
+      installCommands: {
+        posix: 'curl -fsSL https://bub.build/install.sh | bash',
+        windows: 'powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"',
+      },
+      installPlatformLabel: '选择安装平台',
+      posixInstallLabel: 'macOS / Linux',
+      windowsInstallLabel: 'Windows',
+      copyInstallCommandLabel: '复制安装命令',
+      copiedInstallCommandLabel: '安装命令已复制',
       primaryHref: '/zh-cn/docs/getting-started/',
       primaryLabel: '开始使用',
       contributorsLabel: '由全球开发者共同打造',

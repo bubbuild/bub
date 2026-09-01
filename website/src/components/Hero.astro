@@ -1,6 +1,7 @@
 ---
 import Contributors from '@/components/Contributors.astro';
 import Icon from '@/components/ui/Icon.astro';
+import InstallCommand from '@/components/ui/InstallCommand.astro';
 import LinkButton from '@/components/ui/LinkButton.astro';
 import type { GitHubContributor } from '@/lib/github';
 import { Code } from 'astro:components';
@@ -9,13 +10,36 @@ interface Props {
   badge?: string;
   title?: string;
   description?: string;
+  installCommands: {
+    posix: string;
+    windows: string;
+  };
+  installPlatformLabel: string;
+  posixInstallLabel: string;
+  windowsInstallLabel: string;
+  copyInstallCommandLabel: string;
+  copiedInstallCommandLabel: string;
   primaryHref: string;
   primaryLabel?: string;
   contributorsLabel?: string;
   contributors?: GitHubContributor[];
 }
 
-const { badge, title, description, primaryHref, primaryLabel, contributorsLabel, contributors = [] }: Props = Astro.props;
+const {
+  badge,
+  title,
+  description,
+  installCommands,
+  installPlatformLabel,
+  posixInstallLabel,
+  windowsInstallLabel,
+  copyInstallCommandLabel,
+  copiedInstallCommandLabel,
+  primaryHref,
+  primaryLabel,
+  contributorsLabel,
+  contributors = [],
+}: Props = Astro.props;
 
 const hasContributors = contributors.length > 0;
 
@@ -200,8 +224,19 @@ const heroCodeThemes = {
           </div>
         )}
 
+        <div class="mt-6 max-w-xl">
+          <InstallCommand
+            commands={installCommands}
+            platformLabel={installPlatformLabel}
+            posixLabel={posixInstallLabel}
+            windowsLabel={windowsInstallLabel}
+            copyLabel={copyInstallCommandLabel}
+            copiedLabel={copiedInstallCommandLabel}
+          />
+        </div>
+
         <!-- CTAs -->
-        <div class="mt-6 flex flex-col gap-3 sm:flex-row">
+        <div class="mt-3 flex flex-col gap-3 sm:flex-row">
           <LinkButton href={primaryHref} class="w-full px-6 py-3 sm:w-auto">
             {primaryLabel}
             <Icon name="arrowUpRight" size={15} aria-hidden="true" />
