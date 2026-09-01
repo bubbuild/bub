@@ -53,6 +53,38 @@ export default defineConfig({
       title: 'Bub',
       description: 'A common shape for agents that live alongside people.',
       expressiveCode: false,
+      favicon: '/favicon.ico',
+      head: [
+        {
+          tag: 'link',
+          attrs: {
+            rel: 'icon',
+            type: 'image/png',
+            href: '/favicon-light.png',
+            sizes: '64x64',
+            media: '(prefers-color-scheme: light)',
+            'data-favicon-theme': 'light',
+          },
+        },
+        {
+          tag: 'link',
+          attrs: {
+            rel: 'icon',
+            type: 'image/png',
+            href: '/favicon-dark.png',
+            sizes: '64x64',
+            media: '(prefers-color-scheme: dark)',
+            'data-favicon-theme': 'dark',
+          },
+        },
+        {
+          tag: 'script',
+          attrs: {
+            src: '/favicon-theme.js',
+            defer: true,
+          },
+        },
+      ],
       logo: {
         light: './src/assets/bub-logo.png',
         dark: './src/assets/bub-logo-dark.png',
