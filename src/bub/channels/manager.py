@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import contextvars
 import functools
 from collections.abc import AsyncIterable, Collection
 
@@ -41,6 +42,14 @@ class ChannelSettings(Settings):
         description="Time window in seconds to consider a channel active for processing messages.",
     )
     stream_output: bool = Field(default=False, description="Whether to stream model output to channels in real-time.")
+
+
+# A tool call runs as a child task of ToolExecutor.execute_async's own asyncio.gather(),
+# so asyncio.current_task() inside one is not the _run_message task quit() needs to
+# spare. This contextvar, set once per turn, survives that gather boundary.
+_owning_task: contextvars.ContextVar[asyncio.Task | None] = contextvars.ContextVar(
+    "bub_channel_manager_owning_task", default=None
+)
 
 
 class ChannelManager:
@@ -125,7 +134,7 @@ class ChannelManager:
             return
         controller.clear_pending()
         tasks = set(controller.active_tasks)
-        current_task = asyncio.current_task()
+        current_task = _owning_task.get() or asyncio.current_task()
         cancelled_count = 0
         for task in tasks:
             if task is current_task:
@@ -304,6 +313,7 @@ class ChannelManager:
         return state
 
     async def _run_message(self, message: ChannelMessage) -> None:
+        _owning_task.set(asyncio.current_task())
         result = await self.framework.process_inbound(message, self._stream_output)
         state = getattr(result, "state", {"session_id": message.session_id})
         await self._promote_steering_to_pending(message.session_id, state)

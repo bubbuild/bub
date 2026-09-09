@@ -746,6 +746,71 @@ async def test_channel_manager_quit_skips_current_task(load_config) -> None:
     assert controller.active_tasks == {current_task}
 
 
+def test_channel_manager_quit_from_gathered_tool_call_does_not_wedge_the_loop() -> None:
+    # Regression for #186: before the fix, quit() cancels and awaits its own ancestor
+    # task from inside a gather()-spawned child, which recurses without bound and
+    # wedges the loop, so this runs in a subprocess with an OS-level timeout.
+    script = textwrap.dedent(
+        """
+        import asyncio
+        import sys
+
+        sys.path.insert(0, sys.argv[1])
+
+        from bub.channels.manager import ChannelManager
+
+        class FakeFramework:
+            def __init__(self):
+                self._channel_router = None
+
+            def get_channels(self, on_receive):
+                return {}
+
+            def bind_channel_router(self, router):
+                self._channel_router = router
+
+            def get_steering_inbox(self):
+                return None
+
+            async def process_inbound(self, message, stream_output):
+                async def call_quit():
+                    await self._channel_router.quit(message.session_id)
+                    return "Session tasks stopped."
+
+                result = await asyncio.gather(call_quit(), return_exceptions=True)
+                assert result == ["Session tasks stopped."], result
+                return type("Result", (), {"state": {}})()
+
+        class Message:
+            pass
+
+        async def main():
+            framework = FakeFramework()
+            manager = ChannelManager(framework, enabled_channels=["cli"])
+            framework.bind_channel_router(manager)
+
+            message = Message()
+            message.session_id = "session:target"
+            controller = manager._controller(message.session_id)
+            task = asyncio.create_task(manager._run_message(message))
+            controller.active_tasks.add(task)
+            await task
+
+        asyncio.run(main())
+        print("OK")
+        """
+    )
+    src_dir = str(Path(__file__).resolve().parent.parent / "src")
+    result = subprocess.run(
+        [sys.executable, "-c", script, src_dir],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    assert result.stdout.strip() == "OK"
+
+
 @pytest.mark.asyncio
 async def test_channel_manager_done_callback_handles_cancelled_task(load_config) -> None:
     _load_channel_config(load_config, enabled_channels="telegram")
