@@ -173,9 +173,13 @@ resolve_preset() {
     local uv_args=(run --no-project)
     [[ "$INTERACTIVE" == true ]] && mode=interactive
     [[ "$INTERACTIVE" == true ]] && uv_args+=(--with "$INQUIRER_PACKAGE")
+    local resolver_args=("$catalog" "$mode" "$REQUESTED_PRESET" "$resolution")
+    if ((${#EXTRA_DEPENDENCIES[@]})); then
+        resolver_args+=("${EXTRA_DEPENDENCIES[@]}")
+    fi
 
     "$UV_BIN" "${uv_args[@]}" python - \
-        "$catalog" "$mode" "$REQUESTED_PRESET" "$resolution" "${EXTRA_DEPENDENCIES[@]}" <<'PY'
+        "${resolver_args[@]}" <<'PY'
 from __future__ import annotations
 
 import json
@@ -342,7 +346,9 @@ main() {
     fi
 
     local resolved_lines=()
-    mapfile -t resolved_lines <"$RESOLUTION_FILE"
+    while IFS= read -r line; do
+        resolved_lines+=("$line")
+    done <"$RESOLUTION_FILE"
     ((${#resolved_lines[@]} >= 1)) || fail "preset resolver returned no selection"
     local selected_preset=${resolved_lines[0]}
     local dependencies=("${resolved_lines[@]:1}")
