@@ -1,5 +1,5 @@
 ---
-title: 用 SQLAlchemy 与 SQLite 持久化 tape
+title: 使用 SQLAlchemy 将 tape 持久化到 SQLite
 description: 通过 SQLAlchemy tape store 插件，把 Bub 基于文件的 tape store 换成本地 SQLite 数据库。
 sidebar:
   order: 2
@@ -58,7 +58,7 @@ export BUB_TAPESTORE_SQLALCHEMY_URL="sqlite+pysqlite:///$PWD/bub-tapes.db"
 跑一个小的自然语言任务，然后让 Bub 检查刚刚写入的 tape：
 
 ```bash
-bub run "Reply with one short sentence: hello from local SQLAlchemy."
+bub run "Reply with one short sentence: hello from local SQLite."
 bub run ",tape.info"
 ```
 
@@ -97,7 +97,7 @@ sqlite3 "$PWD/bub-tapes.db" \
 1|session/start|2026-05-15T01:27:57Z
 ```
 
-这就是完整的存储切换：Bub 仍然写 append-only tape entries，只是它们现在进入 SQL 数据库，而不是每条 tape 一个 JSONL 文件。
+这就是完整的存储切换：Bub 仍然写 append-only tape entries，只是它们现在进入 SQLite 数据库，而不是每条 tape 一个 JSONL 文件。
 
 ## 5. 扩展后端
 

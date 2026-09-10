@@ -1,5 +1,5 @@
 ---
-title: Persist tapes in SQLAlchemy with SQLite
+title: Persist tapes in SQLite with SQLAlchemy
 description: Replace Bub's file-based tape store with one local SQLite database through the SQLAlchemy tape store plugin.
 sidebar:
   order: 2
@@ -58,7 +58,7 @@ This URL is passed to SQLAlchemy. The `sqlite+pysqlite` dialect uses Python's st
 Run a small natural-language task, then ask Bub to inspect the tape it just wrote:
 
 ```bash
-bub run "Reply with one short sentence: hello from local SQLAlchemy."
+bub run "Reply with one short sentence: hello from local SQLite."
 bub run ",tape.info"
 ```
 
@@ -97,7 +97,7 @@ sqlite3 "$PWD/bub-tapes.db" \
 1|session/start|2026-05-15T01:27:57Z
 ```
 
-That is the full storage switch: Bub still records append-only tape entries, but they now live in a SQL database instead of per-tape JSONL files.
+That is the full storage switch: Bub still records append-only tape entries, but they now live in a SQLite database instead of per-tape JSONL files.
 
 ## 5. Extend the backend
 
