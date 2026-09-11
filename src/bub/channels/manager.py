@@ -313,10 +313,13 @@ class ChannelManager:
         return state
 
     async def _run_message(self, message: ChannelMessage) -> None:
-        _owning_task.set(asyncio.current_task())
-        result = await self.framework.process_inbound(message, self._stream_output)
-        state = getattr(result, "state", {"session_id": message.session_id})
-        await self._promote_steering_to_pending(message.session_id, state)
+        token = _owning_task.set(asyncio.current_task())
+        try:
+            result = await self.framework.process_inbound(message, self._stream_output)
+            state = getattr(result, "state", {"session_id": message.session_id})
+            await self._promote_steering_to_pending(message.session_id, state)
+        finally:
+            _owning_task.reset(token)
 
     async def _promote_steering_to_pending(self, session_id: str, state: TurnState) -> None:
         steering_inbox = self.framework.get_steering_inbox()
