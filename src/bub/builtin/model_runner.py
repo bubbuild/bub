@@ -7,6 +7,7 @@ import re
 from collections.abc import AsyncGenerator, AsyncIterator, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Any, Literal, cast
 
 from any_llm import AnyLLM
@@ -219,6 +220,7 @@ class ModelRunner:
                 await self._fire_after_llm_call(request, output, state, llm_started, tape, error=error)
 
             try:
+                completion_started = monotonic()
                 async with asyncio.timeout(self.settings.model_timeout_seconds):
                     completion = await self.completion_response(
                         model=request.model,
@@ -229,6 +231,7 @@ class ModelRunner:
                     )
                     async for event in self._completion_events(completion, state, output):
                         yield event
+                completion_elapsed = monotonic() - completion_started
             except Exception as exc:
                 # Cancellation / consumer close (BaseException) intentionally
                 # bypasses after_llm_call: only real completions and failures
@@ -236,6 +239,8 @@ class ModelRunner:
                 await fire_after(exc)
                 raise
             await fire_after()
+
+            yield StreamEvent("usage", {"usage": state.usage, "elapsed_seconds": completion_elapsed})
 
             tool_calls = output.tool_calls
             if tool_calls:

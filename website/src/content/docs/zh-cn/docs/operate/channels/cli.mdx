@@ -32,6 +32,9 @@ bub chat --chat-id review --session-id cli:review
 
 每行输入对应一条入站 `ChannelMessage`。Ctrl-D 退出，`,quit` 与 `,exit` 也会干净退出。
 
+底部工具栏通过 `speed:42.1 token/s` 显示最近一次模型调用的平均速度：模型返回的输出 token 数除以调用耗时，
+包含请求等待时间，不包含工具执行时间。每次模型调用完成后更新，并在两轮对话之间保留；未返回用量时显示 `speed:- token/s`。
+
 ## 2. 从 shell 跑一次 turn
 
 `bub run "..."` 把单条消息送入框架，并打印每条出站：

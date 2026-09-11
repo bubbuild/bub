@@ -147,7 +147,11 @@ class _FakeAnthropicModelRunner(ModelRunner):
 
 
 @pytest.mark.asyncio
-async def test_streaming_openai_usage_is_requested_and_recorded_in_tape(tmp_path: Path) -> None:
+async def test_streaming_openai_usage_is_requested_and_recorded_in_tape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = iter([10.0, 12.0])
+    monkeypatch.setattr("bub.builtin.model_runner.monotonic", lambda: next(clock))
     store = InMemoryTapeStore()
     tape = Tape(tmp_path, AsyncTapeStoreAdapter(store), TapeContext()).scoped("test-tape")
     llm = _FakeStreamingOpenAIProvider()
@@ -166,6 +170,13 @@ async def test_streaming_openai_usage_is_requested_and_recorded_in_tape(tmp_path
     assert llm.completion_kwargs["stream_options"] == {"include_usage": True}
     assert [(event.kind, event.data) for event in events] == [
         ("text", {"delta": "done"}),
+        (
+            "usage",
+            {
+                "usage": {"completion_tokens": 2, "prompt_tokens": 3, "total_tokens": 5},
+                "elapsed_seconds": 2.0,
+            },
+        ),
         ("final", {"ok": True, "text": "done"}),
     ]
     run_events = [

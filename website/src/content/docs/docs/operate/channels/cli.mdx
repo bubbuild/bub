@@ -32,6 +32,10 @@ bub chat --chat-id review --session-id cli:review
 
 Each line you type becomes one inbound `ChannelMessage`. Ctrl-D exits, `,quit` and `,exit` also exit cleanly.
 
+The bottom toolbar shows `speed:42.1 token/s` for the latest completed model call. This is the provider's
+output token count divided by the call duration, including request latency but excluding tool execution.
+It updates after each model call and stays visible between turns. If usage is unavailable, it shows `speed:- token/s`.
+
 ## 2. Run one turn from the shell
 
 `bub run "..."` sends a single message through the framework and prints every outbound:

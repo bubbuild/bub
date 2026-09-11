@@ -1039,6 +1039,7 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
         yield StreamEvent("text", {"delta": "  "})
         yield StreamEvent("text", {"delta": "first paragraph\n\n"})
         yield StreamEvent("text", {"delta": "second paragraph"})
+        yield StreamEvent("usage", {"usage": {"completion_tokens": 84}, "elapsed_seconds": 2.0})
         yield StreamEvent("final", {})
 
     yielded = [event async for event in channel.stream_events(message, source())]
@@ -1046,7 +1047,36 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
     assert heads == ["command", "command:end"]
     assert len(printed) == 1
     assert getattr(printed[0][0], "markup", None) == "first paragraph\n\nsecond paragraph"
-    assert [event.kind for event in yielded] == ["text", "text", "final"]
+    assert [event.kind for event in yielded] == ["text", "text", "usage", "final"]
+    assert channel._last_token_speed == 42.0
+
+
+@pytest.mark.parametrize(
+    ("usage", "elapsed", "expected"),
+    [
+        ({"completion_tokens": 84, "prompt_tokens": 1000}, 2.0, "42.0"),
+        ({"output_tokens": 21}, 2.0, "10.5"),
+        ({"completion_tokens": 0}, 2.0, "0.0"),
+        (None, 2.0, "-"),
+        ({"total_tokens": 100}, 2.0, "-"),
+        ({"completion_tokens": True}, 2.0, "-"),
+        ({"completion_tokens": -1}, 2.0, "-"),
+        ({"completion_tokens": 84}, 0.0, "-"),
+        ({"completion_tokens": 84}, float("nan"), "-"),
+    ],
+)
+def test_cli_toolbar_shows_latest_call_token_speed(usage, elapsed, expected) -> None:
+    channel = CliChannel.__new__(CliChannel)
+    channel._last_token_speed = 99.0
+    channel._last_tape_info = None
+    channel._mode = "agent"
+    channel._expand_thinking = False
+    channel._agent = SimpleNamespace(settings=SimpleNamespace(model="test"))
+
+    channel._update_token_speed({"usage": usage, "elapsed_seconds": elapsed})
+
+    toolbar = "".join(text for _, text in channel._render_bottom_toolbar())
+    assert f"speed:{expected} token/s" in toolbar
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import math
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from datetime import datetime
 from hashlib import md5
@@ -223,6 +224,7 @@ class CliChannel(Interface):
         self._renderer = CliRenderer(get_console())
         self._presenter = TerminalPresenter()
         self._last_tape_info: TapeInfo | None = None
+        self._last_token_speed: float | None = None
         self._workspace = self._agent.framework.workspace
         self._prompt = self._build_prompt(self._workspace)
 
@@ -372,6 +374,8 @@ class CliChannel(Interface):
         try:
             with tool_call_reporter(_CliToolCallReporter(self._renderer, self._presenter)):
                 async for event in stream:
+                    if event.kind == "usage":
+                        self._update_token_speed(event.data)
                     if await printer.render(event):
                         yield event
         finally:
@@ -381,6 +385,23 @@ class CliChannel(Interface):
                 if self._stream_printer is printer:
                     self._stream_printer = None
                     self._invalidate_prompt()
+
+    def _update_token_speed(self, data: dict[str, Any]) -> None:
+        usage = data.get("usage")
+        tokens = usage.get("completion_tokens", usage.get("output_tokens")) if isinstance(usage, dict) else None
+        elapsed = data.get("elapsed_seconds")
+        self._last_token_speed = None
+        if (
+            isinstance(tokens, int)
+            and not isinstance(tokens, bool)
+            and tokens >= 0
+            and isinstance(elapsed, int | float)
+            and not isinstance(elapsed, bool)
+            and math.isfinite(elapsed)
+            and elapsed > 0
+        ):
+            self._last_token_speed = tokens / elapsed
+        self._invalidate_prompt()
 
     def _build_prompt(self, workspace: Path) -> PromptSession[str]:
         kb = KeyBindings()
@@ -440,8 +461,11 @@ class CliChannel(Interface):
         info = self._last_tape_info
         now = datetime.now().strftime("%H:%M")
         left = f"{now}  mode:{self._mode}"
+        speed = self._last_token_speed
+        speed_label = f"{speed:.1f} token/s" if speed is not None else "- token/s"
         right = (
             f"thinking:{'expand' if self._expand_thinking else 'collapse'}  "
+            f"speed:{speed_label}  "
             f"model:{self._agent.settings.model}  "
             f"entries:{field_of(info, 'entries', '-')} "
             f"anchors:{field_of(info, 'anchors', '-')} "
