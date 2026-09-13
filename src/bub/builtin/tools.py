@@ -148,7 +148,12 @@ async def bash(
     *,
     context: ToolContext,
 ) -> str:
-    """Run a shell command. Use background=true to keep it running and fetch output later via bash_output."""
+    """Run a shell command. Use background=true to keep it running and fetch output later via bash_output.
+
+    Foreground timeouts stop the process group on POSIX, with up to four seconds
+    for termination and output cleanup. Descendants that create their own session
+    are outside that group. Background commands do not use timeout_seconds.
+    """
     workspace = context.state.get("_runtime_workspace")
     target_cwd = cwd or workspace
     raw_session_id = context.state.get("session_id")
@@ -187,11 +192,7 @@ async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) 
 @tool(name="bash.kill")
 async def kill_bash(shell_id: str) -> str:
     """Terminate a background shell process."""
-    shell = shell_manager.get(shell_id)
-    if shell.returncode is None:
-        shell = await shell_manager.terminate(shell_id)
-    else:
-        await shell_manager.wait_closed(shell_id)
+    shell = await shell_manager.terminate(shell_id)
     return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {shell.returncode}"
 
 

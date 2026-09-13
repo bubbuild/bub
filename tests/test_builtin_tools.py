@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import shlex
+import shutil
+import signal
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -255,6 +259,55 @@ async def test_foreground_bash_terminates_shell_when_cancelled(tmp_path, monkeyp
     with contextlib.suppress(asyncio.CancelledError):
         await task
 
+    assert manager._shells == {}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shell_exits", [False, True])
+@pytest.mark.parametrize("ignore_term", [False, True])
+async def test_bash_timeout_stops_descendants(tmp_path, monkeypatch, shell_exits, ignore_term) -> None:
+    manager = ShellManager()
+    monkeypatch.setattr(builtin_tools, "shell_manager", manager)
+    monkeypatch.setattr(manager, "TERMINATE_TIMEOUT", 0.2)
+    pid_file = tmp_path / "child.pid"
+    code = (
+        "import os, signal, time; from pathlib import Path; "
+        + ("signal.signal(signal.SIGTERM, signal.SIG_IGN); " if ignore_term else "")
+        + f"Path({str(pid_file)!r}).write_text(str(os.getpid())); time.sleep(30)"
+    )
+    command = f"{_python_shell(code)} & " + ("exit 0" if shell_exits else "wait")
+    try:
+        async with asyncio.timeout(5):
+            result = await bash.run(cmd=command, timeout_seconds=1, context=_tool_context(tmp_path))
+        assert "timed out" in result
+        assert manager._shells == {}
+        pid = int(pid_file.read_text())
+        # An orphan can briefly remain a zombie until the OS reaps it.
+        ps = shutil.which("ps")
+        assert ps is not None
+        status = subprocess.run([ps, "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+        assert not status.stdout.strip() or status.stdout.strip().startswith("Z")
+    finally:
+        if pid_file.exists():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+
+
+@pytest.mark.asyncio
+async def test_shell_termination_bounds_output_drain(monkeypatch) -> None:
+    manager = ShellManager()
+    shell = await manager.start(cmd=_python_shell("pass"), cwd=None)
+    await shell.process.wait()
+    await asyncio.gather(*shell.read_tasks)
+    reader = asyncio.create_task(asyncio.Event().wait())
+    shell.read_tasks.append(reader)
+    monkeypatch.setattr(manager, "DRAIN_TIMEOUT", 0.01)
+
+    async with asyncio.timeout(2):
+        await manager.terminate(shell.shell_id)
+
+    assert reader.cancelled()
     assert manager._shells == {}
 
 

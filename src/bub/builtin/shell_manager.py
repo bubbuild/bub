@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import os
 import shutil
+import signal
 import uuid
 from dataclasses import dataclass, field
 
@@ -33,6 +34,8 @@ class ManagedShell:
 
 class ShellManager:
     SHELL = shutil.which("bash") or shutil.which("sh") if os.name != "nt" else None
+    TERMINATE_TIMEOUT = 3.0
+    DRAIN_TIMEOUT = 1.0
 
     def __init__(self) -> None:
         self._shells: dict[str, ManagedShell] = {}
@@ -44,6 +47,7 @@ class ShellManager:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             executable=self.SHELL,
+            start_new_session=os.name != "nt",
         )
         shell = ManagedShell(
             shell_id=f"bash-{uuid.uuid4().hex[:8]}",
@@ -70,19 +74,51 @@ class ShellManager:
 
     async def terminate(self, shell_id: str) -> ManagedShell:
         shell = self.get(shell_id)
-        if shell.returncode is not None:
-            await self._finalize_shell(shell)
-            return shell
-
-        shell.process.terminate()
+        self._signal_shell(shell, kill=False)
         try:
-            async with asyncio.timeout(3):
-                await shell.process.wait()
+            async with asyncio.timeout(self.TERMINATE_TIMEOUT):
+                # The shell may exit before its children, even when they have
+                # closed their output pipes. Wait for the group, not just its leader.
+                while self._is_running(shell):
+                    await asyncio.sleep(0.05)
         except TimeoutError:
-            shell.process.kill()
-            await shell.process.wait()
-        await self._finalize_shell(shell)
+            self._signal_shell(shell, kill=True)
+        try:
+            async with asyncio.timeout(self.DRAIN_TIMEOUT):
+                await self.wait_closed(shell_id)
+        except TimeoutError:
+            # A descendant can escape the group and retain a pipe. Do not let
+            # waiting for EOF make termination unbounded.
+            for task in shell.read_tasks:
+                task.cancel()
+            await asyncio.gather(*shell.read_tasks, return_exceptions=True)
+            self._shells.pop(shell_id, None)
         return shell
+
+    @staticmethod
+    def _signal_shell(shell: ManagedShell, *, kill: bool) -> None:
+        with contextlib.suppress(ProcessLookupError):
+            if os.name != "nt":
+                os.killpg(shell.process.pid, signal.SIGKILL if kill else signal.SIGTERM)
+            elif shell.returncode is None:
+                if kill:
+                    shell.process.kill()
+                else:
+                    shell.process.terminate()
+
+    @staticmethod
+    def _is_running(shell: ManagedShell) -> bool:
+        if os.name == "nt":
+            return shell.returncode is None
+        try:
+            os.killpg(shell.process.pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # EPERM does not establish that the group is gone (in particular
+            # while its leader is exiting on macOS).
+            return True
+        return True
 
     async def terminate_session(self, session_id: str) -> int:
         shell_ids = [shell.shell_id for shell in self._shells.values() if shell.session_id == session_id]
@@ -100,8 +136,8 @@ class ShellManager:
 
     async def _finalize_shell(self, shell: ManagedShell) -> None:
         for task in shell.read_tasks:
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+            # A caller timing out must not cancel a reader or swallow cancellation.
+            await asyncio.shield(task)
         self._shells.pop(shell.shell_id, None)
 
     async def _drain_stream(
