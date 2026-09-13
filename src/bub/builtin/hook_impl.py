@@ -1,4 +1,3 @@
-import json
 import sys
 from datetime import datetime
 from difflib import get_close_matches
@@ -10,7 +9,7 @@ from loguru import logger
 
 from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
-from bub.builtin.context import default_tape_context
+from bub.builtin.context import default_tape_context, render_tool_result
 from bub.builtin.settings import DEFAULT_MODEL, load_settings
 from bub.builtin.steering import InMemorySteeringInbox
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
@@ -443,7 +442,7 @@ class BuiltinImpl:
             guidance = f"Tool `{call.tool}` does not exist. No similar tool is available."
         return ToolCallDecision.replace(guidance)
 
-    @hookimpl
+    @hookimpl(trylast=True)
     async def after_tool_call(
         self,
         call: ToolCall,
@@ -459,25 +458,19 @@ class BuiltinImpl:
         if not isinstance(spill, SpillStore):
             return
 
-        if result.error is not None:
-            if not isinstance(result.error, BubError):
-                return
-            error_result = json.dumps(result.error.as_dict(), ensure_ascii=False)
-            bounded_result = await spill.spill_tool_result(
-                tape,
-                error_result,
-                tool=call.tool,
-                run_id=call.run_id,
-            )
-            if bounded_result != error_result:
-                result.result = bounded_result
+        if result.error is None:
+            tool_result = result.result
+        elif isinstance(result.error, BubError):
+            tool_result = result.error.as_dict()
+        else:
             return
 
-        if not isinstance(result.result, str):
-            return
-        result.result = await spill.spill_tool_result(
+        rendered_result = render_tool_result(tool_result)
+        bounded_result = await spill.spill_tool_result(
             tape,
-            result.result,
+            rendered_result,
             tool=call.tool,
             run_id=call.run_id,
         )
+        if isinstance(tool_result, str) or bounded_result != rendered_result:
+            result.result = bounded_result

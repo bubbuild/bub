@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pluggy
 import pytest
 
 from bub.builtin.context import default_tape_context
@@ -17,7 +18,9 @@ from bub.builtin.spill import (
     spill_read,
 )
 from bub.builtin.tools import render_tools_prompt
-from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
+from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
+from bub.hooks.interception import AgentHooks, ToolCall, ToolCallDecision, ToolCallResult
+from bub.hooks.runtime import HookRuntime
 from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore, TapeStore
 from bub.tape import Tape
 from bub.tools import Tool, ToolContext, ToolExecutor, model_tools
@@ -126,11 +129,23 @@ async def test_spill_configuration_preserves_results_that_should_not_be_spilled(
 
     async with root.fork_tape() as tape:
         context = ToolContext(tape=tape, run_id="run-1")
+        small_results = ["tiny", {"value": "tiny"}, ["tiny"]]
         small = await _spill_executor().execute_async(
-            [(Tool(name="small", handler=lambda: "tiny"), {})], context=context
+            [
+                (Tool(name=f"small-{index}", handler=lambda result=result: result), {})
+                for index, result in enumerate(small_results)
+            ],
+            context=context,
         )
 
-        assert small.tool_results == ["tiny"]
+        assert small.tool_results == small_results
+
+        def fail() -> None:
+            raise RuntimeError("small failure")
+
+        small_error = await _spill_executor().execute_async([(Tool(name="failing", handler=fail), {})], context=context)
+        assert small_error.error is not None
+        assert small_error.tool_results == [small_error.error.as_dict()]
 
     disabled = _root_tape(tmp_path, parent, threshold=0).scoped("disabled")
     async with disabled.fork_tape() as tape:
@@ -139,6 +154,49 @@ async def test_spill_configuration_preserves_results_that_should_not_be_spilled(
             context=ToolContext(tape=tape, run_id="run-2"),
         )
     assert execution.tool_results == ["x" * 20_000]
+
+
+@pytest.mark.parametrize("output", [{"value": "x" * 20_000}, ["x" * 20_000]])
+@pytest.mark.asyncio
+async def test_oversized_structured_result_is_spilled_as_json(tmp_path: Path, output: object) -> None:
+    root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
+
+    async with root.fork_tape() as tape:
+        context = ToolContext(tape=tape, run_id="run-1")
+        execution = await _spill_executor().execute_async(
+            [(Tool(name="structured", handler=lambda: output), {})], context=context
+        )
+
+        ref = execution.tool_results[0]
+        assert isinstance(ref, str)
+        assert "tool output spilled" in ref
+
+        handle = _handle_from_ref(ref)
+        page = await _read_page(context, handle, count=4)
+        assert json.loads(_page_content(page)) == output
+
+
+@pytest.mark.asyncio
+async def test_spill_runs_after_other_result_hooks(tmp_path: Path) -> None:
+    class ExpandResult:
+        @hookimpl
+        def after_tool_call(self, result: ToolCallResult) -> None:
+            result.result = {"value": "x" * 20_000}
+
+    plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
+    plugin_manager.add_hookspecs(BubHookSpecs)
+    plugin_manager.register(BuiltinImpl(None), name="builtin")  # type: ignore[arg-type]
+    plugin_manager.register(ExpandResult(), name="expand-result")
+    executor = ToolExecutor(hooks=AgentHooks(HookRuntime(plugin_manager)))
+    root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
+
+    async with root.fork_tape() as tape:
+        execution = await executor.execute_async(
+            [(Tool(name="expanded", handler=lambda: "small"), {})],
+            context=ToolContext(tape=tape, run_id="run-1"),
+        )
+
+    assert "tool output spilled" in execution.tool_results[0]
 
 
 @pytest.mark.asyncio

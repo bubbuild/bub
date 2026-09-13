@@ -168,9 +168,9 @@ class BubHookSpecs:
         """Handle the terminal outcome of one tool invocation.
 
         Fires for success, failure (``result.error`` set), denial and
-        replacement. An implementation may replace a successful value by
-        assigning ``result.result``. Return values are ignored; exceptions
-        are logged.
+        replacement. An implementation may replace the model-facing value by
+        assigning ``result.result``; for failures, ``result.error`` remains
+        set. Return values are ignored; exceptions are logged.
         """
 
     @hookspec
