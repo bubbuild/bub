@@ -97,7 +97,7 @@ class ToolCallDecision:
 
 @dataclass
 class ToolCallResult:
-    """Terminal outcome exposed to hooks; successful results may be replaced in place."""
+    """Terminal outcome exposed to hooks; model-facing results may be replaced in place."""
 
     run_id: str
     tool: str

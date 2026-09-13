@@ -142,6 +142,29 @@ async def test_spill_configuration_preserves_results_that_should_not_be_spilled(
 
 
 @pytest.mark.asyncio
+async def test_oversized_tool_error_is_spilled_and_remains_a_failure(tmp_path: Path) -> None:
+    root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
+    error_message = "failure detail " * 1000
+
+    def fail() -> None:
+        raise RuntimeError(error_message)
+
+    async with root.fork_tape() as tape:
+        context = ToolContext(tape=tape, run_id="run-1")
+        execution = await _spill_executor().execute_async([(Tool(name="failing", handler=fail), {})], context=context)
+
+        assert execution.error is not None
+        ref = execution.tool_results[0]
+        assert isinstance(ref, str)
+        assert "tool output spilled" in ref
+        assert error_message not in ref
+
+        handle = _handle_from_ref(ref)
+        page = await _read_page(context, handle, count=4)
+        assert json.loads(_page_content(page)) == execution.error.as_dict()
+
+
+@pytest.mark.asyncio
 async def test_temporary_fork_discards_spilled_content(tmp_path: Path) -> None:
     parent = InMemoryTapeStore()
     root = _root_tape(tmp_path, parent)

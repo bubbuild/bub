@@ -88,7 +88,7 @@ Loaded under the YAML `spill:` section.
 
 | Env var | Default | YAML key (`spill.*`) | Description |
 | --- | --- | --- | --- |
-| `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | Estimated tokens (4 chars each) above which string tool results are stored in the spill sidecar. Set to `0` to stop creating new spills while keeping the sidecar mounted for existing handles and lifecycle operations. |
+| `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | Estimated tokens (4 chars each) above which rendered tool results, including failures, are stored in the spill sidecar. Set to `0` to stop creating new spills while keeping the sidecar mounted for existing handles and lifecycle operations. |
 
 ## Channels — `ChannelSettings`
 

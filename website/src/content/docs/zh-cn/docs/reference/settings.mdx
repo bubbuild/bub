@@ -88,7 +88,7 @@ class SpillSettings(Settings):
 
 | 环境变量 | 默认值 | YAML 字段（`spill.*`） | 描述 |
 | --- | --- | --- | --- |
-| `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | 字符串工具结果超过该估算 token 数（每 token 按 4 字符估算）时写入 spill sidecar。设为 `0` 会停止产生新 spill，但 sidecar 仍保持挂载，已有 handle 和生命周期操作不受影响。 |
+| `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | 渲染后的工具结果（包括失败结果）超过该估算 token 数（每 token 按 4 字符估算）时写入 spill sidecar。设为 `0` 会停止产生新 spill，但 sidecar 仍保持挂载，已有 handle 和生命周期操作不受影响。 |
 
 ## Channels —— `ChannelSettings`
 

@@ -1,3 +1,4 @@
+import json
 import sys
 from datetime import datetime
 from difflib import get_close_matches
@@ -17,6 +18,7 @@ from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem, audio_format_from_mime_type
 from bub.envelope import Envelope, content_of, field_of
+from bub.errors import BubError
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
@@ -450,13 +452,28 @@ class BuiltinImpl:
     ) -> None:
         from bub.builtin.spill import SPILL_SIDECAR_NAME, SpillStore
 
-        if result.error is not None or not isinstance(result.result, str):
-            return
         tape = state.get("_runtime_tape")
         if tape is None:
             return
         spill = tape.get_sidecar(SPILL_SIDECAR_NAME)
         if not isinstance(spill, SpillStore):
+            return
+
+        if result.error is not None:
+            if not isinstance(result.error, BubError):
+                return
+            error_result = json.dumps(result.error.as_dict(), ensure_ascii=False)
+            bounded_result = await spill.spill_tool_result(
+                tape,
+                error_result,
+                tool=call.tool,
+                run_id=call.run_id,
+            )
+            if bounded_result != error_result:
+                result.result = bounded_result
+            return
+
+        if not isinstance(result.result, str):
             return
         result.result = await spill.spill_tool_result(
             tape,

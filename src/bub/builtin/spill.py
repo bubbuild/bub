@@ -33,7 +33,7 @@ class SpillSettings(Settings):
     threshold: int = Field(
         default=4096,
         ge=0,
-        description="Estimated tokens (4 chars each) above which string tool results move to the spill sidecar.",
+        description="Estimated tokens (4 chars each) above which rendered tool results move to the spill sidecar.",
     )
 
 

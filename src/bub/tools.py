@@ -157,6 +157,12 @@ class ToolExecution:
     error: BubError | None = None
 
 
+@dataclass(frozen=True)
+class _FailedToolResult:
+    error: BubError
+    result: Any = None
+
+
 class ToolCallReporter(Protocol):
     def start(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Awaitable[None] | None: ...
 
@@ -206,7 +212,10 @@ class ToolExecutor:
             return_exceptions=True,
         )
         for result in gathered:
-            if isinstance(result, BubError):
+            if isinstance(result, _FailedToolResult):
+                error = result.error
+                results.append(result.error.as_dict() if result.result is None else result.result)
+            elif isinstance(result, BubError):
                 error = result
                 results.append(result.as_dict())
             elif isinstance(result, BaseException):
@@ -254,8 +263,8 @@ class ToolExecutor:
         try:
             result = await self._invoke_normalized(tool_obj, call, context)
         except BubError as exc:
-            await self._fire_after_tool_call(call, hook_state, started, error=exc)
-            raise
+            outcome = await self._fire_after_tool_call(call, hook_state, started, error=exc)
+            return _FailedToolResult(error=exc, result=outcome.result)
         else:
             outcome = await self._fire_after_tool_call(call, hook_state, started, result=result)
             return outcome.result
@@ -305,12 +314,8 @@ class ToolExecutor:
                 ErrorKind.TOOL,
                 decision.message or f"Tool '{call.tool}' call denied by policy hook.",
             )
-            await self._fire_after_tool_call(call, hook_state, started, error=error)
-
-            def raise_denied() -> Any:
-                raise error
-
-            return call, raise_denied
+            outcome = await self._fire_after_tool_call(call, hook_state, started, error=error)
+            return call, lambda: _FailedToolResult(error=error, result=outcome.result)
         if decision.action == "replace":
             outcome = await self._fire_after_tool_call(call, hook_state, started, result=decision.result)
             return call, lambda: outcome.result
