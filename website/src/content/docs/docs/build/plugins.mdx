@@ -7,6 +7,10 @@ sidebar:
 
 This guide shows how to package a Bub **plugin** — a Python distribution that registers under the `bub` entry-point group and contributes [hook](/docs/concepts/turn-pipeline/) implementations to the framework runtime.
 
+To load portable Agent Plugins containing `plugin.json`, skills, and MCP servers, see
+[Load Agent Plugins](/docs/tutorials/agent-plugins/). The `bub-agent-plugins` integration is itself a Python
+plugin; the portable packages it loads do not need Python entry points.
+
 ## Before you begin
 
 - A working Python 3.12+ environment with `uv` and `bub` installed (see [Install](/docs/getting-started/install/)).

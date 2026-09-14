@@ -7,6 +7,10 @@ sidebar:
 
 本指南展示如何打包一个 Bub **插件** —— 一个注册到 `bub` 入口点组、并向框架运行时贡献[钩子](/zh-cn/docs/concepts/turn-pipeline/)实现的 Python 发行包。
 
+如果要加载包含 `plugin.json`、skills 和 MCP 服务器的可移植 Agent Plugins，请参阅
+[加载 Agent Plugins](/zh-cn/docs/tutorials/agent-plugins/)。负责接入的 `bub-agent-plugins` 本身是一个 Python
+插件；它加载的可移植插件包不需要声明 Python 入口点。
+
 ## 开始之前
 
 - 已安装 `uv` 和 `bub` 的 Python 3.12+ 环境（见[安装](/zh-cn/docs/getting-started/install/)）。

@@ -13,6 +13,7 @@
         "bub-feishu@main",
         "bub-wechat@main",
         "bub-mcp@main",
+        "bub-agent-plugins@main",
         "bub-schedule@main",
         "bub-session-prompt@main",
         "bub-context-budget@main",

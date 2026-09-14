@@ -41,6 +41,10 @@ import { TabItem, Tabs } from '@astrojs/starlight/components';
 
 各 preset 的成员只在版本化的 [preset 清单](https://bub.build/presets.json) 中定义，因此插件集合可以独立演进，而不必修改安装器。`recommended` 是默认集合，`minimal` 不安装可选插件。
 
+`recommended` 预设同时包含 [`bub-mcp`](/zh-cn/docs/tutorials/mcp/) 和
+[`bub-agent-plugins`](/zh-cn/docs/tutorials/agent-plugins/)，支持现有 MCP 服务器以及打包了 skills 和 MCP
+服务器的可移植 Agent Plugins。安装器负责安装 Python 接入插件；要加载可移植插件，还需将插件目录放入 `.agents/plugins/`。
+
 自动化场景需要显式传入 `--preset`。`--dependency` 可以重复使用，用于添加 preset 之外的 Python 包；`--plugin` 是其别名：
 
 <Tabs syncKey="install-platform">
@@ -127,4 +131,5 @@ bub hooks
 
 - [运行你的第一次 turn](/zh-cn/docs/getting-started/first-turn/) — 发送一个 comma 命令和一次 model-backed turn。
 - [配置 Bub](/zh-cn/docs/operate/configure/) — 设置 `BUB_MODEL`、`BUB_API_KEY` 等运行时设置。
+- [加载 Agent Plugins](/zh-cn/docs/tutorials/agent-plugins/) — 在现有插件之外添加可移植的 skills 和 MCP 服务器。
 - [Settings 参考](/zh-cn/docs/reference/settings/) — 查看所有受支持的环境变量。

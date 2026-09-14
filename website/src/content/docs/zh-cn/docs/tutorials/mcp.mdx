@@ -25,7 +25,11 @@ sidebar:
 bub install bub-mcp@main
 ```
 
-`bub install` 要求 Bub 自身运行在 virtualenv 中（参见 [`bub install`](/zh-cn/docs/reference/cli/#bub-install)）。独立安装器通过 `uv tool` 为 Bub 创建隔离环境，已经满足该条件。如果从源码 checkout 运行，请改用 `uv run bub install bub-mcp@main`。
+`bub install` 要求 Bub 自身运行在 virtualenv 中（参见 [`bub install`](/zh-cn/docs/reference/cli/#bub-install)）。独立安装器会在 `~/.bub/.venv/`（或 `$BUB_HOME/.venv/`）创建该环境。如果从源码 checkout 运行，请改用 `uv run bub install bub-mcp@main`。
+
+安装器的 `recommended` 预设包含 `bub-mcp` 和 `bub-agent-plugins`；如果选择了该预设，两者已经安装。
+[Agent Plugins](/zh-cn/docs/tutorials/agent-plugins/) 可通过独立的生命周期 channel 和包含插件名的工具名称，
+加载 skills 及其自带的 MCP 服务器，与本教程中的服务器一起使用。
 
 验证插件已加载：
 
@@ -180,6 +184,7 @@ bub mcp remove time
 
 ## 下一步
 
+- [加载 Agent Plugins](/zh-cn/docs/tutorials/agent-plugins/) — 在 `mcp.json` 之外加载可移植的 skills 和 MCP 服务器。
 - [构建插件](/zh-cn/docs/build/plugins/) — 编写自己的 Bub 插件。
 - [配置](/zh-cn/docs/operate/configure/) — Bub 的配置层与环境变量。
 - [bub-mcp 源码](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp) — 插件完整源码与高级选项。

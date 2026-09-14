@@ -25,7 +25,11 @@ You need:
 bub install bub-mcp@main
 ```
 
-`bub install` requires Bub itself to run from a virtual environment (see [`bub install`](/docs/reference/cli/#bub-install)). The standalone installer already satisfies this because `uv tool` gives Bub an isolated environment. When running from a source checkout, invoke the command with `uv run bub install bub-mcp@main` instead.
+`bub install` requires Bub itself to run from a virtual environment (see [`bub install`](/docs/reference/cli/#bub-install)). The standalone installer already creates one at `~/.bub/.venv/` (or `$BUB_HOME/.venv/`). When running from a source checkout, invoke the command with `uv run bub install bub-mcp@main` instead.
+
+The installer's `recommended` preset includes `bub-mcp` and `bub-agent-plugins`. If you selected it, both are
+already installed. [Agent Plugins](/docs/tutorials/agent-plugins/) can load skills and their own MCP servers
+alongside the servers in this tutorial, using a separate lifecycle channel and plugin-qualified tool names.
 
 Verify the plugin loaded:
 
@@ -180,6 +184,7 @@ bub mcp remove time
 
 ## Next steps
 
+- [Load Agent Plugins](/docs/tutorials/agent-plugins/) — load portable skills and MCP servers alongside `mcp.json`.
 - [Build plugins](/docs/build/plugins/) — write your own Bub plugins.
 - [Configure](/docs/operate/configure/) — Bub's config layer and environment variables.
 - [bub-mcp source](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp) — the plugin's full source and advanced options.

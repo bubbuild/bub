@@ -186,7 +186,8 @@ def test_install_sh_uses_existing_uv_with_minimal_preset(tmp_path: Path) -> None
     assert not list(tmp_path.glob("bub-resolution.*"))
 
 
-def test_install_sh_installs_preset_and_extra_dependencies(tmp_path: Path) -> None:
+@pytest.mark.parametrize("duplicate_dependency", ["bub-mcp@main", "bub-agent-plugins@main"])
+def test_install_sh_installs_preset_and_extra_dependencies(tmp_path: Path, duplicate_dependency: str) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     write_executable(bin_dir / "uv", fake_uv_script())
@@ -198,11 +199,15 @@ def test_install_sh_installs_preset_and_extra_dependencies(tmp_path: Path) -> No
         "--preset=recommended",
         "--dependency",
         "extra-plugin",
-        "--plugin=bub-mcp@main",
+        f"--plugin={duplicate_dependency}",
     )
 
     expected_dependencies = [*preset_dependencies("recommended"), "extra-plugin"]
-    assert (tmp_path / "bub.log").read_text().splitlines() == [f"install -- {' '.join(expected_dependencies)}"]
+    bub_calls = (tmp_path / "bub.log").read_text().splitlines()
+    assert bub_calls == [f"install -- {' '.join(expected_dependencies)}"]
+    installed_dependencies = bub_calls[0].split()[2:]
+    assert installed_dependencies.count("bub-mcp@main") == 1
+    assert installed_dependencies.count("bub-agent-plugins@main") == 1
 
 
 def test_install_sh_rejects_unknown_preset_before_installing_bub(tmp_path: Path) -> None:

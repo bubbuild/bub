@@ -1,0 +1,223 @@
+---
+title: Load Agent Plugins
+description: Load a portable Agent Plugin with a skill and an MCP server, and use it alongside existing Bub integrations.
+sidebar:
+  order: 4
+---
+
+`bub-agent-plugins` adds support for Agent Plugins 1.0.0 packages: directories with a `plugin.json` manifest
+and optional `skills/` and `mcp.json` components. In this tutorial, you will load a summary skill and a time
+MCP server from one portable package, then verify both in Bub.
+
+The integration lives in
+[`bub-contrib`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-agent-plugins).
+Bub's Python plugins still use the [normal entry-point system](/docs/build/plugins/).
+
+## Before you begin
+
+- Install [Bub](/docs/getting-started/install/) and make sure `bub --help` works.
+- Have `uvx` on `PATH` to launch the time server used below. The standalone installer installs it with `uv`.
+- Choose a workspace directory and run the examples from that directory.
+
+The verification commands call tools directly and do not require a model API key.
+
+## 1. Install the integrations
+
+The standalone installer's `recommended` preset includes both integrations. For an existing or minimal
+installation, install them into the same environment that runs Bub:
+
+```bash
+bub install bub-mcp@main bub-agent-plugins@main
+bub hooks
+```
+
+`bub-agent-plugins` requires `bub-mcp>=0.2.0`, including when only skills are enabled. This runtime requirement
+is installed explicitly; it is not a transitive Python dependency. From a source checkout, use
+`uv run bub install bub-mcp@main bub-agent-plugins@main` and prefix subsequent `bub` commands with `uv run`.
+
+In the hook report, look for `agent-plugins` on the `load_state` and `provide_channels` lines. This confirms
+the Python integration loaded; the following steps verify a portable package.
+
+## 2. Add a portable package
+
+Create this layout in your workspace:
+
+```text
+.agents/plugins/portable-notes/
+├── plugin.json
+├── skills/
+│   └── plugin-summary/
+│       └── SKILL.md
+└── mcp.json
+```
+
+Save this as `.agents/plugins/portable-notes/plugin.json`:
+
+```json
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "portable-notes",
+  "version": "1.0.0",
+  "description": "A summary skill and a time server for Bub"
+}
+```
+
+`$schema` and `name` are required. The manifest identifies the package; Bub discovers components from the
+fixed paths shown above. Either `skills/` or `mcp.json` can be omitted.
+
+Save this as `.agents/plugins/portable-notes/skills/plugin-summary/SKILL.md`:
+
+```markdown
+---
+name: plugin-summary
+description: Summarize notes into decisions and next actions.
+---
+
+Read the supplied notes. List the decisions made, then the remaining actions and their owners.
+If an owner is missing, say that it is unassigned.
+```
+
+The skill's `name` must match its directory name. Plugin skills use Bub's existing skill parser and
+discovery rules; workspace and user skills keep precedence over a plugin skill with the same name.
+
+## 3. Verify the skill
+
+Run these comma commands through Bub from the workspace:
+
+```bash
+bub --workspace . run ',skill'
+bub --workspace . run ',skill name=plugin-summary'
+```
+
+The first command should list `plugin-summary`. The second should print its location and the instructions
+you saved. Skills work with `bub run` because loading them does not require a background channel.
+
+## 4. Add and call the MCP server
+
+Save this as `.agents/plugins/portable-notes/mcp.json`:
+
+```json
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "time": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-time"]
+    }
+  }
+}
+```
+
+The portable format requires `$schema` and a `type` for each server: `stdio`, `streamable-http`, or `sse`.
+For remote servers, use `url` and optional `headers`; URLs must use HTTPS except on loopback addresses.
+The portable format differs from the configuration in Bub's home directory, where `bub-mcp` uses
+`transport` for remote servers.
+
+Start the chat interface:
+
+```bash
+bub --workspace . chat
+```
+
+`bub chat` automatically attaches enabled lifecycle channels. With this package loaded, its MCP server
+runs in `agent-plugins.mcp`. After the server connects, enter:
+
+```text
+,mcp.portable-notes.time_get_current_time timezone=UTC
+```
+
+The command should return the current time. Startup is asynchronous, so wait a few seconds before calling
+the tool. The first launch can take longer while `uvx` downloads the time server. If you get a shell
+`command not found` error, the tool has not registered yet; check startup logs for connection errors and
+retry after startup completes.
+
+Once you have [configured a model](/docs/operate/configure/), you can also ask Bub to call the time tool or
+summarize notes with `$plugin-summary`.
+
+## Use it alongside existing MCP servers
+
+The two integrations keep separate configuration and lifecycle channels:
+
+| Source | Lifecycle channel | Tool name pattern |
+| --- | --- | --- |
+| `~/.bub/mcp.json` | `mcp.lifecycle` | `mcp.<server>_<tool>` |
+| `<plugin>/mcp.json` | `agent-plugins.mcp` | `mcp.<plugin>.<server>_<tool>` |
+
+An existing server named `time` and this package's `time` server therefore have distinct tool names.
+`bub-agent-plugins` reads package MCP definitions without writing them into `~/.bub/mcp.json`.
+The `bub mcp add`, `remove`, and `list` commands continue to manage the home configuration; they do not
+manage or list package servers. Check startup logs for errors and call the plugin-qualified tool from a running
+chat or gateway to verify a package server.
+
+To run both integrations with the CLI as the gateway's input channel:
+
+```bash
+bub --workspace . gateway \
+  --enable-channel cli \
+  --enable-channel mcp.lifecycle \
+  --enable-channel agent-plugins.mcp
+```
+
+Lifecycle channels are included automatically unless explicitly excluded. If your gateway uses
+`BUB_ENABLED_CHANNELS`, check for exclusions such as `!agent-plugins.mcp` or `!mcp.lifecycle`.
+`bub run` does not start lifecycle channels, so use `bub chat` or `bub gateway` for package MCP tools.
+
+## Configure discovery and components
+
+By default, Bub scans immediate child directories of `<workspace>/.agents/plugins/` and
+`~/.agents/plugins/`. To load packages from other locations, add an `agent-plugins` section to
+`~/.bub/config.yml` (or `$BUB_HOME/config.yml`):
+
+```yaml
+agent-plugins:
+  paths:
+    - /opt/agent-plugins/reporting
+  auto_discover: true
+  skills_enabled: true
+  mcp_enabled: true
+  data_root: ~/.bub/agent-plugins
+```
+
+Each `paths` entry is an exact plugin root containing `plugin.json`, not a parent to scan. Relative paths
+resolve against the active workspace. Explicit paths are checked first, followed by workspace and user
+discovery directories. If two packages have the same manifest name, the first valid package wins.
+
+Set `auto_discover: false` to use only explicit paths. `skills_enabled` and `mcp_enabled` independently
+control the two portable components; disabling either does not disable ordinary Bub skills or the
+servers in the home MCP configuration.
+
+Environment variables use the `BUB_AGENT_PLUGINS_` prefix. For example, list values use JSON:
+
+```bash
+export BUB_AGENT_PLUGINS_PATHS='["/opt/agent-plugins/reporting"]'
+export BUB_AGENT_PLUGINS_AUTO_DISCOVER=false
+```
+
+Stdio servers receive absolute `PLUGIN_ROOT` and `PLUGIN_DATA` environment variables. Their default
+working directory is the plugin root. `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` expand in `args`, `env` values,
+and `cwd` only. For a bundled server script, for example, use `"command": "python"` with
+`"args": ["${PLUGIN_ROOT}/server.py"]`.
+
+`PLUGIN_DATA` points to a persistent directory named after the plugin under `data_root`. When `data_root`
+is omitted, it defaults to `$BUB_HOME/agent-plugins` or `~/.bub/agent-plugins`. The explicit YAML value above
+overrides that default.
+
+Restart Bub after changing a package or its settings. The integration loads directories already on disk;
+it does not download or update portable packages.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| `agent-plugins` is absent from `bub hooks` | Install both integrations in Bub's active environment. Loader errors identify a missing or older `bub-mcp`. |
+| A package is rejected | Check `plugin.json`, including its required `$schema` and `name`, and the `bub-agent-plugins:` startup diagnostics. Other packages can still load. |
+| A skill is missing | Check that its frontmatter name matches the directory and that `skills_enabled` is true. Workspace or user skills can take precedence. |
+| An MCP tool is missing | Check the package's `mcp.json`, `mcp_enabled`, the enabled channels, and connection logs. Wait for bootstrap before calling the tool. |
+| Skills load but MCP does not | MCP validation and connection failures are isolated from skills. A malformed server entry is skipped without discarding valid sibling servers. |
+
+## Next steps
+
+- [Connect MCP servers](/docs/tutorials/mcp/) — manage servers in Bub's home configuration.
+- [Build skills](/docs/build/skills/) — write and validate skills for Bub.
+- [Build plugins](/docs/build/plugins/) — extend Bub's hooks with a Python package.

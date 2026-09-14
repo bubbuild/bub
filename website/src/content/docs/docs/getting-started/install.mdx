@@ -41,6 +41,11 @@ The installer places `uv` and the `bub` executable in user-level directories. In
 
 Preset membership is defined only in the versioned [preset catalog](https://bub.build/presets.json), so plugin bundles can evolve without changing the installers. `recommended` is the default bundle and `minimal` installs no optional plugins.
 
+The `recommended` preset includes both [`bub-mcp`](/docs/tutorials/mcp/) and
+[`bub-agent-plugins`](/docs/tutorials/agent-plugins/). Together they support your existing MCP servers and
+portable Agent Plugins that bundle skills and MCP servers. The installer adds the Python integrations;
+place portable plugin directories in `.agents/plugins/` to load them.
+
 For automation, pass `--preset` explicitly. `--dependency` is repeatable and adds packages outside the selected preset (`--plugin` is an alias):
 
 <Tabs syncKey="install-platform">
@@ -127,4 +132,5 @@ You should see a summary that includes the `builtin` plugin and a list of hook i
 
 - [Run Your First Turn](/docs/getting-started/first-turn/) — send a comma command and a model-backed turn.
 - [Configure Bub](/docs/operate/configure/) — set `BUB_MODEL`, `BUB_API_KEY`, and other runtime settings.
+- [Load Agent Plugins](/docs/tutorials/agent-plugins/) — add portable skills and MCP servers alongside existing plugins.
 - [Settings reference](/docs/reference/settings/) — see every supported environment variable.
