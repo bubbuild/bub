@@ -83,12 +83,14 @@ class BuiltinImpl:
         self.framework = framework
         self._agent: Agent | None = None
 
-    def _get_agent(self) -> Agent:
+    def _get_agent(self, state: TurnState | None = None) -> Agent:
+        if state and "_runtime_agent" in state:
+            return cast("Agent", state["_runtime_agent"])
         if self._agent is None:
             self._agent = Agent(self.framework)
         return self._agent
 
-    async def _recover_session_model(self, session_id: str) -> str | None:
+    async def _recover_session_model(self, session_id: str, *, agent: Agent) -> str | None:
         """Recover the latest per-session model override recorded on the session tape.
 
         The ``model`` tool records each switch as a ``model_switch`` event on the
@@ -97,7 +99,7 @@ class BuiltinImpl:
         restored. Returns ``None`` when nothing was recorded, so a fresh session
         never inherits another session's model.
         """
-        session = self._get_agent().tape.session_tape(session_id, self.framework.workspace)
+        session = agent.tape.session_tape(session_id, self.framework.workspace)
         entries = list(await session.store.fetch_all(session.query().kinds("event")))
         for entry in reversed(entries):
             if entry.kind == "event" and entry.payload.get("name") == "model_switch":
@@ -105,9 +107,9 @@ class BuiltinImpl:
                 return str(model) if model else None
         return None
 
-    async def _recover_session_reasoning_effort(self, session_id: str) -> str | None:
+    async def _recover_session_reasoning_effort(self, session_id: str, *, agent: Agent) -> str | None:
         """Recover the latest per-session reasoning effort override."""
-        session = self._get_agent().tape.session_tape(session_id, self.framework.workspace)
+        session = agent.tape.session_tape(session_id, self.framework.workspace)
         entries = list(await session.store.fetch_all(session.query().kinds("event")))
         for entry in reversed(entries):
             if entry.kind == "event" and entry.payload.get("name") == "reasoning_effort_switch":
@@ -166,15 +168,19 @@ class BuiltinImpl:
         lifespan = field_of(message, "lifespan")
         if lifespan is not None:
             await lifespan.__aenter__()
-        state = {"session_id": session_id, "_runtime_agent": self._get_agent()}
+        # SDK calls supply their agent before recovery so state comes from its store.
+        agent = field_of(message, "_runtime_agent")
+        if agent is None:
+            agent = self._get_agent()
+        state = {"session_id": session_id, "_runtime_agent": agent}
         if context := field_of(message, "context_str"):
             state["context"] = context
         # Carry over a previously recorded per-session model override from the
         # session tape. Only set when a prior turn actually recorded one, so a
         # fresh/unknown session never inherits another session's model.
-        if model := await self._recover_session_model(session_id):
+        if model := await self._recover_session_model(session_id, agent=agent):
             state["model"] = model
-        if reasoning_effort := await self._recover_session_reasoning_effort(session_id):
+        if reasoning_effort := await self._recover_session_reasoning_effort(session_id, agent=agent):
             state["reasoning_effort"] = reasoning_effort
         if model := field_of(message, "context", {}).get("model"):
             state["model"] = model
@@ -227,7 +233,7 @@ class BuiltinImpl:
 
     @hookimpl
     async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: TurnState) -> AsyncStreamEvents:
-        return await self._get_agent().run_stream(
+        return await self._get_agent(state).run_stream(
             session_id=session_id,
             prompt=prompt,
             state=state,
@@ -425,9 +431,11 @@ class BuiltinImpl:
         replace it with a guidance ``tool_result`` so the model can re-issue a
         valid call on the next step.
         """
-        from bub.tools import REGISTRY, model_tools
+        from bub.tools import model_tools
 
-        available_tools = tuple(tool_item.name for tool_item in model_tools(REGISTRY.values()))
+        agent = self._get_agent(state)
+
+        available_tools = tuple(tool_item.name for tool_item in model_tools(agent.tools.values()))
         if call.tool in available_tools:
             return None
 

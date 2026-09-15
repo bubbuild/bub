@@ -20,6 +20,7 @@ class FakeContext:
 
 class FakeAgent:
     def __init__(self) -> None:
+        self.tools = REGISTRY.copy()
         self.run_stream = AsyncMock(side_effect=self._run_stream)
 
     async def _run_stream(self, **kwargs: Any) -> AsyncStreamEvents:

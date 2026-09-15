@@ -51,6 +51,9 @@ def _make_agent() -> Agent:
 
     agent.settings = AgentSettings.model_construct(model="test:model", api_key="k", api_base="b", client_args={})
     agent.framework = framework
+    agent.tools = REGISTRY.copy()
+    agent.tape_store = None
+    agent.skill_dirs = None
     agent.model_runner = _FakeModelRunner(agent.settings)
     return agent
 
