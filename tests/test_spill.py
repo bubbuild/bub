@@ -199,6 +199,51 @@ async def test_spill_runs_after_other_result_hooks(tmp_path: Path) -> None:
     assert "tool output spilled" in execution.tool_results[0]
 
 
+@pytest.mark.parametrize(
+    ("error_message", "replacement", "should_spill"),
+    [
+        ("original secret " * 1000, "sanitized failure", False),
+        ("small failure", "replacement " * 2000, True),
+    ],
+)
+@pytest.mark.asyncio
+async def test_failure_replacement_is_used_for_spill_check(
+    tmp_path: Path,
+    error_message: str,
+    replacement: str,
+    should_spill: bool,
+) -> None:
+    class ReplaceFailure:
+        @hookimpl
+        def after_tool_call(self, result: ToolCallResult) -> None:
+            if result.error is not None:
+                result.result = replacement
+
+    plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
+    plugin_manager.add_hookspecs(BubHookSpecs)
+    plugin_manager.register(BuiltinImpl(None), name="builtin")  # type: ignore[arg-type]
+    plugin_manager.register(ReplaceFailure(), name="replace-failure")
+    executor = ToolExecutor(hooks=AgentHooks(HookRuntime(plugin_manager)))
+    root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
+
+    def fail() -> None:
+        raise RuntimeError(error_message)
+
+    async with root.fork_tape() as tape:
+        context = ToolContext(tape=tape, run_id="run-1")
+        execution = await executor.execute_async([(Tool(name="bash", handler=fail), {})], context=context)
+
+        assert execution.error is not None
+        result = execution.tool_results[0]
+        if should_spill:
+            assert isinstance(result, str)
+            assert "tool output spilled" in result
+            page = await _read_page(context, _handle_from_ref(result), count=4)
+            assert _page_content(page) == replacement
+        else:
+            assert result == replacement
+
+
 @pytest.mark.asyncio
 async def test_oversized_tool_error_is_spilled_and_remains_a_failure(tmp_path: Path) -> None:
     root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)

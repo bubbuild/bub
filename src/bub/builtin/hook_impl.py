@@ -461,7 +461,7 @@ class BuiltinImpl:
         if result.error is None:
             tool_result = result.result
         elif isinstance(result.error, BubError):
-            tool_result = result.error.as_dict()
+            tool_result = result.error.as_dict() if result.result is None else result.result
         else:
             return
 
