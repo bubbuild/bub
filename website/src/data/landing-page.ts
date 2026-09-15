@@ -119,9 +119,9 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
         },
         {
           icon: 'puzzle',
-          title: 'Two Ways to Extend',
+          title: 'Plugin System',
           description:
-            'Python plugins customize the runtime through hooks. The bub-agent-plugins integration loads portable Agent Plugins containing skills and MCP servers.',
+            'Python entry-points under group="bub". Later-registered plugins run first and override earlier ones. No framework privilege.',
         },
       ],
     },
@@ -206,8 +206,8 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
         },
         {
           icon: 'puzzle',
-          title: '两种扩展方式',
-          description: 'Python 插件通过 hook 定制运行时；bub-agent-plugins 集成则加载包含技能和 MCP 服务的可移植 Agent Plugins。',
+          title: '插件系统',
+          description: '显式覆盖插件设计：后注册的插件优先运行并覆盖前者，没有任何框架优先限制。',
         },
       ],
     },
