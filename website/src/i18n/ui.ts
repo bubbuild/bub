@@ -25,8 +25,9 @@ export const showDefaultLang = false;
 export const ui = {
   en: {
     // Site meta
-    'site.title': 'Bub | A tiny runtime for agents that live alongside people',
-    'site.description': 'Bub is a tiny, hook-driven agent runtime for real conversations.',
+    'site.title': 'Bub | A tiny agent runtime, composable with plugins',
+    'site.description':
+      'Bub is a tiny agent runtime, composable with plugins. Start with a working agent and customize how it thinks, remembers, and connects.',
 
     // Nav
     'nav.docs': 'Docs',
@@ -56,8 +57,8 @@ export const ui = {
 
   'zh-cn': {
     // Site meta
-    'site.title': 'Bub | 与 Human 同在的轻量级 Agent 运行时',
-    'site.description': 'Bub 是一个为真实对话打造的轻量、hook 驱动的 agent 运行时。',
+    'site.title': 'Bub | 轻量的 Agent 运行时，以插件自由组合',
+    'site.description': 'Bub 是轻量的 Agent 运行时，以插件自由组合。开箱即用，再按需定制模型执行、记忆和消息渠道。',
 
     // Nav
     'nav.docs': '文档',

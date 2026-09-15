@@ -7,7 +7,7 @@
   <img alt="Bub logo" src="https://raw.githubusercontent.com/bubbuild/bub/refs/heads/main/website/src/assets/bub-logo.png" width="200">
 </picture>
 
-<p><strong>A hook-first runtime for agents that live alongside people.</strong></p>
+<p><strong>A tiny agent runtime, composable with plugins.</strong></p>
 
 </div>
 
@@ -59,7 +59,7 @@ bub gateway                      # channel listener mode
 
 ## Why Bub
 
-- **Hook-first runtime.** Every turn stage is a hook. Override one stage or replace the whole flow without forking the runtime.
+- **Composable by design.** Every turn stage is a plugin hook. Override one stage or replace the whole flow without forking the runtime.
 - **Tape context.** Context is rebuilt from append-only records, not carried around as mutable session state. Easier to inspect, replay, and hand off.
 - **One runtime across surfaces.** The same inbound pipeline runs across CLI, Telegram, and custom channels. Adapters change the surface, not the runtime model.
 - **Batteries included.** CLI, Telegram, tools, skills, and model execution ship with the core runtime. Use the defaults first, replace them later.

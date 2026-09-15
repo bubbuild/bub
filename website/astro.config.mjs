@@ -51,7 +51,7 @@ export default defineConfig({
     }),
     starlight({
       title: 'Bub',
-      description: 'A common shape for agents that live alongside people.',
+      description: 'A tiny agent runtime, composable with plugins.',
       expressiveCode: false,
       favicon: '/favicon.ico',
       head: [

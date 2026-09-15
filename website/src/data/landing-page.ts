@@ -65,10 +65,10 @@ export type LandingLocale = 'en' | 'zh-cn';
 const landingPageData: Record<LandingLocale, LandingPageData> = {
   en: {
     hero: {
-      badge: 'Hook-first · Tape-driven · Channel-agnostic',
-      title: 'Bub is a tiny runtime for agents that live alongside people.',
+      badge: 'Composable · Tape-driven · Channel-agnostic',
+      title: 'Bub is a tiny agent runtime, composable with plugins.',
       description:
-        '~200 lines of core code. Hooks reshape every turn stage. Tapes record every decision. Channels adapt to any surface — CLI, Telegram, or your own.',
+        'Start with a working agent. Use plugins to change how it thinks, remembers, and connects.',
       installCommands: {
         posix: 'curl -fsSL https://bub.build/install.sh | bash',
         windows: 'powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"',
@@ -89,9 +89,9 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       features: [
         {
           icon: 'webhook',
-          title: 'Hook-First',
+          title: 'Composable by Design',
           description:
-            '~200-line core. Every turn stage is a pluggy hook. Builtins are just default plugins — override any stage without forking the runtime.',
+            'A small core with replaceable defaults. Every turn stage is a pluggy hook — use Python plugins to override any stage without forking the runtime.',
         },
         {
           icon: 'layers',
@@ -119,9 +119,9 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
         },
         {
           icon: 'puzzle',
-          title: 'Plugin System',
+          title: 'Two Ways to Extend',
           description:
-            'Python entry-points under group="bub". Later-registered plugins run first and override earlier ones. No framework privilege.',
+            'Python plugins customize the runtime through hooks. The bub-agent-plugins integration loads portable Agent Plugins containing skills and MCP servers.',
         },
       ],
     },
@@ -157,10 +157,10 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
   },
   'zh-cn': {
     hero: {
-      badge: 'Hook 优先 · Tape 驱动 · Channel 任选',
-      title: 'Bub，与 Human 同在的轻量级 Agent 运行时。',
+      badge: '插件组合 · Tape 驱动 · Channel 任选',
+      title: 'Bub，轻量的 Agent 运行时，以插件自由组合。',
       description:
-        '核心代码约 200 行。每个阶段通过 Hook 驱动。由 Tape 模型记录每次决策。 随时接入 CLI、Telegram 或任意你喜欢的 Channel。',
+        '开箱即用，再用插件按需定制模型执行、记忆和消息渠道。',
       installCommands: {
         posix: 'curl -fsSL https://bub.build/install.sh | bash',
         windows: 'powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"',
@@ -181,8 +181,8 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       features: [
         {
           icon: 'webhook',
-          title: 'Hook 优先',
-          description: '约 200 行核心代码。每个阶段都是一个可插拔的 hook，灵活的 Hook 设计可以实现任何满足你需要的插件。而内置实现只是默认插件——你可以随时替换任意阶段。',
+          title: '按需组合',
+          description: '内核精简，内置实现均可替换。每个轮次阶段都是一个 pluggy hook，可通过 Python 插件覆盖，无需 fork 运行时。',
         },
         {
           icon: 'layers',
@@ -206,8 +206,8 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
         },
         {
           icon: 'puzzle',
-          title: '插件系统',
-          description: '显式覆盖插件设计：后注册的插件优先运行并覆盖前者，没有任何框架优先限制。',
+          title: '两种扩展方式',
+          description: 'Python 插件通过 hook 定制运行时；bub-agent-plugins 集成则加载包含技能和 MCP 服务的可移植 Agent Plugins。',
         },
       ],
     },

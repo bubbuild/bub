@@ -1,4 +1,4 @@
-"""Hook-first Bub framework runtime."""
+"""Composable Bub framework runtime."""
 
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ class BubFramework:
 
     def create_cli_app(self) -> typer.Typer:
         """Create CLI app by collecting commands from hooks. Can be used for custom CLI entry point."""
-        app = typer.Typer(name="bub", help="Batteries-included, hook-first AI framework", add_completion=False)
+        app = typer.Typer(name="bub", help="A tiny agent runtime, composable with plugins", add_completion=False)
 
         @app.callback(invoke_without_command=True)
         def _main(

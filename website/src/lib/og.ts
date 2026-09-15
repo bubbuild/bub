@@ -141,12 +141,12 @@ export async function collectPages(): Promise<Record<string, PageMeta>> {
 
   pages['index'] = {
     title: 'Bub',
-    description: 'A common shape for agents that live alongside people.',
+    description: 'A tiny agent runtime, composable with plugins.',
   };
 
   pages['zh-cn/index'] = {
     title: 'Bub',
-    description: '与 Human 同在的轻量级 Agent 运行时。',
+    description: '轻量的 Agent 运行时，以插件自由组合。',
   };
 
   return pages;
