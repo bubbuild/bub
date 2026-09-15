@@ -60,6 +60,7 @@ class BubFramework:
         configure.load(self.config_file)
 
     def load_builtin_hooks(self) -> None:
+        """Register Bub's builtin hook implementations."""
         from bub.builtin.hook_impl import BuiltinImpl
 
         impl = BuiltinImpl(self)
@@ -93,6 +94,7 @@ class BubFramework:
                 logger.warning(f"Failed to register plugin '{plugin_name}': {exc}")
 
     def register_plugin(self, plugin: Any, name: str | None = None) -> str | None:
+        """Register a plugin instance or framework-aware factory and return its registered name."""
         try:
             if callable(plugin):  # Support entry points that are classes
                 plugin = plugin(self)
