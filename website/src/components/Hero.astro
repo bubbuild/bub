@@ -43,26 +43,24 @@ const {
 
 const hasContributors = contributors.length > 0;
 
-const exampleCode = `import bub
+const exampleCode = `from bub import hookimpl
+from bub.envelope import content_of
 
-@bub.hookimpl
-def build_prompt(session, tape):
-    """Reconstruct context from tape records."""
-    messages = [{"role": "system", "content": session.system}]
-    for record in tape.entries:
-        messages.append({
-            "role": record.role,
-            "content": record.content,
-        })
-    return messages
 
-@bub.hookimpl
-def run_model(messages, config):
-    """Call the LLM — override to swap providers."""
-    return litellm.completion(
-        model=config.model,
-        messages=messages,
-    )`;
+class MyPlugin:
+    @hookimpl
+    def build_prompt(self, message, session_id, state):
+        """Shape what the model sees this turn."""
+        context = state.get("context", "")
+        return f"{context}\\n{content_of(message)}"
+
+    @hookimpl
+    async def run_model(self, prompt, session_id, state):
+        """Swap the provider — any client, any API."""
+        reply = await my_client.complete(
+            prompt, model=state.get("model")
+        )
+        return reply.text`;
 
 const heroCodeScopes = {
   keyword: [
