@@ -25,15 +25,10 @@ from bub.builtin.settings import load_settings
 from bub.envelope import field_of
 from bub.framework import BubFramework
 from bub.skills import discover_skills, render_skills_prompt
-from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore, is_async_tape_store
+from bub.store import AsyncTapeStore, AsyncTapeStoreAdapter, InMemoryTapeStore, TapeStore, is_async_tape_store
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import Tape
-from bub.tools import (
-    REGISTRY,
-    Tool,
-    ToolContext,
-    model_tools,
-)
+from bub.tools import REGISTRY, Tool, ToolContext, model_tools
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
 
@@ -44,18 +39,32 @@ MAX_AUTO_HANDOFF_RETRIES = 1
 class Agent:
     """Agent that processes prompts using hooks, tools, tape, and any-llm-sdk."""
 
-    def __init__(self, framework: BubFramework) -> None:
+    def __init__(
+        self,
+        framework: BubFramework,
+        *,
+        tools: Collection[Tool] | None = None,
+        tape_store: TapeStore | AsyncTapeStore | None = None,
+        skill_dirs: Collection[Path] | None = None,
+    ) -> None:
         self.settings = load_settings()
         self.framework = framework
+        self.tools = {tool.name: tool for tool in tools} if tools is not None else REGISTRY.copy()
+        self.tape_store = tape_store
+        self.skill_dirs = skill_dirs
         self.model_runner = ModelRunner(self.settings, hooks=framework.get_agent_hooks())
 
     @cached_property
     def tape(self) -> Tape:
         import bub
 
-        tape_store = self.framework.get_tape_store()
-        if tape_store is None:
-            tape_store = InMemoryTapeStore()
+        tape_store: TapeStore | AsyncTapeStore | None
+        if self.tape_store is not None:
+            tape_store = self.tape_store
+        else:
+            tape_store = self.framework.get_tape_store()
+            if tape_store is None:
+                tape_store = InMemoryTapeStore()
         if not is_async_tape_store(tape_store):
             tape_store = AsyncTapeStoreAdapter(tape_store)
         return Tape(
@@ -91,10 +100,11 @@ class Agent:
         *,
         session_id: str,
         prompt: str | list[dict],
-        state: TurnState,
+        state: TurnState | None = None,
         model: str | None = None,
         allowed_skills: Collection[str] | None = None,
         allowed_tools: Collection[str] | None = None,
+        reasoning_effort: str | None = None,
     ) -> AsyncStreamEvents:
         if not prompt:
             return self._events_from_iterable([
@@ -102,6 +112,13 @@ class Agent:
                 StreamEvent("final", {"text": "error: empty prompt", "ok": False}),
             ])
 
+        if state is None:
+            state = await self.framework.build_state({"_runtime_agent": self}, session_id)
+        state["_runtime_agent"] = self  # Override the agent to the current instance.
+        if model is None:
+            model = state.get("model")
+        if reasoning_effort is not None:
+            state["reasoning_effort"] = reasoning_effort
         state.setdefault("session_id", session_id)
         tape = self.tape.session_tape(
             session_id, workspace_from_state(state), context=replace(self.tape.context, state=state)
@@ -139,13 +156,15 @@ class Agent:
         output = ""
         status = "ok"
         try:
-            if name not in REGISTRY:
-                output = await REGISTRY["bash"].run(context=context, cmd=line)
+            if name not in self.tools:
+                if "bash" not in self.tools:
+                    raise ValueError("bash tool is not available")  # noqa: TRY301
+                output = await self.tools["bash"].run(context=context, cmd=line)
             else:
                 args = _parse_args(arg_tokens)
-                if REGISTRY[name].context:
+                if self.tools[name].context:
                     args.kwargs["context"] = context
-                output = REGISTRY[name].run(*args.positional, **args.kwargs)
+                output = self.tools[name].run(*args.positional, **args.kwargs)
                 if inspect.isawaitable(output):
                     output = await output
         except Exception as exc:
@@ -311,7 +330,7 @@ class Agent:
     def _load_skills_prompt(self, prompt: str, workspace: Path, allowed_skills: set[str] | None = None) -> str:
         skill_index = {
             skill.name.casefold(): skill
-            for skill in discover_skills(workspace)
+            for skill in discover_skills(workspace, skill_dirs=self.skill_dirs)
             if allowed_skills is None or skill.name.casefold() in allowed_skills
         }
         expanded_skills = set(HINT_RE.findall(prompt)) & set(skill_index.keys())
@@ -330,14 +349,14 @@ class Agent:
         if allowed_tools is not None:
             from bub.builtin.tools import resolve_tool_names
 
-            allowed_tools = resolve_tool_names(allowed_tools)
+            allowed_tools = resolve_tool_names(allowed_tools, all_names=self.tools)
         if allowed_skills is not None:
             allowed_skills = {name.casefold() for name in allowed_skills}
             tape.context.state["allowed_skills"] = list(allowed_skills)
         if allowed_tools is not None:
-            tools = [tool for tool in REGISTRY.values() if tool.name in allowed_tools]
+            tools = [tool for tool in self.tools.values() if tool.name in allowed_tools]
         else:
-            tools = list(REGISTRY.values())
+            tools = list(self.tools.values())
         return await self._run_once_stream(
             tape=tape,
             prompt=prompt,
@@ -394,7 +413,7 @@ class Agent:
         blocks: list[str] = []
         if result := self.framework.get_system_prompt(prompt=prompt, state=state):
             blocks.append(result)
-        tools_prompt = render_tools_prompt(tools if tools is not None else REGISTRY.values())
+        tools_prompt = render_tools_prompt(tools if tools is not None else self.tools.values())
         if tools_prompt:
             blocks.append(tools_prompt)
         workspace = workspace_from_state(state)

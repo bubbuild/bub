@@ -49,9 +49,9 @@ class BubFramework:
     def __init__(self, config_file: Path = DEFAULT_CONFIG_FILE) -> None:
         self.workspace = Path.cwd().resolve()
         self.config_file = config_file.resolve()
-        self._plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
-        self._plugin_manager.add_hookspecs(BubHookSpecs)
-        self._hook_runtime = HookRuntime(self._plugin_manager)
+        self.plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
+        self.plugin_manager.add_hookspecs(BubHookSpecs)
+        self._hook_runtime = HookRuntime(self.plugin_manager)
         self._agent_hooks = AgentHooks(self._hook_runtime)
         self._plugin_status: dict[str, PluginStatus] = {}
         self._channel_router: ChannelRouter | None = None
@@ -60,13 +60,13 @@ class BubFramework:
         configure.load(self.config_file)
 
     def load_builtin_hooks(self) -> None:
-        """Register Bub's builtin hook implementations."""
+        """Load Bub's builtin hook implementations."""
         from bub.builtin.hook_impl import BuiltinImpl
 
         impl = BuiltinImpl(self)
 
         try:
-            self._plugin_manager.register(impl, name="builtin")
+            self.plugin_manager.register(impl, name="builtin")
         except Exception as exc:
             self._plugin_status["builtin"] = PluginStatus(is_success=False, detail=str(exc))
         else:
@@ -89,22 +89,14 @@ class BubFramework:
 
         for plugin_name, plugin in pending_plugins:
             try:
-                self.register_plugin(plugin, name=plugin_name)
+                if callable(plugin):  # Support entry points that are classes
+                    plugin = plugin(self)
+                self.plugin_manager.register(plugin, name=plugin_name)
             except Exception as exc:
-                logger.warning(f"Failed to register plugin '{plugin_name}': {exc}")
-
-    def register_plugin(self, plugin: Any, name: str | None = None) -> str | None:
-        """Register a plugin instance or framework-aware factory and return its registered name."""
-        try:
-            if callable(plugin):  # Support entry points that are classes
-                plugin = plugin(self)
-            name = self._plugin_manager.register(plugin, name=name)
-        except Exception as exc:
-            self._plugin_status[name or plugin.__class__.__name__] = PluginStatus(is_success=False, detail=str(exc))
-            raise
-        else:
-            self._plugin_status[name or plugin.__class__.__name__] = PluginStatus(is_success=True)
-            return name
+                logger.warning(f"Failed to initialize plugin '{plugin_name}': {exc}")
+                self._plugin_status[plugin_name] = PluginStatus(is_success=False, detail=str(exc))
+            else:
+                self._plugin_status[plugin_name] = PluginStatus(is_success=True)
 
     def create_cli_app(self) -> typer.Typer:
         """Create CLI app by collecting commands from hooks. Can be used for custom CLI entry point."""

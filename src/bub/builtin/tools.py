@@ -25,9 +25,10 @@ def _to_model_name(name: str) -> str:
     return name.replace(".", "_")
 
 
-def _tool_name_index() -> dict[str, str]:
-    real_names = {tool_name.casefold(): tool_name for tool_name in REGISTRY}
-    alias_names = {_to_model_name(tool_name).casefold(): tool_name for tool_name in REGISTRY}
+def _tool_name_index(all_names: Iterable[str]) -> dict[str, str]:
+    names = tuple(all_names)
+    real_names = {tool_name.casefold(): tool_name for tool_name in names}
+    alias_names = {_to_model_name(tool_name).casefold(): tool_name for tool_name in names}
     return {**alias_names, **real_names}
 
 
@@ -36,15 +37,15 @@ def resolve_tool_name(name: str) -> str | None:
     key = name.strip().casefold()
     if not key:
         return None
-    return _tool_name_index().get(key)
+    return _tool_name_index(REGISTRY).get(key)
 
 
-def _resolve_explicit_tool_names(names: Iterable[str]) -> tuple[set[str], set[str]]:
+def _resolve_explicit_tool_names(names: Iterable[str], index: dict[str, str]) -> tuple[set[str], set[str]]:
     resolved: set[str] = set()
     unknown: set[str] = set()
     for name in names:
         normalized_name = name.strip()
-        if resolved_name := resolve_tool_name(normalized_name):
+        if resolved_name := index.get(normalized_name.casefold()):
             resolved.add(resolved_name)
         else:
             unknown.add(normalized_name)
@@ -56,15 +57,19 @@ def _raise_unknown_tool_names(names: set[str]) -> None:
     raise ValueError(f"unknown tool name(s): {formatted}")
 
 
-def resolve_tool_names(names: Iterable[str] | None = None, *, exclude: Iterable[str] = ()) -> set[str]:
+def resolve_tool_names(
+    names: Iterable[str] | None = None, *, exclude: Iterable[str] = (), all_names: Iterable[str] | None = None
+) -> set[str]:
     """Resolve tool names from either runtime names or model-facing aliases."""
-    excluded, unknown_excluded = _resolve_explicit_tool_names(exclude)
+    available = tuple(REGISTRY if all_names is None else all_names)
+    index = _tool_name_index(available)
+    excluded, unknown_excluded = _resolve_explicit_tool_names(exclude, index)
     if unknown_excluded:
         _raise_unknown_tool_names(unknown_excluded)
     if names is None:
-        return set(REGISTRY) - excluded
+        return set(available) - excluded
 
-    resolved, unknown = _resolve_explicit_tool_names(names)
+    resolved, unknown = _resolve_explicit_tool_names(names, index)
     if unknown:
         _raise_unknown_tool_names(unknown)
     return resolved - excluded
@@ -239,12 +244,13 @@ def skill_describe(name: str | None = None, *, context: ToolContext) -> str:
     """
     from bub.utils import workspace_from_state
 
+    agent = _get_agent(context)
     allowed_skills = context.state.get("allowed_skills")
     if allowed_skills is not None and name and name.casefold() not in allowed_skills:
         return f"(skill '{name}' is not allowed in this context)"
 
     workspace = workspace_from_state(context.state)
-    skill_index = {skill.name: skill for skill in discover_skills(workspace)}
+    skill_index = {skill.name: skill for skill in discover_skills(workspace, skill_dirs=agent.skill_dirs)}
     if name is None:
         return "Available skills:\n" + "\n".join(f"- {skill.name}" for skill in skill_index.values())
     if name.casefold() not in skill_index:
@@ -338,7 +344,7 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
     else:
         subagent_session = param.session
     state = {**context.state, "session_id": subagent_session}
-    allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"})
+    allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"}, all_names=agent.tools)
     output = ""
     async for event in await agent.run_stream(
         session_id=subagent_session,
