@@ -18,7 +18,7 @@ from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage
 from bub.channels.telegram import TelegramSettings
 from bub.configure import ensure_config
-from bub.framework import BubFramework
+from bub.framework import BubFramework, PluginStatus
 from bub.hooks import hookimpl
 from bub.model_selection import ModelChoice, ModelOptions
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
@@ -54,7 +54,7 @@ def test_create_cli_app_sets_workspace_and_context(tmp_path: Path) -> None:
                 current = ctx.ensure_object(BubFramework)
                 typer.echo(str(current.workspace))
 
-    framework._plugin_manager.register(CliPlugin(), name="cli-plugin")
+    framework.register_plugin(CliPlugin(), name="cli-plugin")
     app = framework.create_cli_app()
 
     result = CliRunner().invoke(app, ["--workspace", str(tmp_path), "workspace"])
@@ -80,8 +80,8 @@ def test_get_channels_prefers_high_priority_plugin_for_duplicate_names() -> None
         def provide_channels(self, message_handler):
             return [make_named_channel("shared", "high"), make_named_channel("high-only", "high")]
 
-    framework._plugin_manager.register(LowPriorityPlugin(), name="low")
-    framework._plugin_manager.register(HighPriorityPlugin(), name="high")
+    framework.register_plugin(LowPriorityPlugin(), name="low")
+    framework.register_plugin(HighPriorityPlugin(), name="high")
 
     channels = framework.get_channels(message_handler)
 
@@ -109,9 +109,9 @@ def test_get_system_prompt_uses_priority_order_and_skips_empty_results() -> None
         def system_prompt(self, prompt: str, state: dict[str, str]) -> str | None:
             return None
 
-    framework._plugin_manager.register(LowPriorityPlugin(), name="low")
-    framework._plugin_manager.register(HighPriorityPlugin(), name="high")
-    framework._plugin_manager.register(EmptyPlugin(), name="empty")
+    framework.register_plugin(LowPriorityPlugin(), name="low")
+    framework.register_plugin(HighPriorityPlugin(), name="high")
+    framework.register_plugin(EmptyPlugin(), name="empty")
 
     prompt = framework.get_system_prompt(prompt="hello", state={})
 
@@ -134,10 +134,10 @@ def test_get_tape_sidecars_combines_plugins_and_prefers_the_highest_priority_nam
         def provide_tape_sidecar(self) -> Sidecar:
             return self.sidecar
 
-    framework._plugin_manager.register(SidecarPlugin(Sidecar("shared", "low")), name="low-shared")
-    framework._plugin_manager.register(SidecarPlugin(Sidecar("low-only", "low")), name="low-only")
-    framework._plugin_manager.register(SidecarPlugin(Sidecar("shared", "high")), name="high-shared")
-    framework._plugin_manager.register(SidecarPlugin(Sidecar("high-only", "high")), name="high-only")
+    framework.register_plugin(SidecarPlugin(Sidecar("shared", "low")), name="low-shared")
+    framework.register_plugin(SidecarPlugin(Sidecar("low-only", "low")), name="low-only")
+    framework.register_plugin(SidecarPlugin(Sidecar("shared", "high")), name="high-shared")
+    framework.register_plugin(SidecarPlugin(Sidecar("high-only", "high")), name="high-only")
 
     sidecars = {sidecar.name: sidecar for sidecar in framework.get_tape_sidecars()}
 
@@ -166,8 +166,8 @@ async def test_continue_prompt_awaits_high_priority_async_hook() -> None:
             assert state.usage == {"total_tokens": 42}
             return "async prompt"
 
-    framework._plugin_manager.register(SyncPlugin(), name="sync")
-    framework._plugin_manager.register(AsyncPlugin(), name="async")
+    framework.register_plugin(SyncPlugin(), name="sync")
+    framework.register_plugin(AsyncPlugin(), name="async")
 
     prompt = await framework.continue_prompt(prompt="current prompt", tape=tape, state=state)
 
@@ -195,7 +195,7 @@ async def test_running_enters_tape_store_once_and_reuses_it() -> None:
             finally:
                 tape_store.exit_count += 1
 
-    framework._plugin_manager.register(TapePlugin(), name="tape")
+    framework.register_plugin(TapePlugin(), name="tape")
 
     async with framework.running():
         assert framework.get_tape_store() is tape_store
@@ -271,6 +271,48 @@ def test_load_hooks_initializes_callable_plugins_after_config_load(
     assert framework._plugin_status["config-plugin"].is_success is True
 
 
+def test_register_plugin_initializes_callable_with_framework() -> None:
+    framework = BubFramework()
+
+    class FrameworkAwarePlugin:
+        def __init__(self, received_framework: BubFramework) -> None:
+            self.framework = received_framework
+
+    registered_name = framework.register_plugin(FrameworkAwarePlugin, name="framework-aware")
+
+    assert registered_name == "framework-aware"
+    plugin = framework._plugin_manager.get_plugin("framework-aware")
+    assert isinstance(plugin, FrameworkAwarePlugin)
+    assert plugin.framework is framework
+    assert framework._plugin_status["framework-aware"] == PluginStatus(is_success=True)
+
+
+def test_register_plugin_records_initialization_failure() -> None:
+    framework = BubFramework()
+
+    class BrokenPlugin:
+        def __init__(self, _framework: BubFramework) -> None:
+            raise RuntimeError("initialization failed")
+
+    with pytest.raises(RuntimeError, match="initialization failed"):
+        framework.register_plugin(BrokenPlugin, name="broken")
+
+    assert framework._plugin_manager.get_plugin("broken") is None
+    assert framework._plugin_status["broken"] == PluginStatus(
+        is_success=False,
+        detail="initialization failed",
+    )
+
+
+def test_load_builtin_hooks_can_be_called_directly() -> None:
+    framework = BubFramework()
+
+    framework.load_builtin_hooks()
+
+    assert framework._plugin_manager.get_plugin("builtin") is not None
+    assert framework._plugin_status["builtin"] == PluginStatus(is_success=True)
+
+
 def test_collect_onboard_config_passes_accumulated_updates_to_later_hooks(write_config) -> None:
     with patch.dict(os.environ, {}, clear=True):
         framework = BubFramework(config_file=write_config("model: openai:gpt-5"))
@@ -288,8 +330,8 @@ def test_collect_onboard_config_passes_accumulated_updates_to_later_hooks(write_
                 observed_configs.append(("second", configure.merge({}, current_config)))
                 return {"second": {"enabled": True}}
 
-        framework._plugin_manager.register(FirstPlugin(), name="first")
-        framework._plugin_manager.register(SecondPlugin(), name="second")
+        framework.register_plugin(FirstPlugin(), name="first")
+        framework.register_plugin(SecondPlugin(), name="second")
 
         result = framework.collect_onboard_config()
 
@@ -335,7 +377,7 @@ async def test_process_inbound_defaults_to_non_streaming_run_model() -> None:
         async def dispatch_outbound(self, message) -> bool:
             return True
 
-    framework._plugin_manager.register(NonStreamingPlugin(), name="non-streaming")
+    framework.register_plugin(NonStreamingPlugin(), name="non-streaming")
 
     result = await framework.process_inbound(
         ChannelMessage(session_id="s", channel="cli", chat_id="room", content="hi")
@@ -357,7 +399,7 @@ async def test_framework_admit_message_calls_hook_with_snapshot() -> None:
             assert turn.pending_count == 1
             return AdmitDecision("follow_up", reason="busy")
 
-    framework._plugin_manager.register(AdmissionPlugin(), name="admission")
+    framework.register_plugin(AdmissionPlugin(), name="admission")
     decision = await framework.admit_message(
         session_id="session",
         message={"content": "hello"},
@@ -396,8 +438,8 @@ async def test_get_model_options_collects_models_by_priority(tmp_path: Path) -> 
                 current_model="high",
             )
 
-    framework._plugin_manager.register(LowPriorityPlugin(), name="low")
-    framework._plugin_manager.register(HighPriorityPlugin(), name="high")
+    framework.register_plugin(LowPriorityPlugin(), name="low")
+    framework.register_plugin(HighPriorityPlugin(), name="high")
 
     options = await framework.get_model_options(session_id="session", workspace=tmp_path)
 
@@ -466,7 +508,7 @@ async def test_process_inbound_streams_when_requested() -> None:  # noqa: C901
         async def quit(self, session_id: str) -> None:
             return None
 
-    framework._plugin_manager.register(StreamingPlugin(), name="streaming")
+    framework.register_plugin(StreamingPlugin(), name="streaming")
     framework.bind_channel_router(RecordingRouter())
 
     result = await framework.process_inbound(

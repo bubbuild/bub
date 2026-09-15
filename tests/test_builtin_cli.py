@@ -65,7 +65,7 @@ def test_onboard_collects_plugin_config_and_writes_file(tmp_path: Path, monkeypa
                     "telegram": {"token": cli.typer.prompt("Telegram token", hide_input=True)},
                 }
 
-        framework._plugin_manager.register(OnboardPlugin(), name="onboard-plugin")
+        framework.register_plugin(OnboardPlugin(), name="onboard-plugin")
         app = framework.create_cli_app()
 
         answers = iter(["openai:gpt-5", "123:abc"])
@@ -438,7 +438,7 @@ def test_run_command_processes_inbound_inside_framework_runtime(tmp_path: Path) 
         async def dispatch_outbound(self, message) -> bool:
             return True
 
-    framework._plugin_manager.register(RunPlugin(), name="run-plugin")
+    framework.register_plugin(RunPlugin(), name="run-plugin")
     app = framework.create_cli_app()
 
     result = CliRunner().invoke(

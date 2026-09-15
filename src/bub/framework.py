@@ -59,7 +59,7 @@ class BubFramework:
         self._steering_inbox: SteeringInbox | None = None
         configure.load(self.config_file)
 
-    def _load_builtin_hooks(self) -> None:
+    def load_builtin_hooks(self) -> None:
         from bub.builtin.hook_impl import BuiltinImpl
 
         impl = BuiltinImpl(self)
@@ -76,7 +76,7 @@ class BubFramework:
 
         pending_plugins: list[tuple[str, Any]] = []
 
-        self._load_builtin_hooks()
+        self.load_builtin_hooks()
         for entry_point in importlib.metadata.entry_points(group="bub"):
             try:
                 plugin = entry_point.load()
@@ -88,14 +88,21 @@ class BubFramework:
 
         for plugin_name, plugin in pending_plugins:
             try:
-                if callable(plugin):  # Support entry points that are classes
-                    plugin = plugin(self)
-                self._plugin_manager.register(plugin, name=plugin_name)
+                self.register_plugin(plugin, name=plugin_name)
             except Exception as exc:
-                logger.warning(f"Failed to initialize plugin '{plugin_name}': {exc}")
-                self._plugin_status[plugin_name] = PluginStatus(is_success=False, detail=str(exc))
-            else:
-                self._plugin_status[plugin_name] = PluginStatus(is_success=True)
+                logger.warning(f"Failed to register plugin '{plugin_name}': {exc}")
+
+    def register_plugin(self, plugin: Any, name: str | None = None) -> str | None:
+        try:
+            if callable(plugin):  # Support entry points that are classes
+                plugin = plugin(self)
+            name = self._plugin_manager.register(plugin, name=name)
+        except Exception as exc:
+            self._plugin_status[name or plugin.__class__.__name__] = PluginStatus(is_success=False, detail=str(exc))
+            raise
+        else:
+            self._plugin_status[name or plugin.__class__.__name__] = PluginStatus(is_success=True)
+            return name
 
     def create_cli_app(self) -> typer.Typer:
         """Create CLI app by collecting commands from hooks. Can be used for custom CLI entry point."""
