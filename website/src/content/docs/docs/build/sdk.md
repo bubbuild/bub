@@ -36,9 +36,8 @@ from bub.store import FileTapeStore
 from bub.tools import Tool
 
 
-class ApplicationHooks(BuiltinImpl):
-    def __init__(self, framework: BubFramework, prompts: list[str]) -> None:
-        super().__init__(framework)
+class SystemPrompts:
+    def __init__(self, prompts: list[str]) -> None:
         self.prompts = tuple(prompts)
 
     @hookimpl
@@ -57,11 +56,11 @@ def create_agent() -> tuple[BubFramework, Agent]:
     framework = BubFramework(config_file=root / "config.yml")
     framework.workspace = root
     framework.plugin_manager.register(
-        ApplicationHooks(framework, [
+        SystemPrompts([
             "You are an order assistant. Reply directly to the user.",
             "Use lookup_order to check order status before answering.",
         ]),
-        name="application",
+        name="system_prompts",
     )
     agent = Agent(
         framework,
@@ -94,7 +93,7 @@ if __name__ == "__main__":
 Run it with `uv run python sdk_example.py` after configuring your model.
 An absent `config.yml` is allowed; environment settings still apply.
 
-`ApplicationHooks` replaces the builtin system-prompt method while keeping the other builtin hooks.
+`SystemPrompts` replaces the builtin system-prompt method while keeping the other builtin hooks.
 Register this instance once: do not also call `load_builtin_hooks()` or `load_hooks()` in this example.
 System-prompt hooks are additive, so registering an extra prompt hook alongside the standard builtin implementation
 would retain its channel instructions and workspace `AGENTS.md` content.
@@ -104,14 +103,14 @@ Use `load_hooks()` when you also want installed plugins from the `bub` entry-poi
 
 ## Tools, skills, and sessions
 
-| Parameter | Behavior |
-| --- | --- |
-| `tools=[...]` | Accepts `Tool` objects. `Tool.from_callable()` derives a schema from annotations and a description from the docstring. |
-| `tools=None` | Copies the global tool registry at construction time. `tools=[]` disables tools. |
-| `skill_dirs=[Path(...)]` | Searches only these roots, in order; the first skill of a given name wins. |
-| `skill_dirs=None` | Searches project, user, and builtin roots. `skill_dirs=[]` disables discovery. |
-| `tape_store=...` | Uses the supplied `TapeStore` or `AsyncTapeStore`. `FileTapeStore(path)` persists session tapes in that directory. |
-| `tape_store=None` | Uses the framework's active store, or an instance-local memory store if no store is active. |
+| Parameter                | Behavior                                                                                                               |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `tools=[...]`            | Accepts `Tool` objects. `Tool.from_callable()` derives a schema from annotations and a description from the docstring. |
+| `tools=None`             | Copies the global tool registry at construction time. `tools=[]` disables tools.                                       |
+| `skill_dirs=[Path(...)]` | Searches only these roots, in order; the first skill of a given name wins.                                             |
+| `skill_dirs=None`        | Searches project, user, and builtin roots. `skill_dirs=[]` disables discovery.                                         |
+| `tape_store=...`         | Uses the supplied `TapeStore` or `AsyncTapeStore`. `FileTapeStore(path)` persists session tapes in that directory.     |
+| `tape_store=None`        | Uses the framework's active store, or an instance-local memory store if no store is active.                            |
 
 Unlike `@tool`, `Tool.from_callable()` does not register the tool globally.
 Include `skill_describe` in the tool set when the model needs to load skill bodies on demand.

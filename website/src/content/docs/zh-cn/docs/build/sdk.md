@@ -36,9 +36,8 @@ from bub.store import FileTapeStore
 from bub.tools import Tool
 
 
-class ApplicationHooks(BuiltinImpl):
-    def __init__(self, framework: BubFramework, prompts: list[str]) -> None:
-        super().__init__(framework)
+class SystemPrompts:
+    def __init__(self, prompts: list[str]) -> None:
         self.prompts = tuple(prompts)
 
     @hookimpl
@@ -57,11 +56,11 @@ def create_agent() -> tuple[BubFramework, Agent]:
     framework = BubFramework(config_file=root / "config.yml")
     framework.workspace = root
     framework.plugin_manager.register(
-        ApplicationHooks(framework, [
+        SystemPrompts([
             "You are an order assistant. Reply directly to the user.",
             "Use lookup_order to check order status before answering.",
         ]),
-        name="application",
+        name="system_prompts",
     )
     agent = Agent(
         framework,
@@ -95,7 +94,7 @@ if __name__ == "__main__":
 `config.yml` 不存在时也可以运行，环境变量配置仍然生效。
 示例中的订单查询返回演示数据，接入应用时请替换为实际服务。
 
-`ApplicationHooks` 覆盖 builtin 的系统提示方法，并继承其他 builtin hooks。
+`SystemPrompts` 覆盖 builtin 的系统提示方法，并继承其他 builtin hooks。
 只注册这一个实例即可；这个示例中不要再调用 `load_builtin_hooks()` 或 `load_hooks()`。
 系统提示 hooks 会累加，单独新增一个 prompt hook 会保留默认 builtin 的 channel 指令和工作区 `AGENTS.md` 内容。
 
@@ -104,14 +103,14 @@ if __name__ == "__main__":
 
 ## 工具、Skills 与会话
 
-| 参数 | 行为 |
-| --- | --- |
-| `tools=[...]` | 接受 `Tool` 对象。`Tool.from_callable()` 从类型注解生成 schema，从 docstring 获取描述。 |
-| `tools=None` | 构造时复制全局工具注册表。`tools=[]` 禁用工具。 |
-| `skill_dirs=[Path(...)]` | 仅搜索这些目录，按顺序处理，同名 skill 使用第一个。 |
-| `skill_dirs=None` | 搜索项目、用户和 builtin 目录。`skill_dirs=[]` 禁用发现。 |
-| `tape_store=...` | 使用传入的 `TapeStore` 或 `AsyncTapeStore`。`FileTapeStore(path)` 将会话 tape 持久化到指定目录。 |
-| `tape_store=None` | 使用 framework 当前的 store；没有活动 store 时使用实例独立的内存存储。 |
+| 参数                     | 行为                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------ |
+| `tools=[...]`            | 接受 `Tool` 对象。`Tool.from_callable()` 从类型注解生成 schema，从 docstring 获取描述。          |
+| `tools=None`             | 构造时复制全局工具注册表。`tools=[]` 禁用工具。                                                  |
+| `skill_dirs=[Path(...)]` | 仅搜索这些目录，按顺序处理，同名 skill 使用第一个。                                              |
+| `skill_dirs=None`        | 搜索项目、用户和 builtin 目录。`skill_dirs=[]` 禁用发现。                                        |
+| `tape_store=...`         | 使用传入的 `TapeStore` 或 `AsyncTapeStore`。`FileTapeStore(path)` 将会话 tape 持久化到指定目录。 |
+| `tape_store=None`        | 使用 framework 当前的 store；没有活动 store 时使用实例独立的内存存储。                           |
 
 与 `@tool` 不同，`Tool.from_callable()` 不会把工具注册到全局表。
 模型需要按需读取 skill 正文时，将 `skill_describe` 加入工具集合。
