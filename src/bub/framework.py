@@ -47,6 +47,11 @@ class BubFramework:
     """Minimal framework core. Everything grows from hook skills."""
 
     def __init__(self, config_file: Path = DEFAULT_CONFIG_FILE) -> None:
+        """Create a hook runtime and load the process-wide configuration file.
+
+        The workspace initially points to the current directory. Register plugins
+        or load builtin hooks before executing turns; construction does not load them.
+        """
         self.workspace = Path.cwd().resolve()
         self.config_file = config_file.resolve()
         self.plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
@@ -73,6 +78,11 @@ class BubFramework:
             self._plugin_status["builtin"] = PluginStatus(is_success=True)
 
     def load_hooks(self) -> None:
+        """Load builtin hooks, then plugins from the ``bub`` entry-point group.
+
+        Callable entry points receive this framework. Failed plugins are recorded
+        for diagnostics without preventing the remaining plugins from loading.
+        """
         import importlib.metadata
 
         pending_plugins: list[tuple[str, Any]] = []
@@ -133,6 +143,12 @@ class BubFramework:
         raise TypeError("hook.continue_prompt must return str")
 
     async def build_state(self, message: Envelope, session_id: str) -> TurnState:
+        """Merge runtime defaults and load-state hooks into a fresh turn state.
+
+        Higher-priority hooks override lower-priority values. SDK callers can
+        supply their Agent in the message's ``_runtime_agent`` field so builtin
+        session recovery reads that agent's store.
+        """
         state = {"_runtime_workspace": str(self.workspace), "_runtime_steering_inbox": self.get_steering_inbox()}
         for hook_state in reversed(
             await self._hook_runtime.call_many("load_state", message=message, session_id=session_id)
@@ -142,7 +158,12 @@ class BubFramework:
         return state
 
     async def process_inbound(self, inbound: Envelope, stream_output: bool = False) -> TurnResult:
-        """Run one inbound message through hooks and return turn result."""
+        """Resolve, execute, save, render, and dispatch one complete message turn.
+
+        With ``stream_output=True``, consume model events through the bound channel
+        router. This method still returns a completed TurnResult, not an iterator.
+        Use inside ``running()`` when hooks provide stores or other resources.
+        """
 
         try:
             session_id = await self.resolve_session(inbound)
@@ -230,18 +251,25 @@ class BubFramework:
         return self._hook_runtime.hook_report()
 
     def bind_channel_router(self, router: ChannelRouter | None) -> None:
+        """Attach the outbound/stream router, or detach it with ``None``."""
         self._channel_router = router
 
     async def dispatch_via_channel_router(self, message: Envelope) -> bool:
+        """Dispatch through the bound router; return False when no router is bound."""
         if self._channel_router is None:
             return False
         return await self._channel_router.dispatch_output(message)
 
     async def quit_via_channel_router(self, session_id: str) -> None:
+        """Ask the bound router to quit a session; do nothing without a router."""
         if self._channel_router is not None:
             await self._channel_router.quit(session_id)
 
     async def admit_message(self, *, session_id: str, message: Envelope, turn: TurnSnapshot) -> AdmitDecision | None:
+        """Ask admission hooks how to handle a message arriving during a turn.
+
+        Return None when no hook decides; reject unsupported return types.
+        """
         decision = await self._hook_runtime.call_first(
             "admit_message",
             session_id=session_id,
@@ -292,6 +320,11 @@ class BubFramework:
         state: TurnState,
         reason: str | None = None,
     ) -> bool:
+        """Enqueue a message for an active turn, returning False without an inbox.
+
+        Set the state's session id if absent and attach the optional reason to
+        message context when the envelope supports attribute assignment.
+        """
         inbox = self.get_steering_inbox()
         if inbox is None:
             return False
@@ -344,6 +377,7 @@ class BubFramework:
         return [fallback]
 
     def get_channels(self, message_handler: MessageHandler) -> dict[str, Channel]:
+        """Collect channels by name, preferring higher-priority providers on duplicates."""
         channels: dict[str, Channel] = {}
         for result in self._hook_runtime.call_many_sync("provide_channels", message_handler=message_handler):
             for channel in result:
@@ -353,6 +387,13 @@ class BubFramework:
 
     @contextlib.asynccontextmanager
     async def running(self) -> AsyncGenerator[contextlib.AsyncExitStack, None]:
+        """Acquire hook-provided stores and steering resources for an application lifespan.
+
+        Yield an AsyncExitStack for additional application resources. Exit closes
+        acquired context managers and clears the framework's resource references.
+        Enter before an Agent first accesses its cached tape; avoid overlapping
+        lifespans on the same framework instance.
+        """
         async with contextlib.AsyncExitStack() as stack:
             tape_store = self._hook_runtime.call_first_sync("provide_tape_store")
             # Allow plugins to return either TapeStore/AsyncTapeStore instances or context managers for them
@@ -368,21 +409,30 @@ class BubFramework:
                 self._steering_inbox = None
 
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None:
+        """Return the store acquired by ``running()``, or None when unavailable."""
         return self._tape_store
 
     def get_tape_sidecars(self) -> tuple[TapeSidecar, ...]:
+        """Collect tape sidecars, keeping the highest-priority provider for each name."""
         sidecars: dict[str, TapeSidecar] = {}
         for sidecar in self._hook_runtime.call_many_sync("provide_tape_sidecar"):
             sidecars.setdefault(sidecar.name, sidecar)
         return tuple(sidecars.values())
 
     def get_steering_inbox(self) -> SteeringInbox | None:
+        """Return the inbox acquired by ``running()``, or None when unavailable."""
         return self._steering_inbox
 
     def get_agent_hooks(self) -> AgentHooks:
+        """Return the model and tool interception adapter for this framework's hooks."""
         return self._agent_hooks
 
     def get_system_prompt(self, prompt: str | list[dict], state: dict[str, Any]) -> str:
+        """Join nonempty system-prompt hook results from low to high priority.
+
+        Hooks contribute additional blocks; a higher-priority hook does not replace
+        a lower-priority prompt. Blocks are separated by blank lines.
+        """
         return "\n\n".join(
             result
             for result in reversed(self._hook_runtime.call_many_sync("system_prompt", prompt=prompt, state=state))
@@ -390,12 +440,18 @@ class BubFramework:
         )
 
     def build_tape_context(self) -> TapeContext:
+        """Get the highest-priority tape context, raising TypeError if none is valid."""
         context = self._hook_runtime.call_first_sync("build_tape_context")
         if isinstance(context, TapeContext):
             return context
         raise TypeError("hook.build_tape_context must return TapeContext")
 
     def collect_onboard_config(self) -> dict[str, Any]:
+        """Merge onboarding hook contributions and validate the resulting configuration.
+
+        Each hook receives the accumulated config; higher-priority hooks run last.
+        This method collects settings but does not write the configuration file.
+        """
         current_config: dict[str, Any] = {}
 
         for impl in reversed(list(self._hook_runtime._iter_hookimpls("onboard_config"))):

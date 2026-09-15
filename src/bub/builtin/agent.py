@@ -47,6 +47,21 @@ class Agent:
         tape_store: TapeStore | AsyncTapeStore | None = None,
         skill_dirs: Collection[Path] | None = None,
     ) -> None:
+        """Create a builtin agent with instance-specific tools, skills, and storage.
+
+        Args:
+            framework: Configured hook runtime supplying prompts, tape context,
+                interception hooks, and optional shared resources.
+            tools: Tools available to this instance. None snapshots the global
+                registry; an empty collection disables tools.
+            tape_store: Explicit store, preferred over the framework's active
+                store. Without either, the agent uses an in-memory store.
+            skill_dirs: Skill roots in precedence order. None uses project, user,
+                and builtin discovery; an empty collection disables discovery.
+
+        Settings come from Bub's process-wide configuration. The caller owns the
+        lifecycle of an explicitly supplied store.
+        """
         self.settings = load_settings()
         self.framework = framework
         self.tools = {tool.name: tool for tool in tools} if tools is not None else REGISTRY.copy()
@@ -56,6 +71,12 @@ class Agent:
 
     @cached_property
     def tape(self) -> Tape:
+        """Return the lazily constructed, cached tape factory for this agent.
+
+        Select the explicit store, active framework store, or an in-memory fallback,
+        in that order. Adapt synchronous stores and use hook-provided context and
+        sidecars. Archive files use ``bub.home / 'tapes'`` independently of the store.
+        """
         import bub
 
         tape_store: TapeStore | AsyncTapeStore | None
@@ -106,6 +127,30 @@ class Agent:
         allowed_tools: Collection[str] | None = None,
         reasoning_effort: str | None = None,
     ) -> AsyncStreamEvents:
+        """Prepare a turn and return its stream; await this method before iterating.
+
+        Args:
+            session_id: Session identity within the workspace. A ``temp/`` prefix
+                prevents the turn's fork from merging back into its parent tape.
+            prompt: Text or multimodal content parts. Text beginning with a comma
+                after stripping whitespace invokes a builtin command.
+            state: Mutable turn state. None loads state through framework hooks
+                using this agent's store; supplied state skips that loading.
+                The current agent is always bound into the state.
+            model: Per-turn override, ahead of the state and configured model.
+            allowed_skills: Case-insensitive skill names available to this turn;
+                None leaves discovery unrestricted.
+            allowed_tools: Instance tool names or model aliases for the agent loop;
+                None allows all instance tools and an empty collection allows none.
+                Command execution uses the instance's tools directly.
+            reasoning_effort: Per-turn override of the value in state.
+
+        Consume the stream to completion to finish execution and tape merging.
+        A ``final`` event ends a model step, not necessarily the whole turn.
+        The returned object exposes ``error`` and ``usage``; execution can also
+        raise exceptions. This method does not render or dispatch outbound messages,
+        call save-state hooks, or serialize concurrent turns in the same session.
+        """
         if not prompt:
             return self._events_from_iterable([
                 StreamEvent("text", {"delta": "error: empty prompt"}),
