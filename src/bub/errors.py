@@ -19,9 +19,9 @@ class ErrorKind(StrEnum):
     UNKNOWN = "unknown"
 
 
-@dataclass(frozen=True)
+@dataclass
 class BubError(Exception):
-    """Public error type for Bub execution failures."""
+    """Public error type; exception machinery must be able to assign traceback fields."""
 
     kind: ErrorKind
     message: str

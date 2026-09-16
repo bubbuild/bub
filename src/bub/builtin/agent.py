@@ -7,8 +7,8 @@ import inspect
 import re
 import shlex
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Collection, Coroutine, Iterable
-from contextlib import AsyncExitStack
+from collections.abc import AsyncGenerator, AsyncIterator, Collection, Iterable
+from contextlib import AsyncExitStack, aclosing
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import cached_property
@@ -34,6 +34,7 @@ from bub.tools import (
     ToolContext,
     model_tools,
 )
+from bub.tracing import Span, current_span
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
 
@@ -73,19 +74,6 @@ class Agent:
 
         return AsyncStreamEvents(generator())
 
-    @staticmethod
-    def _events_with_callback(
-        events: AsyncStreamEvents, callback: Callable[[], Coroutine[Any, Any, Any]]
-    ) -> AsyncStreamEvents:
-        async def generator() -> AsyncIterator[StreamEvent]:
-            try:
-                async for event in events:
-                    yield event
-            finally:
-                await callback()
-
-        return AsyncStreamEvents(generator(), state=events._state)
-
     async def run_stream(
         self,
         *,
@@ -96,37 +84,87 @@ class Agent:
         allowed_skills: Collection[str] | None = None,
         allowed_tools: Collection[str] | None = None,
     ) -> AsyncStreamEvents:
-        if not prompt:
-            return self._events_from_iterable([
-                StreamEvent("text", {"delta": "error: empty prompt"}),
-                StreamEvent("final", {"text": "error: empty prompt", "ok": False}),
-            ])
-
-        state.setdefault("session_id", session_id)
-        tape = self.tape.session_tape(
-            session_id, workspace_from_state(state), context=replace(self.tape.context, state=state)
+        span = Span(
+            "invoke_agent bub",
+            {
+                "gen_ai.operation.name": "invoke_agent",
+                "gen_ai.agent.name": "bub",
+                "gen_ai.conversation.id": session_id,
+            },
         )
-        merge_back = not session_id.startswith("temp/")
+        span.messages("gen_ai.input.messages", [{"role": "user", "content": prompt}])
         stack = AsyncExitStack()
-        # The fork_tape context manager must not be exited until the last chunk of the stream is consumed.
-        tape = await stack.enter_async_context(tape.fork_tape(merge_back=merge_back))
-        await tape.ensure_bootstrap_anchor()
-        if isinstance(prompt, str) and prompt.strip().startswith(","):
-            result = await self._run_command(tape=tape, line=prompt.strip())
-            events = self._events_from_iterable([
-                StreamEvent("text", {"delta": result}),
-                StreamEvent("final", {"text": result, "ok": True}),
-            ])
-        else:
-            events = await self._agent_loop(
-                tape=tape,
-                prompt=prompt,
-                model=model,
-                allowed_skills=allowed_skills,
-                allowed_tools=allowed_tools,
-            )
+        try:
+            with span.activate():
+                if not prompt:
+                    events = self._events_from_iterable([
+                        StreamEvent("text", {"delta": "error: empty prompt"}),
+                        StreamEvent("final", {"text": "error: empty prompt", "ok": False}),
+                    ])
+                else:
+                    state.setdefault("session_id", session_id)
+                    tape = self.tape.session_tape(
+                        session_id, workspace_from_state(state), context=replace(self.tape.context, state=state)
+                    )
+                    # Keep the tape fork open until the stream closes, even if it is never consumed.
+                    tape = await stack.enter_async_context(
+                        tape.fork_tape(merge_back=not session_id.startswith("temp/"))
+                    )
+                    await tape.ensure_bootstrap_anchor()
+                    if isinstance(prompt, str) and prompt.strip().startswith(","):
+                        result = await self._run_command(tape=tape, line=prompt.strip())
+                        events = self._events_from_iterable([
+                            StreamEvent("text", {"delta": result}),
+                            StreamEvent("final", {"text": result, "ok": True}),
+                        ])
+                    else:
+                        events = await self._agent_loop(
+                            tape=tape,
+                            prompt=prompt,
+                            model=model,
+                            allowed_skills=allowed_skills,
+                            allowed_tools=allowed_tools,
+                        )
+        except BaseException as exc:
+            span.fail(exc)
+            try:
+                with span.activate():
+                    await stack.aclose()
+            finally:
+                span.end()
+            raise
+        return AsyncStreamEvents(
+            self._trace_events(events, span),
+            state=events._state,
+            on_close=stack.aclose,
+            span=span,
+        )
 
-        return self._events_with_callback(events, callback=stack.aclose)
+    @staticmethod
+    async def _trace_events(events: AsyncStreamEvents, span: Span) -> AsyncGenerator[StreamEvent, None]:
+        messages: list[dict[str, Any]] = []
+        text: list[str] = []
+        calls: list[dict[str, Any]] = []
+        try:
+            async with aclosing(events):
+                async for event in events:
+                    if span.recording:
+                        if event.kind == "text":
+                            text.append(str(event.data.get("delta", "")))
+                        elif event.kind == "tool_call":
+                            calls = event.data.get("tool_calls", [])
+                            messages.append({"role": "assistant", "content": "".join(text), "tool_calls": calls})
+                            text.clear()
+                        elif event.kind == "tool_result":
+                            for call, result in zip(calls, event.data.get("tool_results", []), strict=False):
+                                messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+                        elif event.kind == "error":
+                            span.fail(RuntimeError(str(event.data.get("message", "agent failed"))))
+                    yield event
+        finally:
+            if text:
+                messages.append({"role": "assistant", "content": "".join(text)})
+            span.messages("gen_ai.output.messages", messages)
 
     async def _run_command(self, tape: Tape, *, line: str) -> str:
         line = line[1:].strip()
@@ -224,22 +262,23 @@ class Agent:
                     allowed_skills=allowed_skills,
                     allowed_tools=allowed_tools,
                 )
-                async for event in output:
-                    yield event
-                    if event.kind == "error":
-                        elapsed_ms = int((time.monotonic() - start) * 1000)
-                        await tape.append_event(
-                            "loop.step",
-                            {
-                                "step": step,
-                                "elapsed_ms": elapsed_ms,
-                                "status": "error",
-                                "error": event.data.get("message", ""),
-                                "date": datetime.now(UTC).isoformat(),
-                            },
-                        )
-                    elif event.kind == "final":
-                        should_continue = bool(event.data.get("tool_calls") or event.data.get("tool_results"))
+                async with aclosing(output):
+                    async for event in output:
+                        yield event
+                        if event.kind == "error":
+                            elapsed_ms = int((time.monotonic() - start) * 1000)
+                            await tape.append_event(
+                                "loop.step",
+                                {
+                                    "step": step,
+                                    "elapsed_ms": elapsed_ms,
+                                    "status": "error",
+                                    "error": event.data.get("message", ""),
+                                    "date": datetime.now(UTC).isoformat(),
+                                },
+                            )
+                        elif event.kind == "final":
+                            should_continue = bool(event.data.get("tool_calls") or event.data.get("tool_results"))
             except Exception as exc:
                 error_message = f"{exc!s}"
                 elapsed_ms = int((time.monotonic() - start) * 1000)
@@ -363,6 +402,12 @@ class Agent:
         resolved_model = model or self.settings.model
 
         model_tools_for_call = model_tools(tools)
+        if (span := current_span()) and span.recording:
+            span.set(**{
+                "gen_ai.tool.definitions": [
+                    tool.to_schema()["function"] | {"type": "function"} for tool in model_tools_for_call
+                ]
+            })
         steering_inbox = self.framework.get_steering_inbox()
         steering_envelopes = await steering_inbox.drain_messages(tape.context.state) if steering_inbox else []
         steering_messages = list(

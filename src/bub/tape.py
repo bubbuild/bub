@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from bub import tracing
 from bub.errors import BubError
 from bub.sidecars import TapeSidecar, sidecar_tape_name
 
@@ -298,7 +299,8 @@ class Tape:
         return list(await self.store.fetch_all(query))
 
     async def append_event(self, name: str, payload: dict[str, Any], **meta: Any) -> None:
-        await self.store.append(self.name, TapeEntry.event(name, payload, **meta))
+        tracing.event(f"bub.{name}", **payload)
+        await self.store.append(self.name, TapeEntry.event(name, payload, **(tracing.correlation() | meta)))
 
     async def read_messages(self) -> list[dict[str, Any]]:
         query = self.context.build_query(self.query())
@@ -317,6 +319,8 @@ class Tape:
         **meta: Any,
     ) -> list[TapeEntry]:
         tape_name = self.name
+        meta = tracing.correlation() | meta
+        tracing.event("bub.handoff", anchor=name, state=state)
         entry = TapeEntry.anchor(name, state=state, **meta)
         event = TapeEntry.event("handoff", {"name": name, "state": state or {}}, **meta)
         await self.store.append(tape_name, entry)
@@ -340,7 +344,7 @@ class Tape:
         usage: dict[str, Any] | None = None,
     ) -> None:
         tape_name = self.name
-        meta = {"run_id": run_id}
+        meta = {"run_id": run_id, **tracing.correlation()}
         if system_prompt:
             await self.store.append(tape_name, TapeEntry.system(system_prompt, **meta))
         if context_error is not None:

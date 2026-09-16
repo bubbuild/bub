@@ -48,7 +48,13 @@ Documentation = "https://bub.build"
 bub = "bub.__main__:app"
 
 [project.optional-dependencies]
+trace = [
+    "opentelemetry-api>=1.39.0",
+    "opentelemetry-sdk>=1.39.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.39.0",
+]
 logfire = [
+    "bub[trace]",
     "logfire>=4.31.0",
 ]
 

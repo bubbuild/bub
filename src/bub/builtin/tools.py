@@ -4,6 +4,7 @@ import asyncio
 import json
 import uuid
 from collections.abc import Iterable
+from contextlib import aclosing
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -340,18 +341,20 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
     state = {**context.state, "session_id": subagent_session}
     allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"})
     output = ""
-    async for event in await agent.run_stream(
+    stream = await agent.run_stream(
         session_id=subagent_session,
         prompt=param.prompt,
         state=state,
         model=param.model,
         allowed_tools=allowed_tools,
         allowed_skills=param.allowed_skills,
-    ):
-        if event.kind == "error":
-            output += f"[Error: {event.data.get('message', 'unknown error')}]"
-        elif event.kind == "text":
-            output += str(event.data.get("delta", ""))
+    )
+    async with aclosing(stream):
+        async for event in stream:
+            if event.kind == "error":
+                output += f"[Error: {event.data.get('message', 'unknown error')}]"
+            elif event.kind == "text":
+                output += str(event.data.get("delta", ""))
     return output
 
 
