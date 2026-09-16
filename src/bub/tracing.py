@@ -9,12 +9,15 @@ import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-try:
-    otel: Any = importlib.import_module("opentelemetry.trace")
-except ImportError:
-    otel = None
+if TYPE_CHECKING:
+    import opentelemetry.trace as otel
+else:
+    try:
+        otel: Any = importlib.import_module("opentelemetry.trace")
+    except ImportError:
+        otel = None
 
 _OPENINFERENCE_ATTRIBUTES = {
     "gen_ai.provider.name": "llm.provider",
@@ -98,13 +101,14 @@ class Span:
 
     def __init__(self, name: str, attributes: Mapping[str, Any] | None = None) -> None:
         self._operation = str((attributes or {}).get("gen_ai.operation.name", ""))
-        self._span: Any = None
         if otel is not None:
             self._span = otel.get_tracer("bub").start_span(
                 name,
                 kind=otel.SpanKind.CLIENT if self._operation == "chat" else otel.SpanKind.INTERNAL,
                 attributes={k: v for k, v in (attributes or {}).items() if isinstance(v, str | bool | int | float)},
             )
+        else:
+            self._span = None
         self._ended = False
         self.set(**(attributes or {}))
         self.set(**{
