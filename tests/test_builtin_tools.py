@@ -213,9 +213,15 @@ async def test_set_reasoning_effort_rejects_empty_value(tmp_path) -> None:
         await set_reasoning_effort.run(reasoning_effort="  ", context=_tool_context(tmp_path))
 
 
+def test_bash_schema_exposes_command_parameter() -> None:
+    assert bash.parameters["properties"]["command"]["type"] == "string"
+    assert bash.parameters["required"] == ["command"]
+    assert "cmd" not in bash.parameters["properties"]
+
+
 @pytest.mark.asyncio
 async def test_bash_returns_stdout_for_foreground_command(tmp_path) -> None:
-    result = await bash.run(cmd=_python_shell("print('hello')"), context=_tool_context(tmp_path))
+    result = await bash.run(command=_python_shell("print('hello')"), context=_tool_context(tmp_path))
 
     assert result == "hello"
 
@@ -225,7 +231,7 @@ async def test_foreground_bash_releases_shell_from_shell_manager(tmp_path, monke
     manager = ShellManager()
     monkeypatch.setattr(builtin_tools, "shell_manager", manager)
 
-    result = await bash.run(cmd=_python_shell("print('hello')"), context=_tool_context(tmp_path))
+    result = await bash.run(command=_python_shell("print('hello')"), context=_tool_context(tmp_path))
 
     assert result == "hello"
     assert manager._shells == {}
@@ -237,7 +243,7 @@ async def test_foreground_bash_releases_shell_when_command_fails(tmp_path, monke
     monkeypatch.setattr(builtin_tools, "shell_manager", manager)
 
     with pytest.raises(RuntimeError, match="command exited with code"):
-        await bash.run(cmd=_python_shell("import sys; sys.exit(2)"), context=_tool_context(tmp_path))
+        await bash.run(command=_python_shell("import sys; sys.exit(2)"), context=_tool_context(tmp_path))
 
     assert manager._shells == {}
 
@@ -249,7 +255,7 @@ async def test_foreground_bash_terminates_shell_when_cancelled(tmp_path, monkeyp
 
     task = asyncio.create_task(
         bash.run(
-            cmd=_python_shell("import time; time.sleep(10)"),
+            command=_python_shell("import time; time.sleep(10)"),
             context=_tool_context(tmp_path, session_id="session:target"),
         )
     )
@@ -279,7 +285,7 @@ async def test_bash_timeout_stops_descendants(tmp_path, monkeypatch, shell_exits
     command = f"{_python_shell(code)} & " + ("exit 0" if shell_exits else "wait")
     try:
         async with asyncio.timeout(5):
-            result = await bash.run(cmd=command, timeout_seconds=1, context=_tool_context(tmp_path))
+            result = await bash.run(command=command, timeout_seconds=1, context=_tool_context(tmp_path))
         assert "timed out" in result
         assert manager._shells == {}
         pid = int(pid_file.read_text())
@@ -316,7 +322,7 @@ async def test_bash_non_zero_exit_is_returned_as_tool_error(tmp_path) -> None:
     command = _python_shell("import sys; print('boom'); sys.exit(7)")
     executor = ToolExecutor()
 
-    result = await executor.execute_async([(bash, {"cmd": command})], context=_tool_context(tmp_path))
+    result = await executor.execute_async([(bash, {"command": command})], context=_tool_context(tmp_path))
 
     assert result.error is not None
     assert result.error.kind is ErrorKind.TOOL
@@ -335,7 +341,7 @@ async def test_background_bash_exposes_output_via_bash_output(tmp_path) -> None:
         "import sys, time; print('start'); sys.stdout.flush(); time.sleep(0.2); print('done'); sys.stdout.flush()"
     )
 
-    started = await bash.run(cmd=command, background=True, context=_tool_context(tmp_path))
+    started = await bash.run(command=command, background=True, context=_tool_context(tmp_path))
     shell_id = started.removeprefix("started: ").strip()
 
     await asyncio.sleep(0.35)
@@ -350,7 +356,7 @@ async def test_background_bash_exposes_output_via_bash_output(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_kill_bash_terminates_background_process_and_releases_shell(tmp_path) -> None:
     started = await bash.run(
-        cmd=_python_shell("import time; time.sleep(10)"),
+        command=_python_shell("import time; time.sleep(10)"),
         background=True,
         context=_tool_context(tmp_path),
     )
@@ -367,7 +373,7 @@ async def test_kill_bash_terminates_background_process_and_releases_shell(tmp_pa
 @pytest.mark.asyncio
 async def test_kill_bash_returns_status_when_process_already_finished(tmp_path) -> None:
     started = await bash.run(
-        cmd=_python_shell("print('done')"),
+        command=_python_shell("print('done')"),
         background=True,
         context=_tool_context(tmp_path),
     )
@@ -385,13 +391,13 @@ async def test_quit_tool_terminates_background_shells_for_current_session(tmp_pa
     monkeypatch.setattr(builtin_tools, "shell_manager", manager)
 
     target_started = await bash.run(
-        cmd=_python_shell("import time; time.sleep(10)"),
+        command=_python_shell("import time; time.sleep(10)"),
         background=True,
         context=_tool_context(tmp_path, session_id="session:target"),
     )
     target_shell_id = target_started.removeprefix("started: ").strip()
     other_started = await bash.run(
-        cmd=_python_shell("import time; time.sleep(10)"),
+        command=_python_shell("import time; time.sleep(10)"),
         background=True,
         context=_tool_context(tmp_path, session_id="session:other"),
     )

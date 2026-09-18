@@ -204,7 +204,7 @@ class Agent:
             if name not in self.tools:
                 if "bash" not in self.tools:
                     raise ValueError("bash tool is not available")  # noqa: TRY301
-                output = await self.tools["bash"].run(context=context, cmd=line)
+                output = await self.tools["bash"].run(context=context, command=line)
             else:
                 args = _parse_args(arg_tokens)
                 if self.tools[name].context:

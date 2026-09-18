@@ -460,6 +460,19 @@ async def test_agent_run_rejects_unknown_allowed_tools() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prompt", [",bash command='echo hello'", ",echo hello"])
+async def test_run_command_executes_shell_with_command_parameter(prompt: str, tmp_path) -> None:
+    agent = _make_agent()
+    agent.tape = _FakeTapeFactory(_ForkCapture())  # type: ignore[assignment]
+
+    stream = await agent.run_stream(session_id="user/s1", prompt=prompt, state={"_runtime_workspace": str(tmp_path)})
+    events = [event async for event in stream]
+
+    assert not any(event.kind == "error" for event in events)
+    assert any(event.data.get("delta") == "hello" for event in events if event.kind == "text")
+
+
+@pytest.mark.asyncio
 async def test_run_command_model_switches_session_model_directly() -> None:
     """,model <model_id> runs the `model` builtin as a chat command with no LLM call.
 

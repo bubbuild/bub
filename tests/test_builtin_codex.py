@@ -206,7 +206,7 @@ def test_codex_completion_params_convert_chat_tool_messages_to_responses_items()
                     {
                         "id": "call_1",
                         "type": "function",
-                        "function": {"name": "bash", "arguments": '{"cmd":"pwd"}'},
+                        "function": {"name": "bash", "arguments": '{"command":"pwd"}'},
                     }
                 ],
             },
@@ -226,7 +226,7 @@ def test_codex_completion_params_convert_chat_tool_messages_to_responses_items()
                 "type": "function_call",
                 "call_id": "call_1",
                 "name": "bash",
-                "arguments": '{"cmd":"pwd"}',
+                "arguments": '{"command":"pwd"}',
                 "status": "completed",
             },
             {"type": "function_call_output", "call_id": "call_1", "output": "workspace"},
@@ -294,7 +294,7 @@ async def _codex_tool_response_events():
         output_index=0,
         item=SimpleNamespace(type="function_call", id="fc_1", call_id="call_1", name="bash", arguments=""),
     )
-    yield SimpleNamespace(type="response.function_call_arguments.delta", output_index=0, delta='{"cmd":')
+    yield SimpleNamespace(type="response.function_call_arguments.delta", output_index=0, delta='{"command":')
     yield SimpleNamespace(type="response.function_call_arguments.delta", output_index=0, delta='"pwd"}')
     yield SimpleNamespace(
         type="response.completed",
@@ -319,7 +319,7 @@ async def test_codex_completion_stream_maps_response_tool_calls_to_completion_ch
     assert first_tool_delta.id == "call_1"
     assert first_tool_delta.function.name == "bash"
     assert "".join(chunk.choices[0].delta.tool_calls[0].function.arguments or "" for chunk in chunks[1:3]) == (
-        '{"cmd":"pwd"}'
+        '{"command":"pwd"}'
     )
     assert chunks[-1].choices[0].finish_reason == "tool_calls"
 
@@ -331,7 +331,7 @@ async def _codex_custom_tool_response_events():
         item=SimpleNamespace(type="custom_tool_call", id="ctc_1", call_id="call_1", name="bash", input=""),
     )
     yield SimpleNamespace(
-        type="response.custom_tool_call_input.delta", item_id="ctc_1", call_id="call_1", delta='{"cmd":'
+        type="response.custom_tool_call_input.delta", item_id="ctc_1", call_id="call_1", delta='{"command":'
     )
     yield SimpleNamespace(
         type="response.custom_tool_call_input.delta", item_id="ctc_1", call_id="call_1", delta='"pwd"}'
@@ -360,7 +360,7 @@ async def test_codex_completion_stream_maps_custom_tool_call_input_deltas_to_com
     assert first_tool_delta.id == "call_1"
     assert first_tool_delta.function.name == "bash"
     assert "".join(chunk.choices[0].delta.tool_calls[0].function.arguments or "" for chunk in chunks[1:3]) == (
-        '{"cmd":"pwd"}'
+        '{"command":"pwd"}'
     )
     assert chunks[-1].choices[0].finish_reason == "tool_calls"
 

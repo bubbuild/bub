@@ -146,7 +146,7 @@ class SubAgentInput(BaseModel):
 
 @tool(context=True)
 async def bash(
-    cmd: str,
+    command: str,
     cwd: str | None = None,
     timeout_seconds: int = DEFAULT_COMMAND_TIMEOUT_SECONDS,
     background: bool = False,
@@ -163,7 +163,7 @@ async def bash(
     target_cwd = cwd or workspace
     raw_session_id = context.state.get("session_id")
     session_id = str(raw_session_id) if raw_session_id is not None else None
-    shell = await shell_manager.start(cmd=cmd, cwd=target_cwd, session_id=session_id)
+    shell = await shell_manager.start(cmd=command, cwd=target_cwd, session_id=session_id)
     if background:
         return f"started: {shell.shell_id}"
     try:
@@ -376,7 +376,7 @@ def show_help() -> str:
         "  ,fs.read path=README.md\n"
         "  ,fs.write path=tmp.txt content='hello'\n"
         "  ,fs.edit path=tmp.txt old=hello new=world\n"
-        "  ,bash cmd='sleep 5' background=true\n"
+        "  ,bash command='sleep 5' background=true\n"
         "  ,bash.output shell_id=bsh-12345678\n"
         "  ,bash.kill shell_id=bsh-12345678\n"
         "  ,quit\n"
