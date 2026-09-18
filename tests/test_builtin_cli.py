@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 import typer
 from inquirer_textual.common.InquirerResult import InquirerResult
 from inquirer_textual.common.PromptSettings import PromptSettings
@@ -616,3 +617,31 @@ def test_ensure_project_initializes_project_and_adds_bub_dependency(tmp_path: Pa
         (("init", "--bare", "--name", "bub-project", "--app"), project),
         (("add", "--active", "--no-sync", "--editable", "/tmp/bub"), project),  # noqa: S108
     ]
+
+
+@pytest.mark.parametrize("initial_prompt", [None, "Explain this project", "你好 Bub"])
+def test_chat_accepts_optional_initial_prompt(initial_prompt: str | None, monkeypatch) -> None:
+    from bub.channels.manager import ChannelManager
+
+    observed: dict[str, Any] = {}
+
+    class FakeCliChannel:
+        def set_metadata(self, **kwargs: Any) -> None:
+            observed.update(kwargs)
+
+    monkeypatch.setattr(ChannelManager, "get_channel", lambda self, name: FakeCliChannel())
+
+    async def listen(self: ChannelManager) -> None:
+        observed["listened"] = True
+
+    monkeypatch.setattr(ChannelManager, "listen_and_run", listen)
+    args = ["chat", "--chat-id", "room", "--session-id", "custom-session"]
+    if initial_prompt is not None:
+        args.append(initial_prompt)
+    result = CliRunner().invoke(_create_app(), args)
+
+    assert result.exit_code == 0, result.output
+    expected = {"chat_id": "room", "session_id": "custom-session", "listened": True}
+    if initial_prompt is not None:
+        expected["initial_prompt"] = initial_prompt
+    assert observed == expected

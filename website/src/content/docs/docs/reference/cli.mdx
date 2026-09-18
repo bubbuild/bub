@@ -45,8 +45,11 @@ Behavior notes:
 Start an interactive REPL backed by the `cli` channel.
 
 ```text
-bub chat [OPTIONS]
+bub chat [OPTIONS] [INITIAL_PROMPT]
 ```
+
+Pass an optional initial message to submit it automatically, then continue chatting in the same session.
+Quote prompts containing spaces, for example `bub chat "Explain this project"`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |

@@ -354,12 +354,16 @@ def test_channel_manager_selects_real_channel_types(load_config) -> None:
     assert [channel.name for channel in manager.enabled_channels()] == ["telegram"]
 
 
+@pytest.mark.parametrize("initial_prompt", [None, "初始提示词 with spaces", "   "])
 @pytest.mark.asyncio
-async def test_cli_channel_accepts_input_while_previous_message_is_running() -> None:
+async def test_cli_channel_accepts_input_while_previous_message_is_running(initial_prompt: str | None) -> None:
     received: list[ChannelMessage] = []
 
     class FakePrompt:
         def __init__(self) -> None:
+            from prompt_toolkit.history import InMemoryHistory
+
+            self.history = InMemoryHistory()
             self.inputs = iter(["first", "second", ",quit"])
             self.refresh_intervals: list[float | None] = []
             self.received_callables: list[bool] = []
@@ -394,9 +398,14 @@ async def test_cli_channel_accepts_input_while_previous_message_is_running() -> 
     )
     channel._refresh_tape_info = _async_return(None)
 
+    channel.set_metadata(chat_id="room", session_id="custom-session", initial_prompt=initial_prompt)
     await asyncio.wait_for(channel._main_loop(), timeout=1)
 
-    assert [message.content for message in received] == ["first", "second"]
+    initial_messages = [initial_prompt.strip()] if initial_prompt and initial_prompt.strip() else []
+    assert [message.content for message in received] == [*initial_messages, "first", "second"]
+    assert channel._prompt.history.get_strings() == initial_messages
+    assert all(message.chat_id == "room" and message.session_id == "custom-session" for message in received)
+    assert channel._initial_prompt is None
 
     assert channel._prompt.refresh_intervals == [None] * 3
     assert channel._prompt.received_callables == [True, True, True]

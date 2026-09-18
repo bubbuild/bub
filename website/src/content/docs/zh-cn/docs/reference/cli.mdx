@@ -45,8 +45,11 @@ bub run [OPTIONS] MESSAGE
 启动一个由 `cli` channel 支撑的交互式 REPL。
 
 ```text
-bub chat [OPTIONS]
+bub chat [OPTIONS] [INITIAL_PROMPT]
 ```
+
+可传入初始提示词，启动后自动提交，然后在同一会话中继续交互。
+包含空格的提示词需要加引号，例如 `bub chat "介绍一下这个项目"`。
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
