@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 import typer
@@ -21,6 +22,15 @@ def _instrument_bub(level: str) -> None:
 
     logger.remove()
     logger.add(sys.stderr, level=level, colorize=True, diagnose=False)
+
+    if os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        from bub.tracing import configure_otlp
+
+        try:
+            configure_otlp()
+        except Exception as exc:
+            logger.warning("OTLP instrumentation disabled: {}", exc)
+        return
 
     try:
         import logfire

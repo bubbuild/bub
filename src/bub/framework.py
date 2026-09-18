@@ -220,16 +220,19 @@ class BubFramework:
         else:
             parts: list[str] = []
             events = self._channel_router.wrap_stream(inbound, stream) if self._channel_router is not None else stream
-            async for event in events:
-                if event.kind == "text":
-                    parts.append(str(event.data.get("delta", "")))
-                elif event.kind == "error":
-                    # Turn "kind" to enum type otherwise BubError's __str__ won't work well.
-                    data = {
-                        **event.data,
-                        "kind": ErrorKind(event.data.get("kind", "unknown")),
-                    }
-                    await self._hook_runtime.notify_error(stage="run_model", error=BubError(**data), message=inbound)
+            async with contextlib.aclosing(stream):
+                async for event in events:
+                    if event.kind == "text":
+                        parts.append(str(event.data.get("delta", "")))
+                    elif event.kind == "error":
+                        # Turn "kind" to enum type otherwise BubError's __str__ won't work well.
+                        data = {
+                            **event.data,
+                            "kind": ErrorKind(event.data.get("kind", "unknown")),
+                        }
+                        await self._hook_runtime.notify_error(
+                            stage="run_model", error=BubError(**data), message=inbound
+                        )
             return "".join(parts)
 
     def hook_report(self) -> dict[str, list[str]]:
