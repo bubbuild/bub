@@ -10,7 +10,8 @@ from loguru import logger
 from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context, render_tool_result
-from bub.builtin.settings import DEFAULT_MODEL, load_settings
+from bub.builtin.onboarding import collect_model_config
+from bub.builtin.settings import load_settings
 from bub.builtin.steering import InMemorySteeringInbox
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.base import Channel
@@ -29,18 +30,6 @@ from bub.tape import Tape, TapeContext
 from bub.turn import TurnState
 
 AGENTS_FILE_NAME = "AGENTS.md"
-MODEL_PROVIDER_CHOICES: tuple[str, ...] = (
-    "openrouter",
-    "openai",
-    "anthropic",
-    "gemini",
-    "azure",
-    "bedrock",
-    "ollama",
-    "groq",
-    "mistral",
-    "deepseek",
-)
 DEFAULT_SYSTEM_PROMPT = """\
 <general_instruct>
 Call tools or skills to finish the task.
@@ -121,23 +110,6 @@ class BuiltinImpl:
     @staticmethod
     async def _discard_message(_: ChannelMessage) -> None:
         return
-
-    @staticmethod
-    def _split_model_identifier(model: str) -> tuple[str, str]:
-        provider, separator, model_name = model.partition(":")
-        if separator and provider and model_name:
-            return provider.strip(), model_name.strip()
-        default_provider, _, default_model_name = DEFAULT_MODEL.partition(":")
-        fallback_model_name = model.strip() or default_model_name
-        return default_provider, fallback_model_name
-
-    @staticmethod
-    def _provider_choices(current_provider: str) -> list[str]:
-        choices = list(MODEL_PROVIDER_CHOICES)
-        if current_provider and current_provider not in choices:
-            choices.append(current_provider)
-        choices.append("custom")
-        return choices
 
     def _channel_choices(self) -> list[str]:
         return [c for c in self.framework.get_channels(self._discard_message) if c != "cli"]
@@ -264,29 +236,7 @@ class BuiltinImpl:
 
     @hookimpl
     def onboard_config(self, current_config: dict[str, object]) -> dict[str, object] | None:
-        current_model = current_config.get("model")
-        model_default = str(current_model) if isinstance(current_model, str) and current_model else DEFAULT_MODEL
-        provider_default, model_name_default = self._split_model_identifier(model_default)
-
-        provider = bub_inquirer.ask_fuzzy(
-            "LLM provider",
-            choices=self._provider_choices(provider_default),
-            default=provider_default,
-        )
-        if provider == "custom":
-            provider = bub_inquirer.ask_text("Custom provider", default=provider_default) or provider_default
-
-        model_name = bub_inquirer.ask_text("LLM model", default=model_name_default)
-        if not model_name:
-            model_name = model_name_default
-        model = f"{provider}:{model_name}"
-
-        api_key = bub_inquirer.ask_secret("API key (optional)")
-
-        current_api_base = current_config.get("api_base")
-        api_base_default = str(current_api_base) if isinstance(current_api_base, str) else ""
-        api_base = bub_inquirer.ask_text("API base (optional)", default=api_base_default)
-
+        config = collect_model_config(current_config)
         available_channels = self._channel_choices()
         default_channels = self._default_enabled_channels(current_config.get("enabled_channels"), available_channels)
         enabled_channels = bub_inquirer.ask_checkbox(
@@ -296,15 +246,7 @@ class BuiltinImpl:
         )
 
         stream_output = bub_inquirer.ask_confirm("Stream output", default=bool(current_config.get("stream_output")))
-        config: dict[str, object] = {
-            "model": model,
-            "enabled_channels": ",".join(enabled_channels),
-            "stream_output": stream_output,
-        }
-        if api_key:
-            config["api_key"] = api_key
-        if api_base:
-            config["api_base"] = api_base
+        config.update(enabled_channels=",".join(enabled_channels), stream_output=stream_output)
         return config
 
     @hookimpl

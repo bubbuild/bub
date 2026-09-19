@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 
 import bub.builtin.auth as auth
 import bub.builtin.cli as cli
+import bub.builtin.onboarding as onboarding
 import bub.configure as configure
 import bub.inquirer as bub_inquirer
 from bub.framework import BubFramework
@@ -22,6 +23,12 @@ from bub.hooks import hookimpl
 
 TEST_ACCESS_TOKEN = "access"  # noqa: S105
 TEST_REFRESH_TOKEN = "refresh"  # noqa: S105
+
+
+@pytest.fixture(autouse=True)
+def no_model_discovery_network(monkeypatch):
+    monkeypatch.setattr(onboarding, "discover_models", lambda *args, **kwargs: [])
+    monkeypatch.setattr("bub.builtin.codex_provider.load_openai_codex_oauth_tokens", lambda: None)
 
 
 def _fake_result(answer: Any, command: str | None = "enter") -> InquirerResult[Any]:
@@ -135,7 +142,7 @@ def test_onboard_collects_builtin_runtime_config(tmp_path: Path, monkeypatch) ->
             "ask_text",
             lambda message, default="": {
                 "LLM model": "openrouter/free",
-                "API base (optional)": "https://openrouter.ai/api/v1",
+                "API base URL": "https://openrouter.ai/api/v1",
             }.get(message, default),
         )
         monkeypatch.setattr(
@@ -169,7 +176,6 @@ def test_onboard_collects_builtin_runtime_config(tmp_path: Path, monkeypatch) ->
         "enabled_channels": "telegram,cli",
         "stream_output": True,
         "api_key": "sk-test",
-        "api_base": "https://openrouter.ai/api/v1",
     }
 
 
@@ -303,9 +309,7 @@ def test_onboard_aborts_immediately_when_builtin_prompt_is_interrupted(tmp_path:
 
         def fake_text(message: str, default: str = "") -> str:
             asked_messages.append(message)
-            if message == "API base (optional)":
-                raise AssertionError("Onboarding should stop after interruption")
-            return "openrouter:openrouter/free"
+            raise AssertionError("Onboarding should stop before asking for a model")
 
         def fake_secret(message: str) -> str:
             asked_messages.append("API key (optional)")
@@ -324,7 +328,6 @@ def test_onboard_aborts_immediately_when_builtin_prompt_is_interrupted(tmp_path:
     assert _rendered_onboard_banner() in result.stdout
     assert asked_messages == [
         "LLM provider",
-        "LLM model",
         "API key (optional)",
     ]
     assert not config_file.exists()
