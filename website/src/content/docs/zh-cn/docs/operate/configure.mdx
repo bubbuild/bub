@@ -22,7 +22,7 @@ Bub 自己的配置按以下优先级（从高到低）读取：
 
 ## 1. 运行交互式初始化
 
-`bub onboard` 引导你完成最小配置 —— 模型、API key、启用的 channel 与流式输出设置 —— 并将结果写入 `~/.bub/config.yml`。插件可通过 `onboard_config` hook 添加自己的交互提示。
+`bub onboard` 依次引导你选择 provider、填写 API key 和必要的 URL、检查连接、搜索选择模型，再配置 channel 与流式输出。托管服务使用默认 URL；自定义 OpenAI 兼容服务请选择 **OpenAI-compatible**。API key 留空可使用环境变量中的凭证。获取模型列表失败时，可以修改连接、重试或手动输入模型 ID。连接检查只获取模型列表，不发起模型生成请求。已登录 OpenAI OAuth 时会跳过模型发现，直接手动输入模型。收集到的配置会替换 `~/.bub/config.yml`；已有文件内容不会合并到本轮交互中。插件可通过 `onboard_config` hook 添加自己的交互提示。
 
 ```bash
 bub onboard

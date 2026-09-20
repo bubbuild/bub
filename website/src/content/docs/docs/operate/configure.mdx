@@ -22,7 +22,7 @@ Downstream model SDKs may still read their own provider variables, such as `OPEN
 
 ## 1. Run the interactive setup
 
-`bub onboard` walks through the minimum config — model, API key, enabled channels, and streaming settings — and writes the result to `~/.bub/config.yml`. Plugins may add their own prompts through the `onboard_config` hook.
+`bub onboard` guides you through provider selection, API key and URL (when needed), connection checking, searchable model selection, channels, and streaming settings. Hosted providers use their default URL; choose **OpenAI-compatible** for a custom OpenAI-compatible server. Leave the API key blank to use environment credentials. If the model list is unavailable, you can edit the connection, retry, or enter a model ID manually. The connection check fetches models without generating a completion. An existing OpenAI OAuth login skips model discovery and uses manual model entry. The collected configuration replaces `~/.bub/config.yml`; existing file contents are not merged into the onboarding prompts. Plugins may add prompts through the `onboard_config` hook.
 
 ```bash
 bub onboard

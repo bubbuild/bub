@@ -24,7 +24,7 @@ from bub.hooks.interception import LlmCallDecision, ToolCallDecision, ToolCallRe
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.streaming import AsyncStreamEvents, StreamEvent
 from bub.tape import Tape
-from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor
+from bub.tools import Tool, ToolContext, ToolExecutor
 from bub.utils import workspace_from_state
 
 
@@ -91,7 +91,7 @@ async def test_agent_trajectory_has_parallel_tools_messages_and_tape_links(
         await asyncio.wait_for(both_started.wait(), 1)
         return {"value": "result"}
 
-    monkeypatch.setitem(REGISTRY, "trace_tool", Tool(name="trace_tool", handler=handler))
+    monkeypatch.setitem(agent.tools, "trace_tool", Tool(name="trace_tool", handler=handler))
     replies = iter([completion("checking", [call("trace_tool", "call-1"), call("trace_tool", "call-2")]), completion()])
 
     async def respond(**kwargs: Any) -> ChatCompletion:
@@ -240,6 +240,24 @@ async def test_setup_failure_releases_tape_and_finishes_agent_span(
 
 
 @pytest.mark.asyncio
+async def test_state_loading_failure_finishes_agent_span(
+    spans: Any, agent: Agent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fail_state(*args: Any, **kwargs: Any) -> None:
+        assert tracing.current_span() is not None
+        raise ValueError("state loading failed")
+
+    monkeypatch.setattr(agent.framework, "build_state", fail_state)
+    with pytest.raises(ValueError, match="state loading failed"):
+        await agent.run_stream(session_id="state-failure", prompt="hello")
+    (span,) = spans.get_finished_spans()
+    assert span.status.status_code.name == "ERROR"
+    assert span.attributes["error.type"] == "ValueError"
+    assert tracing.current_span() is None
+    assert not tracing.otel.get_current_span().get_span_context().is_valid
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("consume", [False, True])
 async def test_cleanup_failure_finishes_span_without_leaking_context(spans: Any, consume: bool) -> None:
     async def source() -> AsyncIterator[StreamEvent]:
@@ -271,7 +289,7 @@ async def test_llm_short_circuit_has_no_phantom_model_span(spans: Any, agent: Ag
         def before_llm_call(self) -> LlmCallDecision:
             return LlmCallDecision.finish("stopped by policy")
 
-    agent.framework.register_plugin(Finish())
+    agent.framework.plugin_manager.register(Finish())
     events = await agent.run_stream(session_id="policy", prompt="hello", state={}, allowed_tools=[])
     assert [e.data["delta"] async for e in events if e.kind == "text"] == ["stopped by policy"]
     assert [s.name for s in spans.get_finished_spans()] == ["invoke_agent bub"]
@@ -288,7 +306,7 @@ async def test_failed_tool_records_effective_result_and_original_failure(spans: 
         def after_tool_call(self, result: ToolCallResult) -> None:
             result.result = "bounded failure"
 
-    agent.framework.register_plugin(Policy())
+    agent.framework.plugin_manager.register(Policy())
     execution = await ToolExecutor(agent.framework.get_agent_hooks()).execute_async(
         [(Tool(name="denied", handler=lambda: pytest.fail("must not run")), {})],
         context=ToolContext(agent.tape, "run-1"),

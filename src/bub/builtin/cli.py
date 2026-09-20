@@ -124,6 +124,7 @@ def gateway(
 
 def chat(
     ctx: typer.Context,
+    initial_prompt: str | None = typer.Argument(None, help="Initial message to submit before interactive input"),
     chat_id: str = typer.Option("local", "--chat-id", help="Chat id"),
     session_id: str | None = typer.Option(None, "--session-id", help="Optional session id"),
 ) -> None:
@@ -138,6 +139,8 @@ def chat(
         typer.echo("CLI channel not found. Please check your hook implementations.")
         raise typer.Exit(1)
     channel.set_metadata(chat_id=chat_id, session_id=session_id)  # type: ignore[attr-defined]
+    if initial_prompt is not None:
+        channel.set_metadata(initial_prompt=initial_prompt)  # type: ignore[attr-defined]
     asyncio.run(manager.listen_and_run())
 
 

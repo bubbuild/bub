@@ -51,6 +51,9 @@ def _make_agent() -> Agent:
 
     agent.settings = AgentSettings.model_construct(model="test:model", api_key="k", api_base="b", client_args={})
     agent.framework = framework
+    agent.tools = REGISTRY.copy()
+    agent.tape_store = None
+    agent.skill_dirs = None
     agent.model_runner = _FakeModelRunner(agent.settings)
     return agent
 
@@ -454,6 +457,19 @@ async def test_agent_run_rejects_unknown_allowed_tools() -> None:
 
     with pytest.raises(ValueError, match="tests_missing_agent_tool"):
         [event async for event in stream]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prompt", [",bash command='echo hello'", ",echo hello"])
+async def test_run_command_executes_shell_with_command_parameter(prompt: str, tmp_path) -> None:
+    agent = _make_agent()
+    agent.tape = _FakeTapeFactory(_ForkCapture())  # type: ignore[assignment]
+
+    stream = await agent.run_stream(session_id="user/s1", prompt=prompt, state={"_runtime_workspace": str(tmp_path)})
+    events = [event async for event in stream]
+
+    assert not any(event.kind == "error" for event in events)
+    assert any(event.data.get("delta") == "hello" for event in events if event.kind == "text")
 
 
 @pytest.mark.asyncio
