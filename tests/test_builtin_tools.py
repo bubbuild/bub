@@ -8,6 +8,7 @@ import shutil
 import signal
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -38,6 +39,10 @@ def _tool_context(tmp_path, **state) -> ToolContext:
 
 def _python_shell(code: str) -> str:
     return f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
+
+
+def _shell_id(result: str) -> str:
+    return result.split("shell_id: ", 1)[1].splitlines()[0].strip()
 
 
 @pytest.mark.asyncio
@@ -272,7 +277,7 @@ async def test_foreground_bash_terminates_shell_when_cancelled(tmp_path, monkeyp
 @pytest.mark.asyncio
 @pytest.mark.parametrize("shell_exits", [False, True])
 @pytest.mark.parametrize("ignore_term", [False, True])
-async def test_bash_timeout_stops_descendants(tmp_path, monkeypatch, shell_exits, ignore_term) -> None:
+async def test_timed_out_bash_keeps_descendants_until_killed(tmp_path, monkeypatch, shell_exits, ignore_term) -> None:
     manager = ShellManager()
     monkeypatch.setattr(builtin_tools, "shell_manager", manager)
     monkeypatch.setattr(manager, "TERMINATE_TIMEOUT", 0.2)
@@ -286,18 +291,69 @@ async def test_bash_timeout_stops_descendants(tmp_path, monkeypatch, shell_exits
     try:
         async with asyncio.timeout(5):
             result = await bash.run(command=command, timeout_seconds=1, context=_tool_context(tmp_path))
-        assert "timed out" in result
-        assert manager._shells == {}
+        assert "continuing in background" in result
+        shell_id = _shell_id(result)
+        shell = manager.get(shell_id)
+        assert all(not task.cancelled() for task in shell.read_tasks)
         pid = int(pid_file.read_text())
+        os.kill(pid, 0)
+        await kill_bash.run(shell_id=shell_id)
+        assert manager._shells == {}
         # An orphan can briefly remain a zombie until the OS reaps it.
         ps = shutil.which("ps")
         assert ps is not None
         status = subprocess.run([ps, "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
         assert not status.stdout.strip() or status.stdout.strip().startswith("Z")
     finally:
+        await asyncio.gather(*(manager.terminate(shell_id) for shell_id in list(manager._shells)))
         if pid_file.exists():
             with contextlib.suppress(ProcessLookupError):
                 os.kill(int(pid_file.read_text()), signal.SIGKILL)
+
+
+@pytest.mark.asyncio
+async def test_timed_out_bash_preserves_output_and_completes_in_background(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = ShellManager()
+    monkeypatch.setattr(builtin_tools, "shell_manager", manager)
+    gate = tmp_path / "continue"
+    command = _python_shell(
+        "import sys, time\n"
+        "from pathlib import Path\n"
+        "print('before timeout', flush=True)\n"
+        f"while not Path({str(gate)!r}).exists():\n"
+        "    time.sleep(0.01)\n"
+        "print('after timeout', flush=True)\n"
+        "print('stderr after timeout', file=sys.stderr, flush=True)\n"
+    )
+    try:
+        result = await bash.run(
+            command=command, timeout_seconds=1, context=_tool_context(tmp_path, session_id="session:target")
+        )
+        assert "continuing in background" in result
+        shell_id = _shell_id(result)
+        shell = manager.get(shell_id)
+        assert shell.returncode is None
+        assert shell.session_id == "session:target"
+        output = await bash_output.run(shell_id=shell_id)
+        assert "status: running" in output
+        assert "before timeout" in output
+
+        gate.touch()
+        async with asyncio.timeout(5):
+            await shell.process.wait()
+            await asyncio.gather(*shell.read_tasks)
+        output = await bash_output.run(shell_id=shell_id)
+        assert "status: exited" in output
+        assert "exit_code: 0" in output
+        assert "before timeout" in output
+        assert "after timeout" in output
+        assert "stderr after timeout" in output
+        assert manager._shells == {}
+    finally:
+        gate.touch()
+        await asyncio.gather(*(manager.terminate(shell_id) for shell_id in list(manager._shells)))
 
 
 @pytest.mark.asyncio
@@ -342,7 +398,7 @@ async def test_background_bash_exposes_output_via_bash_output(tmp_path) -> None:
     )
 
     started = await bash.run(command=command, background=True, context=_tool_context(tmp_path))
-    shell_id = started.removeprefix("started: ").strip()
+    shell_id = _shell_id(started)
 
     await asyncio.sleep(0.35)
     output = await bash_output.run(shell_id=shell_id)
@@ -360,7 +416,7 @@ async def test_kill_bash_terminates_background_process_and_releases_shell(tmp_pa
         background=True,
         context=_tool_context(tmp_path),
     )
-    shell_id = started.removeprefix("started: ").strip()
+    shell_id = _shell_id(started)
 
     killed = await kill_bash.run(shell_id=shell_id)
 
@@ -377,7 +433,7 @@ async def test_kill_bash_returns_status_when_process_already_finished(tmp_path) 
         background=True,
         context=_tool_context(tmp_path),
     )
-    shell_id = started.removeprefix("started: ").strip()
+    shell_id = _shell_id(started)
 
     await asyncio.sleep(0.1)
     result = await kill_bash.run(shell_id=shell_id)
@@ -386,22 +442,24 @@ async def test_kill_bash_returns_status_when_process_already_finished(tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_quit_tool_terminates_background_shells_for_current_session(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("background", [True, False])
+async def test_quit_tool_terminates_background_shells_for_current_session(tmp_path, monkeypatch, background) -> None:
     manager = ShellManager()
     monkeypatch.setattr(builtin_tools, "shell_manager", manager)
 
     target_started = await bash.run(
         command=_python_shell("import time; time.sleep(10)"),
-        background=True,
+        background=background,
+        timeout_seconds=0,
         context=_tool_context(tmp_path, session_id="session:target"),
     )
-    target_shell_id = target_started.removeprefix("started: ").strip()
+    target_shell_id = _shell_id(target_started)
     other_started = await bash.run(
         command=_python_shell("import time; time.sleep(10)"),
         background=True,
         context=_tool_context(tmp_path, session_id="session:other"),
     )
-    other_shell_id = other_started.removeprefix("started: ").strip()
+    other_shell_id = _shell_id(other_started)
 
     class FakeFramework:
         def __init__(self) -> None:

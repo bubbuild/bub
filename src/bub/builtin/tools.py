@@ -156,9 +156,9 @@ async def bash(
 ) -> str:
     """Run a shell command. Use background=true to keep it running and fetch output later via bash_output.
 
-    Foreground timeouts stop the process group on POSIX, with up to four seconds
-    for termination and output cleanup. Descendants that create their own session
-    are outside that group. Background commands do not use timeout_seconds.
+    Foreground commands that exceed timeout_seconds continue in the background
+    and return a shell ID. Use bash.output to read output or bash.kill to stop them.
+    Background commands do not use timeout_seconds.
     """
     workspace = context.state.get("_runtime_workspace")
     target_cwd = cwd or workspace
@@ -166,7 +166,7 @@ async def bash(
     session_id = str(raw_session_id) if raw_session_id is not None else None
     shell = await shell_manager.start(cmd=command, cwd=target_cwd, session_id=session_id)
     if background:
-        return f"started: {shell.shell_id}"
+        return f"Shell started, shell_id: {shell.shell_id}\nRetrieve the output with bash_output or terminate it with bash_kill."
     try:
         async with asyncio.timeout(timeout_seconds):
             shell = await shell_manager.wait_closed(shell.shell_id)
@@ -174,8 +174,9 @@ async def bash(
         await shell_manager.terminate(shell.shell_id)
         raise
     except TimeoutError:
-        await shell_manager.terminate(shell.shell_id)
-        return f"command timed out after {timeout_seconds} seconds and was terminated"
+        return (
+            f"command timed out after {timeout_seconds} seconds; continuing in background\nshell_id: {shell.shell_id}"
+        )
     _raise_for_failed_shell(shell.returncode, shell.output)
     return shell.output.strip() or "(no output)"
 
