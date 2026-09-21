@@ -1,4 +1,5 @@
 import sys
+from collections.abc import AsyncIterator
 from datetime import datetime
 from difflib import get_close_matches
 from pathlib import Path
@@ -327,6 +328,13 @@ class BuiltinImpl:
             kind=field_of(message, "kind", "normal"),
         )
         return [outbound]
+
+    @hookimpl
+    async def provide_lifespan(self) -> AsyncIterator[None]:
+        from bub.builtin.shell_manager import shell_manager
+
+        async with shell_manager.lifespan():
+            yield
 
     @hookimpl
     def provide_tape_store(self) -> TapeStore:

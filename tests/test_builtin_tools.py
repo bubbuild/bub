@@ -484,3 +484,44 @@ async def test_quit_tool_terminates_background_shells_for_current_session(tmp_pa
     assert manager.get(other_shell_id).returncode is None
 
     await kill_bash.run(shell_id=other_shell_id)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX signals")
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_bash_cleanup_does_not_return_a_released_shell_id_or_mask_cancellation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cancel: bool
+) -> None:
+    manager = ShellManager()
+    monkeypatch.setattr(builtin_tools, "shell_manager", manager)
+    monkeypatch.setattr(manager, "TERMINATE_TIMEOUT", 1.2)
+    pid_file = tmp_path / "child.pid"
+    child = _python_shell(
+        "import os, signal, time; from pathlib import Path; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        f"Path({str(pid_file)!r}).write_text(str(os.getpid())); time.sleep(30)"
+    )
+    wait_ready = _python_shell(
+        f"import time; from pathlib import Path\nwhile not Path({str(pid_file)!r}).exists(): time.sleep(0.01)"
+    )
+    task = asyncio.create_task(
+        bash.run(command=f"{child} >/dev/null 2>&1 & {wait_ready}", timeout_seconds=1, context=_tool_context(tmp_path))
+    )
+    try:
+        if cancel:
+            async with asyncio.timeout(5):
+                while not manager._shells or not next(iter(manager._shells.values())).termination_task:
+                    await asyncio.sleep(0.01)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            assert await task == "(no output)"
+        assert manager._shells == {}
+    finally:
+        if pid_file.exists():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+        await asyncio.gather(task, return_exceptions=True)
+        for shell_id in list(manager._shells):
+            await manager.terminate(shell_id)

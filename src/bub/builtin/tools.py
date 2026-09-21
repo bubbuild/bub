@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid
 from collections.abc import Iterable
@@ -171,12 +172,14 @@ async def bash(
         async with asyncio.timeout(timeout_seconds):
             shell = await shell_manager.wait_closed(shell.shell_id)
     except asyncio.CancelledError:
-        await shell_manager.terminate(shell.shell_id)
+        with contextlib.suppress(KeyError):
+            await shell_manager.terminate(shell.shell_id)
         raise
     except TimeoutError:
-        return (
-            f"command timed out after {timeout_seconds} seconds; continuing in background\nshell_id: {shell.shell_id}"
-        )
+        # Cancellation during descendant cleanup waits for termination to finish.
+        # A released shell must not be advertised as a running background command.
+        if shell.termination_task is None or not shell.termination_task.done():
+            return f"command timed out after {timeout_seconds} seconds; continuing in background\nshell_id: {shell.shell_id}"
     _raise_for_failed_shell(shell.returncode, shell.output)
     return shell.output.strip() or "(no output)"
 

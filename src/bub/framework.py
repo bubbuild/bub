@@ -402,6 +402,8 @@ class BubFramework:
         lifespans on the same framework instance.
         """
         async with contextlib.AsyncExitStack() as stack:
+            for lifespan in self._hook_runtime.call_many_sync("provide_lifespan"):
+                await maybe_context_manager(lifespan, stack)
             tape_store = self._hook_runtime.call_first_sync("provide_tape_store")
             # Allow plugins to return either TapeStore/AsyncTapeStore instances or context managers for them
             # This benefits plugins that need to initialize and clean up resources with the tape store.

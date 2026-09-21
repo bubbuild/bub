@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -182,6 +183,10 @@ class BubHookSpecs:
     def provide_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         """Provide a tape store instance for Bub's conversation recording feature."""
         raise NotImplementedError
+
+    @hookspec
+    def provide_lifespan(self) -> AsyncIterator[None] | Iterator[None] | None:
+        """Yield once to own resources for the duration of framework.running()."""
 
     @hookspec
     def provide_tape_sidecar(self) -> TapeSidecar:
