@@ -139,12 +139,12 @@ class BubFramework:
             prompt = content_of(message)
         return cast("str | list[dict[str, Any]]", prompt)
 
-    async def continue_prompt(self, prompt: str | list[dict], tape: Tape, state: StreamState) -> str:
-        """Build the prompt for the next step of an agent loop."""
+    async def continue_prompt(self, prompt: str | list[dict] | None, tape: Tape, state: StreamState) -> str | None:
+        """Return an optional user message for the next step of an agent loop."""
         next_prompt = await self._hook_runtime.call_first("continue_prompt", prompt=prompt, tape=tape, state=state)
-        if isinstance(next_prompt, str):
+        if next_prompt is None or isinstance(next_prompt, str):
             return next_prompt
-        raise TypeError("hook.continue_prompt must return str")
+        raise TypeError("hook.continue_prompt must return str or None")
 
     async def build_state(self, message: Envelope, session_id: str) -> TurnState:
         """Merge runtime defaults and load-state hooks into a fresh turn state.

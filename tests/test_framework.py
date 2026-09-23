@@ -176,6 +176,28 @@ async def test_continue_prompt_awaits_high_priority_async_hook() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("register_none_hook", [False, True])
+async def test_continue_prompt_allows_no_user_message(register_none_hook: bool) -> None:
+    framework = BubFramework()
+    framework.load_builtin_hooks()
+
+    if register_none_hook:
+
+        class NoPromptPlugin:
+            @hookimpl
+            def continue_prompt(self, prompt: str, tape: Any, state: StreamState) -> None:
+                return None
+
+        framework.plugin_manager.register(NoPromptPlugin())
+
+    result = await framework.continue_prompt(
+        prompt="initial prompt", tape=cast(Any, SimpleNamespace()), state=StreamState()
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test_running_enters_tape_store_once_and_reuses_it() -> None:
     framework = BubFramework()
 

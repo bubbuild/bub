@@ -179,7 +179,7 @@ class ModelRunner:
         model: str,
         tools: list[Tool],
         system_prompt: str | None,
-        prompt: str | list[dict],
+        prompt: str | list[dict] | None,
         steering_messages: list[list[dict[str, Any]] | str] | None = None,
     ) -> AsyncStreamEvents:
         state = StreamState()
@@ -390,11 +390,10 @@ class ModelRunner:
         tape: Tape,
         run_id: str,
         system_prompt: str | None,
-        prompt: str | list[dict],
+        prompt: str | list[dict] | None,
         model: str,
         steering_messages: list[list[dict[str, Any]] | str] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        prompt_message: dict[str, Any] = {"role": "user", "content": prompt}
         try:
             messages = await tape.read_messages()
         except BubError as exc:
@@ -409,7 +408,9 @@ class ModelRunner:
         steering_messages_native = [{"role": "user", "content": message} for message in (steering_messages or [])]
         if system_prompt:
             messages = [{"role": "system", "content": system_prompt}, *messages]
-        new_messages = [*steering_messages_native, prompt_message]
+        new_messages = [*steering_messages_native]
+        if prompt is not None:
+            new_messages.append({"role": "user", "content": prompt})
         messages.extend(new_messages)
         return messages, new_messages
 

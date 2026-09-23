@@ -90,8 +90,13 @@ async def test_unknown_tool_placeholder_surfaces_error_without_hooks() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("content", [None, "", "Check byte equality.\nOnly exact equality counts."])
+@pytest.mark.parametrize("continuation_prompt", ["Continue.", "", None])
 async def test_tool_call_text_survives_into_next_request_after_tape_reload(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, streaming: bool, content: str | None
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    streaming: bool,
+    content: str | None,
+    continuation_prompt: str | None,
 ) -> None:
     calls = [
         {"id": f"call-{name}", "type": "function", "function": {"name": name, "arguments": "{}"}}
@@ -145,17 +150,44 @@ async def test_tool_call_text_survives_into_next_request_after_tape_reload(
     reloaded = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped(
         "test-tape"
     )
-    async for _ in runner.run(tape=reloaded, model="test-model", tools=tools, system_prompt=None, prompt="Continue."):
+    async for _ in runner.run(
+        tape=reloaded, model="test-model", tools=tools, system_prompt=None, prompt=continuation_prompt
+    ):
         pass
 
     assert "".join(event.data["delta"] for event in events if event.kind == "text") == (content or "")
-    assert requests[1] == [
+    expected_messages = [
         {"role": "user", "content": "Compare the outputs."},
         {"role": "assistant", "content": content or "", "tool_calls": calls},
         {"role": "tool", "content": "files found", "tool_call_id": "call-inspect", "name": "inspect"},
         {"role": "tool", "content": "bytes differ", "tool_call_id": "call-compare", "name": "compare"},
-        {"role": "user", "content": "Continue."},
     ]
+    if continuation_prompt is not None:
+        expected_messages.append({"role": "user", "content": continuation_prompt})
+    assert requests[1] == expected_messages
+    if continuation_prompt is None:
+        persisted = await reloaded.store.fetch_all(reloaded.query().kinds("message"))
+        assert [entry.payload for entry in persisted if entry.payload.get("role") == "user"] == [
+            {"role": "user", "content": "Compare the outputs."}
+        ]
+
+
+@pytest.mark.asyncio
+async def test_build_messages_keeps_steering_when_continuation_has_no_prompt(tmp_path: Path) -> None:
+    runner = ModelRunner(AgentSettings.model_construct(model="test-model"))
+    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context()).scoped("steering")
+    await tape.ensure_bootstrap_anchor()
+
+    messages, new_messages = await runner.build_messages(
+        tape=tape,
+        run_id="run-1",
+        system_prompt=None,
+        prompt=None,
+        model="test-model",
+        steering_messages=["new user direction"],
+    )
+
+    assert messages == new_messages == [{"role": "user", "content": "new user direction"}]
 
 
 @pytest.mark.parametrize("arguments", ["[]", "null", "1", "not json"])

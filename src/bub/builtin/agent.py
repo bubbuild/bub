@@ -312,7 +312,7 @@ class Agent:
     ) -> AsyncGenerator[StreamEvent, None]:
         auto_handoff_remaining = MAX_AUTO_HANDOFF_RETRIES
         display_model = model or self.settings.model
-        next_prompt = prompt
+        next_prompt: str | list[dict] | None = prompt
         for step in range(1, self.settings.max_steps + 1):
             start = time.monotonic()
             should_continue = False
@@ -424,12 +424,17 @@ class Agent:
         self,
         *,
         tape: Tape,
-        prompt: str | list[dict],
+        prompt: str | list[dict] | None,
         model: str | None = None,
         allowed_tools: Collection[str] | None = None,
         allowed_skills: Collection[str] | None = None,
     ) -> AsyncStreamEvents:
-        prompt_text = prompt if isinstance(prompt, str) else _extract_text_from_parts(prompt)
+        if isinstance(prompt, str):
+            prompt_text = prompt
+        elif prompt is None:
+            prompt_text = ""
+        else:
+            prompt_text = _extract_text_from_parts(prompt)
         if allowed_tools is not None:
             from bub.builtin.tools import resolve_tool_names
 
@@ -454,7 +459,7 @@ class Agent:
         self,
         *,
         tape: Tape,
-        prompt: str | list[dict],
+        prompt: str | list[dict] | None,
         prompt_text: str,
         model: str | None,
         allowed_skills: set[str] | None,
