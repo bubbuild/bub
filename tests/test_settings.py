@@ -3,6 +3,9 @@ from __future__ import annotations
 import os
 from unittest.mock import patch
 
+import pytest
+from any_llm.constants import LLMProvider
+
 from bub.builtin.settings import DEFAULT_MODEL, AgentSettings, load_settings
 from bub.builtin.spill import SpillSettings
 from bub.configure import ensure_config
@@ -41,6 +44,20 @@ def test_settings_no_keys_return_none() -> None:
     assert settings.api_base is None
     assert settings.client_args == {}
     assert settings.completion_args == {}
+
+
+@pytest.mark.parametrize("provider", ["openai", LLMProvider.OPENAI, "acme"])
+def test_client_options_resolve_provider_names_and_enum_values(provider: str) -> None:
+    settings = _settings_with_env({
+        f"BUB_{provider.upper()}_API_KEY": "environment-key",
+        f"BUB_{provider.upper()}_API_BASE": "https://example.test/v1",
+        "BUB_CLIENT_ARGS": '{"api_key": "ignored-key", "api_base": "https://ignored.test", "timeout": 5}',
+    })
+    assert settings.model_client_kwargs(provider) == {
+        "api_key": "environment-key",
+        "api_base": "https://example.test/v1",
+        "timeout": 5,
+    }
 
 
 def test_settings_provider_names_are_lowercased() -> None:

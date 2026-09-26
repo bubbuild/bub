@@ -1,14 +1,14 @@
 ---
-title: 使用 tape 与 Phoenix 观察 Bub
-description: 先把 Bub 的 tape 当作第一层可观测性，再把 OpenTelemetry GenAI trace 导出到 Phoenix。
+title: 使用 tape、Phoenix 与 Logfire 观察 Bub
+description: 检查 Bub 的 tape，并将原生 agent、模型和工具 trace 导出到 Logfire 或 OTLP 后端。
 sidebar:
   order: 1
 ---
 
-本教程提供两条观察同一个 Bub workspace 的路径：
+本教程介绍同一个 Bub workspace 的本地 tape 检查和原生 OpenTelemetry trace：
 
 1. 先运行一个小的英文自然语言任务，再询问 Bub 刚写入的 tape。由于 Bub 会把每个 session 记录为 append-only tape，这条路径不依赖外部 tracing backend。
-2. 在运行同类任务时，将 OpenTelemetry telemetry 发送到 Phoenix。需要把 GenAI trace 放到本地或生产可观测平台时使用这条路径。
+2. 将执行轨迹发送到 Phoenix 或 Logfire，包括模型调用、并发工具和嵌套子 agent。
 
 完成后，你会得到一个本地快速健康检查方式，以及一个用于查看 agent、model 和 tool 活动的 Phoenix trace 视图。
 
@@ -19,17 +19,13 @@ sidebar:
 - Bub 已安装，且 `bub --help` 可以运行。
 - 一个 workspace，其中 `bub run "What tools do you have?"` 能调用已配置的模型。
 - 如果要本地运行 Phoenix，需要 Docker 或 Podman。
-- 启动带 Phoenix 的 Bub 之前，安装 Logfire extra：
+- 启动带 Phoenix 的 Bub 之前，在已激活的 Bub 虚拟环境中安装 `trace` extra：
 
 ```bash
-uv sync --extra logfire
+uv pip install "bub[trace]"
 ```
 
-- 安装 `bub-tapestore-otel` contrib 插件，获得更丰富的 tape 与 agent span：
-
-```bash
-bub install bub-tapestore-otel@main
-```
+`trace` extra 包含 OpenTelemetry API、SDK 和 HTTP/protobuf OTLP exporter。以下 Phoenix 流程无需安装或配置 Logfire。
 
 ## 1. 询问 Bub 当前 tape
 
@@ -101,37 +97,33 @@ docker run --rm --name bub-phoenix \
 http://localhost:6006
 ```
 
-## 4. 使用 contrib 与 OTLP 运行 Bub
+## 4. 使用 OTLP 运行 Bub
 
-安装 `logfire` extra 后，Bub 在 CLI 启动时已经支持 Logfire。`bub-tapestore-otel` contrib 插件会从 Bub tape store 生成面向 GenAI 的 span，包括 `invoke_agent bub`、`bub.agent.step`、chat 和 tool execution span。本教程通过 OTLP 把两者发送到 Phoenix。
+Bub 通过 OpenTelemetry SDK 将原生 GenAI span 直接发送到 Phoenix，无需 Logfire。
 
 在另一个终端运行：
 
 ```bash
-LOGFIRE_SEND_TO_LOGFIRE=false \
-LOGFIRE_SERVICE_NAME=bub \
-BUB_TAPESTORE_OTEL_ENABLED=true \
-BUB_TAPESTORE_OTEL_SERVICE_NAME=bub \
-BUB_TAPESTORE_OTEL_AGENT_NAME=bub \
+OTEL_SERVICE_NAME=bub \
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces \
 OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf \
-uv run --extra logfire bub run "What tools do you have, and what small tasks are they useful for?"
+bub run "What tools do you have, and what small tasks are they useful for?"
 ```
 
 然后用相同 telemetry 设置运行本地 tape 检查：
 
 ```bash
-LOGFIRE_SEND_TO_LOGFIRE=false \
-LOGFIRE_SERVICE_NAME=bub \
-BUB_TAPESTORE_OTEL_ENABLED=true \
-BUB_TAPESTORE_OTEL_SERVICE_NAME=bub \
-BUB_TAPESTORE_OTEL_AGENT_NAME=bub \
+OTEL_SERVICE_NAME=bub \
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces \
 OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf \
-uv run --extra logfire bub run ",tape.info"
+bub run ",tape.info"
 ```
 
-本地 Phoenix 教程建议设置 `LOGFIRE_SEND_TO_LOGFIRE=false`，避免 Bub 尝试把 telemetry 发送到托管 Logfire backend。`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` 指向 Phoenix 的 OTLP HTTP endpoint。
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` 是完整的 trace URL。也可以设置 `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006`，exporter 会追加 `/v1/traces`；trace 专用变量优先。Bub 支持 `http/protobuf`（默认值），headers、timeout、resource attributes 和采样均通过标准 OpenTelemetry 环境变量配置。
+
+显式 OTLP endpoint 会选择直接导出，即使安装了 Logfire 也不会再配置 Logfire。已有 tracer provider 会被保留，重复初始化不会重复添加 exporter，`OTEL_SDK_DISABLED=true` 会禁用这条初始化路径。SDK 批量导出，并在进程正常退出时发送队列中剩余的 span。
+
+需要认证时，设置 `OTEL_EXPORTER_OTLP_TRACES_HEADERS`（或 `OTEL_EXPORTER_OTLP_HEADERS`）。如需指定 Phoenix 项目，在 headers 中加入 `x-project-name=my-project`；否则使用 default 项目。
 
 ## 5. 在 Phoenix 中检查 trace
 
@@ -139,7 +131,7 @@ uv run --extra logfire bub run ",tape.info"
 
 1. 打开 default project。
 2. 打开最近的 trace。
-3. 查找 `invoke_agent bub`、`bub.agent.step`、`chat <model>` 和 `execute_tool <tool>` span。
+3. 查找 `invoke_agent bub`、`chat <model>` 和 `execute_tool <tool>` span。
 
 ![展示 Bub GenAI telemetry 通过 OTLP 导出到 Phoenix 的截图](/docs/observability/phoenix-otel.png)
 
@@ -149,6 +141,55 @@ uv run --extra logfire bub run ",tape.info"
 - Phoenix 回答“这个 Bub agent turn 如何经过 model call、tool call 和 tape update？”
 
 排查生产行为时建议两者一起使用：先用 `,tape.info` 判断 session 状态，再用 Phoenix 查看耗时、错误、model call 和 tool call。
+
+## 将执行轨迹发送到 Logfire
+
+如需将执行轨迹发送到 Logfire，安装包含 `bub[trace]` 和 Logfire 的 `logfire` extra。没有显式配置 OTLP endpoint 时，Bub CLI 会在启动时配置 Logfire，无需额外的 tracing 插件。
+
+从 Phoenix 切换时，先清除两个 OTLP endpoint 环境变量，再登录并选择 Logfire 项目，然后运行 Bub：
+
+```bash
+unset OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_ENDPOINT
+uv pip install "bub[logfire]"
+logfire auth
+logfire projects use
+bub run "检查这个仓库并总结它的结构。"
+```
+
+部署时通过环境变量提供 `LOGFIRE_TOKEN`。在 Logfire 的 Agents 页面查找 `bub`。每次执行包含 `chat <model>` 和 `execute_tool <tool>` span；子 agent 位于启动它的工具 span 下，同一 session 的执行通过 `gen_ai.conversation.id` 关联。
+
+## Trace 内容与生命周期
+
+Span 记录模型输入输出、工具参数和最终结果（结果 hook 与 spill 处理之后）、provider 返回的 token usage，以及错误。消息中的内联媒体内容不会上传。模型 fallback 会更新模型属性，并把失败尝试记录为事件。Token usage 只写入模型 span，避免与 agent span 重复计数。
+
+Loop step、handoff 和 spill 写入等 tape 事件会附加到当前 span。Tape 事件及聊天记录的 metadata 包含 `trace_id` 和 `span_id`，便于关联查询。Tape 存储与遥测导出相互独立。
+
+缺少可选依赖时 tracing 自动成为 no-op。仅安装 `bub[trace]` 不会启用导出，还需要配置 OTLP endpoint 或提供自己的 tracer provider。导入 Bub 不会自动配置遥测。嵌入使用方可以在设置 endpoint 环境变量后调用 `configure_otlp()`，或自行配置 provider：
+
+```python
+from bub.tracing import configure_otlp
+
+configure_otlp()  # 读取 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT 或 OTEL_EXPORTER_OTLP_ENDPOINT。
+# 通过应用现有的嵌入入口创建并运行 Bub。
+```
+
+流提供 `aclose()`。嵌入使用方若可能提前停止消费，应使用 `contextlib.aclosing(stream)`，及时关闭 provider 流、tape fork 和 span。Trace 上下文仅在恢复迭代或关闭流时激活，不会残留在消费者处理事件的代码中。取消会关闭 span 并设置 `bub.cancelled`；模型失败和超时会设置错误状态。
+
+### 从 `bub-tapestore-otel` 迁移
+
+实时 agent trajectory 推荐使用原生 tracing。Contrib 插件会在工作完成、tape 提交后，把一批记录投影为 span；其 span 时间戳反映投影过程，step 耗时另存为属性。原生 span 直接测量执行耗时，保留并发工具的时间关系和子 agent 的父子关系，并且在未提交终止 tape 事件的取消场景中也能关闭。
+
+如果关注的是已提交的 tape 写入，旧插件仍有用途。原生 tracing 不替代 tape 持久化，也不会从已有 tape 重建历史 trace。
+
+迁移步骤：
+
+1. Phoenix/OTLP 安装 `trace` extra，Logfire 安装 `logfire` extra，并按本页配置目标。
+2. 如果仍安装着 contrib 插件，设置 `BUB_TAPESTORE_OTEL_ENABLED=false`。
+3. 保留现有 tape backend。原生 tracing 不包装或替换它。
+
+原生 span 同时提供 Phoenix 所需的 OpenInference 分类、模型/token、消息和工具输入输出属性。这些兼容属性与标准 `gen_ai.*` 属性分开。原生方案不生成独立的 `bub.agent.step` span，loop step 记录为 agent span 上的事件。
+
+Tape 投影方式的细节见 [contrib 插件实现](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-otel)。
 
 ## 清理
 

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import re
 from collections.abc import AsyncGenerator, AsyncIterator, Iterable, Iterator
+from contextlib import aclosing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import monotonic
@@ -40,6 +42,7 @@ from bub.hooks.interception import (
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import Tape
 from bub.tools import Tool, ToolContext, ToolExecutor
+from bub.tracing import Span, current_span, event
 
 CONTEXT_LENGTH_PATTERNS = re.compile(
     r"context.{0,20}(?:length|window)|maximum.{0,20}context|token.{0,10}limit|prompt.{0,10}too long|tokens? > \d+ maximum",
@@ -139,6 +142,12 @@ class ModelRunner:
         completion_error: Exception | None = None
         for index, (candidate, llm) in enumerate(clients):
             try:
+                if span := current_span():
+                    span.rename(f"chat {candidate.model_id}")
+                    span.set(**{
+                        "gen_ai.provider.name": candidate.provider.value,
+                        "gen_ai.request.model": candidate.model_id,
+                    })
                 streaming = llm.SUPPORTS_COMPLETION_STREAMING
                 completion_messages = _adapt_messages_for_provider(messages, candidate.provider)
                 completion_kwargs = {
@@ -154,6 +163,7 @@ class ModelRunner:
                     completion_kwargs["reasoning_effort"] = reasoning_effort
                 return cast("CompletionResult", await llm.acompletion(**completion_kwargs))
             except Exception as exc:
+                event("bub.model.attempt_failed", model=candidate.name, error=repr(exc))
                 if completion_error is None:
                     completion_error = exc
                 if index == len(clients) - 1:
@@ -169,7 +179,7 @@ class ModelRunner:
         model: str,
         tools: list[Tool],
         system_prompt: str | None,
-        prompt: str | list[dict],
+        prompt: str | list[dict] | None,
         steering_messages: list[list[dict[str, Any]] | str] | None = None,
     ) -> AsyncStreamEvents:
         state = StreamState()
@@ -221,15 +231,8 @@ class ModelRunner:
 
             try:
                 completion_started = monotonic()
-                async with asyncio.timeout(self.settings.model_timeout_seconds):
-                    completion = await self.completion_response(
-                        model=request.model,
-                        messages=list(request.messages),
-                        tools=tools,
-                        max_tokens=request.max_tokens,
-                        reasoning_effort=tape.context.state.get("reasoning_effort"),
-                    )
-                    async for event in self._completion_events(completion, state, output):
+                async with aclosing(self._traced_completion(request, tools, tape, state, output)) as events:
+                    async for event in events:
                         yield event
                 completion_elapsed = monotonic() - completion_started
             except Exception as exc:
@@ -252,13 +255,14 @@ class ModelRunner:
                 execution = await ToolExecutor(hooks=self.hooks).execute_async(
                     tool_invocations,
                     context=context,
+                    call_ids=[call.id for call in tool_calls],
                 )
                 await self.record_chat(
                     tape=tape,
                     run_id=run_id,
                     system_prompt=system_prompt,
                     new_messages=new_messages,
-                    response_text=None,
+                    response_text=output.text or None,
                     tool_calls=serialized_tool_calls,
                     tool_results=execution.tool_results,
                     response=output.response,
@@ -285,6 +289,74 @@ class ModelRunner:
             yield StreamEvent("final", {"ok": True, "text": text})
 
         return AsyncStreamEvents(iterator(), state=state)
+
+    def _traced_completion(
+        self,
+        request: LlmCallRequest,
+        tools: list[Tool],
+        tape: Tape,
+        state: StreamState,
+        output: ModelOutputAccumulator,
+    ) -> AsyncStreamEvents:
+        provider, _, model = request.model.partition(":")
+        span = Span(
+            f"chat {model or request.model}",
+            {
+                "gen_ai.operation.name": "chat",
+                "gen_ai.provider.name": provider,
+                "gen_ai.request.model": model or request.model,
+                "gen_ai.request.max_tokens": request.max_tokens,
+                "gen_ai.conversation.id": tape.context.state.get("session_id"),
+                "bub.run_id": request.run_id,
+                "bub.tape": tape.name,
+            },
+        )
+        span.messages("gen_ai.input.messages", request.messages)
+        if span.recording:
+            span.set(**{
+                "gen_ai.tool.definitions": [tool.to_schema()["function"] | {"type": "function"} for tool in tools]
+            })
+
+        async def iterator() -> AsyncGenerator[StreamEvent, None]:
+            async with asyncio.timeout(self.settings.model_timeout_seconds):
+                completion = await self.completion_response(
+                    model=request.model,
+                    messages=list(request.messages),
+                    tools=tools,
+                    max_tokens=request.max_tokens,
+                    reasoning_effort=tape.context.state.get("reasoning_effort"),
+                )
+                try:
+                    async with aclosing(self._completion_events(completion, state, output)) as events:
+                        async for item in events:
+                            yield item
+                finally:
+                    close = getattr(completion, "aclose", None) or getattr(completion, "close", None)
+                    if close is not None:
+                        result = close()
+                        if inspect.isawaitable(result):
+                            await result
+
+        async def finish() -> None:
+            if not span.recording:
+                return
+            usage = state.usage or {}
+            span.set(**{
+                "gen_ai.usage.input_tokens": usage.get("prompt_tokens", usage.get("input_tokens")),
+                "gen_ai.usage.output_tokens": usage.get("completion_tokens", usage.get("output_tokens")),
+            })
+            span.messages(
+                "gen_ai.output.messages",
+                [
+                    {
+                        "role": "assistant",
+                        "content": output.text,
+                        "tool_calls": [call.model_dump(exclude_none=True) for call in output.tool_calls],
+                    }
+                ],
+            )
+
+        return AsyncStreamEvents(iterator(), state=state, span=span, on_close=finish)
 
     @staticmethod
     def generate_run_id() -> str:
@@ -318,11 +390,10 @@ class ModelRunner:
         tape: Tape,
         run_id: str,
         system_prompt: str | None,
-        prompt: str | list[dict],
+        prompt: str | list[dict] | None,
         model: str,
         steering_messages: list[list[dict[str, Any]] | str] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        prompt_message: dict[str, Any] = {"role": "user", "content": prompt}
         try:
             messages = await tape.read_messages()
         except BubError as exc:
@@ -337,7 +408,9 @@ class ModelRunner:
         steering_messages_native = [{"role": "user", "content": message} for message in (steering_messages or [])]
         if system_prompt:
             messages = [{"role": "system", "content": system_prompt}, *messages]
-        new_messages = [*steering_messages_native, prompt_message]
+        new_messages = [*steering_messages_native]
+        if prompt is not None:
+            new_messages.append({"role": "user", "content": prompt})
         messages.extend(new_messages)
         return messages, new_messages
 
@@ -400,6 +473,7 @@ class ModelRunner:
         output: ModelOutputAccumulator,
     ) -> AsyncGenerator[StreamEvent, None]:
         if isinstance(completion, ChatCompletion):
+            self._trace_response(completion)
             if usage := Tape._extract_usage(completion):
                 state.usage = usage
             output.response = completion
@@ -409,8 +483,17 @@ class ModelRunner:
             return
 
         async for chunk in completion:
+            self._trace_response(chunk)
             async for event in self._completion_chunk_events(chunk, state, output):
                 yield event
+
+    @staticmethod
+    def _trace_response(response: ChatCompletion | ChatCompletionChunk) -> None:
+        if span := current_span():
+            span.set(**{"gen_ai.response.model": response.model, "gen_ai.response.id": response.id})
+            reasons = [choice.finish_reason for choice in response.choices if choice.finish_reason is not None]
+            if reasons:
+                span.set(**{"gen_ai.response.finish_reasons": reasons})
 
     def _completion_message_events(
         self,
@@ -531,7 +614,7 @@ def tool_invocation_from_native(
 
 
 def parse_native_function_call(tool_call: ChatCompletionMessageToolCall) -> tuple[str, dict[str, Any]]:
-    if not isinstance(tool_call, ChatCompletionMessageFunctionToolCall):
+    if tool_call.type != "function":
         raise BubError(ErrorKind.INVALID_INPUT, "Expected a function tool call with JSON object arguments.")
     try:
         arguments = TOOL_ARGUMENTS_ADAPTER.validate_json(tool_call.function.arguments or "{}")

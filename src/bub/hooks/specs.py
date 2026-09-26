@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -67,11 +68,12 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def continue_prompt(self, prompt: str | list[dict], tape: Tape, state: StreamState) -> str:
-        """Build the prompt used to continue an agent loop.
+    def continue_prompt(self, prompt: str | list[dict] | None, tape: Tape, state: StreamState) -> str | None:
+        """Optionally add a user message when continuing an agent loop.
 
         Implementations may be synchronous or asynchronous. The first
-        non-``None`` result in hook priority order is used.
+        non-``None`` result in hook priority order is used. If no implementation
+        returns a prompt, the next model call uses the existing conversation.
         """
         raise NotImplementedError
 
@@ -182,6 +184,10 @@ class BubHookSpecs:
     def provide_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         """Provide a tape store instance for Bub's conversation recording feature."""
         raise NotImplementedError
+
+    @hookspec
+    def provide_lifespan(self) -> AsyncIterator[None] | Iterator[None] | None:
+        """Yield once to own resources for the duration of framework.running()."""
 
     @hookspec
     def provide_tape_sidecar(self) -> TapeSidecar:

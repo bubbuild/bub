@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 import typer
 from inquirer_textual.common.InquirerResult import InquirerResult
 from inquirer_textual.common.PromptSettings import PromptSettings
@@ -14,6 +15,7 @@ from typer.testing import CliRunner
 
 import bub.builtin.auth as auth
 import bub.builtin.cli as cli
+import bub.builtin.onboarding as onboarding
 import bub.configure as configure
 import bub.inquirer as bub_inquirer
 from bub.framework import BubFramework
@@ -21,6 +23,12 @@ from bub.hooks import hookimpl
 
 TEST_ACCESS_TOKEN = "access"  # noqa: S105
 TEST_REFRESH_TOKEN = "refresh"  # noqa: S105
+
+
+@pytest.fixture(autouse=True)
+def no_model_discovery_network(monkeypatch):
+    monkeypatch.setattr(onboarding, "discover_models", lambda *args, **kwargs: [])
+    monkeypatch.setattr("bub.builtin.codex_provider.load_openai_codex_oauth_tokens", lambda: None)
 
 
 def _fake_result(answer: Any, command: str | None = "enter") -> InquirerResult[Any]:
@@ -65,7 +73,7 @@ def test_onboard_collects_plugin_config_and_writes_file(tmp_path: Path, monkeypa
                     "telegram": {"token": cli.typer.prompt("Telegram token", hide_input=True)},
                 }
 
-        framework.register_plugin(OnboardPlugin(), name="onboard-plugin")
+        framework.plugin_manager.register(OnboardPlugin(), name="onboard-plugin")
         app = framework.create_cli_app()
 
         answers = iter(["openai:gpt-5", "123:abc"])
@@ -134,7 +142,7 @@ def test_onboard_collects_builtin_runtime_config(tmp_path: Path, monkeypatch) ->
             "ask_text",
             lambda message, default="": {
                 "LLM model": "openrouter/free",
-                "API base (optional)": "https://openrouter.ai/api/v1",
+                "API base URL": "https://openrouter.ai/api/v1",
             }.get(message, default),
         )
         monkeypatch.setattr(
@@ -168,7 +176,6 @@ def test_onboard_collects_builtin_runtime_config(tmp_path: Path, monkeypatch) ->
         "enabled_channels": "telegram,cli",
         "stream_output": True,
         "api_key": "sk-test",
-        "api_base": "https://openrouter.ai/api/v1",
     }
 
 
@@ -302,9 +309,7 @@ def test_onboard_aborts_immediately_when_builtin_prompt_is_interrupted(tmp_path:
 
         def fake_text(message: str, default: str = "") -> str:
             asked_messages.append(message)
-            if message == "API base (optional)":
-                raise AssertionError("Onboarding should stop after interruption")
-            return "openrouter:openrouter/free"
+            raise AssertionError("Onboarding should stop before asking for a model")
 
         def fake_secret(message: str) -> str:
             asked_messages.append("API key (optional)")
@@ -323,7 +328,6 @@ def test_onboard_aborts_immediately_when_builtin_prompt_is_interrupted(tmp_path:
     assert _rendered_onboard_banner() in result.stdout
     assert asked_messages == [
         "LLM provider",
-        "LLM model",
         "API key (optional)",
     ]
     assert not config_file.exists()
@@ -438,7 +442,7 @@ def test_run_command_processes_inbound_inside_framework_runtime(tmp_path: Path) 
         async def dispatch_outbound(self, message) -> bool:
             return True
 
-    framework.register_plugin(RunPlugin(), name="run-plugin")
+    framework.plugin_manager.register(RunPlugin(), name="run-plugin")
     app = framework.create_cli_app()
 
     result = CliRunner().invoke(
@@ -616,3 +620,31 @@ def test_ensure_project_initializes_project_and_adds_bub_dependency(tmp_path: Pa
         (("init", "--bare", "--name", "bub-project", "--app"), project),
         (("add", "--active", "--no-sync", "--editable", "/tmp/bub"), project),  # noqa: S108
     ]
+
+
+@pytest.mark.parametrize("initial_prompt", [None, "Explain this project", "你好 Bub"])
+def test_chat_accepts_optional_initial_prompt(initial_prompt: str | None, monkeypatch) -> None:
+    from bub.channels.manager import ChannelManager
+
+    observed: dict[str, Any] = {}
+
+    class FakeCliChannel:
+        def set_metadata(self, **kwargs: Any) -> None:
+            observed.update(kwargs)
+
+    monkeypatch.setattr(ChannelManager, "get_channel", lambda self, name: FakeCliChannel())
+
+    async def listen(self: ChannelManager) -> None:
+        observed["listened"] = True
+
+    monkeypatch.setattr(ChannelManager, "listen_and_run", listen)
+    args = ["chat", "--chat-id", "room", "--session-id", "custom-session"]
+    if initial_prompt is not None:
+        args.append(initial_prompt)
+    result = CliRunner().invoke(_create_app(), args)
+
+    assert result.exit_code == 0, result.output
+    expected = {"chat_id": "room", "session_id": "custom-session", "listened": True}
+    if initial_prompt is not None:
+        expected["initial_prompt"] = initial_prompt
+    assert observed == expected

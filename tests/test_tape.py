@@ -4,8 +4,9 @@ from pathlib import Path
 
 import pytest
 
+from bub.builtin.context import default_tape_context
 from bub.store import AsyncTapeStoreAdapter, ForkTapeStore, InMemoryTapeStore
-from bub.tape import Tape, TapeContext
+from bub.tape import Tape, TapeContext, TapeEntry
 
 
 def test_tape_reexports_legacy_store_objects() -> None:
@@ -25,6 +26,31 @@ def test_tape_reexports_legacy_store_objects() -> None:
     assert expected_exports <= set(dir(tape))
     for name in expected_exports:
         assert getattr(tape, name) is getattr(store, name)
+
+
+@pytest.mark.asyncio
+async def test_legacy_tool_call_without_content_replays_with_its_result(tmp_path: Path) -> None:
+    store = InMemoryTapeStore()
+    tape = Tape(tmp_path, AsyncTapeStoreAdapter(store), default_tape_context()).scoped("test-tape")
+    await tape.ensure_bootstrap_anchor()
+    calls = [{"id": "call-1", "type": "function", "function": {"name": "inspect", "arguments": "{}"}}]
+    store.append("test-tape", TapeEntry(id=0, kind="tool_call", payload={"calls": calls}))
+    store.append("test-tape", TapeEntry.tool_result(["files found"]))
+
+    assert await tape.read_messages() == [
+        {"role": "assistant", "content": "", "tool_calls": calls},
+        {"role": "tool", "content": "files found", "tool_call_id": "call-1", "name": "inspect"},
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["", "done"])
+async def test_text_only_response_remains_a_standalone_assistant_message(tmp_path: Path, content: str) -> None:
+    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context()).scoped("test-tape")
+    await tape.ensure_bootstrap_anchor()
+    await tape.record_chat(run_id="run-1", system_prompt=None, new_messages=[], response_text=content)
+
+    assert await tape.read_messages() == [{"role": "assistant", "content": content}]
 
 
 @pytest.mark.asyncio

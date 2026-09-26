@@ -45,8 +45,11 @@ Behavior notes:
 Start an interactive REPL backed by the `cli` channel.
 
 ```text
-bub chat [OPTIONS]
+bub chat [OPTIONS] [INITIAL_PROMPT]
 ```
+
+Pass an optional initial message to submit it automatically, then continue chatting in the same session.
+Quote prompts containing spaces, for example `bub chat "Explain this project"`.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -100,9 +103,14 @@ bub onboard [OPTIONS]
 
 Behavior notes:
 
-- The builtin onboarding fragment prompts for: provider (one of `openrouter`, `openai`, `anthropic`, `gemini`, `azure`, `bedrock`, `ollama`, `groq`, `mistral`, `deepseek`, plus `custom`), model name, optional API key, optional API base, enabled channels, and stream output.
-- Each plugin's `onboard_config` hook receives the accumulated dict so far; non-dict returns abort with `TypeError`.
+- All providers follow the same flow: select a provider, enter connection details, check the connection, choose a model, then configure channels and streaming.
+- Provider labels distinguish **OpenAI (official API)** from **OpenAI-compatible (custom URL / local server)**. Compatible services are saved as `openai:<model>` with your API base URL.
+- Hosted providers use their default endpoint and normally ask only for an API key. Compatible services, Azure, Ollama, other providers, and custom endpoints supplied by preceding hooks also prompt for a URL. Blank API keys retain a key supplied in this run for the same endpoint or use environment credentials, including `OPENAI_API_KEY`, `BUB_API_KEY`, and `BUB_OPENAI_API_KEY`. Environment keys are not copied into the saved configuration. A compatible server gets the SDK's placeholder key only when no key is supplied or available from the environment.
+- Bub fetches the provider's model list with a 10-second asynchronous timeout, then offers searchable model selection and manual entry. Blocking SDK calls may take longer. This checks access to the models endpoint; it does not test a model completion. If discovery fails, edit the URL/key, retry, or enter a model ID manually. Providers that do not support model discovery, including Azure in the current SDK, explain the limitation and proceed directly to manual entry without offering retries.
+- When the effective connection uses OpenAI OAuth, model discovery is skipped and you enter a model ID manually. Displayed default URLs are not written to the configuration. Leave the URL blank to preserve the default and OAuth routing; entering a URL explicitly saves it, even if it matches the displayed default.
+- Each plugin's `onboard_config` hook receives only the configuration accumulated during this run, starting from an empty dict. Existing file contents are not merged; non-dict returns abort with `TypeError`.
 - The merged dict is validated through `configure.validate` before being written.
+- `onboard` is interactive. The provider labels and prompt order have changed, and connection results determine subsequent prompts. Scripts that supply a fixed sequence of answers must be updated; for unattended setup, write the configuration file directly. The bundled installers launch `onboard` only in interactive mode.
 - After saving a configuration with at least one channel on Linux or Windows, onboarding asks whether to install the gateway as a per-user background service. The default is no. Installation failure leaves the saved configuration intact and exits with code `1`.
 
 Exit codes:

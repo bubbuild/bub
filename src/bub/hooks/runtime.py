@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import Any
 
 import pluggy
@@ -173,9 +174,10 @@ class HookRuntime:
             if hasattr(plugin, "run_model_stream"):
                 stream = await self.call_first("run_model_stream", prompt=prompt, session_id=session_id, state=state)
                 text = ""
-                async for event in stream:
-                    if event.kind == "text":
-                        text += str(event.data.get("delta", ""))
+                async with aclosing(stream):
+                    async for event in stream:
+                        if event.kind == "text":
+                            text += str(event.data.get("delta", ""))
                 return text
         return None
 

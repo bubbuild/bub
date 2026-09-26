@@ -51,6 +51,9 @@ def _make_agent() -> Agent:
 
     agent.settings = AgentSettings.model_construct(model="test:model", api_key="k", api_base="b", client_args={})
     agent.framework = framework
+    agent.tools = REGISTRY.copy()
+    agent.tape_store = None
+    agent.skill_dirs = None
     agent.model_runner = _FakeModelRunner(agent.settings)
     return agent
 
@@ -254,11 +257,12 @@ async def test_agent_run_model_defaults_to_none() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state() -> None:
+@pytest.mark.parametrize("continuation", ["custom continuation", None])
+async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state(continuation: str | None) -> None:
     agent = _make_agent()
     tape = _FakeTape(_ForkCapture())
-    prompts: list[str | list[dict]] = []
-    continuation_prompts: list[str | list[dict]] = []
+    prompts: list[str | list[dict] | None] = []
+    continuation_prompts: list[str | list[dict] | None] = []
     observed_usage: list[dict[str, Any] | None] = []
 
     async def run_once(**kwargs: Any) -> AsyncStreamEvents:
@@ -270,10 +274,10 @@ async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state() -> Non
 
         return AsyncStreamEvents(iterator(), state=StreamState(usage={"step": len(prompts)}))
 
-    async def continue_prompt(*, prompt: str | list[dict], tape: _FakeTape, state: StreamState) -> str:
+    async def continue_prompt(*, prompt: str | list[dict] | None, tape: _FakeTape, state: StreamState) -> str | None:
         continuation_prompts.append(prompt)
         observed_usage.append(state.usage)
-        return "custom continuation"
+        return continuation
 
     agent._run_once = run_once  # type: ignore[method-assign]
     agent.framework.continue_prompt = continue_prompt
@@ -288,7 +292,7 @@ async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state() -> Non
     ]
 
     assert [event.kind for event in events] == ["final", "final"]
-    assert prompts == ["initial prompt", "custom continuation"]
+    assert prompts == ["initial prompt", continuation]
     assert continuation_prompts == ["initial prompt"]
     assert observed_usage == [{"step": 1}]
 
@@ -454,6 +458,19 @@ async def test_agent_run_rejects_unknown_allowed_tools() -> None:
 
     with pytest.raises(ValueError, match="tests_missing_agent_tool"):
         [event async for event in stream]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prompt", [",bash command='echo hello'", ",echo hello"])
+async def test_run_command_executes_shell_with_command_parameter(prompt: str, tmp_path) -> None:
+    agent = _make_agent()
+    agent.tape = _FakeTapeFactory(_ForkCapture())  # type: ignore[assignment]
+
+    stream = await agent.run_stream(session_id="user/s1", prompt=prompt, state={"_runtime_workspace": str(tmp_path)})
+    events = [event async for event in stream]
+
+    assert not any(event.kind == "error" for event in events)
+    assert any(event.data.get("delta") == "hello" for event in events if event.kind == "text")
 
 
 @pytest.mark.asyncio

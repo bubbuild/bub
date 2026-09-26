@@ -1,4 +1,5 @@
 import sys
+from collections.abc import AsyncIterator
 from datetime import datetime
 from difflib import get_close_matches
 from pathlib import Path
@@ -10,7 +11,8 @@ from loguru import logger
 from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context, render_tool_result
-from bub.builtin.settings import DEFAULT_MODEL, load_settings
+from bub.builtin.onboarding import collect_model_config
+from bub.builtin.settings import load_settings
 from bub.builtin.steering import InMemorySteeringInbox
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.base import Channel
@@ -24,23 +26,11 @@ from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
 from bub.model_selection import ModelChoice, ModelOptions
 from bub.sidecars import TapeSidecar
 from bub.store import TapeStore
-from bub.streaming import AsyncStreamEvents, StreamState
-from bub.tape import Tape, TapeContext
+from bub.streaming import AsyncStreamEvents
+from bub.tape import TapeContext
 from bub.turn import TurnState
 
 AGENTS_FILE_NAME = "AGENTS.md"
-MODEL_PROVIDER_CHOICES: tuple[str, ...] = (
-    "openrouter",
-    "openai",
-    "anthropic",
-    "gemini",
-    "azure",
-    "bedrock",
-    "ollama",
-    "groq",
-    "mistral",
-    "deepseek",
-)
 DEFAULT_SYSTEM_PROMPT = """\
 <general_instruct>
 Call tools or skills to finish the task.
@@ -62,7 +52,6 @@ When responding to a channel message, you MUST:
 Excessively long context may cause model call failures. In this case, you MAY use tape.info to retrieve the token usage and you SHOULD use tape.handoff tool to shorten the retrieved history.
 </context_contract>
 """
-DEFAULT_CONTINUE_PROMPT = "Continue the task until all targets are completed."
 
 
 def _input_audio_part(data_url: str, mime_type: str) -> dict[str, Any] | None:
@@ -84,12 +73,14 @@ class BuiltinImpl:
         self.framework = framework
         self._agent: Agent | None = None
 
-    def _get_agent(self) -> Agent:
+    def _get_agent(self, state: TurnState | None = None) -> Agent:
+        if state and "_runtime_agent" in state:
+            return cast("Agent", state["_runtime_agent"])
         if self._agent is None:
             self._agent = Agent(self.framework)
         return self._agent
 
-    async def _recover_session_model(self, session_id: str) -> str | None:
+    async def _recover_session_model(self, session_id: str, *, agent: Agent) -> str | None:
         """Recover the latest per-session model override recorded on the session tape.
 
         The ``model`` tool records each switch as a ``model_switch`` event on the
@@ -98,7 +89,7 @@ class BuiltinImpl:
         restored. Returns ``None`` when nothing was recorded, so a fresh session
         never inherits another session's model.
         """
-        session = self._get_agent().tape.session_tape(session_id, self.framework.workspace)
+        session = agent.tape.session_tape(session_id, self.framework.workspace)
         entries = list(await session.store.fetch_all(session.query().kinds("event")))
         for entry in reversed(entries):
             if entry.kind == "event" and entry.payload.get("name") == "model_switch":
@@ -106,9 +97,9 @@ class BuiltinImpl:
                 return str(model) if model else None
         return None
 
-    async def _recover_session_reasoning_effort(self, session_id: str) -> str | None:
+    async def _recover_session_reasoning_effort(self, session_id: str, *, agent: Agent) -> str | None:
         """Recover the latest per-session reasoning effort override."""
-        session = self._get_agent().tape.session_tape(session_id, self.framework.workspace)
+        session = agent.tape.session_tape(session_id, self.framework.workspace)
         entries = list(await session.store.fetch_all(session.query().kinds("event")))
         for entry in reversed(entries):
             if entry.kind == "event" and entry.payload.get("name") == "reasoning_effort_switch":
@@ -119,23 +110,6 @@ class BuiltinImpl:
     @staticmethod
     async def _discard_message(_: ChannelMessage) -> None:
         return
-
-    @staticmethod
-    def _split_model_identifier(model: str) -> tuple[str, str]:
-        provider, separator, model_name = model.partition(":")
-        if separator and provider and model_name:
-            return provider.strip(), model_name.strip()
-        default_provider, _, default_model_name = DEFAULT_MODEL.partition(":")
-        fallback_model_name = model.strip() or default_model_name
-        return default_provider, fallback_model_name
-
-    @staticmethod
-    def _provider_choices(current_provider: str) -> list[str]:
-        choices = list(MODEL_PROVIDER_CHOICES)
-        if current_provider and current_provider not in choices:
-            choices.append(current_provider)
-        choices.append("custom")
-        return choices
 
     def _channel_choices(self) -> list[str]:
         return [c for c in self.framework.get_channels(self._discard_message) if c != "cli"]
@@ -167,15 +141,19 @@ class BuiltinImpl:
         lifespan = field_of(message, "lifespan")
         if lifespan is not None:
             await lifespan.__aenter__()
-        state = {"session_id": session_id, "_runtime_agent": self._get_agent()}
+        # SDK calls supply their agent before recovery so state comes from its store.
+        agent = field_of(message, "_runtime_agent")
+        if agent is None:
+            agent = self._get_agent()
+        state = {"session_id": session_id, "_runtime_agent": agent}
         if context := field_of(message, "context_str"):
             state["context"] = context
         # Carry over a previously recorded per-session model override from the
         # session tape. Only set when a prior turn actually recorded one, so a
         # fresh/unknown session never inherits another session's model.
-        if model := await self._recover_session_model(session_id):
+        if model := await self._recover_session_model(session_id, agent=agent):
             state["model"] = model
-        if reasoning_effort := await self._recover_session_reasoning_effort(session_id):
+        if reasoning_effort := await self._recover_session_reasoning_effort(session_id, agent=agent):
             state["reasoning_effort"] = reasoning_effort
         if model := field_of(message, "context", {}).get("model"):
             state["model"] = model
@@ -228,19 +206,12 @@ class BuiltinImpl:
 
     @hookimpl
     async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: TurnState) -> AsyncStreamEvents:
-        return await self._get_agent().run_stream(
+        return await self._get_agent(state).run_stream(
             session_id=session_id,
             prompt=prompt,
             state=state,
             model=state.get("model"),
         )
-
-    @hookimpl
-    def continue_prompt(self, prompt: str | list[dict], tape: Tape, state: StreamState) -> str:
-        del prompt, state
-        if "context" in tape.context.state:
-            return f"{DEFAULT_CONTINUE_PROMPT} [context: {tape.context.state['context']}]"
-        return DEFAULT_CONTINUE_PROMPT
 
     @hookimpl
     def register_cli_commands(self, app: typer.Typer) -> None:
@@ -258,29 +229,7 @@ class BuiltinImpl:
 
     @hookimpl
     def onboard_config(self, current_config: dict[str, object]) -> dict[str, object] | None:
-        current_model = current_config.get("model")
-        model_default = str(current_model) if isinstance(current_model, str) and current_model else DEFAULT_MODEL
-        provider_default, model_name_default = self._split_model_identifier(model_default)
-
-        provider = bub_inquirer.ask_fuzzy(
-            "LLM provider",
-            choices=self._provider_choices(provider_default),
-            default=provider_default,
-        )
-        if provider == "custom":
-            provider = bub_inquirer.ask_text("Custom provider", default=provider_default) or provider_default
-
-        model_name = bub_inquirer.ask_text("LLM model", default=model_name_default)
-        if not model_name:
-            model_name = model_name_default
-        model = f"{provider}:{model_name}"
-
-        api_key = bub_inquirer.ask_secret("API key (optional)")
-
-        current_api_base = current_config.get("api_base")
-        api_base_default = str(current_api_base) if isinstance(current_api_base, str) else ""
-        api_base = bub_inquirer.ask_text("API base (optional)", default=api_base_default)
-
+        config = collect_model_config(current_config)
         available_channels = self._channel_choices()
         default_channels = self._default_enabled_channels(current_config.get("enabled_channels"), available_channels)
         enabled_channels = bub_inquirer.ask_checkbox(
@@ -290,15 +239,7 @@ class BuiltinImpl:
         )
 
         stream_output = bub_inquirer.ask_confirm("Stream output", default=bool(current_config.get("stream_output")))
-        config: dict[str, object] = {
-            "model": model,
-            "enabled_channels": ",".join(enabled_channels),
-            "stream_output": stream_output,
-        }
-        if api_key:
-            config["api_key"] = api_key
-        if api_base:
-            config["api_base"] = api_base
+        config.update(enabled_channels=",".join(enabled_channels), stream_output=stream_output)
         return config
 
     @hookimpl
@@ -381,6 +322,13 @@ class BuiltinImpl:
         return [outbound]
 
     @hookimpl
+    async def provide_lifespan(self) -> AsyncIterator[None]:
+        from bub.builtin.shell_manager import shell_manager
+
+        async with shell_manager.lifespan():
+            yield
+
+    @hookimpl
     def provide_tape_store(self) -> TapeStore:
         import bub
         from bub.store import FileTapeStore
@@ -426,9 +374,11 @@ class BuiltinImpl:
         replace it with a guidance ``tool_result`` so the model can re-issue a
         valid call on the next step.
         """
-        from bub.tools import REGISTRY, model_tools
+        from bub.tools import model_tools
 
-        available_tools = tuple(tool_item.name for tool_item in model_tools(REGISTRY.values()))
+        agent = self._get_agent(state)
+
+        available_tools = tuple(tool_item.name for tool_item in model_tools(agent.tools.values()))
         if call.tool in available_tools:
             return None
 

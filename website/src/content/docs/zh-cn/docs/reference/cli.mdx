@@ -45,8 +45,11 @@ bub run [OPTIONS] MESSAGE
 启动一个由 `cli` channel 支撑的交互式 REPL。
 
 ```text
-bub chat [OPTIONS]
+bub chat [OPTIONS] [INITIAL_PROMPT]
 ```
+
+可传入初始提示词，启动后自动提交，然后在同一会话中继续交互。
+包含空格的提示词需要加引号，例如 `bub chat "介绍一下这个项目"`。
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
@@ -100,9 +103,14 @@ bub onboard [OPTIONS]
 
 行为说明:
 
-- builtin 的 onboarding fragment 会询问:provider(`openrouter`、`openai`、`anthropic`、`gemini`、`azure`、`bedrock`、`ollama`、`groq`、`mistral`、`deepseek` 之一,或 `custom`)、模型名、可选 API key、可选 API base、启用的 channel、是否流式输出。
-- 每个插件的 `onboard_config` 钩子都会拿到当前已累计的 dict;返回值不是 dict 时抛 `TypeError` 并中止。
+- 所有 provider 使用同一流程：选择 provider、填写连接信息、检查连接、选择模型，再配置 channel 和流式输出。
+- 选项明确区分 **OpenAI (official API)**（官方接口）与 **OpenAI-compatible (custom URL / local server)**（兼容接口或本地服务）。兼容服务保存为 `openai:<model>`，并使用你填写的 API base URL。
+- 托管服务使用默认地址，通常只询问 API key。兼容服务、Azure、Ollama、其他 provider 以及前序钩子提供的自定义地址会额外询问 URL。API key 留空会保留本轮为相同地址提供的 key，或使用环境变量中的凭证，包括 `OPENAI_API_KEY`、`BUB_API_KEY` 和 `BUB_OPENAI_API_KEY`。环境变量中的 key 不会复制到配置文件；仅在没有输入 key 且环境变量也没有凭证时，才为兼容服务保存 SDK 所需的占位 key。
+- Bub 获取 provider 的模型列表，异步超时为 10 秒，随后支持搜索选择或手动输入模型。阻塞式 SDK 调用可能等待更久。检查只验证模型列表接口可访问，不发起模型生成请求。获取失败时可修改 URL/key、重试或手动输入；不支持模型发现的 provider（如当前 SDK 中的 Azure）会说明限制并直接进入手动输入，不提供重试菜单。
+- 实际连接使用 OpenAI OAuth 时会跳过模型发现，直接手动输入模型。界面显示的默认 URL 不会写入配置。URL 留空可保留默认地址和 OAuth 路由；明确输入 URL 时会保存该地址，即使它与显示的默认值相同。
+- 每个插件的 `onboard_config` 钩子只拿到本轮累计的配置，从空 dict 开始，不合并已有文件内容；返回值不是 dict 时抛 `TypeError` 并中止。
 - 合并后的 dict 会经过 `configure.validate` 验证后才写入。
+- `onboard` 是交互命令。provider 标签和提示顺序已调整，连接检查结果也会决定后续提示。按固定顺序输入答案的脚本需要更新；无人值守配置请直接生成配置文件。内置安装器仅在交互模式下启动 `onboard`。
 - Linux 或 Windows 上保存了至少一个 channel 后，onboarding 会询问是否把 gateway 安装为当前用户的后台服务，默认选择否。安装失败不会回滚已保存的配置，并以退出码 `1` 结束。
 
 退出码:

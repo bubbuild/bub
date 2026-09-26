@@ -126,7 +126,7 @@ def test_discover_skills_prefers_project_over_global_and_builtin(tmp_path: Path,
     _write_skill(global_root, "global-only", description="global only")
 
     monkeypatch.setattr(
-        "bub.skills._iter_skill_roots",
+        "bub.skills.iter_skill_roots",
         lambda _workspace: [
             (project_root, "project"),
             (global_root, "global"),

@@ -206,6 +206,7 @@ class CliChannel(Interface):
 
     name = "cli"
     _stop_event: asyncio.Event
+    _initial_prompt: str | None = None
 
     def __init__(self, on_receive: MessageHandler, agent: Agent) -> None:
         self._on_receive = on_receive
@@ -237,11 +238,15 @@ class CliChannel(Interface):
         info = await tape.info()
         self._last_tape_info = info
 
-    def set_metadata(self, session_id: str | None = None, chat_id: str | None = None) -> None:
+    def set_metadata(
+        self, session_id: str | None = None, chat_id: str | None = None, *, initial_prompt: str | None = None
+    ) -> None:
         if session_id is not None:
             self._message_template["session_id"] = session_id
         if chat_id is not None:
             self._message_template["chat_id"] = chat_id
+        if initial_prompt is not None:
+            self._initial_prompt = initial_prompt
 
     async def start(self, stop_event: asyncio.Event) -> None:
         self._suppress_logs()
@@ -268,8 +273,14 @@ class CliChannel(Interface):
 
         while not self._stop_event.is_set():
             try:
-                with patch_stdout(raw=True):
-                    raw = (await self._prompt.prompt_async(self._prompt_message)).strip()
+                if self._initial_prompt is not None:
+                    raw = self._initial_prompt.strip()
+                    self._initial_prompt = None
+                    if raw:
+                        self._prompt.history.append_string(raw)
+                else:
+                    with patch_stdout(raw=True):
+                        raw = (await self._prompt.prompt_async(self._prompt_message)).strip()
             except KeyboardInterrupt:
                 await self._presenter.write(lambda: self._renderer.info("Interrupted. Use ',quit' to exit."))
                 continue

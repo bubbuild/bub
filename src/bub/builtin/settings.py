@@ -97,7 +97,7 @@ class AgentSettings(Settings):
             candidates.append(ModelCandidate(provider=provider, model_id=model_id, name=candidate))
         return candidates
 
-    def model_client_kwargs(self, provider: LLMProvider) -> dict[str, Any]:
+    def model_client_kwargs(self, provider: str) -> dict[str, Any]:
         return {
             **self.client_args,
             "api_key": self._provider_value(self.api_key, provider),
@@ -105,9 +105,9 @@ class AgentSettings(Settings):
         }
 
     @staticmethod
-    def _provider_value(value: str | dict[str, str] | None, provider: LLMProvider) -> str | None:
+    def _provider_value(value: str | dict[str, str] | None, provider: str) -> str | None:
         if isinstance(value, dict):
-            return value.get(provider.value)
+            return value.get(provider)
         return value
 
     @property

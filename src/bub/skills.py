@@ -6,7 +6,7 @@ import re
 import string
 import sys
 import warnings
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -47,11 +47,16 @@ class SkillMetadata:
         })
 
 
-def discover_skills(workspace_path: Path) -> list[SkillMetadata]:
+def discover_skills(workspace_path: Path, *, skill_dirs: Collection[Path] | None = None) -> list[SkillMetadata]:
     """Discover skills from project, global, and builtin roots with override precedence."""
 
     skills_by_name: dict[str, SkillMetadata] = {}
-    for root, source in _iter_skill_roots(workspace_path):
+    skill_roots_iter: Iterable[tuple[Path, str]]
+    if skill_dirs is not None:
+        skill_roots_iter = ((root, "custom") for root in skill_dirs)
+    else:
+        skill_roots_iter = iter_skill_roots(workspace_path)
+    for root, source in skill_roots_iter:
         if not root.is_dir():
             continue
         for skill_dir in sorted(root.iterdir()):
@@ -168,7 +173,7 @@ def _builtin_skills_root() -> list[Path]:
     return [Path(p) for p in importlib.import_module("skills").__path__]
 
 
-def _iter_skill_roots(workspace_path: Path) -> list[tuple[Path, str]]:
+def iter_skill_roots(workspace_path: Path) -> list[tuple[Path, str]]:
     roots: list[tuple[Path, str]] = []
     for source in SKILL_SOURCES:
         if source == "project":

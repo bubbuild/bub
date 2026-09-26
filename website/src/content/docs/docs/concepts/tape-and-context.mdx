@@ -70,7 +70,7 @@ Before the first turn on a tape, `TapeService.ensure_bootstrap_anchor` checks fo
 
 - `anchor` → an `assistant` message of the form `[Anchor created: <name>]: <state-as-json>`.
 - `message` → the entry payload, used as a chat message dict.
-- `tool_call` → an `assistant` message with empty content and a `tool_calls` array.
+- `tool_call` → one `assistant` message with the saved text (or empty content for calls without text, including older entries) and a `tool_calls` array.
 - `tool_result` → one `tool` role message per result; when a preceding `tool_call` is pending, Bub copies the call's `id` into `tool_call_id` by result position.
 
 The context selector is a hook (`build_tape_context`), so plugins can replace it with a different strategy — compaction, summarization, retrieval — without touching the rest of the pipeline.

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid
 from collections.abc import Iterable
+from contextlib import aclosing
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -25,9 +27,10 @@ def _to_model_name(name: str) -> str:
     return name.replace(".", "_")
 
 
-def _tool_name_index() -> dict[str, str]:
-    real_names = {tool_name.casefold(): tool_name for tool_name in REGISTRY}
-    alias_names = {_to_model_name(tool_name).casefold(): tool_name for tool_name in REGISTRY}
+def _tool_name_index(all_names: Iterable[str]) -> dict[str, str]:
+    names = tuple(all_names)
+    real_names = {tool_name.casefold(): tool_name for tool_name in names}
+    alias_names = {_to_model_name(tool_name).casefold(): tool_name for tool_name in names}
     return {**alias_names, **real_names}
 
 
@@ -36,15 +39,15 @@ def resolve_tool_name(name: str) -> str | None:
     key = name.strip().casefold()
     if not key:
         return None
-    return _tool_name_index().get(key)
+    return _tool_name_index(REGISTRY).get(key)
 
 
-def _resolve_explicit_tool_names(names: Iterable[str]) -> tuple[set[str], set[str]]:
+def _resolve_explicit_tool_names(names: Iterable[str], index: dict[str, str]) -> tuple[set[str], set[str]]:
     resolved: set[str] = set()
     unknown: set[str] = set()
     for name in names:
         normalized_name = name.strip()
-        if resolved_name := resolve_tool_name(normalized_name):
+        if resolved_name := index.get(normalized_name.casefold()):
             resolved.add(resolved_name)
         else:
             unknown.add(normalized_name)
@@ -56,15 +59,19 @@ def _raise_unknown_tool_names(names: set[str]) -> None:
     raise ValueError(f"unknown tool name(s): {formatted}")
 
 
-def resolve_tool_names(names: Iterable[str] | None = None, *, exclude: Iterable[str] = ()) -> set[str]:
+def resolve_tool_names(
+    names: Iterable[str] | None = None, *, exclude: Iterable[str] = (), all_names: Iterable[str] | None = None
+) -> set[str]:
     """Resolve tool names from either runtime names or model-facing aliases."""
-    excluded, unknown_excluded = _resolve_explicit_tool_names(exclude)
+    available = tuple(REGISTRY if all_names is None else all_names)
+    index = _tool_name_index(available)
+    excluded, unknown_excluded = _resolve_explicit_tool_names(exclude, index)
     if unknown_excluded:
         _raise_unknown_tool_names(unknown_excluded)
     if names is None:
-        return set(REGISTRY) - excluded
+        return set(available) - excluded
 
-    resolved, unknown = _resolve_explicit_tool_names(names)
+    resolved, unknown = _resolve_explicit_tool_names(names, index)
     if unknown:
         _raise_unknown_tool_names(unknown)
     return resolved - excluded
@@ -141,7 +148,7 @@ class SubAgentInput(BaseModel):
 
 @tool(context=True)
 async def bash(
-    cmd: str,
+    command: str,
     cwd: str | None = None,
     timeout_seconds: int = DEFAULT_COMMAND_TIMEOUT_SECONDS,
     background: bool = False,
@@ -150,26 +157,29 @@ async def bash(
 ) -> str:
     """Run a shell command. Use background=true to keep it running and fetch output later via bash_output.
 
-    Foreground timeouts stop the process group on POSIX, with up to four seconds
-    for termination and output cleanup. Descendants that create their own session
-    are outside that group. Background commands do not use timeout_seconds.
+    Foreground commands that exceed timeout_seconds continue in the background
+    and return a shell ID. Use bash.output to read output or bash.kill to stop them.
+    Background commands do not use timeout_seconds.
     """
     workspace = context.state.get("_runtime_workspace")
     target_cwd = cwd or workspace
     raw_session_id = context.state.get("session_id")
     session_id = str(raw_session_id) if raw_session_id is not None else None
-    shell = await shell_manager.start(cmd=cmd, cwd=target_cwd, session_id=session_id)
+    shell = await shell_manager.start(cmd=command, cwd=target_cwd, session_id=session_id)
     if background:
-        return f"started: {shell.shell_id}"
+        return f"Shell started, shell_id: {shell.shell_id}\nRetrieve the output with bash_output or terminate it with bash_kill."
     try:
         async with asyncio.timeout(timeout_seconds):
             shell = await shell_manager.wait_closed(shell.shell_id)
     except asyncio.CancelledError:
-        await shell_manager.terminate(shell.shell_id)
+        with contextlib.suppress(KeyError):
+            await shell_manager.terminate(shell.shell_id)
         raise
     except TimeoutError:
-        await shell_manager.terminate(shell.shell_id)
-        return f"command timed out after {timeout_seconds} seconds and was terminated"
+        # Cancellation during descendant cleanup waits for termination to finish.
+        # A released shell must not be advertised as a running background command.
+        if shell.termination_task is None or not shell.termination_task.done():
+            return f"command timed out after {timeout_seconds} seconds; continuing in background\nshell_id: {shell.shell_id}"
     _raise_for_failed_shell(shell.returncode, shell.output)
     return shell.output.strip() or "(no output)"
 
@@ -239,12 +249,13 @@ def skill_describe(name: str | None = None, *, context: ToolContext) -> str:
     """
     from bub.utils import workspace_from_state
 
+    agent = _get_agent(context)
     allowed_skills = context.state.get("allowed_skills")
     if allowed_skills is not None and name and name.casefold() not in allowed_skills:
         return f"(skill '{name}' is not allowed in this context)"
 
     workspace = workspace_from_state(context.state)
-    skill_index = {skill.name: skill for skill in discover_skills(workspace)}
+    skill_index = {skill.name: skill for skill in discover_skills(workspace, skill_dirs=agent.skill_dirs)}
     if name is None:
         return "Available skills:\n" + "\n".join(f"- {skill.name}" for skill in skill_index.values())
     if name.casefold() not in skill_index:
@@ -338,20 +349,22 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
     else:
         subagent_session = param.session
     state = {**context.state, "session_id": subagent_session}
-    allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"})
+    allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"}, all_names=agent.tools)
     output = ""
-    async for event in await agent.run_stream(
+    stream = await agent.run_stream(
         session_id=subagent_session,
         prompt=param.prompt,
         state=state,
         model=param.model,
         allowed_tools=allowed_tools,
         allowed_skills=param.allowed_skills,
-    ):
-        if event.kind == "error":
-            output += f"[Error: {event.data.get('message', 'unknown error')}]"
-        elif event.kind == "text":
-            output += str(event.data.get("delta", ""))
+    )
+    async with aclosing(stream):
+        async for event in stream:
+            if event.kind == "error":
+                output += f"[Error: {event.data.get('message', 'unknown error')}]"
+            elif event.kind == "text":
+                output += str(event.data.get("delta", ""))
     return output
 
 
@@ -370,7 +383,7 @@ def show_help() -> str:
         "  ,fs.read path=README.md\n"
         "  ,fs.write path=tmp.txt content='hello'\n"
         "  ,fs.edit path=tmp.txt old=hello new=world\n"
-        "  ,bash cmd='sleep 5' background=true\n"
+        "  ,bash command='sleep 5' background=true\n"
         "  ,bash.output shell_id=bsh-12345678\n"
         "  ,bash.kill shell_id=bsh-12345678\n"
         "  ,quit\n"

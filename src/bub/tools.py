@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, valida
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import ToolCall, ToolCallResult
 from bub.tape import Tape
+from bub.tracing import Span
 
 if TYPE_CHECKING:
     from bub.hooks.interception import AgentHooks
@@ -201,6 +202,7 @@ class ToolExecutor:
         invocations: Sequence[tuple[Tool, dict[str, Any]]],
         *,
         context: ToolContext | None = None,
+        call_ids: Sequence[str] | None = None,
     ) -> ToolExecution:
         if not invocations:
             return ToolExecution(tool_results=[])
@@ -208,7 +210,10 @@ class ToolExecutor:
         results: list[Any] = []
         error: BubError | None = None
         gathered = await asyncio.gather(
-            *(self._handle_tool_response_async(tool_obj, tool_args, context) for tool_obj, tool_args in invocations),
+            *(
+                self._trace_tool_response(tool_obj, tool_args, context, call_ids[index] if call_ids else None)
+                for index, (tool_obj, tool_args) in enumerate(invocations)
+            ),
             return_exceptions=True,
         )
         for result in gathered:
@@ -224,6 +229,41 @@ class ToolExecutor:
                 results.append(result)
 
         return ToolExecution(tool_results=results, error=error)
+
+    async def _trace_tool_response(
+        self,
+        tool: Tool,
+        arguments: dict[str, Any],
+        context: ToolContext | None,
+        call_id: str | None,
+    ) -> Any:
+        span = Span(
+            f"execute_tool {tool.name}",
+            {
+                "gen_ai.operation.name": "execute_tool",
+                "gen_ai.tool.name": tool.name,
+                "gen_ai.tool.type": "function",
+                "gen_ai.tool.call.id": call_id,
+                "bub.run_id": context.run_id if context else None,
+                "gen_ai.conversation.id": context.state.get("session_id") if context else None,
+            },
+        )
+        try:
+            with span.activate():
+                result = await self._handle_tool_response_async(tool, arguments, context, span=span)
+                if isinstance(result, _FailedToolResult):
+                    span.fail(result.error)
+                    span.set(**{
+                        "gen_ai.tool.call.result": result.error.as_dict() if result.result is None else result.result
+                    })
+                else:
+                    span.set(**{"gen_ai.tool.call.result": result})
+                return result
+        except BaseException as exc:
+            span.fail(exc)
+            raise
+        finally:
+            span.end()
 
     def _invoke_tool(
         self,
@@ -244,6 +284,8 @@ class ToolExecutor:
         tool_obj: Tool,
         tool_args: dict[str, Any],
         context: ToolContext | None,
+        *,
+        span: Span | None = None,
     ) -> Any:
         tool_name = tool_obj.name
         call = ToolCall(
@@ -255,10 +297,11 @@ class ToolExecutor:
         if self._hooks is not None and context is not None:
             hook_state["_runtime_tape"] = context.tape
         started = time.monotonic()
-        if self._hooks is not None:
-            call, short_circuit = await self._apply_before_tool_call(call, hook_state, started)
-            if short_circuit is not None:
-                return short_circuit()
+        call, short_circuit = await self._apply_before_tool_call(call, hook_state, started)
+        if span is not None:
+            span.set(**{"gen_ai.tool.call.arguments": call.arguments})
+        if short_circuit is not None:
+            return short_circuit()
 
         try:
             result = await self._invoke_normalized(tool_obj, call, context)

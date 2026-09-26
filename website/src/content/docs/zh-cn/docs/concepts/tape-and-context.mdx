@@ -70,7 +70,7 @@ spill 写入以 `spill.write` event 记录。框架管理的生命周期结果�
 
 - `anchor` → 形如 `[Anchor created: <name>]: <state-as-json>` 的 `assistant` 消息。
 - `message` → 直接以 entry payload 作为 chat 消息 dict。
-- `tool_call` → 带空 content 与 `tool_calls` 数组的 `assistant` 消息。
+- `tool_call` → 一条包含已保存文本与 `tool_calls` 数组的 `assistant` 消息；无文本的调用（包括旧版 entry）使用空 content。
 - `tool_result` → 每个 result 一条 `tool` role 消息；若前面有 pending `tool_call`，Bub 会按 result 位置复制对应 call 的 `id` 到 `tool_call_id`。
 
 context selector 本身是个 hook（`build_tape_context`），插件可以用其他策略（压缩、摘要、检索）替换它，而无需触动 pipeline 其余部分。

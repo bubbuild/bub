@@ -7,12 +7,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_CONTINUE_PROMPT, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
+from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
 from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
-from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
+from bub.streaming import AsyncStreamEvents, StreamEvent
 from bub.tape import Tape, TapeContext
+from bub.tools import REGISTRY
 
 
 class RecordingLifespan:
@@ -38,6 +39,7 @@ def _fake_tape(home: Path) -> Tape:
 class FakeAgent:
     def __init__(self, home: Path, *, tape: Tape | None = None) -> None:
         self.settings = SimpleNamespace(home=home)
+        self.tools = REGISTRY.copy()
         # A real in-memory async tape so load_state's recovery path runs against
         # the same store the tests write `model_switch` events to.
         self.tape = tape if tape is not None else _fake_tape(home)
@@ -90,15 +92,6 @@ def test_resolve_session_falls_back_to_channel_and_chat_id(tmp_path: Path) -> No
     message = {"session_id": "   ", "channel": "telegram", "chat_id": "42", "content": "hello"}
 
     assert impl.resolve_session(message) == "telegram:42"
-
-
-def test_continue_prompt_includes_tape_context(tmp_path: Path) -> None:
-    _, impl, _ = _build_impl(tmp_path)
-    tape = _fake_tape(tmp_path).with_context(TapeContext(state={"context": "telegram metadata"}))
-
-    prompt = impl.continue_prompt(prompt="current prompt", tape=tape, state=StreamState())
-
-    assert prompt == f"{DEFAULT_CONTINUE_PROMPT} [context: telegram metadata]"
 
 
 @pytest.mark.asyncio
@@ -183,7 +176,7 @@ async def test_recover_session_model_returns_latest_recorded(tmp_path: Path) -> 
     await session.append_event("model_switch", {"model": "openai:gpt-4o"})
     await session.append_event("model_switch", {"model": "anthropic:claude-3"})
 
-    assert await impl._recover_session_model("resolved-session") == "anthropic:claude-3"
+    assert await impl._recover_session_model("resolved-session", agent=agent) == "anthropic:claude-3"
 
 
 @pytest.mark.asyncio

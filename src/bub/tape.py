@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from bub import tracing
 from bub.errors import BubError
 from bub.sidecars import TapeSidecar, sidecar_tape_name
 
@@ -110,8 +111,11 @@ class TapeEntry:
         return cls(id=0, kind="anchor", payload=payload, meta=dict(meta))
 
     @classmethod
-    def tool_call(cls, calls: list[dict[str, Any]], **meta: Any) -> TapeEntry:
-        return cls(id=0, kind="tool_call", payload={"calls": calls}, meta=dict(meta))
+    def tool_call(cls, calls: list[dict[str, Any]], *, content: str | None = None, **meta: Any) -> TapeEntry:
+        payload: dict[str, Any] = {"calls": calls}
+        if content is not None:
+            payload["content"] = content
+        return cls(id=0, kind="tool_call", payload=payload, meta=dict(meta))
 
     @classmethod
     def tool_result(cls, results: list[Any], **meta: Any) -> TapeEntry:
@@ -295,7 +299,8 @@ class Tape:
         return list(await self.store.fetch_all(query))
 
     async def append_event(self, name: str, payload: dict[str, Any], **meta: Any) -> None:
-        await self.store.append(self.name, TapeEntry.event(name, payload, **meta))
+        tracing.event(f"bub.{name}", **payload)
+        await self.store.append(self.name, TapeEntry.event(name, payload, **(tracing.correlation() | meta)))
 
     async def read_messages(self) -> list[dict[str, Any]]:
         query = self.context.build_query(self.query())
@@ -314,6 +319,8 @@ class Tape:
         **meta: Any,
     ) -> list[TapeEntry]:
         tape_name = self.name
+        meta = tracing.correlation() | meta
+        tracing.event("bub.handoff", anchor=name, state=state)
         entry = TapeEntry.anchor(name, state=state, **meta)
         event = TapeEntry.event("handoff", {"name": name, "state": state or {}}, **meta)
         await self.store.append(tape_name, entry)
@@ -337,7 +344,7 @@ class Tape:
         usage: dict[str, Any] | None = None,
     ) -> None:
         tape_name = self.name
-        meta = {"run_id": run_id}
+        meta = {"run_id": run_id, **tracing.correlation()}
         if system_prompt:
             await self.store.append(tape_name, TapeEntry.system(system_prompt, **meta))
         if context_error is not None:
@@ -345,12 +352,12 @@ class Tape:
         for message in new_messages:
             await self.store.append(tape_name, TapeEntry.message(message, **meta))
         if tool_calls:
-            await self.store.append(tape_name, TapeEntry.tool_call(tool_calls, **meta))
+            await self.store.append(tape_name, TapeEntry.tool_call(tool_calls, content=response_text, **meta))
         if tool_results is not None:
             await self.store.append(tape_name, TapeEntry.tool_result(tool_results, **meta))
         if error is not None and error is not context_error:
             await self.store.append(tape_name, TapeEntry.error(error, **meta))
-        if response_text is not None:
+        if response_text is not None and not tool_calls:
             await self.store.append(
                 tape_name, TapeEntry.message({"role": "assistant", "content": response_text}, **meta)
             )
