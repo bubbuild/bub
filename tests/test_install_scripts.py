@@ -298,7 +298,7 @@ def test_install_scripts_expose_interactive_color_and_onboarding_contract() -> N
         assert "presets.json" in content
         assert "onboard" in content
         assert "install" in content
-        assert "inquirer-textual==0.6.1" in content
+        assert "inquirer-textual==0.8.0" in content
         assert "prompts.select" in content
         assert "tool install" not in content
     assert "$'\\033[" in bash_content

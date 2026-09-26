@@ -6,7 +6,7 @@ readonly UV_INSTALL_URL="https://astral.sh/uv/install.sh"
 readonly DEFAULT_PRESETS_URL="https://bub.build/presets.json"
 readonly BUB_PACKAGE="bub"
 readonly BUB_PYTHON="3.12"
-readonly INQUIRER_PACKAGE="inquirer-textual==0.6.1"
+readonly INQUIRER_PACKAGE="inquirer-textual==0.8.0"
 
 UV_BIN=""
 PRESET_FILE=""

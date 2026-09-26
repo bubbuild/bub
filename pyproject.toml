@@ -25,7 +25,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "pyyaml>=6.0.0",
     "pluggy>=1.6.0",
-    "inquirer-textual>=0.5.1",
+    "inquirer-textual>=0.8.0",
     "typer>=0.9.0",
     "authlib>=1.7.2",
     "any-llm-sdk[anthropic]",

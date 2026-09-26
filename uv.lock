@@ -262,7 +262,7 @@ requires-dist = [
     { name = "any-llm-sdk", extras = ["anthropic"] },
     { name = "authlib", specifier = ">=1.7.2" },
     { name = "httpx", extras = ["socks"], specifier = ">=0.28.1" },
-    { name = "inquirer-textual", specifier = ">=0.5.1" },
+    { name = "inquirer-textual", specifier = ">=0.8.0" },
     { name = "logfire", marker = "extra == 'logfire'", specifier = ">=4.31.0" },
     { name = "loguru", specifier = ">=0.7.2" },
     { name = "pluggy", specifier = ">=1.6.0" },
@@ -728,14 +728,14 @@ wheels = [
 
 [[package]]
 name = "inquirer-textual"
-version = "0.5.1"
+version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "textual" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ba/6c/544e4216e2dc66f931f7bd65c90b91fc9a19a4701e0cf3bee207eaeecb54/inquirer_textual-0.5.1.tar.gz", hash = "sha256:4e4604a303ba58e7321d96044ba235b3332f2f330b081282914be504e1f59c71", size = 3666912, upload-time = "2026-03-24T21:41:46.598Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d2/ef/d1fb1518ffa00e8afd62b1795558192a6006663dae6c14be4b9cc995a291/inquirer_textual-0.8.0.tar.gz", hash = "sha256:4e8e46bf27e1619b34f752e271f96311a81aa0ecc2579ce83425797257e676d7", size = 3703930, upload-time = "2026-09-25T12:49:18.871Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a2/4f/cf9ee5811c2e74e4be29e5500c8121710dd8e35d241907a0e768cbdc06cb/inquirer_textual-0.5.1-py3-none-any.whl", hash = "sha256:7e5aca4ea112d947d9bb3e096477bcb3555a9a44fd3a3daae6f28a2487da7a5a", size = 31612, upload-time = "2026-03-24T21:41:44.294Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/05/f990751e8577b5b3c902acea8a3b03fe8909eada8a5372ada050a169ad7d/inquirer_textual-0.8.0-py3-none-any.whl", hash = "sha256:b2d2afa7fa619c24baad23b3a1bc4dc55cb6b10ad3d4bad09bc747c93ae569fb", size = 36436, upload-time = "2026-09-25T12:49:17.425Z" },
 ]
 
 [[package]]
@@ -1798,7 +1798,7 @@ wheels = [
 
 [[package]]
 name = "textual"
-version = "8.2.4"
+version = "8.2.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "markdown-it-py", extra = ["linkify"] },
@@ -1808,9 +1808,9 @@ dependencies = [
     { name = "rich" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/19/89/bec5709fb759f9c784bbcb30b2e3497df3f901691d13c2b864dbf6694a17/textual-8.2.4.tar.gz", hash = "sha256:d4e2b2ddd7157191d00b228592b7c739ea080b7d792fd410f23ca75f05ea76c4", size = 1848933, upload-time = "2026-04-19T04:20:45.845Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/21/39a76b01bd5eea82a04baaca7580e105d8c59450df03998345bb2cfb307b/textual-8.2.8.tar.gz", hash = "sha256:3f106a9fbc73e39dd266c9712432087de78a6d644084c7c241d6a25c3169115b", size = 1860502, upload-time = "2026-06-30T06:51:24.495Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/32/02932f0d597cdbb34e34bf24266ff0f2cf292ccb3aafc37dd9efcb0cc416/textual-8.2.4-py3-none-any.whl", hash = "sha256:a83bd3f0cc7125ca203845af753f9d6b6be030025ecd1b05cc75ebe645b9c4ba", size = 724390, upload-time = "2026-04-19T04:20:49.968Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/be/35261223d9416a0751cdff1c7b4a6f881387218a12d439fe22fefebc8c04/textual-8.2.8-py3-none-any.whl", hash = "sha256:267375fd402dc8d981457212efa71f0e3365fd17bba144ba9bb3ed7563cb374a", size = 731418, upload-time = "2026-06-30T06:51:26.364Z" },
 ]
 
 [[package]]
