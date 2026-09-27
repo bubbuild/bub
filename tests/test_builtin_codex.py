@@ -15,6 +15,7 @@ from any_llm.types.completion import CompletionParams
 from any_llm.types.responses import ResponsesParams
 
 from bub.builtin.auth import (
+    CodexOAuthRefreshError,
     OpenAICodexOAuthTokens,
     extract_openai_codex_account_id,
     load_openai_codex_oauth_tokens,
@@ -117,25 +118,30 @@ def test_codex_auth_without_expires_at_uses_access_token_jwt_exp(tmp_path: Path)
     assert refresh_calls == []
 
 
-@pytest.mark.parametrize("expiry_offset, expected_token", [(60, True), (-60, False)])
-def test_codex_auth_jwt_exp_controls_refresh_failure_fallback(
-    tmp_path: Path, expiry_offset: int, expected_token: bool
+@pytest.mark.parametrize(
+    "expiry_offset, refresh_duration, expected_token", [(60, 0, True), (-60, 0, False), (1, 2, False)]
+)
+def test_codex_provider_uses_valid_token_or_reports_refresh_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expiry_offset: int, refresh_duration: int, expected_token: bool
 ) -> None:
     now = int(time.time())
+    monkeypatch.setattr("bub.builtin.auth.time.time", lambda: now)
     token = _jwt_with_account("acct_123", exp=now + expiry_offset)
     _write_codex_auth_without_expiry(tmp_path, token, last_refresh=now - 7200)
-    refresh_calls: list[str] = []
 
-    def fail_refresh(refresh_token: str) -> OpenAICodexOAuthTokens:
-        refresh_calls.append(refresh_token)
+    def fail_refresh(refresh_token: str, **kwargs: Any) -> OpenAICodexOAuthTokens:
+        monkeypatch.setattr("bub.builtin.auth.time.time", lambda: now + refresh_duration)
         raise RuntimeError("refresh unavailable")
 
-    resolved = openai_codex_oauth_resolver(tmp_path, refresher=fail_refresh)("openai")
-    assert resolved == (token if expected_token else None)
-    assert refresh_calls == [TEST_REFRESH_TOKEN]
+    monkeypatch.setattr("bub.builtin.auth.refresh_openai_codex_oauth_tokens", fail_refresh)
+    if expected_token:
+        OpenaiCodexProvider(codex_home=str(tmp_path))
+    else:
+        with pytest.raises(CodexOAuthRefreshError, match="Codex OAuth"):
+            OpenaiCodexProvider(codex_home=str(tmp_path))
 
 
-def test_codex_auth_explicit_expiry_precedes_jwt_exp_and_missing_claim_falls_back(tmp_path: Path) -> None:
+def test_codex_auth_explicit_expiry_precedes_jwt_exp_and_missing_claim_stays_unknown(tmp_path: Path) -> None:
     now = int(time.time())
     token = _jwt_with_account("acct_123", exp=now + 10 * 86400)
     _write_codex_auth_without_expiry(tmp_path, token, last_refresh=now - 7200)
@@ -151,7 +157,24 @@ def test_codex_auth_explicit_expiry_precedes_jwt_exp_and_missing_claim_falls_bac
         _write_codex_auth_without_expiry(tmp_path, fallback_token, last_refresh=now - 7200)
         loaded = load_openai_codex_oauth_tokens(tmp_path)
         assert loaded is not None
-        assert loaded.expires_at == now - 7200 + 3600
+        assert loaded.expires_at is None
+        refresher = MagicMock(side_effect=RuntimeError("refresh should not run"))
+        assert openai_codex_oauth_resolver(tmp_path, refresher=refresher)("openai") == fallback_token
+        refresher.assert_not_called()
+
+
+def test_codex_auth_uses_valid_token_when_expiry_metadata_is_invalid(tmp_path: Path) -> None:
+    now = int(time.time())
+    token = _jwt_with_account("acct_123", exp=now + 86400)
+    _write_codex_auth_without_expiry(tmp_path, token, last_refresh=now - 7200)
+    auth_path = tmp_path / "auth.json"
+    payload = json.loads(auth_path.read_text())
+    payload["tokens"]["expires_at"] = "invalid"
+    auth_path.write_text(json.dumps(payload))
+
+    refresher = MagicMock(side_effect=RuntimeError("refresh should not run"))
+    assert openai_codex_oauth_resolver(tmp_path, refresher=refresher)("openai") == token
+    refresher.assert_not_called()
 
 
 def test_extract_openai_codex_account_id() -> None:

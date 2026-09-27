@@ -52,11 +52,15 @@ class CodexOAuthResponseError(TypeError):
     """Raised when the OAuth token endpoint returns a malformed payload."""
 
 
+class CodexOAuthRefreshError(RuntimeError):
+    """Raised when an expired Codex OAuth token cannot be refreshed."""
+
+
 @dataclass(frozen=True)
 class OpenAICodexOAuthTokens:
     access_token: str
     refresh_token: str
-    expires_at: int
+    expires_at: int | None
     account_id: str | None = None
 
 
@@ -100,8 +104,11 @@ def save_openai_codex_oauth_tokens(
     token_payload.update({
         "access_token": tokens.access_token,
         "refresh_token": tokens.refresh_token,
-        "expires_at": _unix_to_rfc3339(tokens.expires_at),
     })
+    if tokens.expires_at is None:
+        token_payload.pop("expires_at", None)
+    else:
+        token_payload["expires_at"] = _unix_to_rfc3339(tokens.expires_at)
     if tokens.account_id:
         token_payload["account_id"] = tokens.account_id
     payload["tokens"] = token_payload
@@ -150,14 +157,20 @@ def openai_codex_oauth_resolver(
                 return None
 
             now = int(time.time())
-            if tokens.expires_at > now + refresh_skew_seconds:
+            # Unknown expiry is not evidence that the token needs refreshing.
+            if tokens.expires_at is None or tokens.expires_at > now + refresh_skew_seconds:
                 return tokens.access_token
 
             try:
                 refreshed = refresher(tokens.refresh_token)
             except Exception as exc:
                 logger.warning("Codex OAuth token refresh failed: {}", type(exc).__name__)
-                return tokens.access_token if tokens.expires_at > now else None
+                if tokens.expires_at > time.time():
+                    return tokens.access_token
+                raise CodexOAuthRefreshError(
+                    f"Codex OAuth token refresh failed ({type(exc).__name__}). "
+                    "Check your connection or sign in again with `bub login openai`."
+                ) from None
 
             persisted = OpenAICodexOAuthTokens(
                 access_token=refreshed.access_token,
@@ -331,7 +344,7 @@ def _parse_tokens(payload: dict[str, Any]) -> OpenAICodexOAuthTokens | None:
     if not access or not refresh:
         return None
 
-    expires_at = _parse_expiry(tokens.get("expires_at"), payload.get("last_refresh"), access)
+    expires_at = _parse_expiry(tokens.get("expires_at"), access)
     account_id = tokens.get("account_id")
     return OpenAICodexOAuthTokens(
         access_token=access,
@@ -341,18 +354,16 @@ def _parse_tokens(payload: dict[str, Any]) -> OpenAICodexOAuthTokens | None:
     )
 
 
-def _parse_expiry(expires_raw: object, last_refresh_raw: object, access_token: str) -> int:
-    if isinstance(expires_raw, int | float):
-        return int(expires_raw)
-    if isinstance(expires_raw, str):
-        return _rfc3339_to_unix(expires_raw)
-    if (jwt_expiry := _jwt_expiry(access_token)) is not None:
-        return jwt_expiry
-    if isinstance(last_refresh_raw, int | float):
-        return int(last_refresh_raw) + 3600
-    if isinstance(last_refresh_raw, str):
-        return _rfc3339_to_unix(last_refresh_raw) + 3600
-    return int(time.time()) + 3600
+def _parse_expiry(expires_raw: object, access_token: str) -> int | None:
+    try:
+        if isinstance(expires_raw, str):
+            if (expires_at := _rfc3339_to_unix(expires_raw)) is not None:
+                return expires_at
+        elif isinstance(expires_raw, int | float) and not isinstance(expires_raw, bool):
+            return int(expires_raw)
+    except (ValueError, OverflowError):
+        pass
+    return _jwt_expiry(access_token)
 
 
 def _tokens_from_token_payload(payload: dict[str, Any], *, account_id: str | None) -> OpenAICodexOAuthTokens:
@@ -518,8 +529,9 @@ def _unix_to_rfc3339(timestamp: int) -> str:
     return datetime.fromtimestamp(timestamp, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _rfc3339_to_unix(value: str) -> int:
+def _rfc3339_to_unix(value: str) -> int | None:
     try:
-        return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp())
-    except (ValueError, AttributeError):
-        return int(time.time())
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return int(parsed.timestamp()) if parsed.tzinfo is not None else None
+    except (ValueError, OverflowError, OSError):
+        return None
