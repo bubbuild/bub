@@ -1,0 +1,120 @@
+---
+title: 本地 Republic SDK 后端
+description: 显式选择未发布的 Republic provider SDK，并复现 Bub 离线集成验收。
+---
+
+Bub 可显式使用 Republic，同时保留自己的 agent loop、工具执行、hooks、模型回退、流式 UI 和 tape。
+默认后端仍为 `any_llm`，原有 provider 范围不变。Republic 是**未发布的本地基准**；安装 PyPI 旧版不能启用它。
+
+## 安装与选择
+
+Bub 需要 Python 3.12+。在干净的 Republic checkout 中记录 `git rev-parse HEAD`，执行 `uv build --wheel`。
+然后在这个 Bub checkout 中安装指定产物：
+
+```bash
+uv sync --locked
+uv pip install --python .venv/bin/python /explicit/path/to/republic-VERSION-py3-none-any.whl
+uv pip check --python .venv/bin/python
+```
+
+Bub 的依赖与锁文件没有写入本机路径或旧 PyPI Republic。未发布提交不代表可以从远端安装。
+精确的 `uv sync` 可能移除额外安装的 wheel；之后重新安装，或使用 `uv sync --inexact`。
+
+YAML 配置示例：
+
+```yaml
+model_backend: republic
+model: openai:your-responses-model
+api_key: YOUR_EXPLICIT_API_KEY
+republic_protocols:
+  openai: responses
+max_tokens: 16384
+completion_args:
+  temperature: 0.2
+```
+
+也可使用 `BUB_MODEL_BACKEND=republic` 和 `BUB_REPUBLIC_PROTOCOLS='{"openai":"responses"}'`。
+API key/base URL 继续使用 Bub 的标量或按 provider 映射配置，包括 `BUB_OPENAI_API_KEY` 等字段。
+本路径要求 Bub 显式解析出 API key，不查找 OAuth 文件。
+
+| 模型前缀 | 协议配置 | 默认路径 |
+| --- | --- | --- |
+| `openai:` | `chat`，默认 | OpenAI `/v1/chat/completions` |
+| `openrouter:` | 仅 `chat` | `https://openrouter.ai/api/v1/chat/completions` |
+| `openai:` | `responses` | OpenAI `/v1/responses` |
+| `anthropic:` | `messages`，默认 | Anthropic `/v1/messages` |
+
+`api_base` 可覆盖基础 URL。以上仅有 HTTP/SSE fixtures 协议证据，没有真实服务或模型验收。
+不支持的 provider/protocol 会报错，不隐式转回 any-llm。现有 onboarding 和 `bub login openai`
+仍属于默认 any-llm/Codex 路径；本步未迁移 Republic OAuth 的 UX 或凭据，也未开放 Copilot/Grok 选择入口。
+
+选择 Republic 后，`completion_args` 使用 Republic `RequestOptions`：`temperature`、`top_p`、`stop`、
+`tool_choice`、`parallel_tool_calls`，以及承载原生选项的 `provider_options`。
+Bub 的 `max_tokens` 映射到 `max_output_tokens`，重复设置会报错。model/messages/tools/stream 等受管理字段
+不允许覆盖。`client_args` 暂不支持。tape 中的 `reasoning_effort` 映射到 Chat 或 Responses 原生选项；
+`auto` 表示省略，冲突会报错。Anthropic thinking 应通过 `provider_options` 配置。
+具体可用参数见 Republic checkout 的相应协议指南。
+
+Bub 此入口支持文本输入、function tools/results；旧图片块或未知字段在 HTTP 前报错。
+SDK 的媒体能力不等于 Bub 已接入媒体。reasoning 用既有 UI event 展示，完整原生消息另行持久化。
+
+## 生命周期与工具
+
+`ModelRunner.run` 直接使用 Republic Request/Response/events，不经过 any-llm completion 中间对象。
+直接调用旧 `completion_response` 方法会拒绝 Republic 配置。每次尝试拥有并关闭自己的 adapter/client。
+嵌入者可覆盖 `ModelRunner.create_republic_provider(candidate)`，返回用 `client=...` 构造的 adapter：
+官方客户端被借用、不修改配置、不关闭；Republic 调用实际禁用 SDK 重试，由调用者最终关闭客户端。
+Bub 在完成、失败、超时、取消和提前 `aclose()` 时释放 stream；调用者停止消费时必须关闭 stream。
+
+只有完成的 `stop`/`tool_call` 可以继续。工具必须有原始 ID/名称、对象 JSON 参数，原生 item 有状态时须为 completed。
+截断、失败、未知终止原因和无效参数不会执行工具。终止但不可执行的完整原生输出仍写 tape，标记 `context=false`，
+不进入下次历史。断流/取消沿用未完成行为，不记录成功 chat 或执行工具。
+
+工具由 Bub `ToolExecutor` 执行。异常/拒绝信息经过结果 hook 后仍保留：Anthropic 使用 `is_error`；
+Chat/Responses 使用含 `is_error: true` 的显式 JSON 结果。Republic 不执行工具、不续轮。
+Bub 自己的 agent loop 可以在工具后继续，受 `max_steps` 控制。
+
+`fallback_models` 仍是 Bub 策略：只在尚无任何原生流事件的 provider 错误时尝试下一候选。
+已有输出、历史/选项错误或不完整终止结果不会回退。每个候选仅一个 HTTP 请求，不回退 any-llm，不隐式刷新或重试。
+
+## tape 兼容边界
+
+新消息增加 `_republic`，含 `version: 1`、provider/protocol 标签及完整 Republic Message JSON。
+工具调用记录增加 `message`，工具结果记录增加 `messages`；既有可见 content/calls/results 字段保留。
+新进程从真实 JSONL 还原 Responses item ID/encrypted reasoning、Anthropic thinking signature 及原始 call ID。
+usage 原生字段/raw 和 finish reason 随 run event 保存。
+
+旧文本与完整 function 历史仍能读取。未知旧 metadata、缺失工具身份和媒体会报错。
+原生历史不能直接改用另一协议或 any-llm；应使用新 tape 或显式迁移。
+hook 不能只编辑可见文本而留下旧原生数据，SDK 也会验证原生 item 一致性。
+旧 Bub 版本不理解此 envelope，不能保证无损续用新 tape。
+
+tape 写入失败继续向外传播，不重跑已执行工具。外部副作用与落盘并非事务：进程在两者之间崩溃时，不保证 exactly-once。
+
+## 复现离线验收
+
+```bash
+python scripts/check_republic_wheel.py \
+  /explicit/path/to/republic-VERSION-py3-none-any.whl \
+  --source-commit 5dff4aa7bdbf6f81411f16d64f74307d4d83f167
+```
+
+脚本新建 Python 3.12 环境，以非 editable 方式安装 Bub，在锁定依赖约束下安装指定 Republic wheel，
+运行 `uv pip check`。它核对两者从 site-packages 导入、Republic 安装文件与 wheel 内容一致，
+并在输出的临时证据目录记录版本、SHA256、来源 commit 和导入路径，不修改项目依赖路径。
+
+测试使用真实官方 SDK 和 HTTPX 合成 HTTP/SSE fixtures。Responses 与 Anthropic 各有两个独立 Python 进程：
+第一进程经真实 runner/tool/tape 执行一次工具并落盘；第二进程读取文件、回传 encrypted reasoning 或完整签名，
+得到最终答案。每个进程断言一次 HTTP、资源释放与唯一工具执行记录。另覆盖实际 agent loop、Chat/OpenRouter、
+hooks/fallback、工具失败、截断、落盘失败、关闭/取消、借用 client 和不支持输入。
+
+这些证据不代表 OAuth entitlement、真实登录或在线推理已验收。测试不需要真实凭据。
+常规检查仍为 `make check`、`make test`、`make docs-test`。未安装可选 SDK 时集成测试会跳过；
+wheel 验收脚本则要求安装且核对实际导入，不把跳过当作通过。
+
+本地验收记录（2026-09-28）：Republic 来源 commit
+`5dff4aa7bdbf6f81411f16d64f74307d4d83f167`，wheel 版本 `0.5.9.dev17+g5dff4aa7b`，
+SHA256 `217d45d0c354b83916412296ac2efdeb018d3399117e30f158d223c4bca6e06c`。
+Bub 完整回归含 trace extra：558 passed、1 skipped（未安装 PowerShell）；54 项为新增 Republic 集成用例。
+`make check`、`make docs-test` 通过。锁定依赖使用 OpenAI 2.31.0、Anthropic 0.94.0、Authlib 1.7.2、
+HTTPX 0.28.1、Pydantic 2.12.5，无依赖冲突或忽略依赖安装。

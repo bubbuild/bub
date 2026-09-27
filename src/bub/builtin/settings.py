@@ -5,7 +5,7 @@ import pathlib
 import re
 import sys
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from any_llm import AnyLLM
 from any_llm.constants import LLMProvider
@@ -54,6 +54,8 @@ class AgentSettings(Settings):
 
     model_config = SettingsConfigDict(env_prefix="BUB_", env_parse_none_str="null", extra="ignore")
     model: str = DEFAULT_MODEL
+    model_backend: Literal["any_llm", "republic"] = "any_llm"
+    republic_protocols: dict[str, Literal["chat", "responses", "messages"]] = Field(default_factory=dict)
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None

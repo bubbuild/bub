@@ -342,6 +342,10 @@ class Tape:
         provider: str | None = None,
         model: str | None = None,
         usage: dict[str, Any] | None = None,
+        response_message: dict[str, Any] | None = None,
+        result_messages: list[dict[str, Any]] | None = None,
+        response_context: bool = True,
+        finish_reason: str | None = None,
     ) -> None:
         tape_name = self.name
         meta = {"run_id": run_id, **tracing.correlation()}
@@ -352,17 +356,30 @@ class Tape:
         for message in new_messages:
             await self.store.append(tape_name, TapeEntry.message(message, **meta))
         if tool_calls:
-            await self.store.append(tape_name, TapeEntry.tool_call(tool_calls, content=response_text, **meta))
+            call_entry = TapeEntry.tool_call(tool_calls, content=response_text, **meta)
+            if response_message is not None:
+                call_entry.payload["message"] = response_message
+            await self.store.append(tape_name, call_entry)
         if tool_results is not None:
-            await self.store.append(tape_name, TapeEntry.tool_result(tool_results, **meta))
+            result_entry = TapeEntry.tool_result(tool_results, **meta)
+            if result_messages is not None:
+                result_entry.payload["messages"] = result_messages
+            await self.store.append(tape_name, result_entry)
         if error is not None and error is not context_error:
             await self.store.append(tape_name, TapeEntry.error(error, **meta))
-        if response_text is not None and not tool_calls:
-            await self.store.append(
-                tape_name, TapeEntry.message({"role": "assistant", "content": response_text}, **meta)
+        if (response_text is not None or response_message is not None) and not tool_calls:
+            message = (
+                response_message if response_message is not None else {"role": "assistant", "content": response_text}
             )
+            response_meta = meta if response_context else {**meta, "context": False}
+            await self.store.append(tape_name, TapeEntry.message(message, **response_meta))
 
         data: dict[str, Any] = {"status": "error" if error is not None else "ok"}
+        if finish_reason is not None:
+            data["finish_reason"] = finish_reason
+        for response_field in ("response_id", "response_model"):
+            if (value := getattr(response, response_field, None)) is not None:
+                data[response_field] = value
         resolved_usage = usage or self._extract_usage(response)
         if resolved_usage is not None:
             data["usage"] = resolved_usage

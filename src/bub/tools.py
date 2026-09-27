@@ -156,6 +156,7 @@ def model_tools(tools: Iterable[Tool]) -> list[Tool]:
 class ToolExecution:
     tool_results: list[Any] = field(default_factory=list)
     error: BubError | None = None
+    tool_errors: list[bool] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -208,6 +209,7 @@ class ToolExecutor:
             return ToolExecution(tool_results=[])
 
         results: list[Any] = []
+        errors: list[bool] = []
         error: BubError | None = None
         gathered = await asyncio.gather(
             *(
@@ -217,6 +219,7 @@ class ToolExecutor:
             return_exceptions=True,
         )
         for result in gathered:
+            errors.append(isinstance(result, _FailedToolResult | BubError))
             if isinstance(result, _FailedToolResult):
                 error = result.error
                 results.append(result.error.as_dict() if result.result is None else result.result)
@@ -228,7 +231,7 @@ class ToolExecutor:
             else:
                 results.append(result)
 
-        return ToolExecution(tool_results=results, error=error)
+        return ToolExecution(tool_results=results, tool_errors=errors, error=error)
 
     async def _trace_tool_response(
         self,

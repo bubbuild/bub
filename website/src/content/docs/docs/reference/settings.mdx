@@ -41,6 +41,8 @@ Defined in `src/bub/builtin/settings.py`:
 class AgentSettings(Settings):
     model_config = SettingsConfigDict(env_prefix="BUB_", env_parse_none_str="null", extra="ignore")
     model: str = DEFAULT_MODEL  # "openrouter:openrouter/free"
+    model_backend: Literal["any_llm", "republic"] = "any_llm"
+    republic_protocols: dict[str, Literal["chat", "responses", "messages"]] = Field(default_factory=dict)
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None
@@ -57,6 +59,8 @@ Loaded under the YAML root section.
 | Env var | Default | YAML key | Description |
 | --- | --- | --- | --- |
 | `BUB_MODEL` | `openrouter:openrouter/free` | `model` | Default model identifier (`provider:model_name`). |
+| `BUB_MODEL_BACKEND` | `any_llm` | `model_backend` | Explicitly select `any_llm` or local `republic`. |
+| `BUB_REPUBLIC_PROTOCOLS` | `{}` | `republic_protocols` | Map provider to `chat`/`responses`/`messages`; see [Republic guide](/docs/operate/republic-sdk/). |
 | `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | Optional list of fallback model identifiers. |
 | `BUB_API_KEY` | unset | `api_key` | Default API key. May also be a JSON object mapping provider → key. |
 | `BUB_API_BASE` | unset | `api_base` | Default API base URL or per-provider mapping. |
@@ -71,7 +75,9 @@ Loaded under the YAML root section.
 
 Provider-specific defaults are gathered at startup by scanning `os.environ` for `^BUB_(.+)_(API_KEY|API_BASE)$` and lowercasing the captured provider name.
 
-OpenAI Codex OAuth does not need a separate request-format setting. After `bub login openai`, Bub detects the stored Codex OAuth token when the selected model uses the `openai:` provider and no custom API base is set.
+On the default `any_llm` backend, OpenAI Codex OAuth does not need a separate request-format setting. After `bub login openai`, Bub detects the stored Codex OAuth token when the selected model uses the `openai:` provider and no custom API base is set.
+
+Republic uses `RequestOptions`-shaped `completion_args` and rejects managed-field overrides and nonempty `client_args`. OAuth file discovery applies only to the default backend. See the [Republic guide](/docs/operate/republic-sdk/).
 
 ## Spill sidecar — `SpillSettings`
 

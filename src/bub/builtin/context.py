@@ -48,7 +48,12 @@ def _append_message_entry(messages: list[dict[str, Any]], entry: TapeEntry) -> N
 def _append_tool_call_entry(messages: list[dict[str, Any]], entry: TapeEntry) -> list[dict[str, Any]]:
     calls = _normalize_tool_calls(entry.payload.get("calls"))
     if calls:
-        messages.append({"role": "assistant", "content": entry.payload.get("content") or "", "tool_calls": calls})
+        message = entry.payload.get("message")
+        messages.append(
+            dict(message)
+            if isinstance(message, dict)
+            else {"role": "assistant", "content": entry.payload.get("content") or "", "tool_calls": calls}
+        )
     return calls
 
 
@@ -57,6 +62,9 @@ def _append_tool_result_entry(
     pending_calls: list[dict[str, Any]],
     entry: TapeEntry,
 ) -> None:
+    if "messages" in entry.payload:
+        messages.extend(dict(message) for message in entry.payload["messages"])
+        return
     results = entry.payload.get("results")
     if not isinstance(results, list):
         return

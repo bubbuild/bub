@@ -1,0 +1,172 @@
+---
+title: Local Republic SDK backend
+description: Select the unreleased Republic provider SDK and reproduce its offline Bub acceptance.
+---
+
+Bub can explicitly select the Republic provider SDK while keeping its own agent
+loop, tools, hooks, model fallback, streaming UI and tape. The default backend
+remains `any_llm`, with its existing provider coverage. Republic is an optional,
+**unreleased local baseline**; installing the old PyPI package does not enable it.
+
+## Install the local wheel
+
+Use Python 3.12+ for Bub. Build the wheel from a clean Republic checkout, recording
+`git rev-parse HEAD`, and run `uv build --wheel` there. In this Bub checkout:
+
+```bash
+uv sync --locked
+uv pip install --python .venv/bin/python /explicit/path/to/republic-VERSION-py3-none-any.whl
+uv pip check --python .venv/bin/python
+```
+
+Use the explicit artifact path; no remote installation of an unpublished commit
+is implied. Bub's `pyproject.toml` and lock do not pin a machine-specific path or
+the old published Republic package. An exact `uv sync` can remove this optional
+installation; reinstall the wheel afterwards, or use `uv sync --inexact`.
+
+## Select the backend
+
+In your Bub YAML configuration, for an API-key Responses model:
+
+```yaml
+model_backend: republic
+model: openai:your-responses-model
+api_key: YOUR_EXPLICIT_API_KEY
+republic_protocols:
+  openai: responses
+max_tokens: 16384
+completion_args:
+  temperature: 0.2
+```
+
+The corresponding environment settings are `BUB_MODEL_BACKEND=republic` and
+`BUB_REPUBLIC_PROTOCOLS='{"openai":"responses"}'`. API keys and base URLs retain
+Bub's scalar/per-provider `BUB_API_KEY` and `BUB_API_BASE` configuration, including
+provider-specific `BUB_OPENAI_API_KEY` and `BUB_ANTHROPIC_API_KEY` fields. The
+Republic backend requires a resolved Bub key; it does not discover OAuth files.
+
+| Model prefix | Protocol setting | Default endpoint |
+| --- | --- | --- |
+| `openai:` | `chat` (default) | OpenAI `/v1/chat/completions` |
+| `openrouter:` | `chat` only | `https://openrouter.ai/api/v1/chat/completions` |
+| `openai:` | `responses` | OpenAI `/v1/responses` |
+| `anthropic:` | `messages` (default) | Anthropic `/v1/messages` |
+
+An explicit `api_base` overrides the base URL. These are protocol adaptations
+verified with HTTP/SSE fixtures, **not live service/model acceptance**. Selecting
+an unsupported provider/protocol raises an error; Bub does not silently use
+any-llm. Existing onboarding and `bub login openai` still configure the default
+any-llm/Codex path. Republic OAuth helpers, login UX and credential migration are
+not connected here. Copilot and Grok are not selectable Republic backends in Bub.
+
+With Republic selected, `completion_args` uses Republic's `RequestOptions` fields:
+`temperature`, `top_p`, `stop`, `tool_choice`, `parallel_tool_calls`, and
+`provider_options` for protocol-native options. `max_tokens` is Bub's setting and
+becomes `max_output_tokens`; setting both is rejected. Model/messages/tools/stream
+and other adapter-managed overrides are rejected. `client_args` is unsupported.
+The `reasoning_effort` tape setting maps to Chat's `reasoning_effort` or Responses'
+`reasoning.effort`; `auto` omits the option. Conflicting native options fail.
+Anthropic thinking configuration goes in `provider_options`, not that tape flag.
+Consult the matching protocol guide in the Republic checkout for allowed options.
+
+Only text input and function tools/results are enabled in this Bub adapter.
+Legacy image blocks and unsupported fields fail before HTTP; broader SDK media
+support is not automatically Bub support. Output reasoning uses the existing UI
+reasoning event; the complete native message is saved independently of display.
+
+## Ownership, tools and fallback
+
+`ModelRunner.run` constructs Republic `Request` data and consumes native events
+and `Response` directly. No any-llm completion object mediates this path. Direct
+`completion_response` calls are legacy-only and reject Republic selection.
+
+Each attempt owns and closes its provider/client. An embedding application can
+override `ModelRunner.create_republic_provider(candidate)` and return an adapter
+constructed with `client=your_official_async_client`. That client is borrowed:
+its settings are unchanged, Republic calls disable SDK retries, and the caller
+closes it after active calls. Bub closes the response and adapter on success,
+failure, timeout, cancellation or consumer `aclose()`; early exit does not drain
+or restart inference. Consumers must close streams they stop reading.
+
+Only a completed `stop`/`tool_call` outcome can continue. Tool calls must have
+original IDs/names, JSON-object arguments and a completed native item status when
+present. Length limits, failed/incomplete results, malformed arguments and unknown
+finish reasons produce an unsuccessful final event and execute no tools. Their
+native terminal output is retained on tape with `context=false` for inspection,
+excluded from the next model history. Transport interruption/cancellation keeps
+the existing non-terminal behavior: no successful chat record or tool execution.
+
+Bub's `ToolExecutor` runs accepted calls. Error/denial flags survive result hooks;
+Anthropic receives `is_error`, while Chat/Responses receive explicit JSON result
+data with `is_error: true`. Republic never executes tools or starts another round.
+The Bub agent may explicitly advance its loop after tools, subject to `max_steps`.
+
+Configured `fallback_models` remain Bub policy. A provider error before **any
+native stream event** can try the next configured candidate. There is no fallback
+after output, on invalid history/options or on an incomplete terminal outcome.
+Each candidate issues one HTTP request. There is no fallback to any-llm, automatic
+refresh or retry inside a Republic operation.
+
+## Durable history and compatibility
+
+New message dictionaries add `_republic`, containing format `version: 1`, the
+provider/protocol tag and the full serialized Republic `Message`. Tool-call tape
+entries add `message`; tool-result entries add `messages`. Existing content/call/
+result fields remain readable. A new process reconstructs native history from
+the actual JSONL tape, including Responses item IDs/encrypted reasoning,
+Anthropic thinking signatures and original tool call IDs. Usage and finish reason
+are recorded with existing run events; native usage fields/raw data are retained.
+
+Legacy text and complete function history remain readable. Extra legacy metadata,
+missing tool identity or media are rejected instead of silently discarded. New
+native history cannot be switched to another protocol or to any-llm. Start a new
+tape or perform an explicit caller-owned migration. A hook cannot change only the
+visible view of a native message: the view and native payload must agree, and the
+SDK also checks native item consistency. Old Bub releases do not understand the
+native envelope; do not use them to continue these tapes losslessly.
+
+Tape write failures still propagate. Bub does not retry an already executed tool
+when persistence fails. This is not a transaction or an exactly-once guarantee
+for external effects if the process crashes between tool execution and persistence.
+
+## Reproduce offline acceptance
+
+From this Bub checkout, pass the exact wheel and full clean source commit:
+
+```bash
+python scripts/check_republic_wheel.py \
+  /explicit/path/to/republic-VERSION-py3-none-any.whl \
+  --source-commit 5dff4aa7bdbf6f81411f16d64f74307d4d83f167
+```
+
+The script creates a new Python 3.12 environment, installs Bub non-editably and
+Republic from that wheel under Bub's locked dependency constraints, runs
+`uv pip check`, verifies both imports resolve to site-packages and checks installed
+Republic file contents against the selected archive. It records version, SHA256,
+source commit and import locations in the printed temporary evidence directory.
+No absolute dependency path is written to the project or lock.
+
+The integration suite uses real official SDK methods and HTTPX transports with
+synthetic HTTP/SSE fixtures. For both Responses and Anthropic, separate Python
+processes execute the real runner/tool/tape path: one model response requests a
+tool, Bub executes it once and writes JSONL; the next process reads that file,
+sends the retained encrypted reasoning or signature and gets the final answer.
+Each process asserts one HTTP request, released resources and the same single
+tool execution record. Tests also cover the actual agent loop, Chat/OpenRouter,
+hooks, explicit fallback, tool failures, truncation, tape-write failure, early
+close, cancellation, borrowed clients and unsupported inputs.
+
+This evidence does not establish OAuth entitlement, login success, live model
+availability or production endpoint compatibility. No real token file or account
+is needed by the suite. Standard repository checks remain `make check`, `make test`
+and `make docs-test`; the optional integration suite skips when no Republic SDK
+is installed, but the wheel acceptance script requires it and verifies the import.
+
+Local evidence (2026-09-28): Republic source
+`5dff4aa7bdbf6f81411f16d64f74307d4d83f167`, wheel version
+`0.5.9.dev17+g5dff4aa7b`, SHA256
+`217d45d0c354b83916412296ac2efdeb018d3399117e30f158d223c4bca6e06c`.
+Full Bub tests with the trace extra: 558 passed, 1 skipped (PowerShell unavailable),
+including 54 new Republic integration cases. `make check` and `make docs-test`
+passed. Locked dependencies are OpenAI 2.31.0, Anthropic 0.94.0, Authlib 1.7.2,
+HTTPX 0.28.1 and Pydantic 2.12.5; no dependency conflict or ignored dependencies.

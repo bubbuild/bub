@@ -41,7 +41,7 @@ from bub.hooks.interception import (
 )
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import Tape
-from bub.tools import Tool, ToolContext, ToolExecutor
+from bub.tools import Tool, ToolContext, ToolExecution, ToolExecutor
 from bub.tracing import Span, current_span, event
 
 CONTEXT_LENGTH_PATTERNS = re.compile(
@@ -128,6 +128,12 @@ class ModelRunner:
             return OpenaiCodexProvider(**client_kwargs)
         return AnyLLM.create(candidate.provider, **client_kwargs)
 
+    def create_republic_provider(self, candidate: ModelCandidate) -> Any:
+        """One owned adapter per attempt; override to lend an explicit SDK client."""
+        from bub.builtin.republic_backend import create_provider
+
+        return create_provider(self.settings, candidate)
+
     async def completion_response(
         self,
         *,
@@ -137,6 +143,12 @@ class ModelRunner:
         max_tokens: int | None = None,
         reasoning_effort: str | None = None,
     ) -> CompletionResult:
+        if self.settings.model_backend == "republic":
+            raise BubError(
+                ErrorKind.CONFIG, "Use ModelRunner.run for Republic native events; any-llm completions are disabled."
+            )
+        if any("_republic" in message for message in messages):
+            raise BubError(ErrorKind.INVALID_INPUT, "Republic native history cannot be sent through any-llm.")
         tool_payloads = [tool.to_schema() for tool in tools] or None
         clients = list(self.iter_llm_clients(model))
         completion_error: Exception | None = None
@@ -241,28 +253,51 @@ class ModelRunner:
                 # are terminal observations.
                 await fire_after(exc)
                 raise
-            await fire_after()
+            await fire_after(output.failure)
 
             yield StreamEvent("usage", {"usage": state.usage, "elapsed_seconds": completion_elapsed})
 
-            tool_calls = output.tool_calls
-            if tool_calls:
+            if output.failure is not None:
+                state.error = output.failure
+                await self.record_chat(
+                    tape=tape,
+                    run_id=run_id,
+                    system_prompt=system_prompt,
+                    new_messages=new_messages,
+                    response_text=output.text,
+                    response=output.response,
+                    model=request.model,
+                    usage=state.usage,
+                    response_message=output.native_message,
+                    response_context=False,
+                    finish_reason=output.finish_reason,
+                    error=output.failure,
+                )
+                yield StreamEvent("error", {"message": str(output.failure)})
+                yield StreamEvent("final", {"ok": False, "text": output.text, "finish_reason": output.finish_reason})
+                return
+
+            serialized_tool_calls = output.serialized_tool_calls
+            if serialized_tool_calls:
                 tool_map = {tool_item.name: tool_item for tool_item in tools}
-                serialized_tool_calls = [tool_call.model_dump(exclude_none=True) for tool_call in tool_calls]
-                tool_invocations = [tool_invocation_from_native(tool_call, tool_map) for tool_call in tool_calls]
+                tool_invocations = output.invocations(tool_map)
                 yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
                 context = ToolContext(tape=tape, run_id=run_id, state=tape.context.state)
                 execution = await ToolExecutor(hooks=self.hooks).execute_async(
                     tool_invocations,
                     context=context,
-                    call_ids=[call.id for call in tool_calls],
+                    call_ids=[call["id"] for call in serialized_tool_calls],
                 )
+                result_messages = output.result_messages(execution)
                 await self.record_chat(
                     tape=tape,
                     run_id=run_id,
                     system_prompt=system_prompt,
                     new_messages=new_messages,
                     response_text=output.text or None,
+                    response_message=output.native_message,
+                    result_messages=result_messages,
+                    finish_reason=output.finish_reason,
                     tool_calls=serialized_tool_calls,
                     tool_results=execution.tool_results,
                     response=output.response,
@@ -282,6 +317,8 @@ class ModelRunner:
                 system_prompt=system_prompt,
                 new_messages=new_messages,
                 response_text=text,
+                response_message=output.native_message,
+                finish_reason=output.finish_reason,
                 response=output.response,
                 model=request.model,
                 usage=state.usage,
@@ -319,23 +356,9 @@ class ModelRunner:
 
         async def iterator() -> AsyncGenerator[StreamEvent, None]:
             async with asyncio.timeout(self.settings.model_timeout_seconds):
-                completion = await self.completion_response(
-                    model=request.model,
-                    messages=list(request.messages),
-                    tools=tools,
-                    max_tokens=request.max_tokens,
-                    reasoning_effort=tape.context.state.get("reasoning_effort"),
-                )
-                try:
-                    async with aclosing(self._completion_events(completion, state, output)) as events:
-                        async for item in events:
-                            yield item
-                finally:
-                    close = getattr(completion, "aclose", None) or getattr(completion, "close", None)
-                    if close is not None:
-                        result = close()
-                        if inspect.isawaitable(result):
-                            await result
+                async with aclosing(self._model_events(request, tools, tape, state, output)) as source:
+                    async for item in source:
+                        yield item
 
         async def finish() -> None:
             if not span.recording:
@@ -351,12 +374,50 @@ class ModelRunner:
                     {
                         "role": "assistant",
                         "content": output.text,
-                        "tool_calls": [call.model_dump(exclude_none=True) for call in output.tool_calls],
+                        "tool_calls": output.serialized_tool_calls,
                     }
                 ],
             )
 
         return AsyncStreamEvents(iterator(), state=state, span=span, on_close=finish)
+
+    async def _model_events(
+        self,
+        request: LlmCallRequest,
+        tools: list[Tool],
+        tape: Tape,
+        state: StreamState,
+        output: ModelOutputAccumulator,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        if self.settings.model_backend == "republic":
+            try:
+                from bub.builtin.republic_backend import completion_events
+            except ImportError as exc:
+                raise BubError(
+                    ErrorKind.CONFIG,
+                    "Install the local Republic provider-SDK wheel; see the integration guide.",
+                ) from exc
+            async with aclosing(completion_events(self, request, tools, tape, state, output)) as native_events:
+                async for item in native_events:
+                    yield item
+            return
+        completion = await self.completion_response(
+            model=request.model,
+            messages=list(request.messages),
+            tools=tools,
+            max_tokens=request.max_tokens,
+            reasoning_effort=tape.context.state.get("reasoning_effort"),
+        )
+        try:
+            async with aclosing(self._completion_events(completion, state, output)) as events:
+                async for item in events:
+                    yield item
+        finally:
+            close = getattr(completion, "aclose", None) or getattr(completion, "close", None)
+            if close is not None:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
 
     @staticmethod
     def generate_run_id() -> str:
@@ -377,7 +438,7 @@ class ModelRunner:
         result = LlmCallResult(
             run_id=request.run_id,
             text=output.text or None,
-            tool_calls=[call.model_dump(exclude_none=True) for call in output.tool_calls],
+            tool_calls=output.serialized_tool_calls,
             usage=state.usage,
             error=error,
             duration_ms=duration_ms,
@@ -450,7 +511,22 @@ class ModelRunner:
         provider: str | None = None,
         model: str | None = None,
         usage: dict[str, Any] | None = None,
+        response_message: dict[str, Any] | None = None,
+        result_messages: list[dict[str, Any]] | None = None,
+        response_context: bool = True,
+        finish_reason: str | None = None,
     ) -> None:
+        native: dict[str, Any] = {
+            key: value
+            for key, value in {
+                "response_message": response_message,
+                "result_messages": result_messages,
+                "finish_reason": finish_reason,
+            }.items()
+            if value is not None
+        }
+        if not response_context:
+            native["response_context"] = False
         await tape.record_chat(
             run_id=run_id,
             system_prompt=system_prompt,
@@ -464,6 +540,7 @@ class ModelRunner:
             provider=provider,
             model=model,
             usage=usage,
+            **native,
         )
 
     async def _completion_events(
@@ -563,7 +640,12 @@ class StreamToolCall:
 
 class ModelOutputAccumulator:
     def __init__(self) -> None:
-        self.response: ChatCompletion | ParsedChatCompletion[Any] | None = None
+        self.response: Any = None
+        self.native_message: dict[str, Any] | None = None
+        self.native_protocol: str | None = None
+        self.native_calls: list[dict[str, Any]] | None = None
+        self.finish_reason: str | None = None
+        self.failure: BubError | None = None
         self._text_parts: list[str] = []
         self._message_calls: list[ChatCompletionMessageToolCall] = []
         self._stream_calls: dict[int, StreamToolCall] = {}
@@ -581,6 +663,24 @@ class ModelOutputAccumulator:
     @property
     def text(self) -> str:
         return "".join(self._text_parts)
+
+    def invocations(self, tools: dict[str, Tool]) -> list[tuple[Tool, dict[str, Any]]]:
+        if self.native_calls is None:
+            return [tool_invocation_from_native(call, tools) for call in self.tool_calls]
+        return [tool_invocation_from_payload(call, tools) for call in self.native_calls]
+
+    def result_messages(self, execution: ToolExecution) -> list[dict[str, Any]] | None:
+        if self.native_protocol is None:
+            return None
+        from bub.builtin.republic_backend import tool_result_messages
+
+        return tool_result_messages(self.native_protocol, self.serialized_tool_calls, execution)
+
+    @property
+    def serialized_tool_calls(self) -> list[dict[str, Any]]:
+        if self.native_calls is not None:
+            return self.native_calls
+        return [call.model_dump(exclude_none=True) for call in self.tool_calls]
 
     @property
     def tool_calls(self) -> list[ChatCompletionMessageToolCall]:
@@ -603,6 +703,10 @@ def tool_invocation_from_native(
     an empty result.
     """
     tool_name, arguments = parse_native_function_call(tool_call)
+    return _resolve_tool(tool_name, arguments, tool_map)
+
+
+def _resolve_tool(tool_name: str, arguments: dict[str, Any], tool_map: dict[str, Tool]) -> tuple[Tool, dict[str, Any]]:
     tool_obj = tool_map.get(tool_name)
     if tool_obj is None:
 
@@ -611,6 +715,17 @@ def tool_invocation_from_native(
 
         return Tool(name=tool_name, handler=raise_unknown_tool), arguments
     return tool_obj, arguments
+
+
+def tool_invocation_from_payload(call: dict[str, Any], tool_map: dict[str, Tool]) -> tuple[Tool, dict[str, Any]]:
+    if call.get("type") != "function":
+        raise BubError(ErrorKind.INVALID_INPUT, "Expected a function tool call.")
+    function = call["function"]
+    try:
+        arguments = TOOL_ARGUMENTS_ADAPTER.validate_json(function["arguments"])
+    except ValidationError as exc:
+        raise BubError(ErrorKind.INVALID_INPUT, "Expected a function tool call with JSON object arguments.") from exc
+    return _resolve_tool(function["name"], arguments, tool_map)
 
 
 def parse_native_function_call(tool_call: ChatCompletionMessageToolCall) -> tuple[str, dict[str, Any]]:

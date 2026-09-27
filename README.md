@@ -140,6 +140,11 @@ Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-sk
 | `BUB_MODEL_TIMEOUT_SECONDS` | —                            | Model call timeout (seconds)                         |
 | `BUB_SPILL_THRESHOLD`       | `4096`                       | Estimated tokens before tool output spills; `0` disables |
 
+An optional, explicitly selected Republic backend is available for local SDK
+acceptance. See the [local wheel integration guide](website/src/content/docs/docs/operate/republic-sdk.mdx)
+for installation, `BUB_MODEL_BACKEND=republic`, supported protocols and tape
+compatibility. The default remains any-llm; Republic OAuth onboarding is not migrated.
+
 ## Background
 
 Bub is shaped by one constraint: real collaboration is messier than a solo demo. In shared environments, operators need visible boundaries, auditable history, and extension points that do not collapse into framework sprawl.
