@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import secrets
 import threading
@@ -21,6 +22,7 @@ from typing import Any
 
 import typer
 from authlib.integrations.httpx_client import OAuth2Client
+from loguru import logger
 
 CODEX_PROVIDER = "openai"
 DEFAULT_CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback"
@@ -153,7 +155,8 @@ def openai_codex_oauth_resolver(
 
             try:
                 refreshed = refresher(tokens.refresh_token)
-            except Exception:
+            except Exception as exc:
+                logger.warning("Codex OAuth token refresh failed: {}", type(exc).__name__)
                 return tokens.access_token if tokens.expires_at > now else None
 
             persisted = OpenAICodexOAuthTokens(
@@ -275,16 +278,8 @@ def openai(
 
 
 def extract_openai_codex_account_id(access_token: str) -> str | None:
-    parts = access_token.split(".")
-    if len(parts) != 3:
-        return None
-    payload_segment = parts[1]
-    padding = "=" * (-len(payload_segment) % 4)
-    try:
-        payload = json.loads(urlsafe_b64decode((payload_segment + padding).encode("ascii")).decode("utf-8"))
-    except Exception:
-        return None
-    if not isinstance(payload, dict):
+    payload = _decode_unverified_jwt_payload(access_token)
+    if payload is None:
         return None
     auth = payload.get("https://api.openai.com/auth")
     if not isinstance(auth, dict):
@@ -293,6 +288,33 @@ def extract_openai_codex_account_id(access_token: str) -> str | None:
     if not isinstance(account_id, str):
         return None
     return account_id.strip() or None
+
+
+def _decode_unverified_jwt_payload(access_token: str) -> dict[str, Any] | None:
+    """Read local JWT claims without treating them as verified credentials."""
+
+    parts = access_token.split(".")
+    if len(parts) != 3:
+        return None
+    payload_segment = parts[1]
+    padding = "=" * (-len(payload_segment) % 4)
+    try:
+        payload = json.loads(urlsafe_b64decode((payload_segment + padding).encode("ascii")).decode("utf-8"))
+    except (UnicodeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _jwt_expiry(access_token: str) -> int | None:
+    payload = _decode_unverified_jwt_payload(access_token)
+    if payload is None:
+        return None
+    exp = payload.get("exp")
+    if type(exp) is int:
+        return exp
+    if type(exp) is float and math.isfinite(exp):
+        return int(exp)
+    return None
 
 
 def _parse_tokens(payload: dict[str, Any]) -> OpenAICodexOAuthTokens | None:
@@ -309,7 +331,7 @@ def _parse_tokens(payload: dict[str, Any]) -> OpenAICodexOAuthTokens | None:
     if not access or not refresh:
         return None
 
-    expires_at = _parse_expiry(tokens.get("expires_at"), payload.get("last_refresh"))
+    expires_at = _parse_expiry(tokens.get("expires_at"), payload.get("last_refresh"), access)
     account_id = tokens.get("account_id")
     return OpenAICodexOAuthTokens(
         access_token=access,
@@ -319,11 +341,13 @@ def _parse_tokens(payload: dict[str, Any]) -> OpenAICodexOAuthTokens | None:
     )
 
 
-def _parse_expiry(expires_raw: object, last_refresh_raw: object) -> int:
+def _parse_expiry(expires_raw: object, last_refresh_raw: object, access_token: str) -> int:
     if isinstance(expires_raw, int | float):
         return int(expires_raw)
     if isinstance(expires_raw, str):
         return _rfc3339_to_unix(expires_raw)
+    if (jwt_expiry := _jwt_expiry(access_token)) is not None:
+        return jwt_expiry
     if isinstance(last_refresh_raw, int | float):
         return int(last_refresh_raw) + 3600
     if isinstance(last_refresh_raw, str):

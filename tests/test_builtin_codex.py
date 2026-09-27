@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -37,15 +38,27 @@ TEST_REFRESH_TOKEN_OLD = "refresh_old"  # noqa: S105
 TEST_REFRESH_TOKEN_NEW = "refresh_new"  # noqa: S105
 
 
-def _jwt_with_account(account_id: str) -> str:
+def _jwt_with_account(account_id: str, *, exp: int | None = None) -> str:
     header = _b64({"alg": "none"})
-    payload = _b64({"https://api.openai.com/auth": {"chatgpt_account_id": account_id}})
+    claims: dict[str, Any] = {"https://api.openai.com/auth": {"chatgpt_account_id": account_id}}
+    if exp is not None:
+        claims["exp"] = exp
+    payload = _b64(claims)
     return f"{header}.{payload}.sig"
 
 
 def _b64(payload: dict[str, Any]) -> str:
     raw = json.dumps(payload, separators=(",", ":")).encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _write_codex_auth_without_expiry(home: Path, access_token: str, last_refresh: int) -> None:
+    (home / "auth.json").write_text(
+        json.dumps({
+            "last_refresh": datetime.fromtimestamp(last_refresh, tz=UTC).isoformat(),
+            "tokens": {"access_token": access_token, "refresh_token": TEST_REFRESH_TOKEN},
+        })
+    )
 
 
 def test_openai_codex_oauth_tokens_round_trip(tmp_path: Path) -> None:
@@ -85,6 +98,60 @@ def test_openai_codex_oauth_resolver_refreshes_expired_token(tmp_path: Path) -> 
 
     assert resolver("openai") == refreshed.access_token
     assert load_openai_codex_oauth_tokens(tmp_path) == refreshed
+
+
+def test_codex_auth_without_expires_at_uses_access_token_jwt_exp(tmp_path: Path) -> None:
+    now = int(time.time())
+    token = _jwt_with_account("acct_123", exp=now + 10 * 86400)
+    _write_codex_auth_without_expiry(tmp_path, token, last_refresh=now - 7200)
+    refresh_calls: list[str] = []
+
+    def fail_refresh(refresh_token: str) -> OpenAICodexOAuthTokens:
+        refresh_calls.append(refresh_token)
+        raise RuntimeError("refresh should not run")
+
+    loaded = load_openai_codex_oauth_tokens(tmp_path)
+    assert loaded is not None
+    assert loaded.expires_at == now + 10 * 86400
+    assert openai_codex_oauth_resolver(tmp_path, refresher=fail_refresh)("openai") == token
+    assert refresh_calls == []
+
+
+@pytest.mark.parametrize("expiry_offset, expected_token", [(60, True), (-60, False)])
+def test_codex_auth_jwt_exp_controls_refresh_failure_fallback(
+    tmp_path: Path, expiry_offset: int, expected_token: bool
+) -> None:
+    now = int(time.time())
+    token = _jwt_with_account("acct_123", exp=now + expiry_offset)
+    _write_codex_auth_without_expiry(tmp_path, token, last_refresh=now - 7200)
+    refresh_calls: list[str] = []
+
+    def fail_refresh(refresh_token: str) -> OpenAICodexOAuthTokens:
+        refresh_calls.append(refresh_token)
+        raise RuntimeError("refresh unavailable")
+
+    resolved = openai_codex_oauth_resolver(tmp_path, refresher=fail_refresh)("openai")
+    assert resolved == (token if expected_token else None)
+    assert refresh_calls == [TEST_REFRESH_TOKEN]
+
+
+def test_codex_auth_explicit_expiry_precedes_jwt_exp_and_missing_claim_falls_back(tmp_path: Path) -> None:
+    now = int(time.time())
+    token = _jwt_with_account("acct_123", exp=now + 10 * 86400)
+    _write_codex_auth_without_expiry(tmp_path, token, last_refresh=now - 7200)
+    auth_path = tmp_path / "auth.json"
+    payload = json.loads(auth_path.read_text())
+    payload["tokens"]["expires_at"] = now + 3600
+    auth_path.write_text(json.dumps(payload))
+    loaded = load_openai_codex_oauth_tokens(tmp_path)
+    assert loaded is not None
+    assert loaded.expires_at == now + 3600
+
+    for fallback_token in (_jwt_with_account("acct_123"), "not-a-jwt"):
+        _write_codex_auth_without_expiry(tmp_path, fallback_token, last_refresh=now - 7200)
+        loaded = load_openai_codex_oauth_tokens(tmp_path)
+        assert loaded is not None
+        assert loaded.expires_at == now - 7200 + 3600
 
 
 def test_extract_openai_codex_account_id() -> None:
