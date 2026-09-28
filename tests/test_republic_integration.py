@@ -1,4 +1,4 @@
-"""Optional local-wheel acceptance: real Bub lifecycle and official SDK wire."""
+"""Required local-wheel acceptance: real Bub lifecycle and official SDK wire."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from typing import Any
 
 import httpx
 import pytest
+import republic
 from republic_fixtures import Body, Transport, chat, messages, responses, sdk_transport, settings, sse, tape_at, wire
 from test_agent_hooks import make_hooks
 
@@ -21,8 +22,6 @@ from bub.errors import BubError
 from bub.hooks import hookimpl
 from bub.hooks.interception import LlmCallDecision, LlmCallRequest, LlmCallResult, ToolCallDecision, ToolCallResult
 from bub.tools import Tool
-
-republic = pytest.importorskip("republic", reason="explicit local Republic wheel is optional")
 
 
 async def collect(
@@ -34,7 +33,7 @@ async def collect(
         return [item async for item in output]
 
 
-@pytest.mark.parametrize("protocol", ["responses", "messages"])
+@pytest.mark.parametrize("protocol", ["responses", "messages", "codex"])
 def test_fresh_process_tool_tape_native_history(protocol: str, tmp_path: Path) -> None:
     script = Path(__file__).with_name("republic_process.py")
     for phase in (1, 2):
@@ -51,7 +50,7 @@ def test_fresh_process_tool_tape_native_history(protocol: str, tmp_path: Path) -
     assert "/site-packages/" in first["republic_import"]
     assert (tmp_path / "executions.log").read_text() == "2\n"
     persisted = (tmp_path / "integration.jsonl").read_text()
-    assert "opaque-reasoning" in persisted if protocol == "responses" else "sig-opaque" in persisted
+    assert "opaque-reasoning" in persisted if protocol in {"responses", "codex"} else "sig-opaque" in persisted
     assert "call-original" in persisted and '"_republic"' in persisted
 
 
@@ -259,15 +258,11 @@ async def test_hook_short_circuit_makes_no_request(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("switch", ["messages", "any_llm", "edited"])
+@pytest.mark.parametrize("switch", ["messages", "edited"])
 async def test_native_history_cannot_be_silently_migrated(switch: str, tmp_path: Path) -> None:
     with sdk_transport(Transport([Body(responses())])):
         await collect(ModelRunner(settings()), tape_at(tmp_path))
-    config = (
-        settings("messages")
-        if switch == "messages"
-        else settings(model_backend=switch if switch == "any_llm" else "republic")
-    )
+    config = settings("messages") if switch == "messages" else settings()
 
     class Edit:
         @hookimpl
@@ -339,7 +334,7 @@ async def test_actual_agent_owns_the_second_turn(tmp_path: Path, monkeypatch: py
         {"completion_args": {"max_output_tokens": 5}},
     ],
 )
-async def test_unsupported_configuration_never_falls_back_to_any_llm(extra: dict[str, Any], tmp_path: Path) -> None:
+async def test_unsupported_configuration_fails_before_http(extra: dict[str, Any], tmp_path: Path) -> None:
     transport = Transport([])
     with sdk_transport(transport), pytest.raises((BubError, ValueError)):
         await collect(ModelRunner(settings(**extra)), tape_at(tmp_path))
@@ -366,7 +361,11 @@ async def test_borrowed_client_remains_open_after_stream_close(
         )
         adapter = {"messages": AnthropicMessages, "responses": OpenAIResponses, "chat": OpenAIChatCompletions}[protocol]
         runner = ModelRunner(settings(protocol))
-        monkeypatch.setattr(runner, "create_republic_provider", lambda _: adapter(client=sdk))
+
+        async def create(_):
+            return adapter(client=sdk)
+
+        monkeypatch.setattr(runner, "create_provider", create)
         tape = tape_at(tmp_path)
         await tape.ensure_bootstrap_anchor()
         output = runner.run(tape=tape, model=runner.settings.model, tools=[], system_prompt=None, prompt="hello")
@@ -375,12 +374,6 @@ async def test_borrowed_client_remains_open_after_stream_close(
         assert not http.is_closed and bodies[0].closed == 1 and sdk.max_retries == 4
         await collect(runner, tape)
         assert not http.is_closed and bodies[1].closed == 1 and len(transport.requests) == 2
-
-
-@pytest.mark.asyncio
-async def test_republic_selection_cannot_call_legacy_completion_method() -> None:
-    with pytest.raises(BubError, match="any-llm completions are disabled"):
-        await ModelRunner(settings()).completion_response(model="openai:fixture", messages=[], tools=[])
 
 
 @pytest.mark.asyncio
@@ -429,10 +422,9 @@ def test_backend_settings_are_explicit_and_validate_protocol_names(monkeypatch: 
 
     from bub.builtin.settings import AgentSettings
 
-    monkeypatch.setenv("BUB_MODEL_BACKEND", "republic")
     monkeypatch.setenv("BUB_REPUBLIC_PROTOCOLS", '{"openai":"responses"}')
     config = AgentSettings(_env_file=None)
-    assert config.model_backend == "republic" and config.republic_protocols == {"openai": "responses"}
+    assert config.republic_protocols == {"openai": "responses"}
     monkeypatch.setenv("BUB_REPUBLIC_PROTOCOLS", '{"openai":"auto"}')
     with pytest.raises(ValidationError):
         AgentSettings(_env_file=None)

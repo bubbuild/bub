@@ -186,7 +186,7 @@ bub login [OPTIONS] COMMAND [ARGS]...
 
 ### `bub login openai`
 
-Run the Codex OAuth flow to obtain OpenAI credentials, then save them under the resolved Codex home.
+Run Republic’s ChatGPT/Codex OAuth flow with Bub-owned login UX, or explicitly migrate a legacy file. These tokens are not general OpenAI API keys.
 
 ```text
 bub login openai [OPTIONS]
@@ -194,15 +194,16 @@ bub login openai [OPTIONS]
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--codex-home` | PATH | `$CODEX_HOME` or `~/.codex` | Directory to store the resulting `auth.json`. |
+| `--codex-home` | PATH | `$CODEX_HOME` or `~/.codex` | Directory to store `bub-republic.json`. |
 | `--browser` / `--no-browser` | flag | `--browser` | Open the OAuth authorize URL in the default browser. |
-| `--manual` | flag | off | Skip the local callback server and prompt for the callback URL or code. |
+| `--manual` | flag | off | Skip the local callback server and prompt for the full callback URL including state. |
 | `--timeout` | FLOAT | `300.0` | OAuth wait timeout in seconds. |
+| `--migrate` | flag | off | Import existing `auth.json` to a new `bub-republic.json`; no login/network or overwrite. |
 
 Behavior notes:
 
-- On success prints `login: ok`, the account id, the auth file path, and a usage hint to set `BUB_MODEL=openai:<codex-model>` and omit `BUB_API_KEY`.
-- On `CodexOAuthLoginError` exits with code `1`.
+- On success prints `login: ok`, the auth file path, and a usage hint to set `BUB_MODEL=openai:<codex-model>` and omit `BUB_API_KEY`.
+- On Republic `CodexAuthError` exits with code `1`.
 
 ## `bub hooks`
 

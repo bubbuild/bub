@@ -101,7 +101,7 @@ class Tool:
         return self.handler(*args, **kwargs)
 
     def to_schema(self) -> dict[str, Any]:
-        """Build an any-llm completion tool payload."""
+        """Build an function tool payload."""
         return {
             "type": "function",
             "function": {

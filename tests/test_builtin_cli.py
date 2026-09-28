@@ -28,7 +28,6 @@ TEST_REFRESH_TOKEN = "refresh"  # noqa: S105
 @pytest.fixture(autouse=True)
 def no_model_discovery_network(monkeypatch):
     monkeypatch.setattr(onboarding, "discover_models", lambda *args, **kwargs: [])
-    monkeypatch.setattr("bub.builtin.codex_provider.load_openai_codex_oauth_tokens", lambda: None)
 
 
 def _fake_result(answer: Any, command: str | None = "enter") -> InquirerResult[Any]:
@@ -462,7 +461,7 @@ def test_run_command_processes_inbound_inside_framework_runtime(tmp_path: Path) 
     assert tape_store.exit_count == 1
 
 
-def test_onboard_collects_builtin_runtime_config_with_custom_provider(tmp_path: Path, monkeypatch) -> None:
+def test_onboard_collects_builtin_runtime_config_with_compatible_endpoint(tmp_path: Path, monkeypatch) -> None:
     config_file = tmp_path / "config.yml"
 
     with patch.dict(os.environ, {}, clear=True):
@@ -474,7 +473,7 @@ def test_onboard_collects_builtin_runtime_config_with_custom_provider(tmp_path: 
         monkeypatch.setattr(
             bub_inquirer,
             "ask_fuzzy",
-            lambda message, choices, default=None: "custom",
+            lambda message, choices, default=None: onboarding.PROVIDERS["openai-compatible"],
         )
         monkeypatch.setattr(
             bub_inquirer,
@@ -490,7 +489,7 @@ def test_onboard_collects_builtin_runtime_config_with_custom_provider(tmp_path: 
             bub_inquirer,
             "ask_text",
             lambda message, default="": {
-                "Custom provider": "acme",
+                "API base URL": "https://custom.test/v1",
                 "LLM model": "ultra-1",
             }.get(message, default),
         )
@@ -507,14 +506,16 @@ def test_onboard_collects_builtin_runtime_config_with_custom_provider(tmp_path: 
     assert result.exit_code == 0
     assert _rendered_onboard_banner() in result.stdout
     assert loaded == {
-        "model": "acme:ultra-1",
+        "model": "openai:ultra-1",
+        "api_base": "https://custom.test/v1",
+        "api_key": "not-required",
         "enabled_channels": "telegram",
         "stream_output": False,
     }
 
 
 def test_login_openai_command_runs_codex_oauth(tmp_path: Path) -> None:
-    tokens = auth.OpenAICodexOAuthTokens(
+    tokens = auth.CodexTokens(
         access_token=TEST_ACCESS_TOKEN,
         refresh_token=TEST_REFRESH_TOKEN,
         expires_at=1_900_000_000,
@@ -530,8 +531,7 @@ def test_login_openai_command_runs_codex_oauth(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "login: ok" in result.stdout
-    assert "account_id: acct_123" in result.stdout
-    assert f"auth_file: {tmp_path / 'auth.json'}" in result.stdout
+    assert f"auth_file: {tmp_path / 'bub-republic.json'}" in result.stdout
     login_mock.assert_called_once()
     assert login_mock.call_args.kwargs["codex_home"] == tmp_path
     assert login_mock.call_args.kwargs["open_browser"] is False
@@ -648,3 +648,25 @@ def test_chat_accepts_optional_initial_prompt(initial_prompt: str | None, monkey
     if initial_prompt is not None:
         expected["initial_prompt"] = initial_prompt
     assert observed == expected
+
+
+def test_login_migrate_imports_only_the_explicit_legacy_file(tmp_path: Path, monkeypatch) -> None:
+    old = json.dumps({
+        "tokens": {
+            "access_token": "fixture-access",
+            "refresh_token": "fixture-refresh",
+            "expires_at": 1900000000,
+            "account_id": "acct_fixture",
+        }
+    })
+    (tmp_path / "auth.json").write_text(old)
+
+    async def unexpected(**kwargs):
+        pytest.fail("Migration must not start login")
+
+    monkeypatch.setattr(auth, "login_openai_codex_oauth", unexpected)
+    result = CliRunner().invoke(_create_app(), ["login", "openai", "--migrate", "--codex-home", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert auth.codex.read_tokens(auth.codex_token_path(tmp_path)).account_id == "acct_fixture"
+    assert (tmp_path / "auth.json").read_text() == old
+    assert "fixture-access" not in result.output

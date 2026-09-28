@@ -1,177 +1,132 @@
-"""Authentication helpers for builtin providers."""
+"""Bub's Codex login UX and explicit legacy-file migration; OAuth lives in Republic."""
 
 # ruff: noqa: B008
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import os
-import secrets
+import queue
 import threading
-import time
-import urllib.parse
 import webbrowser
-from base64 import urlsafe_b64decode, urlsafe_b64encode
-from collections.abc import Callable
-from contextlib import suppress
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from base64 import urlsafe_b64decode
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import typer
-from authlib.integrations.httpx_client import OAuth2Client
-from loguru import logger
+from republic.auth import codex
+from republic.auth.codex import CodexAuthError, CodexTokens
 
-CODEX_PROVIDER = "openai"
 DEFAULT_CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback"
-
-_CODEX_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
-_CODEX_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"  # noqa: S105
-_CODEX_OAUTH_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
-_CODEX_OAUTH_SCOPE = "openid profile email offline_access"
-_CODEX_OAUTH_ORIGINATOR = "codex_cli_rs"
-
 app = typer.Typer(name="login", help="Authentication related commands")
 
 
-class CodexOAuthLoginError(RuntimeError):
-    """Raised when Codex OAuth login cannot complete."""
-
-
-class CodexOAuthStateMismatchError(CodexOAuthLoginError):
-    """Raised when OAuth state validation fails."""
-
-
-class CodexOAuthMissingCodeError(CodexOAuthLoginError):
-    """Raised when OAuth redirect does not include an authorization code."""
-
-
-class CodexOAuthResponseError(TypeError):
-    """Raised when the OAuth token endpoint returns a malformed payload."""
-
-
-@dataclass(frozen=True)
-class OpenAICodexOAuthTokens:
-    access_token: str
-    refresh_token: str
-    expires_at: int
-    account_id: str | None = None
-
-
 def resolve_codex_home(codex_home: str | Path | None = None) -> Path:
-    if codex_home is not None:
-        return Path(codex_home).expanduser()
-    return Path(os.getenv("CODEX_HOME", "~/.codex")).expanduser()
+    return Path(codex_home if codex_home is not None else os.getenv("CODEX_HOME", "~/.codex")).expanduser()
 
 
-def resolve_codex_auth_path(codex_home: str | Path | None = None) -> Path:
-    return resolve_codex_home(codex_home) / "auth.json"
+def codex_token_path(codex_home: str | Path | None = None) -> Path:
+    return resolve_codex_home(codex_home) / "bub-republic.json"
 
 
-def load_openai_codex_oauth_tokens(codex_home: str | Path | None = None) -> OpenAICodexOAuthTokens | None:
-    auth_path = resolve_codex_auth_path(codex_home)
+async def prepare_codex_tokens(codex_home: str | Path | None = None) -> CodexTokens:
+    """Bub's pre-call refresh point. A failure never starts/replays inference."""
+    path = codex_token_path(codex_home)
+    tokens = codex.read_tokens(path)
+    if tokens.is_expired(leeway=120):
+        tokens = await codex.refresh_tokens(tokens)
+        codex.write_tokens(path, tokens)
+    return tokens
+
+
+def _legacy_claims(access_token: Any) -> dict[str, Any]:
+    """Only expiry/account hints for an explicit file import, never identity proof."""
+    if not isinstance(access_token, str) or len(parts := access_token.split(".")) != 3:
+        return {}
     try:
-        payload = json.loads(auth_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    return _parse_tokens(payload)
+        value = json.loads(urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
+    except (ValueError, UnicodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
-def save_openai_codex_oauth_tokens(
-    tokens: OpenAICodexOAuthTokens,
-    codex_home: str | Path | None = None,
-) -> Path:
-    auth_path = resolve_codex_auth_path(codex_home)
-    auth_path.parent.mkdir(parents=True, exist_ok=True)
+def migrate_codex_tokens(codex_home: str | Path | None = None) -> Path:
+    """Explicitly import Bub/Codex auth.json into a separate Republic token file."""
+    directory = resolve_codex_home(codex_home)
+    destination = codex_token_path(directory)
+    if destination.exists():
+        raise CodexAuthError("migration_destination_exists")
+    try:
+        raw = json.loads((directory / "auth.json").read_text(encoding="utf-8"))
+        old = raw["tokens"]
+        hints = _legacy_claims(old.get("access_token"))
+        expiry = old.get("expires_at", hints.get("exp"))
+        if isinstance(expiry, str):
+            timestamp = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+            expiry = timestamp.timestamp() if timestamp.tzinfo is not None else None
+        account = old.get("account_id")
+        if account is None and isinstance(route := hints.get("https://api.openai.com/auth"), dict):
+            account = route.get("chatgpt_account_id")
+        tokens = CodexTokens(old["access_token"], old["refresh_token"], expiry, account)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, CodexAuthError):
+        failed = True
+    else:
+        failed = False
+    if failed:
+        raise CodexAuthError("invalid_legacy_credentials")
+    codex.write_tokens(destination, tokens)
+    return destination
+
+
+@contextmanager
+def _callback_receiver(redirect_uri: str) -> Iterator[Callable[[float], str | None]]:
+    """Bind before opening a browser; only the local callback UX lives here."""
+    parsed = urlsplit(redirect_uri)
+    if parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1"} or parsed.port is None:
+        raise CodexAuthError("invalid_redirect")
+    received: queue.Queue[str | None] = queue.Queue()
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            return
+
+        def do_GET(self) -> None:
+            callback = urlsplit(self.path)
+            if callback.path != parsed.path:
+                self.send_response(404)
+                self.end_headers()
+                return
+            received.put(redirect_uri + "?" + callback.query)
+            body = b"Callback received. Check your terminal for the login result."
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
     try:
-        existing = json.loads(auth_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        existing = {}
-    payload: dict[str, Any] = existing if isinstance(existing, dict) else {}
-
-    token_payload = payload.get("tokens")
-    if not isinstance(token_payload, dict):
-        token_payload = {}
-    token_payload.update({
-        "access_token": tokens.access_token,
-        "refresh_token": tokens.refresh_token,
-        "expires_at": _unix_to_rfc3339(tokens.expires_at),
-    })
-    if tokens.account_id:
-        token_payload["account_id"] = tokens.account_id
-    payload["tokens"] = token_payload
-    payload["last_refresh"] = _unix_to_rfc3339(int(time.time()))
-
-    auth_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
-    with suppress(OSError):
-        os.chmod(auth_path, 0o600)
-    return auth_path
+        server = ThreadingHTTPServer((parsed.hostname, parsed.port), Handler)
+    except OSError:
+        server = None
+    if server is None:
+        raise CodexAuthError("callback_bind_failed")
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    try:
+        yield lambda timeout: received.get(timeout=timeout)
+    finally:
+        received.put(None)  # Wake a cancelled to_thread receiver, too.
+        server.shutdown()
+        server.server_close()
+        thread.join()
 
 
-def refresh_openai_codex_oauth_tokens(
-    refresh_token: str,
-    *,
-    timeout_seconds: float = 15.0,
-    client_id: str = _CODEX_OAUTH_CLIENT_ID,
-    token_url: str = _CODEX_OAUTH_TOKEN_URL,
-) -> OpenAICodexOAuthTokens:
-    with OAuth2Client(client_id=client_id, timeout=timeout_seconds, trust_env=True) as oauth:
-        payload = oauth.refresh_token(url=token_url, refresh_token=refresh_token)
-    return _tokens_from_token_payload(payload, account_id=None)
-
-
-def openai_codex_oauth_resolver(
-    codex_home: str | Path | None = None,
-    *,
-    refresh_skew_seconds: int = 120,
-    refresh_timeout_seconds: float = 15.0,
-    refresher: Callable[[str], OpenAICodexOAuthTokens] | None = None,
-) -> Callable[[str], str | None]:
-    """Build a provider-scoped OAuth token resolver with refresh support."""
-
-    lock = threading.Lock()
-    if refresher is None:
-        refresher = lambda refresh_token: refresh_openai_codex_oauth_tokens(
-            refresh_token,
-            timeout_seconds=refresh_timeout_seconds,
-        )
-
-    def _resolve(provider: str) -> str | None:
-        if provider != CODEX_PROVIDER:
-            return None
-        with lock:
-            tokens = load_openai_codex_oauth_tokens(codex_home)
-            if tokens is None:
-                return None
-
-            now = int(time.time())
-            if tokens.expires_at > now + refresh_skew_seconds:
-                return tokens.access_token
-
-            try:
-                refreshed = refresher(tokens.refresh_token)
-            except Exception as exc:
-                logger.warning("Codex OAuth token refresh failed: {}", type(exc).__name__)
-                return tokens.access_token if tokens.expires_at > now else None
-
-            persisted = OpenAICodexOAuthTokens(
-                access_token=refreshed.access_token,
-                refresh_token=refreshed.refresh_token,
-                expires_at=refreshed.expires_at,
-                account_id=refreshed.account_id or tokens.account_id,
-            )
-            save_openai_codex_oauth_tokens(persisted, codex_home)
-            return persisted.access_token
-
-    return _resolve
-
-
-def login_openai_codex_oauth(
+async def login_openai_codex_oauth(
     *,
     codex_home: str | Path | None = None,
     prompt_for_redirect: Callable[[str], str] | None = None,
@@ -179,347 +134,66 @@ def login_openai_codex_oauth(
     browser_opener: Callable[[str], Any] | None = None,
     redirect_uri: str = DEFAULT_CODEX_REDIRECT_URI,
     timeout_seconds: float = 300.0,
-    client_id: str = _CODEX_OAUTH_CLIENT_ID,
-    authorize_url: str = _CODEX_OAUTH_AUTHORIZE_URL,
-    token_url: str = _CODEX_OAUTH_TOKEN_URL,
-    scope: str = _CODEX_OAUTH_SCOPE,
-    originator: str = _CODEX_OAUTH_ORIGINATOR,
-) -> OpenAICodexOAuthTokens:
-    """Run the OpenAI Codex OAuth flow and persist tokens."""
-
-    verifier = _build_pkce_verifier()
-    state = secrets.token_hex(16)
-    oauth_url = _build_authorize_url(
-        client_id=client_id,
-        redirect_uri=redirect_uri,
-        code_challenge=verifier,
-        state=state,
-        authorize_url=authorize_url,
-        scope=scope,
-        originator=originator,
-    )
-
-    if open_browser:
-        opener = browser_opener or webbrowser.open
-        opener(oauth_url)
-
-    if prompt_for_redirect is None:
-        callback_values = _wait_for_local_oauth_callback(redirect_uri=redirect_uri, timeout_seconds=timeout_seconds)
-        if callback_values is None:
-            raise CodexOAuthLoginError(
-                "Did not receive OAuth callback. "
-                f"redirect_uri={redirect_uri!r}, timeout_seconds={timeout_seconds}. "
-                "Try increasing --timeout or use --manual."
-            )
-        code, returned_state = callback_values
+) -> CodexTokens:
+    """Receive a full callback; Republic performs PKCE/state validation and exchange."""
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise CodexAuthError("invalid_timeout")
+    authorization = await codex.create_authorization(redirect_uri=redirect_uri)
+    opener = browser_opener or webbrowser.open
+    callback: str | None
+    if prompt_for_redirect is not None:
+        if open_browser:
+            opener(authorization.url)
+        callback = prompt_for_redirect(authorization.url)
     else:
-        code, returned_state = _extract_code_and_state(prompt_for_redirect(oauth_url))
-
-    if returned_state and returned_state != state:
-        raise CodexOAuthStateMismatchError
-    if not isinstance(code, str) or not code.strip():
-        raise CodexOAuthMissingCodeError
-
-    tokens = _exchange_openai_codex_authorization_code(
-        code=code.strip(),
-        verifier=verifier,
-        redirect_uri=redirect_uri,
-        timeout_seconds=timeout_seconds,
-        client_id=client_id,
-        token_url=token_url,
-    )
-    save_openai_codex_oauth_tokens(tokens, codex_home)
+        with _callback_receiver(redirect_uri) as receive:
+            if open_browser:
+                opener(authorization.url)
+            try:
+                callback = await asyncio.to_thread(receive, timeout_seconds)
+            except queue.Empty:
+                callback = None
+    if callback is None:
+        raise CodexAuthError("callback_timeout")
+    tokens = await codex.exchange_code(authorization, callback)
+    path = codex_token_path(codex_home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    codex.write_tokens(path, tokens)
     return tokens
 
 
 def _prompt_for_codex_redirect(authorize_url: str) -> str:
     typer.echo("Open this URL in your browser and complete the Codex sign-in flow:\n")
     typer.echo(authorize_url)
-    typer.echo("\nPaste the full callback URL or the authorization code.")
+    typer.echo("\nPaste the full callback URL, including state; a bare code is not accepted.")
     return str(typer.prompt("callback")).strip()
-
-
-def _render_codex_login_result(tokens: OpenAICodexOAuthTokens, auth_path: Path) -> None:
-    typer.echo("login: ok")
-    typer.echo(f"account_id: {tokens.account_id or '-'}")
-    typer.echo(f"auth_file: {auth_path}")
-    typer.echo("usage: set BUB_MODEL=openai:<codex-model> and omit BUB_API_KEY")
 
 
 @app.command()
 def openai(
-    codex_home: Path | None = typer.Option(None, "--codex-home", help="Directory to store Codex OAuth credentials"),
+    codex_home: Path | None = typer.Option(None, "--codex-home", help="Directory for Bub Codex credentials"),
     open_browser: bool = typer.Option(True, "--browser/--no-browser", help="Open the OAuth URL in a browser"),
-    manual: bool = typer.Option(
-        False,
-        "--manual",
-        help="Paste the callback URL or code instead of waiting for a local callback server",
-    ),
+    manual: bool = typer.Option(False, "--manual", help="Paste the full callback URL instead of a local server"),
+    migrate: bool = typer.Option(False, "--migrate", help="Import existing auth.json locally; no login or network"),
     timeout_seconds: float = typer.Option(300.0, "--timeout", help="OAuth wait timeout in seconds"),
 ) -> None:
-    """Login with OpenAI OAuth."""
-
-    resolved_codex_home = resolve_codex_home(codex_home)
-    prompt_for_redirect = _prompt_for_codex_redirect if manual or not open_browser else None
-
+    """Log in with ChatGPT OAuth, or explicitly migrate an existing credential file."""
+    directory = resolve_codex_home(codex_home)
     try:
-        tokens = login_openai_codex_oauth(
-            codex_home=resolved_codex_home,
-            prompt_for_redirect=prompt_for_redirect,
-            open_browser=open_browser,
-            redirect_uri=DEFAULT_CODEX_REDIRECT_URI,
-            timeout_seconds=timeout_seconds,
-        )
-    except CodexOAuthLoginError as exc:
-        typer.echo(f"Codex login failed: {exc}", err=True)
-        raise typer.Exit(1) from exc
-
-    _render_codex_login_result(tokens, resolved_codex_home / "auth.json")
-
-
-def extract_openai_codex_account_id(access_token: str) -> str | None:
-    payload = _decode_unverified_jwt_payload(access_token)
-    if payload is None:
-        return None
-    auth = payload.get("https://api.openai.com/auth")
-    if not isinstance(auth, dict):
-        return None
-    account_id = auth.get("chatgpt_account_id")
-    if not isinstance(account_id, str):
-        return None
-    return account_id.strip() or None
-
-
-def _decode_unverified_jwt_payload(access_token: str) -> dict[str, Any] | None:
-    """Read local JWT claims without treating them as verified credentials."""
-
-    parts = access_token.split(".")
-    if len(parts) != 3:
-        return None
-    payload_segment = parts[1]
-    padding = "=" * (-len(payload_segment) % 4)
-    try:
-        payload = json.loads(urlsafe_b64decode((payload_segment + padding).encode("ascii")).decode("utf-8"))
-    except (UnicodeError, ValueError):
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
-def _jwt_expiry(access_token: str) -> int | None:
-    payload = _decode_unverified_jwt_payload(access_token)
-    if payload is None:
-        return None
-    exp = payload.get("exp")
-    if type(exp) is int:
-        return exp
-    if type(exp) is float and math.isfinite(exp):
-        return int(exp)
-    return None
-
-
-def _parse_tokens(payload: dict[str, Any]) -> OpenAICodexOAuthTokens | None:
-    tokens = payload.get("tokens")
-    if not isinstance(tokens, dict):
-        return None
-
-    access_token = tokens.get("access_token")
-    refresh_token = tokens.get("refresh_token")
-    if not isinstance(access_token, str) or not isinstance(refresh_token, str):
-        return None
-    access = access_token.strip()
-    refresh = refresh_token.strip()
-    if not access or not refresh:
-        return None
-
-    expires_at = _parse_expiry(tokens.get("expires_at"), payload.get("last_refresh"), access)
-    account_id = tokens.get("account_id")
-    return OpenAICodexOAuthTokens(
-        access_token=access,
-        refresh_token=refresh,
-        expires_at=expires_at,
-        account_id=account_id if isinstance(account_id, str) else None,
-    )
-
-
-def _parse_expiry(expires_raw: object, last_refresh_raw: object, access_token: str) -> int:
-    if isinstance(expires_raw, int | float):
-        return int(expires_raw)
-    if isinstance(expires_raw, str):
-        return _rfc3339_to_unix(expires_raw)
-    if (jwt_expiry := _jwt_expiry(access_token)) is not None:
-        return jwt_expiry
-    if isinstance(last_refresh_raw, int | float):
-        return int(last_refresh_raw) + 3600
-    if isinstance(last_refresh_raw, str):
-        return _rfc3339_to_unix(last_refresh_raw) + 3600
-    return int(time.time()) + 3600
-
-
-def _tokens_from_token_payload(payload: dict[str, Any], *, account_id: str | None) -> OpenAICodexOAuthTokens:
-    access_token = payload.get("access_token")
-    refresh_token = payload.get("refresh_token")
-    expires_in = payload.get("expires_in")
-    if not isinstance(access_token, str) or not isinstance(refresh_token, str):
-        raise CodexOAuthResponseError
-    if not isinstance(expires_in, int | float):
-        raise CodexOAuthResponseError
-
-    access = access_token.strip()
-    return OpenAICodexOAuthTokens(
-        access_token=access,
-        refresh_token=refresh_token.strip(),
-        expires_at=int(time.time() + float(expires_in)),
-        account_id=account_id or extract_openai_codex_account_id(access),
-    )
-
-
-def _exchange_openai_codex_authorization_code(
-    code: str,
-    *,
-    verifier: str,
-    redirect_uri: str,
-    timeout_seconds: float,
-    client_id: str,
-    token_url: str,
-) -> OpenAICodexOAuthTokens:
-    with OAuth2Client(
-        client_id=client_id,
-        redirect_uri=redirect_uri,
-        code_challenge_method="S256",
-        timeout=timeout_seconds,
-    ) as oauth:
-        payload = oauth.fetch_token(
-            url=token_url,
-            grant_type="authorization_code",
-            code=code,
-            code_verifier=verifier,
-        )
-    return _tokens_from_token_payload(
-        payload,
-        account_id=extract_openai_codex_account_id(str(payload.get("access_token", ""))),
-    )
-
-
-def _build_pkce_verifier() -> str:
-    return urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
-
-
-def _build_authorize_url(
-    *,
-    client_id: str,
-    redirect_uri: str,
-    code_challenge: str,
-    state: str,
-    authorize_url: str,
-    scope: str,
-    originator: str,
-) -> str:
-    with OAuth2Client(
-        client_id=client_id,
-        redirect_uri=redirect_uri,
-        scope=scope,
-        code_challenge_method="S256",
-        trust_env=True,
-    ) as oauth:
-        url, _ = oauth.create_authorization_url(
-            authorize_url,
-            state=state,
-            code_verifier=code_challenge,
-            id_token_add_organizations="true",  # noqa: S106
-            codex_cli_simplified_flow="true",
-            originator=originator,
-        )
-    return str(url)
-
-
-def _extract_code_and_state(input_value: str) -> tuple[str | None, str | None]:
-    raw = input_value.strip()
-    if not raw:
-        return None, None
-
-    parsed = urllib.parse.urlsplit(raw)
-    query = urllib.parse.parse_qs(parsed.query)
-    code = query.get("code", [None])[0]
-    state = query.get("state", [None])[0]
-    if isinstance(code, str) or isinstance(state, str):
-        return code if isinstance(code, str) else None, state if isinstance(state, str) else None
-
-    if "code=" in raw:
-        parsed_query = urllib.parse.parse_qs(raw)
-        code = parsed_query.get("code", [None])[0]
-        state = parsed_query.get("state", [None])[0]
-        return code if isinstance(code, str) else None, state if isinstance(state, str) else None
-
-    return raw, None
-
-
-def _wait_for_local_oauth_callback(
-    *, redirect_uri: str, timeout_seconds: float
-) -> tuple[str | None, str | None] | None:
-    parsed_redirect = urllib.parse.urlsplit(redirect_uri)
-    if parsed_redirect.scheme != "http" or (parsed_redirect.hostname or "").lower() not in {"127.0.0.1", "localhost"}:
-        return None
-    if parsed_redirect.port is None:
-        return None
-
-    path = parsed_redirect.path or "/"
-    state: dict[str, str | None] = {"code": None, "state": None}
-    done = threading.Event()
-    lock = threading.Lock()
-
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
-            return
-
-        def do_GET(self) -> None:
-            parsed = urllib.parse.urlsplit(self.path)
-            if parsed.path != path:
-                self.send_response(404)
-                self.end_headers()
-                return
-
-            query = urllib.parse.parse_qs(parsed.query)
-            with lock:
-                code = query.get("code", [None])[0]
-                returned_state = query.get("state", [None])[0]
-                state["code"] = code if isinstance(code, str) else None
-                state["state"] = returned_state if isinstance(returned_state, str) else None
-            done.set()
-
-            body = (
-                b"<!doctype html><html><body><p>Authentication successful. Return to your terminal.</p></body></html>"
+        if migrate:
+            migrate_codex_tokens(directory)
+        else:
+            asyncio.run(
+                login_openai_codex_oauth(
+                    codex_home=directory,
+                    prompt_for_redirect=_prompt_for_codex_redirect if manual or not open_browser else None,
+                    open_browser=open_browser,
+                    timeout_seconds=timeout_seconds,
+                )
             )
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-    try:
-        server = ThreadingHTTPServer((parsed_redirect.hostname or "localhost", parsed_redirect.port), Handler)
-    except OSError:
-        return None
-
-    server.timeout = 0.2
-    deadline = time.monotonic() + timeout_seconds
-    try:
-        while not done.is_set() and time.monotonic() < deadline:
-            server.handle_request()
-    finally:
-        server.server_close()
-
-    if not done.is_set():
-        return None
-    with lock:
-        return state["code"], state["state"]
-
-
-def _unix_to_rfc3339(timestamp: int) -> str:
-    return datetime.fromtimestamp(timestamp, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _rfc3339_to_unix(value: str) -> int:
-    try:
-        return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp())
-    except (ValueError, AttributeError):
-        return int(time.time())
+    except CodexAuthError as exc:
+        typer.echo(f"Codex login failed: {exc.code}", err=True)
+        raise typer.Exit(1) from None
+    typer.echo("login: ok")
+    typer.echo(f"auth_file: {codex_token_path(directory)}")
+    typer.echo("usage: set BUB_MODEL=openai:<codex-model> and omit BUB_API_KEY and BUB_API_BASE")

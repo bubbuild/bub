@@ -21,7 +21,6 @@ def settings(protocol: str = "responses", **extra: Any) -> AgentSettings:
     provider = "anthropic" if protocol == "messages" else "openai"
     values = {
         "model": f"{provider}:fixture-model",
-        "model_backend": "republic",
         "api_key": "fixture-key",
         "api_base": "https://fixture.test/v1" if provider == "openai" else "https://fixture.test",
         "republic_protocols": {provider: protocol},
@@ -249,8 +248,13 @@ def sdk_transport(transport: Transport) -> Iterator[list[httpx.AsyncClient]]:
         clients.append(client)
         return client
 
+    async def deny_network(*args: Any, **kwargs: Any) -> httpx.Response:
+        raise AssertionError("Fixture transport must handle every HTTP request")
+
     with (
+        patch("httpx.AsyncHTTPTransport.handle_async_request", deny_network),
         patch("openai._base_client.AsyncHttpxClientWrapper", create),
+        patch("openai.DefaultAsyncHttpxClient", create),
         patch("anthropic._base_client.AsyncHttpxClientWrapper", create),
     ):
         yield clients

@@ -20,7 +20,19 @@ async def main(protocol: str, phase: int, directory: Path) -> None:
     import republic
 
     config = settings(protocol)
-    body = Body(wire(protocol, tool=phase == 1))
+    if protocol == "codex":
+        import time
+
+        from republic.auth.codex import CodexTokens, write_tokens
+
+        from bub.builtin.auth import codex_token_path
+
+        write_tokens(
+            codex_token_path(directory),
+            CodexTokens("fixture-access", "fixture-refresh", time.time() + 3600, "acct_fixture"),
+        )
+        config = settings(protocol, api_key=None, api_base=None, codex_home=directory)
+    body = Body(wire("responses" if protocol == "codex" else protocol, tool=phase == 1))
     transport = Transport([body])
 
     def inspect(value: int) -> str:
@@ -49,8 +61,11 @@ async def main(protocol: str, phase: int, directory: Path) -> None:
     if phase == 2:
         assert events[-1].data["text"] == "finished"
         payload = transport.payload()
-        if protocol == "responses":
+        if protocol in {"responses", "codex"}:
             history = payload["input"]
+            if protocol == "codex":
+                assert payload["instructions"] == "system"
+                history = [None, *history]  # Leading system message becomes instructions.
             assert history[2]["id"] == "reasoning-item" and history[2]["encrypted_content"] == "opaque-reasoning"
             assert history[3]["id"] == "function-item" and history[3]["call_id"] == "call-original"
             assert history[4] == {"type": "function_call_output", "call_id": "call-original", "output": "value=2"}

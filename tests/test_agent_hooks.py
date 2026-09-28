@@ -260,6 +260,8 @@ class TestModelRunnerHookIntegration:
     """Regression tests for PR #255 review findings (effective request, exactly-once)."""
 
     def _runner_and_tape(self, hooks: AgentHooks, captured: dict):
+        from model_fixtures import ScriptedProvider, reply
+
         import bub
         from bub.builtin.model_runner import ModelRunner
         from bub.builtin.settings import AgentSettings
@@ -267,14 +269,12 @@ class TestModelRunnerHookIntegration:
         from bub.tape import Tape, TapeContext
 
         class FakeRunner(ModelRunner):
-            async def completion_response(self, *, model, messages, tools, max_tokens=None, reasoning_effort=None):
-                captured.update(model=model, max_tokens=max_tokens)
+            async def create_provider(self, candidate):
+                async def respond(request):
+                    captured.update(model=candidate.name, max_tokens=request.options.max_output_tokens)
+                    return reply("ab")
 
-                async def chunks():
-                    return
-                    yield  # pragma: no cover
-
-                return chunks()
+                return ScriptedProvider(respond)
 
         settings = AgentSettings.model_construct(model="openai:orig", max_tokens=100, model_timeout_seconds=None)
         runner = FakeRunner(settings, hooks=hooks)
@@ -311,15 +311,6 @@ class TestModelRunnerHookIntegration:
         captured: dict = {}
         runner, tape = self._runner_and_tape(make_hooks(Observe()), captured)
 
-        from bub.builtin.model_runner import ModelRunner  # noqa: F401
-
-        async def fake_events(completion, state, output):
-            from bub.streaming import StreamEvent
-
-            yield StreamEvent("text", {"delta": "a"})
-            yield StreamEvent("text", {"delta": "b"})
-
-        runner._completion_events = fake_events  # type: ignore[method-assign]
         events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
         iterator = events.__aiter__()
         await iterator.__anext__()

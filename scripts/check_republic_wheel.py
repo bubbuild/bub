@@ -54,9 +54,22 @@ def main() -> None:
         )
         return result.stdout or ""
 
-    run(uv, "sync", "--locked", "--no-editable", "--python", args.python)
+    run(uv, "venv", "--python", args.python, str(directory / "venv"))
     constraints = directory / "constraints.txt"
-    constraints.write_text(run(uv, "export", "--locked", "--no-hashes", "--no-emit-project", capture=True))
+    constraints.write_text(
+        run(
+            uv,
+            "export",
+            "--locked",
+            "--extra",
+            "trace",
+            "--no-hashes",
+            "--no-emit-project",
+            "--no-emit-package",
+            "republic",
+            capture=True,
+        )
+    )
     python = str(directory / "venv" / "bin" / "python")
     # uv's project build cache does not key every source file. Build an explicit
     # consumer wheel so a second run cannot reuse an earlier Bub implementation.
@@ -68,10 +81,8 @@ def main() -> None:
         "install",
         "--python",
         python,
-        "--constraint",
+        "--requirements",
         str(constraints),
-        "--reinstall-package",
-        "bub",
         str(bub_wheel),
         str(wheel),
     )
@@ -79,12 +90,21 @@ def main() -> None:
     probe = """
 import json, sys
 from zipfile import ZipFile
-from importlib.metadata import distribution, version
+from importlib.metadata import distribution, version, PackageNotFoundError
+from importlib.util import find_spec
 import bub, republic
 from republic.providers.openai import OpenAIChatCompletions, OpenAIResponses
 from republic.providers.anthropic import AnthropicMessages
 assert '/site-packages/' in bub.__file__ and '/site-packages/' in republic.__file__
-dist = distribution('republic')
+assert find_spec('any_llm') is None
+try:
+    distribution('any-llm-sdk')
+except PackageNotFoundError:
+    pass
+else:
+    raise AssertionError('Removed SDK must not be installed')
+assert any(requirement.startswith('republic') for requirement in distribution('bub').requires)
+assert 'model_backend' not in __import__('bub.builtin.settings', fromlist=['AgentSettings']).AgentSettings.model_fields
 for package, artifact in [('republic', sys.argv[1]), ('bub', sys.argv[2])]:
     with ZipFile(artifact) as archive:
         for name in archive.namelist():
@@ -113,7 +133,7 @@ print(json.dumps({'bub_import': bub.__file__, 'republic_import': republic.__file
         "no:cacheprovider",
         "--basetemp",
         str(directory / "tests"),
-        "tests/test_republic_integration.py",
+        "tests",
     )
     report = {
         "source_commit": args.source_commit,
@@ -122,6 +142,8 @@ print(json.dumps({'bub_import': bub.__file__, 'republic_import': republic.__file
         "wheel": str(wheel),
         "sha256": digest,
         "installed": installed,
+        "removed_sdk_absent": True,
+        "dependency_check": "uv pip check",
         "evidence": "official SDK / HTTP fixtures, not live service acceptance",
     }
     path = directory / "report.json"

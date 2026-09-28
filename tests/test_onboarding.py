@@ -3,27 +3,26 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import httpx
 import pytest
 import typer
-from any_llm import AnyLLM
-from any_llm.constants import LLMProvider
-from any_llm.exceptions import AuthenticationError
+from republic.errors import ProviderError
+from republic_fixtures import Transport, sdk_transport
 from typer.testing import CliRunner
 
 from bub import configure, inquirer
-from bub.builtin import codex_provider, onboarding
+from bub.builtin import auth, onboarding
+from bub.builtin.model_provider import protocol_for
+from bub.errors import BubError
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 
 
 @pytest.fixture(autouse=True)
-def isolated_environment(monkeypatch):
-    monkeypatch.setattr(codex_provider, "load_openai_codex_oauth_tokens", lambda: None)
-    with patch.dict(os.environ, {}, clear=True):
+def isolated_environment(tmp_path):
+    with patch.dict(os.environ, {"CODEX_HOME": str(tmp_path / "codex")}, clear=True):
         yield
 
 
@@ -113,7 +112,7 @@ def test_failed_connection_can_edit_url_and_key_then_select_models(prompts, monk
     def discover(provider, api_base=None, api_key=None, **kwargs):
         probes.append((provider, api_base, api_key))
         if len(probes) == 1:
-            raise AuthenticationError("response body containing bad-key")
+            raise ProviderError("response body containing bad-key")
         return ["model-a", "model-b"]
 
     monkeypatch.setattr(onboarding, "discover_models", discover)
@@ -185,29 +184,11 @@ def test_unsupported_discovery_goes_directly_to_manual_entry(prompts, monkeypatc
     menu.assert_not_called()
 
 
-def test_azure_capability_skips_client_creation_and_prompts_for_model(prompts, monkeypatch, capsys):
-    answers, _ = prompts
-    answers["provider"] = "azure"
-    provider_class = SimpleNamespace(
-        SUPPORTS_LIST_MODELS=False, API_BASE=None, ENV_API_BASE_NAME="AZURE_AI_CHAT_ENDPOINT"
-    )
-    monkeypatch.setattr(AnyLLM, "get_provider_class", lambda provider: provider_class)
-    create = Mock(side_effect=AssertionError("Unsupported discovery must not construct an SDK client"))
-    monkeypatch.setattr(AnyLLM, "create", create)
-    monkeypatch.setattr(
-        onboarding,
-        "discover_models",
-        lambda provider, **kwargs: asyncio.run(onboarding._discover_models(provider, **kwargs)),
-    )
-    menu = Mock(side_effect=AssertionError("Unsupported discovery must not offer retry"))
-    monkeypatch.setattr(inquirer, "ask_select", menu)
-
-    config = onboarding.collect_model_config({})
-
-    assert config == {"model": "azure:model-b", "api_base": answers["base"], "api_key": answers["key"]}
-    assert "Model discovery is unavailable" in capsys.readouterr().out
-    create.assert_not_called()
-    menu.assert_not_called()
+@pytest.mark.parametrize("provider", ["azure", "ollama", "gemini", "custom"])
+def test_unsupported_provider_is_not_advertised_or_discovered(provider):
+    assert provider not in onboarding.PROVIDERS
+    with pytest.raises(BubError, match="Unsupported provider"):
+        onboarding.discover_models(provider, api_key="test", api_base="https://fixture.test")
 
 
 @pytest.mark.parametrize("failure", [TimeoutError(), ImportError(), ValueError("sensitive key")])
@@ -259,32 +240,19 @@ def test_connection_check_honors_environment_overrides_and_client_options(prompt
         return ["model-a", "model-b"]
 
     monkeypatch.setattr(onboarding, "discover_models", discover)
-    onboarding.collect_model_config({"client_args": {"default_headers": {"X-Workspace": "test"}}})
+    onboarding.collect_model_config({})
     assert received == [
         (
             ("openai",),
-            {"api_base": "https://override.test/v1", "api_key": "test-key", "default_headers": {"X-Workspace": "test"}},
+            {"api_base": "https://override.test/v1", "api_key": "test-key"},
         )
     ]
     assert "environment settings override" in capsys.readouterr().out
 
 
-def test_connection_check_overrides_auth_fields_in_client_args_like_runtime(prompts, monkeypatch):
-    received = []
-
-    def discover(*args, **kwargs):
-        received.append((args, kwargs))
-        return ["model-a", "model-b"]
-
-    monkeypatch.setattr(onboarding, "discover_models", discover)
-    onboarding.collect_model_config({
-        "client_args": {
-            "api_key": "unused-key",
-            "api_base": "https://unused.test/v1",
-            "timeout": 5,
-        }
-    })
-    assert received == [(("openai",), {"api_base": None, "api_key": "test-key", "timeout": 5})]
+def test_connection_check_rejects_unsupported_client_args(prompts):
+    with pytest.raises(BubError, match="client_args"):
+        onboarding.collect_model_config({"client_args": {"timeout": 5}})
 
 
 @pytest.mark.parametrize("compatible", [False, True])
@@ -302,7 +270,7 @@ def test_other_provider_config_does_not_shadow_environment_connection(prompts, m
     assert "api_key" not in update
     merged = configure.merge({}, current, update)
     settings = onboarding.AgentSettings.model_validate(merged)
-    assert settings.model_client_kwargs(LLMProvider.OPENAI) == {
+    assert settings.model_client_kwargs("openai") == {
         "api_base": "https://example.test/v1",
         "api_key": "environment-key",
     }
@@ -370,7 +338,7 @@ def test_editing_endpoint_clears_key_before_blank_key_is_reused(prompts, monkeyp
     def discover(provider, **kwargs):
         probes.append(kwargs)
         if len(probes) == 1:
-            raise AuthenticationError("saved-key")
+            raise ProviderError("saved-key")
         return ["model-a", "model-b"]
 
     monkeypatch.setattr(onboarding, "discover_models", discover)
@@ -425,7 +393,6 @@ def test_blank_compatible_key_uses_environment_for_discovery_and_saved_config(pr
     monkeypatch.setattr(
         onboarding, "discover_models", lambda *args, **kwargs: asyncio.run(real_discover(*args, **kwargs))
     )
-    real_create = AnyLLM.create
     requests = []
 
     def respond(request):
@@ -441,14 +408,14 @@ def test_blank_compatible_key_uses_environment_for_discovery_and_saved_config(pr
             },
         )
 
-    def create_client(provider, **kwargs):
-        return real_create(provider, **kwargs, http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)))
+    def create_client(**kwargs):
+        return httpx.AsyncClient(**kwargs, transport=httpx.MockTransport(respond))
 
-    monkeypatch.setattr(AnyLLM, "create", create_client)
+    monkeypatch.setattr("openai._base_client.AsyncHttpxClientWrapper", create_client)
     config = onboarding.collect_model_config({})
     assert "api_key" not in config
     runtime_settings = onboarding.AgentSettings.model_validate(config)
-    onboarding.discover_models("openai", **runtime_settings.model_client_kwargs(LLMProvider.OPENAI))
+    onboarding.discover_models("openai", **runtime_settings.model_client_kwargs("openai"))
     assert len(requests) == 2
     assert all(request.headers["authorization"] == "Bearer environment-key" for request in requests)
     assert all(str(request.url) == "https://example.test/v1/models" for request in requests)
@@ -466,12 +433,15 @@ def test_compatible_key_detects_provider_mapping_in_environment(prompts, monkeyp
 def test_oauth_login_skips_api_key_discovery_and_preserves_runtime_auth(prompts, monkeypatch, capsys):
     answers, calls = prompts
     answers["key"] = ""
-    monkeypatch.setattr(codex_provider, "load_openai_codex_oauth_tokens", lambda: object())
+    path = auth.codex_token_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()  # Onboarding only selects; it never reads or refreshes a token.
     config = onboarding.collect_model_config({})
     assert config == {"model": "openai:model-b"}
     assert "discover" not in dict(calls)
     assert "OAuth login" in capsys.readouterr().out
-    assert codex_provider.should_use_openai_codex_provider("openai", "model-b", api_key=None, api_base=None)
+    config_settings = onboarding.AgentSettings.model_validate(config)
+    assert protocol_for(config_settings, config_settings.model_candidates(config_settings.model)[0]) == "openai.codex"
 
 
 @pytest.mark.parametrize("initial", [{}, {"api_base": None}, {"api_base": ""}, {"api_base": {"openai": ""}}])
@@ -482,21 +452,25 @@ def test_leaving_default_url_blank_during_edit_does_not_disable_oauth(prompts, m
     monkeypatch.setattr(inquirer, "ask_select", lambda *args, **kwargs: next(actions))
 
     def fail(*args, **kwargs):
-        raise AuthenticationError("no API key")
+        raise ProviderError("no API key")
 
     monkeypatch.setattr(onboarding, "discover_models", fail)
     config = onboarding.collect_model_config(initial)
     settings = onboarding.AgentSettings.model_validate(config)
     api_base = settings.model_client_kwargs("openai")["api_base"]
     assert not api_base
-    monkeypatch.setattr(codex_provider, "load_openai_codex_oauth_tokens", lambda: object())
-    assert codex_provider.should_use_openai_codex_provider("openai", "model-b", api_key=None, api_base=api_base)
+    path = auth.codex_token_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()  # Onboarding only selects; it never reads or refreshes a token.
+    assert protocol_for(settings, settings.model_candidates(settings.model)[0]) == "openai.codex"
 
 
 def test_explicit_official_base_does_not_switch_to_oauth(prompts, monkeypatch):
     answers, calls = prompts
     answers["key"] = ""
-    monkeypatch.setattr(codex_provider, "load_openai_codex_oauth_tokens", lambda: object())
+    path = auth.codex_token_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()  # Onboarding only selects; it never reads or refreshes a token.
     config = onboarding.collect_model_config({"model": "openai:model-b", "api_base": onboarding.OPENAI_BASE})
     assert config["api_base"] == onboarding.OPENAI_BASE
     assert "discover" in dict(calls)
@@ -547,7 +521,6 @@ def test_compatible_url_is_validated_before_sending_credentials(monkeypatch, inv
 def test_discovery_uses_entered_endpoint_and_credentials_and_closes_client(monkeypatch):
     requests = []
     clients = []
-    create = AnyLLM.create
 
     def respond(request):
         requests.append(request)
@@ -562,12 +535,12 @@ def test_discovery_uses_entered_endpoint_and_credentials_and_closes_client(monke
             },
         )
 
-    def create_client(provider, **kwargs):
-        client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    def create_client(**kwargs):
+        client = httpx.AsyncClient(**kwargs, transport=httpx.MockTransport(respond))
         clients.append(client)
-        return create(provider, **kwargs, http_client=client)
+        return client
 
-    monkeypatch.setattr(AnyLLM, "create", create_client)
+    monkeypatch.setattr("openai._base_client.AsyncHttpxClientWrapper", create_client)
     assert onboarding.discover_models("openai", api_base="https://example.test/custom/v1", api_key="test-key") == [
         "model-a",
         "model-b",
@@ -580,22 +553,25 @@ def test_discovery_uses_entered_endpoint_and_credentials_and_closes_client(monke
 
 
 def test_discovery_timeout_cancels_request_and_closes_client(monkeypatch):
-    closed = AsyncMock()
     cancelled = []
 
-    async def list_models():
+    async def wait(request):
         try:
             await asyncio.Event().wait()
         finally:
             cancelled.append(True)
 
     monkeypatch.setattr(onboarding, "CONNECTION_TIMEOUT", 0.01)
-    monkeypatch.setattr(
-        AnyLLM,
-        "create",
-        lambda *args, **kwargs: SimpleNamespace(alist_models=list_models, client=SimpleNamespace(close=closed)),
-    )
-    with pytest.raises(TimeoutError):
+    with sdk_transport(httpx.MockTransport(wait)) as clients, pytest.raises(TimeoutError):
         onboarding.discover_models("openai", api_base="https://example.test/v1", api_key="test-key")
     assert cancelled == [True]
-    closed.assert_awaited_once()
+    assert clients[0].is_closed
+
+
+@pytest.mark.parametrize("status", [401, 403, 429])
+def test_discovery_does_not_retry_or_expose_server_error(status):
+    transport = Transport([httpx.Response(status, json={"error": {"message": "sensitive-key"}})])
+    with sdk_transport(transport), pytest.raises(Exception) as error:
+        onboarding.discover_models("openai", api_key="fixture-key")
+    assert len(transport.requests) == 1
+    assert "sensitive-key" not in onboarding._connection_error(error.value)

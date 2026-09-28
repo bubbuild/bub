@@ -10,14 +10,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from any_llm.constants import LLMProvider
-from any_llm.types.completion import ChatCompletion, ChatCompletionChunk
+from model_fixtures import install_provider
+from model_fixtures import reply as completion
+from republic import Request, Response, ToolCallPart, Usage
+from republic import events as native_events
+from republic.errors import ProviderError
 
 from bub import tracing
 from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context
 from bub.builtin.model_runner import ModelRunner
-from bub.builtin.settings import AgentSettings, ModelCandidate
+from bub.builtin.settings import AgentSettings
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.hooks.interception import LlmCallDecision, ToolCallDecision, ToolCallResult
@@ -53,25 +56,8 @@ def agent(tmp_path: Path) -> Agent:
     return agent
 
 
-def completion(text: str = "done", calls: list[dict[str, Any]] | None = None) -> ChatCompletion:
-    return ChatCompletion.model_validate({
-        "id": "response-1",
-        "object": "chat.completion",
-        "created": 0,
-        "model": "actual-model",
-        "choices": [
-            {
-                "index": 0,
-                "finish_reason": "tool_calls" if calls else "stop",
-                "message": {"role": "assistant", "content": text, "tool_calls": calls},
-            }
-        ],
-        "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
-    })
-
-
-def call(name: str, call_id: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {"id": call_id, "type": "function", "function": {"name": name, "arguments": json.dumps(arguments or {})}}
+def call(name: str, call_id: str, arguments: dict[str, Any] | None = None) -> ToolCallPart:
+    return ToolCallPart(tool_call_id=call_id, tool_name=name, tool_args=json.dumps(arguments or {}))
 
 
 @pytest.mark.asyncio
@@ -94,10 +80,10 @@ async def test_agent_trajectory_has_parallel_tools_messages_and_tape_links(
     monkeypatch.setitem(agent.tools, "trace_tool", Tool(name="trace_tool", handler=handler))
     replies = iter([completion("checking", [call("trace_tool", "call-1"), call("trace_tool", "call-2")]), completion()])
 
-    async def respond(**kwargs: Any) -> ChatCompletion:
+    async def respond(request: Request) -> Response:
         return next(replies)
 
-    monkeypatch.setattr(agent.model_runner, "completion_response", respond)
+    install_provider(monkeypatch, agent.model_runner, respond)
     events = await agent.run_stream(session_id="trace-test", prompt="hello", state={}, allowed_tools=["trace_tool"])
     async for _ in events:
         assert tracing.current_span() is None
@@ -138,10 +124,10 @@ async def test_subagent_is_nested_under_its_tool(spans: Any, agent: Agent, monke
         completion(),
     ])
 
-    async def respond(**kwargs: Any) -> ChatCompletion:
+    async def respond(request: Request) -> Response:
         return next(replies)
 
-    monkeypatch.setattr(agent.model_runner, "completion_response", respond)
+    install_provider(monkeypatch, agent.model_runner, respond)
     events = await agent.run_stream(
         session_id="parent", prompt="delegate", state={"_runtime_agent": agent}, allowed_tools=["subagent"]
     )
@@ -169,24 +155,19 @@ async def test_stream_close_and_cancel_finish_spans_and_provider(
     closed = asyncio.Event()
     waiting = asyncio.Event()
 
-    async def chunks() -> AsyncIterator[ChatCompletionChunk]:
+    async def chunks() -> AsyncIterator[native_events.Event]:
         try:
-            yield ChatCompletionChunk.model_validate({
-                "id": "chunk-1",
-                "object": "chat.completion.chunk",
-                "created": 0,
-                "model": "actual",
-                "choices": [{"index": 0, "delta": {"content": "first"}}],
-            })
+            yield native_events.TextStart(block_id="text")
+            yield native_events.TextDelta(block_id="text", chunk="first")
             waiting.set()
             await asyncio.Event().wait()
         finally:
             closed.set()
 
-    async def respond(**kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:
+    async def respond(request: Request) -> AsyncIterator[native_events.Event]:
         return chunks()
 
-    monkeypatch.setattr(agent.model_runner, "completion_response", respond)
+    install_provider(monkeypatch, agent.model_runner, respond)
     events = await agent.run_stream(session_id="cancel-test", prompt="hello", state={}, allowed_tools=[])
     assert (await anext(events)).kind == "text"
     assert tracing.current_span() is None
@@ -323,19 +304,15 @@ async def test_failed_tool_records_effective_result_and_original_failure(spans: 
 async def test_provider_fallback_records_actual_model(
     spans: Any, agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    class Client:
-        SUPPORTS_COMPLETION_STREAMING = False
+    agent.settings.model = "openai:unavailable"
+    agent.settings.fallback_models = ["openai:fallback"]
 
-        async def acompletion(self, **kwargs: Any) -> ChatCompletion:
-            if kwargs["model"] == "unavailable":
-                raise RuntimeError("try next")
-            return completion()
+    async def respond(request: Request) -> Response:
+        if request.model == "unavailable":
+            raise ProviderError("try next")
+        return completion()
 
-    candidates = [
-        ModelCandidate(name=f"openai:{name}", provider=LLMProvider.OPENAI, model_id=name)
-        for name in ["unavailable", "fallback"]
-    ]
-    monkeypatch.setattr(agent.model_runner, "iter_llm_clients", lambda model: iter((c, Client()) for c in candidates))
+    install_provider(monkeypatch, agent.model_runner, respond)
     events = await agent.run_stream(session_id="fallback", prompt="hello", state={}, allowed_tools=[])
     async for _ in events:
         pass
@@ -375,27 +352,21 @@ asyncio.run(main())
 
 @pytest.mark.asyncio
 async def test_streaming_usage_arrives_on_last_chunk(spans: Any, agent: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
-    async def chunks() -> AsyncIterator[ChatCompletionChunk]:
-        yield ChatCompletionChunk.model_validate({
-            "id": "stream",
-            "object": "chat.completion.chunk",
-            "created": 0,
-            "model": "stream-model",
-            "choices": [{"index": 0, "delta": {"content": "done"}, "finish_reason": "stop"}],
-        })
-        yield ChatCompletionChunk.model_validate({
-            "id": "stream",
-            "object": "chat.completion.chunk",
-            "created": 0,
-            "model": "stream-model",
-            "choices": [],
-            "usage": {"prompt_tokens": 19, "completion_tokens": 3, "total_tokens": 22},
-        })
+    async def chunks() -> AsyncIterator[native_events.Event]:
+        yield native_events.TextStart(block_id="text")
+        yield native_events.TextDelta(block_id="text", chunk="done")
+        yield native_events.TextEnd(block_id="text")
+        yield native_events.StreamEnd(
+            response_id="stream",
+            response_model="stream-model",
+            finish_reason="stop",
+            usage=Usage(input_tokens=19, output_tokens=3),
+        )
 
-    async def respond(**kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:
+    async def respond(request: Request) -> AsyncIterator[native_events.Event]:
         return chunks()
 
-    monkeypatch.setattr(agent.model_runner, "completion_response", respond)
+    install_provider(monkeypatch, agent.model_runner, respond)
     events = await agent.run_stream(session_id="stream", prompt="hello", state={}, allowed_tools=[])
     assert (await anext(events)).data == {"delta": "done"}
     assert not spans.get_finished_spans()
@@ -414,11 +385,11 @@ async def test_timeout_marks_model_and_agent_as_failed(
 ) -> None:
     agent.settings.model_timeout_seconds = 0
 
-    async def respond(**kwargs: Any) -> ChatCompletion:
+    async def respond(request: Request) -> Response:
         await asyncio.Event().wait()
         return completion()
 
-    monkeypatch.setattr(agent.model_runner, "completion_response", respond)
+    install_provider(monkeypatch, agent.model_runner, respond)
     events = await agent.run_stream(session_id="timeout", prompt="hello", state={}, allowed_tools=[])
     with pytest.raises(TimeoutError):
         async for _ in events:
@@ -433,11 +404,11 @@ async def test_timeout_marks_model_and_agent_as_failed(
 async def test_concurrent_sessions_have_independent_traces(
     spans: Any, agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def respond(**kwargs: Any) -> ChatCompletion:
+    async def respond(request: Request) -> Response:
         await asyncio.sleep(0)
         return completion()
 
-    monkeypatch.setattr(agent.model_runner, "completion_response", respond)
+    install_provider(monkeypatch, agent.model_runner, respond)
 
     async def run(session: str) -> None:
         events = await agent.run_stream(session_id=session, prompt="hello", state={}, allowed_tools=[])

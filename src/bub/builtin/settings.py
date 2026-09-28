@@ -7,13 +7,12 @@ import sys
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from any_llm import AnyLLM
-from any_llm.constants import LLMProvider
 from pydantic import Field, field_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from bub import Settings, config, ensure_config
+from bub.errors import BubError, ErrorKind
 
 DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 16384
@@ -21,7 +20,7 @@ DEFAULT_MAX_TOKENS = 16384
 
 @dataclass(frozen=True)
 class ModelCandidate:
-    provider: LLMProvider
+    provider: str
     model_id: str
     name: str
 
@@ -41,7 +40,11 @@ class ProviderSpecificEnvSource(PydanticBaseSettingsSource):
     @staticmethod
     def _provider_specific(setting_name: str) -> dict[str, str]:
         setting_regex = re.compile(rf"^BUB_(.+)_{setting_name.upper()}$")
-        result: dict[str, str] = {}
+        result = {
+            provider: os.environ[f"{provider.upper()}_API_KEY"]
+            for provider in ("openai", "openrouter", "anthropic")
+            if setting_name == "api_key" and f"{provider.upper()}_API_KEY" in os.environ
+        }
         for key, value in os.environ.items():
             if match := setting_regex.match(key):
                 result[match.group(1).lower()] = value
@@ -54,13 +57,13 @@ class AgentSettings(Settings):
 
     model_config = SettingsConfigDict(env_prefix="BUB_", env_parse_none_str="null", extra="ignore")
     model: str = DEFAULT_MODEL
-    model_backend: Literal["any_llm", "republic"] = "any_llm"
-    republic_protocols: dict[str, Literal["chat", "responses", "messages"]] = Field(default_factory=dict)
+    republic_protocols: dict[str, Literal["chat", "responses", "messages", "codex"]] = Field(default_factory=dict)
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None
     max_steps: int = Field(default=sys.maxsize, gt=0)
-    max_tokens: int = DEFAULT_MAX_TOKENS
+    max_tokens: int | None = Field(default=None, gt=0)
+    codex_home: pathlib.Path | None = None
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] = Field(default_factory=dict)
     completion_args: dict[str, Any] = Field(default_factory=dict)
@@ -95,13 +98,19 @@ class AgentSettings(Settings):
 
         candidates: list[ModelCandidate] = []
         for candidate in candidate_names:
-            provider, model_id = AnyLLM.split_model_provider(candidate)
+            provider, separator, model_id = candidate.partition(":")
+            if not separator or not model_id.strip() or provider not in {"openai", "openrouter", "anthropic"}:
+                raise BubError(ErrorKind.CONFIG, "Expected openai:, openrouter: or anthropic: followed by a model ID.")
             candidates.append(ModelCandidate(provider=provider, model_id=model_id, name=candidate))
         return candidates
 
     def model_client_kwargs(self, provider: str) -> dict[str, Any]:
+        if self.client_args:
+            raise BubError(
+                ErrorKind.CONFIG,
+                "client_args is unsupported; use completion_args.provider_options for native request options.",
+            )
         return {
-            **self.client_args,
             "api_key": self._provider_value(self.api_key, provider),
             "api_base": self._provider_value(self.api_base, provider),
         }

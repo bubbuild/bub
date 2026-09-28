@@ -1,4 +1,4 @@
-"""Runtime engine to process prompts with any-llm-sdk."""
+"""Runtime engine to process prompts with Republic."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ MAX_AUTO_HANDOFF_RETRIES = 1
 
 
 class Agent:
-    """Agent that processes prompts using hooks, tools, tape, and any-llm-sdk."""
+    """Agent that processes prompts using hooks, tools, tape, and Republic."""
 
     def __init__(
         self,

@@ -41,13 +41,13 @@ Bub 按以下顺序解析配置值,优先级从高到低:
 class AgentSettings(Settings):
     model_config = SettingsConfigDict(env_prefix="BUB_", env_parse_none_str="null", extra="ignore")
     model: str = DEFAULT_MODEL  # "openrouter:openrouter/free"
-    model_backend: Literal["any_llm", "republic"] = "any_llm"
-    republic_protocols: dict[str, Literal["chat", "responses", "messages"]] = Field(default_factory=dict)
+    republic_protocols: dict[str, Literal["chat", "responses", "messages", "codex"]] = Field(default_factory=dict)
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None
     max_steps: int = Field(default=sys.maxsize, gt=0)
-    max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
+    max_tokens: int | None = Field(default=None, gt=0)
+    codex_home: pathlib.Path | None = None
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] = Field(default_factory=dict)
     completion_args: dict[str, Any] = Field(default_factory=dict)
@@ -59,25 +59,31 @@ class AgentSettings(Settings):
 | 环境变量 | 默认值 | YAML 字段 | 描述 |
 | --- | --- | --- | --- |
 | `BUB_MODEL` | `openrouter:openrouter/free` | `model` | 默认模型标识 (`provider:model_name`)。 |
-| `BUB_MODEL_BACKEND` | `any_llm` | `model_backend` | 显式选择 `any_llm` 或本地 `republic`。 |
-| `BUB_REPUBLIC_PROTOCOLS` | `{}` | `republic_protocols` | provider 到 `chat`/`responses`/`messages` 的映射，见 [Republic 指南](/zh-cn/docs/operate/republic-sdk/)。 |
+| `BUB_REPUBLIC_PROTOCOLS` | `{}` | `republic_protocols` | provider 到 `chat`/`responses`/`messages`/`codex` 的映射，见 [Republic 指南](/zh-cn/docs/operate/republic-sdk/)。 |
 | `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | 可选的回退模型标识列表。 |
 | `BUB_API_KEY` | unset | `api_key` | 默认 API key;也可以是按 provider 索引的 JSON object。 |
 | `BUB_API_BASE` | unset | `api_base` | 默认 API base URL,或按 provider 索引的映射。 |
 | `BUB_<PROVIDER>_API_KEY` | unset | — | 按 provider 划分的 API key,例如 `BUB_OPENAI_API_KEY`。 |
 | `BUB_<PROVIDER>_API_BASE` | unset | — | 按 provider 划分的 API base URL,例如 `BUB_OPENROUTER_API_BASE`。 |
 | `BUB_MAX_STEPS` | 不限制 | `max_steps` | 单次 turn 内 agent 循环的最大步数；配置时必须为正整数。 |
-| `BUB_MAX_TOKENS` | `16384` | `max_tokens` | 单次模型调用的最大 token 数。 |
+| `BUB_MAX_TOKENS` | `null` | `max_tokens` | API-key 协议默认 16384；Codex 省略，显式设置则报错。 |
+| `BUB_CODEX_HOME` | `null` | `codex_home` | 运行时凭据目录，与登录 `--codex-home` 对应。 |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | 单次调用的超时秒数。 |
-| `BUB_CLIENT_ARGS` | `{}` | `client_args` | 传递给底层模型 client 的额外 kwargs(JSON / dict)。 |
-| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | 传递给每次 completion 调用的额外 kwargs,例如 `{"reasoning_effort":"high"}`;Bub 管理的参数优先。 |
+| `BUB_CLIENT_ARGS` | `{}` | `client_args` | 非空旧 client 参数会明确报错。 |
+| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | Republic RequestOptions，如 `{"provider_options":{"reasoning_effort":"high"}}`；受管理字段冲突报错。 |
 | `BUB_VERBOSE` | `0` | `verbose` | 日志详细级别(`0`–`2`)。 |
 
 启动时 `ProviderSpecificEnvSource` 会扫描 `os.environ` 中匹配 `^BUB_(.+)_(API_KEY|API_BASE)$` 的变量,把捕获到的 provider 名称小写后作为 key 收集。
 
-默认 `any_llm` 后端的 OpenAI Codex OAuth 不需要单独的请求格式设置。运行 `bub login openai` 后,当模型使用 `openai:` provider 且没有自定义 API base 时,Bub 会检测并使用本地保存的 Codex OAuth token。
+Republic 是必需的模型 SDK。provider 只支持 `openai`、`openrouter`、`anthropic`，
+第一个冒号之后的模型 ID 完整保留。`completion_args` 使用 Republic `RequestOptions`；
+受管理字段冲突、不可表达选项和非空 `client_args` 明确报错。`OPENAI_API_KEY`、
+`OPENROUTER_API_KEY`、`ANTHROPIC_API_KEY` 是较低优先级的 provider 默认值。
 
-Republic 使用 `RequestOptions` 格式的 `completion_args`，并拒绝受管理字段覆盖与非空 `client_args`；OAuth 文件检测仅限默认后端。详见 [Republic 指南](/zh-cn/docs/operate/republic-sdk/)。
+`bub login openai` 使用 Republic Codex OAuth，Bub 负责登录 UX 和推理前刷新。
+凭据写入 `bub-republic.json`；旧 `auth.json` 必须显式 `--migrate`。
+运行时 `codex_home` / `BUB_CODEX_HOME` 优先于 `CODEX_HOME` / `~/.codex`。
+显式 API key/base 或 API 协议会关闭 Codex 自动选择。详见 [Republic 指南](/zh-cn/docs/operate/republic-sdk/)。
 
 ## Spill sidecar —— `SpillSettings`
 
@@ -151,7 +157,7 @@ class TelegramSettings(Settings):
 
 | 环境变量 | 默认值 | 读取方 | 描述 |
 | --- | --- | --- | --- |
-| `CODEX_HOME` | `~/.codex` | `bub login openai`(`src/bub/builtin/auth.py`) | Codex OAuth `auth.json` 的存放目录。可被 `--codex-home` 覆盖。 |
+| `CODEX_HOME` | `~/.codex` | `bub login openai`(`src/bub/builtin/auth.py`) | Codex OAuth `bub-republic.json` 的存放目录。可被 `--codex-home` 覆盖。 |
 
 ## 插件自定义配置
 

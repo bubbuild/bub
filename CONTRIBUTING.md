@@ -47,6 +47,11 @@ If you are proposing a new feature:
 Ready to contribute? Here's how to set up `bub` for local development.
 Please note this documentation assumes you already have `uv` and `Git` installed and ready to go.
 
+For the local `feat/republic-provider-sdk` branch, first place the accepted Republic
+`dev` checkout at `../republic-dev`. `uv sync` installs that required SDK through a
+relative uv source. The branch is not published; see the
+[local SDK guide](website/src/content/docs/docs/operate/republic-sdk.mdx) for wheel verification.
+
 1. Fork the `bub` repo on GitHub.
 
 2. Clone your fork locally:

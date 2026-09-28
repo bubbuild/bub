@@ -6,7 +6,8 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from any_llm.types.completion import ChatCompletionChunk
+from model_fixtures import ScriptedProvider, reply
+from republic import Request, Response
 
 import bub.builtin.tools  # noqa: F401  — registers builtin tools (incl. `model`)
 from bub.builtin.agent import Agent
@@ -28,9 +29,16 @@ class _FakeModelRunner(ModelRunner):
         super().__init__(settings)
         self.completion_kwargs: dict[str, Any] | None = None
 
-    async def completion_response(self, **kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:
-        self.completion_kwargs = kwargs
-        return _chat_stream("done")
+    async def create_provider(self, candidate):
+        async def respond(request: Request) -> Response:
+            self.completion_kwargs = {
+                "model": candidate.name,
+                "messages": [{"role": m.role, "content": m.text} for m in request.messages],
+                "tools": request.tools,
+            }
+            return reply()
+
+        return ScriptedProvider(respond)
 
 
 def _make_agent() -> Agent:
@@ -49,7 +57,7 @@ def _make_agent() -> Agent:
     with patch.object(Agent, "__init__", lambda self, fw: None):
         agent = Agent.__new__(Agent)
 
-    agent.settings = AgentSettings.model_construct(model="test:model", api_key="k", api_base="b", client_args={})
+    agent.settings = AgentSettings.model_construct(model="openai:model", api_key="k", api_base="b", client_args={})
     agent.framework = framework
     agent.tools = REGISTRY.copy()
     agent.tape_store = None
@@ -61,26 +69,6 @@ def _make_agent() -> Agent:
 def _model_runner(agent: Agent) -> _FakeModelRunner:
     assert isinstance(agent.model_runner, _FakeModelRunner)
     return agent.model_runner
-
-
-def _chat_chunk(content: str) -> ChatCompletionChunk:
-    return ChatCompletionChunk.model_validate({
-        "id": "chatcmpl_test",
-        "object": "chat.completion.chunk",
-        "created": 0,
-        "model": "test:model",
-        "choices": [
-            {
-                "index": 0,
-                "finish_reason": "stop",
-                "delta": {"role": "assistant", "content": content},
-            }
-        ],
-    })
-
-
-async def _chat_stream(content: str) -> AsyncIterator[ChatCompletionChunk]:
-    yield _chat_chunk(content)
 
 
 class _ForkCapture:
@@ -138,6 +126,7 @@ class _FakeTape:
         provider: str | None = None,
         model: str | None = None,
         usage: dict[str, Any] | None = None,
+        **native: Any,
     ) -> None:
         if system_prompt:
             self.events.append((self.name, "system", {"content": system_prompt}))
@@ -207,7 +196,7 @@ async def test_agent_run_temp_session_does_not_merge_back() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_run_passes_model_to_llm() -> None:
-    """The model parameter should be forwarded to any-llm."""
+    """The model parameter should be forwarded to Republic."""
     agent = _make_agent()
     fork_capture = _ForkCapture()
     fake_tapes = _FakeTapeFactory(fork_capture)
@@ -242,7 +231,7 @@ async def test_agent_run_empty_prompt_returns_error() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_run_model_defaults_to_none() -> None:
-    """When model is not specified, settings.model is used for any-llm."""
+    """When model is not specified, settings.model is used for Republic."""
     agent = _make_agent()
     fork_capture = _ForkCapture()
     fake_tapes = _FakeTapeFactory(fork_capture)
@@ -253,7 +242,7 @@ async def test_agent_run_model_defaults_to_none() -> None:
 
     completion_kwargs = _model_runner(agent).completion_kwargs
     assert completion_kwargs is not None
-    assert completion_kwargs["model"] == "test:model"
+    assert completion_kwargs["model"] == "openai:model"
 
 
 @pytest.mark.asyncio
@@ -302,7 +291,7 @@ async def test_agent_run_model_override_does_not_mutate_default() -> None:
     """A per-call model override must not leak into the agent's configured model.
 
     The override is resolved per turn (``model or self.settings.model``) and
-    forwarded to any-llm; it must never be written back to ``settings.model``.
+    forwarded to Republic; it must never be written back to ``settings.model``.
     This is the agent-layer half of the guarantee that a session-scoped model
     switch (state['model'] -> run_stream(model=...)) cannot bleed across
     sessions the way a process-global env var would.

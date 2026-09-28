@@ -3,32 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-import os
 from typing import Any
 from urllib.parse import urlsplit
 
+import anthropic
+import openai
 import typer
-from any_llm import AnyLLM
-from any_llm.exceptions import AuthenticationError, MissingApiKeyError, UnsupportedProviderError
 
 from bub import configure, inquirer
-from bub.builtin.codex_provider import should_use_openai_codex_provider
+from bub.builtin.model_provider import protocol_for
 from bub.builtin.settings import DEFAULT_MODEL, AgentSettings
+from bub.errors import BubError, ErrorKind
 
 PROVIDERS = {
     "openrouter": "OpenRouter (hosted model gateway)",
     "openai": "OpenAI (official API)",
     "openai-compatible": "OpenAI-compatible (custom URL / local server)",
     "anthropic": "Anthropic (Claude API)",
-    "gemini": "Google Gemini (native API)",
-    "azure": "Azure AI (Azure endpoint)",
-    "bedrock": "Amazon Bedrock (AWS)",
-    "ollama": "Ollama (local server)",
-    "groq": "Groq",
-    "mistral": "Mistral AI",
-    "deepseek": "DeepSeek",
-    "custom": "Other provider (SDK provider name)",
 }
 OPENAI_BASE = "https://api.openai.com/v1"
 CONNECTION_TIMEOUT = 10
@@ -37,31 +28,19 @@ EDIT_CONNECTION = "Edit URL / API key"
 RETRY_CONNECTION = "Retry connection"
 
 
-def _provider_class(provider: str) -> type[AnyLLM] | None:
-    try:
-        return AnyLLM.get_provider_class(provider)
-    except (ImportError, UnsupportedProviderError):
-        return None
-
-
 def _default_base(provider: str) -> str:
-    provider_class = _provider_class(provider)
-    if provider_class is None:
-        return ""
-    env_name = provider_class.ENV_API_BASE_NAME
-    return (
-        (os.getenv(env_name) if env_name else None)
-        or provider_class.API_BASE
-        or ("http://localhost:11434" if provider == "ollama" else "")
-    )
+    defaults = {
+        "openai": OPENAI_BASE,
+        "openrouter": "https://openrouter.ai/api/v1",
+        "anthropic": "https://api.anthropic.com",
+    }
+    if provider not in defaults:
+        raise BubError(ErrorKind.CONFIG, "Unsupported provider; choose OpenAI, OpenRouter or Anthropic.")
+    return defaults[provider]
 
 
 def _has_environment_key(provider: str) -> bool:
-    if AgentSettings().model_client_kwargs(provider)["api_key"]:
-        return True
-    provider_class = _provider_class(provider)
-    names = (provider_class.ENV_API_KEY_NAME or "").split("/") if provider_class else []
-    return any(os.getenv(name) for name in names)
+    return bool(AgentSettings().model_client_kwargs(provider)["api_key"])
 
 
 def _endpoint(provider: str, api_base: str | None) -> str:
@@ -97,21 +76,20 @@ def _ask_base(default: str, *, required: bool) -> str:
         typer.secho("Enter an http:// or https:// API base URL, without credentials, query or fragment.", fg="yellow")
 
 
-async def _discover_models(provider: str, **client_args: Any) -> list[str]:
-    async with asyncio.timeout(CONNECTION_TIMEOUT):
-        if not AnyLLM.get_provider_class(provider).SUPPORTS_LIST_MODELS:
-            raise NotImplementedError
-        llm = AnyLLM.create(provider, **client_args)
-        try:
-            models = await llm.alist_models()
-            return sorted({model.id.strip() for model in models if isinstance(model.id, str) and model.id.strip()})
-        finally:
-            client = getattr(llm, "client", None)
-            close = getattr(client, "aclose", None) or getattr(client, "close", None)
-            if callable(close):
-                result = close()
-                if inspect.isawaitable(result):
-                    await result
+async def _discover_models(
+    provider: str, *, api_key: str | None = None, api_base: str | None = None, **extra: Any
+) -> list[str]:
+    """Listing is Bub model selection, not an inference call or SDK model registry."""
+    default_base = _default_base(provider)
+    base = api_base or default_base
+    if extra:
+        raise BubError(ErrorKind.CONFIG, "Unsupported client_args; configure native request options explicitly.")
+    if not api_key:
+        raise BubError(ErrorKind.CONFIG, "API key missing.")
+    adapter = anthropic.AsyncAnthropic if provider == "anthropic" else openai.AsyncOpenAI
+    async with asyncio.timeout(CONNECTION_TIMEOUT), adapter(api_key=api_key, base_url=base, max_retries=0) as client:
+        models = await client.models.list()
+        return sorted({model.id.strip() for model in models.data if model.id.strip()})
 
 
 def discover_models(provider: str, **client_args: Any) -> list[str]:
@@ -121,15 +99,15 @@ def discover_models(provider: str, **client_args: Any) -> list[str]:
 
 def _connection_error(exc: Exception) -> str:
     # SDK errors may contain request URLs, response bodies or credentials.
-    if isinstance(exc, AuthenticationError | MissingApiKeyError):
+    if isinstance(exc, openai.AuthenticationError | anthropic.AuthenticationError):
         return "Authentication failed or API key missing. Check the key and its permissions."
     if isinstance(exc, TimeoutError):
         return f"Connection timed out after {CONNECTION_TIMEOUT} seconds. Check the URL and network."
-    if isinstance(exc, NotImplementedError | UnsupportedProviderError):
+    if isinstance(exc, NotImplementedError):
         return "Model discovery is unavailable for this provider. You can enter a model ID manually."
-    if isinstance(exc, ImportError):
-        return "The provider SDK is not installed. Install its dependencies or enter a model ID manually."
-    status = getattr(exc, "status_code", None) or getattr(getattr(exc, "original_exception", None), "status_code", None)
+    if isinstance(exc, BubError):
+        return "Invalid connection configuration or missing API key; check the supported provider and explicit options."
+    status = getattr(exc, "status_code", None)
     if status in {401, 403}:
         return f"Authentication rejected (HTTP {status}). Check the API key and its permissions."
     if status == 404:
@@ -172,12 +150,10 @@ def _select_connection(
         "openai-compatible" if current_provider == "openai" and current_endpoint != OPENAI_BASE else current_provider
     )
     choices = dict(PROVIDERS)
-    choices.setdefault(choice, choice)
+
     selected = inquirer.ask_fuzzy("LLM provider", choices=list(choices.values()), default=choices[choice])
     choice = next((name for name, label in choices.items() if label == selected), selected)
     provider = "openai" if choice == "openai-compatible" else choice
-    if choice == "custom":
-        provider = _required_text("Custom provider")
 
     # Prompt defaults come only from explicit configuration, never environment secrets.
     # Scalar credentials belong to the current provider; maps can configure several.
@@ -195,12 +171,10 @@ def _select_connection(
         api_base = OPENAI_BASE
     if endpoint := _endpoint(provider, api_base):
         typer.echo(f"API endpoint: {endpoint}" if api_base else f"Default API endpoint: {endpoint}")
-    if (
-        choice in {"openai-compatible", "custom"}
-        or provider in {"azure", "ollama"}
-        or (choice != "openai" and api_base and _endpoint(provider, api_base) != _default_base(provider).rstrip("/"))
+    if choice == "openai-compatible" or (
+        choice != "openai" and api_base and _endpoint(provider, api_base) != _default_base(provider).rstrip("/")
     ):
-        api_base = _ask_base(api_base, required=choice == "openai-compatible" or provider == "azure")
+        api_base = _ask_base(api_base, required=choice == "openai-compatible")
     if _endpoint(provider, api_base) != previous_endpoint:
         api_key = ""
     return provider, api_base, api_key
@@ -240,15 +214,14 @@ def _configure_connection(
             client_args = settings.model_client_kwargs(provider)
             if (client_args["api_base"] or "", client_args["api_key"] or "") != (api_base, api_key):
                 typer.echo("BUB_* environment settings override this connection's URL or API key.")
-        if should_use_openai_codex_provider(
-            provider, model_default, api_key=client_args["api_key"], api_base=client_args["api_base"]
-        ):
+        selected = settings.model_candidates(f"{provider}:{model_default or 'setup'}")[0]
+        if protocol_for(settings, selected) == "openai.codex":
             typer.echo("Using OpenAI OAuth login. Model discovery is unavailable; enter a model ID manually.")
             break
         typer.echo("Checking connection and fetching models...")
         try:
             models = discover_models(provider, **client_args)
-        except (NotImplementedError, UnsupportedProviderError) as exc:
+        except NotImplementedError as exc:
             typer.secho(_connection_error(exc), fg="yellow")
             break
         except Exception as exc:
@@ -271,6 +244,7 @@ def collect_model_config(current_config: dict[str, object]) -> dict[str, object]
     if not separator:
         current_provider, _, fallback = DEFAULT_MODEL.partition(":")
         model_default = settings.model.strip() or fallback
+    settings.model_candidates(settings.model)
     current_endpoint = _endpoint(current_provider, settings.model_client_kwargs(current_provider)["api_base"])
     provider, api_base, api_key = _select_connection(current_config, current_provider, current_endpoint)
     if (provider, _endpoint(provider, api_base)) != (current_provider, current_endpoint):

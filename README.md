@@ -17,7 +17,14 @@ Built on [agents.md](https://agents.md/) and [Agent Skills](https://agentskills.
 
 [Website](https://bub.build) · [GitHub](https://github.com/bubbuild/bub)
 
-## Quick Start
+## Local Republic branch
+
+This unpublished branch requires a sibling `../republic-dev` checkout. Run
+`uv sync --locked --extra trace` here, or install both local wheels together.
+See the [Republic installation guide](website/src/content/docs/docs/operate/republic-sdk.mdx).
+The installers below install the published Bub release, not this local branch.
+
+## Released Bub quick start
 
 macOS and Linux:
 
@@ -133,17 +140,17 @@ Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-sk
 | `BUB_MODEL`                 | `openrouter:openrouter/free` | Model identifier                                     |
 | `BUB_API_KEY`               | —                            | Provider key (optional with `bub login openai`)      |
 | `BUB_API_BASE`              | —                            | Custom provider endpoint                             |
-| `BUB_CLIENT_ARGS`           | —                            | JSON object forwarded to the underlying model client |
-| `BUB_COMPLETION_ARGS`       | —                            | JSON object forwarded to each completion call         |
+| `BUB_CLIENT_ARGS`           | —                            | Nonempty legacy client options are rejected |
+| `BUB_COMPLETION_ARGS`       | —                            | Republic RequestOptions; managed conflicts rejected         |
 | `BUB_MAX_STEPS`             | unlimited                    | Tool-use loop limit; must be a positive integer      |
-| `BUB_MAX_TOKENS`            | `16384`                      | Max tokens per model call                            |
+| `BUB_MAX_TOKENS`            | `null`                       | API protocols: 16384; Codex: limit omitted                            |
 | `BUB_MODEL_TIMEOUT_SECONDS` | —                            | Model call timeout (seconds)                         |
 | `BUB_SPILL_THRESHOLD`       | `4096`                       | Estimated tokens before tool output spills; `0` disables |
 
-An optional, explicitly selected Republic backend is available for local SDK
-acceptance. See the [local wheel integration guide](website/src/content/docs/docs/operate/republic-sdk.mdx)
-for installation, `BUB_MODEL_BACKEND=republic`, supported protocols and tape
-compatibility. The default remains any-llm; Republic OAuth onboarding is not migrated.
+Republic is the required provider SDK in this local development branch. See the [local wheel integration guide](website/src/content/docs/docs/operate/republic-sdk.mdx)
+for the required sibling checkout or explicit wheel installation, supported protocols,
+Codex login/migration and tape compatibility. Republic is the sole model SDK on
+this local branch; no package from this rebuild has been published.
 
 ## Background
 

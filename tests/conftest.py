@@ -37,3 +37,24 @@ def load_config(write_config: Callable[[str], Path], monkeypatch: pytest.MonkeyP
         return config_file
 
     return _load
+
+
+@pytest.fixture(autouse=True)
+def isolate_codex_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Even model-selection existence checks must never consult real user files.
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+
+
+@pytest.fixture(autouse=True)
+def block_unmocked_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Any missed SDK transport injection fails locally, before network I/O."""
+    import httpx
+
+    async def deny_async(*args, **kwargs):
+        raise AssertionError("Tests require an explicit HTTP MockTransport")
+
+    def deny_sync(*args, **kwargs):
+        raise AssertionError("Tests require an explicit HTTP MockTransport")
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", deny_async)
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", deny_sync)

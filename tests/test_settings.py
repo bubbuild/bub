@@ -4,7 +4,6 @@ import os
 from unittest.mock import patch
 
 import pytest
-from any_llm.constants import LLMProvider
 
 from bub.builtin.settings import DEFAULT_MODEL, AgentSettings, load_settings
 from bub.builtin.spill import SpillSettings
@@ -46,17 +45,15 @@ def test_settings_no_keys_return_none() -> None:
     assert settings.completion_args == {}
 
 
-@pytest.mark.parametrize("provider", ["openai", LLMProvider.OPENAI, "acme"])
-def test_client_options_resolve_provider_names_and_enum_values(provider: str) -> None:
+@pytest.mark.parametrize("provider", ["openai", "openrouter", "anthropic"])
+def test_client_options_resolve_provider_names(provider: str) -> None:
     settings = _settings_with_env({
         f"BUB_{provider.upper()}_API_KEY": "environment-key",
         f"BUB_{provider.upper()}_API_BASE": "https://example.test/v1",
-        "BUB_CLIENT_ARGS": '{"api_key": "ignored-key", "api_base": "https://ignored.test", "timeout": 5}',
     })
     assert settings.model_client_kwargs(provider) == {
         "api_key": "environment-key",
         "api_base": "https://example.test/v1",
-        "timeout": 5,
     }
 
 
@@ -185,3 +182,26 @@ model: openrouter:openrouter/free
         settings = load_settings()
 
     assert settings.model == "openrouter:openrouter/free"
+
+
+@pytest.mark.parametrize("model", ["openrouter:vendor/model:free", "openai:ft:gpt:org:custom", "anthropic:model-v1"])
+def test_model_id_preserves_colons_and_slashes(model: str) -> None:
+    (candidate,) = AgentSettings.model_construct().model_candidates(model)
+    assert candidate.name == model
+    assert candidate.model_id == model.split(":", 1)[1]
+
+
+@pytest.mark.parametrize("model", ["model", "openai:", "openai: ", "unknown:model"])
+def test_invalid_model_is_a_configuration_error(model: str) -> None:
+    from bub.errors import BubError, ErrorKind
+
+    with pytest.raises(BubError) as error:
+        AgentSettings.model_construct().model_candidates(model)
+    assert error.value.kind == ErrorKind.CONFIG
+
+
+def test_legacy_client_args_rejected_without_silent_override() -> None:
+    from bub.errors import BubError
+
+    with pytest.raises(BubError, match="client_args"):
+        AgentSettings.model_construct(client_args={"timeout": 5}).model_client_kwargs("openai")

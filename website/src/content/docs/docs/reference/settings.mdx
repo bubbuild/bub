@@ -41,13 +41,13 @@ Defined in `src/bub/builtin/settings.py`:
 class AgentSettings(Settings):
     model_config = SettingsConfigDict(env_prefix="BUB_", env_parse_none_str="null", extra="ignore")
     model: str = DEFAULT_MODEL  # "openrouter:openrouter/free"
-    model_backend: Literal["any_llm", "republic"] = "any_llm"
-    republic_protocols: dict[str, Literal["chat", "responses", "messages"]] = Field(default_factory=dict)
+    republic_protocols: dict[str, Literal["chat", "responses", "messages", "codex"]] = Field(default_factory=dict)
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None
     max_steps: int = Field(default=sys.maxsize, gt=0)
-    max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
+    max_tokens: int | None = Field(default=None, gt=0)
+    codex_home: pathlib.Path | None = None
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] = Field(default_factory=dict)
     completion_args: dict[str, Any] = Field(default_factory=dict)
@@ -59,25 +59,33 @@ Loaded under the YAML root section.
 | Env var | Default | YAML key | Description |
 | --- | --- | --- | --- |
 | `BUB_MODEL` | `openrouter:openrouter/free` | `model` | Default model identifier (`provider:model_name`). |
-| `BUB_MODEL_BACKEND` | `any_llm` | `model_backend` | Explicitly select `any_llm` or local `republic`. |
-| `BUB_REPUBLIC_PROTOCOLS` | `{}` | `republic_protocols` | Map provider to `chat`/`responses`/`messages`; see [Republic guide](/docs/operate/republic-sdk/). |
+| `BUB_REPUBLIC_PROTOCOLS` | `{}` | `republic_protocols` | Map provider to `chat`/`responses`/`messages`/`codex`; see [Republic guide](/docs/operate/republic-sdk/). |
 | `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | Optional list of fallback model identifiers. |
 | `BUB_API_KEY` | unset | `api_key` | Default API key. May also be a JSON object mapping provider → key. |
 | `BUB_API_BASE` | unset | `api_base` | Default API base URL or per-provider mapping. |
 | `BUB_<PROVIDER>_API_KEY` | unset | — | Provider-scoped API key, e.g. `BUB_OPENAI_API_KEY`. |
 | `BUB_<PROVIDER>_API_BASE` | unset | — | Provider-scoped API base URL, e.g. `BUB_OPENROUTER_API_BASE`. |
 | `BUB_MAX_STEPS` | unlimited | `max_steps` | Maximum agent loop iterations per turn. Must be a positive integer when set. |
-| `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Maximum tokens per model call. |
+| `BUB_MAX_TOKENS` | `null` | `max_tokens` | API-key protocols default to 16384; Codex omits the limit and rejects an explicit value. |
+| `BUB_CODEX_HOME` | `null` | `codex_home` | Runtime token directory; match login `--codex-home`. |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | Per-call timeout in seconds. |
-| `BUB_CLIENT_ARGS` | `{}` | `client_args` | Extra kwargs passed to the underlying model client (JSON / dict). |
-| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | Extra kwargs passed to each completion call, e.g. `{"reasoning_effort":"high"}`. Bub-managed arguments take precedence. |
+| `BUB_CLIENT_ARGS` | `{}` | `client_args` | Nonempty legacy client options are rejected. |
+| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | Republic request options, e.g. `{"provider_options":{"reasoning_effort":"high"}}`. Managed-field conflicts are rejected. |
 | `BUB_VERBOSE` | `0` | `verbose` | Logging verbosity level (`0`–`2`). |
 
 Provider-specific defaults are gathered at startup by scanning `os.environ` for `^BUB_(.+)_(API_KEY|API_BASE)$` and lowercasing the captured provider name.
 
-On the default `any_llm` backend, OpenAI Codex OAuth does not need a separate request-format setting. After `bub login openai`, Bub detects the stored Codex OAuth token when the selected model uses the `openai:` provider and no custom API base is set.
+Republic is the required model SDK. Supported prefixes are `openai`, `openrouter`
+and `anthropic`; IDs preserve everything after the first colon. `completion_args`
+uses Republic `RequestOptions`; unsupported/managed fields and nonempty
+`client_args` fail explicitly. Standard `OPENAI_API_KEY`, `OPENROUTER_API_KEY` and
+`ANTHROPIC_API_KEY` are lower-priority provider defaults.
 
-Republic uses `RequestOptions`-shaped `completion_args` and rejects managed-field overrides and nonempty `client_args`. OAuth file discovery applies only to the default backend. See the [Republic guide](/docs/operate/republic-sdk/).
+`bub login openai` uses Republic Codex OAuth with Bub-owned login UX and pre-call
+refresh. It writes `bub-republic.json`; old `auth.json` requires explicit `--migrate`.
+Runtime `codex_home` / `BUB_CODEX_HOME` overrides `CODEX_HOME` / `~/.codex`.
+API-key/base overrides or an explicit API protocol disable automatic Codex selection.
+See the [Republic guide](/docs/operate/republic-sdk/) for migration and fixture limits.
 
 ## Spill sidecar — `SpillSettings`
 
@@ -151,7 +159,7 @@ See [Operate › Channels › Telegram](/docs/operate/channels/telegram/) for de
 
 | Env var | Default | Read by | Description |
 | --- | --- | --- | --- |
-| `CODEX_HOME` | `~/.codex` | `bub login openai` (`src/bub/builtin/auth.py`) | Directory to store Codex OAuth `auth.json`. Overridden by `--codex-home`. |
+| `CODEX_HOME` | `~/.codex` | `bub login openai` (`src/bub/builtin/auth.py`) | Directory for Bub Codex OAuth `bub-republic.json`. Overridden by `--codex-home`. |
 
 ## Plugin-specific settings
 

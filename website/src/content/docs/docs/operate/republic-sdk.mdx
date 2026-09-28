@@ -1,35 +1,48 @@
 ---
-title: Local Republic SDK backend
-description: Select the unreleased Republic provider SDK and reproduce its offline Bub acceptance.
+title: Republic model SDK
+description: Install the required local Republic SDK, configure protocols and reproduce offline Bub acceptance.
 ---
 
-Bub can explicitly select the Republic provider SDK while keeping its own agent
-loop, tools, hooks, model fallback, streaming UI and tape. The default backend
-remains `any_llm`, with its existing provider coverage. Republic is an optional,
-**unreleased local baseline**; installing the old PyPI package does not enable it.
+Bub uses Republic for every model request. Bub owns the agent loop, tools, hooks,
+model selection/fallback, streaming UI and tape. This branch uses an **unreleased
+local SDK baseline**; installing the old PyPI Republic package is insufficient.
 
-## Install the local wheel
+## Install the required dependency
 
-Use Python 3.12+ for Bub. Build the wheel from a clean Republic checkout, recording
-`git rev-parse HEAD`, and run `uv build --wheel` there. In this Bub checkout:
+Use Python 3.12+ for Bub and place these two checkouts beside each other:
 
-```bash
-uv sync --locked
-uv pip install --python .venv/bin/python /explicit/path/to/republic-VERSION-py3-none-any.whl
-uv pip check --python .venv/bin/python
+```text
+workspace/
+  republic-dev/       # Republic dev, accepted SDK rebuild
+  bub-republic-dev/   # Bub feat/republic-provider-sdk
 ```
 
-Use the explicit artifact path; no remote installation of an unpublished commit
-is implied. Bub's `pyproject.toml` and lock do not pin a machine-specific path or
-the old published Republic package. An exact `uv sync` can remove this optional
-installation; reinstall the wheel afterwards, or use `uv sync --inexact`.
+In Bub, `uv sync --locked --extra trace` installs its required dependency
+`republic>=0.5.9.dev17,<0.6` from the repository-relative source `../republic-dev`.
+The lock contains that relative source; no machine-specific path or unpublished
+remote commit is required. `trace` is optional telemetry, not a model backend.
+The removed SDK is not installed. Current source instructions require both checkouts.
 
-## Select the backend
+For a wheel-only consumer installation, build both wheels, then install both
+explicit paths in the same resolver operation. For example, in a fresh venv:
+
+```bash
+uv pip install --python /explicit/venv/bin/python \
+  /explicit/path/to/bub-VERSION-py3-none-any.whl \
+  /explicit/path/to/republic-VERSION-py3-none-any.whl
+uv pip check --python /explicit/venv/bin/python
+```
+
+The Bub wheel declares a normal Republic dependency, without the local uv source.
+The acceptance script below builds Bub, excludes the sibling source from exported
+constraints and installs the supplied Republic wheel with all required dependencies.
+Nothing here implies that these commits or wheels are available remotely.
+
+## Configure the protocol
 
 In your Bub YAML configuration, for an API-key Responses model:
 
 ```yaml
-model_backend: republic
 model: openai:your-responses-model
 api_key: YOUR_EXPLICIT_API_KEY
 republic_protocols:
@@ -39,11 +52,12 @@ completion_args:
   temperature: 0.2
 ```
 
-The corresponding environment settings are `BUB_MODEL_BACKEND=republic` and
-`BUB_REPUBLIC_PROTOCOLS='{"openai":"responses"}'`. API keys and base URLs retain
-Bub's scalar/per-provider `BUB_API_KEY` and `BUB_API_BASE` configuration, including
-provider-specific `BUB_OPENAI_API_KEY` and `BUB_ANTHROPIC_API_KEY` fields. The
-Republic backend requires a resolved Bub key; it does not discover OAuth files.
+Use `BUB_REPUBLIC_PROTOCOLS='{"openai":"responses"}'` for the equivalent protocol
+selection. API keys/base URLs retain scalar/per-provider `BUB_API_KEY` and
+`BUB_API_BASE`, including `BUB_OPENAI_API_KEY`. Standard `OPENAI_API_KEY`,
+`OPENROUTER_API_KEY` and `ANTHROPIC_API_KEY` are provider-specific defaults;
+explicit Bub settings take precedence. IDs split at the first colon, so
+`openrouter:vendor/model:free` retains the complete model ID.
 
 | Model prefix | Protocol setting | Default endpoint |
 | --- | --- | --- |
@@ -52,21 +66,56 @@ Republic backend requires a resolved Bub key; it does not discover OAuth files.
 | `openai:` | `responses` | OpenAI `/v1/responses` |
 | `anthropic:` | `messages` (default) | Anthropic `/v1/messages` |
 
-An explicit `api_base` overrides the base URL. These are protocol adaptations
-verified with HTTP/SSE fixtures, **not live service/model acceptance**. Selecting
-an unsupported provider/protocol raises an error; Bub does not silently use
-any-llm. Existing onboarding and `bub login openai` still configure the default
-any-llm/Codex path. Republic OAuth helpers, login UX and credential migration are
-not connected here. Copilot and Grok are not selectable Republic backends in Bub.
+| `openai:` | `codex` (or saved Bub login with no API key/base/protocol override) | `https://chatgpt.com/backend-api/codex/responses` |
 
-With Republic selected, `completion_args` uses Republic's `RequestOptions` fields:
+An explicit `api_base` overrides API-key endpoints. Unsupported providers and
+protocol combinations fail configuration; there is no alternate SDK path.
+Onboarding offers OpenRouter, OpenAI, a custom OpenAI-compatible URL, and
+Anthropic. It lists models with the official SDK and zero retries; model discovery
+does not prove tool support or inference access. Codex selection skips API-key
+discovery. Copilot/Grok login UX is not connected in Bub.
+
+## ChatGPT/Codex login
+
+`bub login openai` retains browser/local callback UX. `--manual --no-browser`
+accepts the **full callback URL including state**. Republic Authlib performs
+PKCE/state validation, exchange, expiry validation and refresh. Bub writes
+`bub-republic.json` inside `--codex-home`, `CODEX_HOME`, or `~/.codex`, with mode
+0600 and atomic replacement. Set runtime `codex_home` / `BUB_CODEX_HOME` to the same
+directory if using a custom login path. No provider starts login during inference.
+
+Existing `auth.json` is never silently consumed or modified. To explicitly import it:
+
+```bash
+bub login openai --migrate --codex-home /explicit/credential-directory
+```
+
+Migration writes a separate `bub-republic.json`, requires access/refresh tokens
+and actual expiry (stored expiry or JWT claim hint), and refuses to overwrite an
+existing destination. JWT hints are not verified identity. Missing/invalid expiry
+requires a new login; `last_refresh + one hour` is not a valid substitute.
+
+Use `openai:<codex-model>` with API key/base unset; explicitly choose `codex` in
+`republic_protocols` if desired. The factory reads the configured Bub token file
+and refreshes within 120 seconds of expiry **before constructing the provider**.
+Refresh failure stops the call; 401 never triggers refresh/replay. Each call owns
+an adapter with immutable tokens; the next call reads refreshed data. Concurrent
+process refresh coordination remains caller-owned. ChatGPT OAuth is not an
+OpenAI API key. All login/inference/refresh evidence here is synthetic fixtures;
+real account entitlement and live acceptance remain unverified.
+
+## Request options
+
+`completion_args` uses Republic's `RequestOptions` fields:
 `temperature`, `top_p`, `stop`, `tool_choice`, `parallel_tool_calls`, and
 `provider_options` for protocol-native options. `max_tokens` is Bub's setting and
-becomes `max_output_tokens`; setting both is rejected. Model/messages/tools/stream
+becomes `max_output_tokens`; setting both is rejected. When unset, API-key protocols
+use 16384; Codex omits it and rejects an explicitly supplied limit. Model/messages/tools/stream
 and other adapter-managed overrides are rejected. `client_args` is unsupported.
-The `reasoning_effort` tape setting maps to Chat's `reasoning_effort` or Responses'
+The `reasoning_effort` tape setting maps to Chat's `reasoning_effort` or Responses/Codex
 `reasoning.effort`; `auto` omits the option. Conflicting native options fail.
-Anthropic thinking configuration goes in `provider_options`, not that tape flag.
+Anthropic requests default to ephemeral `cache_control`; an explicit native option
+takes precedence. Anthropic thinking configuration goes in `provider_options`, not that tape flag.
 Consult the matching protocol guide in the Republic checkout for allowed options.
 
 Only text input and function tools/results are enabled in this Bub adapter.
@@ -77,11 +126,11 @@ reasoning event; the complete native message is saved independently of display.
 ## Ownership, tools and fallback
 
 `ModelRunner.run` constructs Republic `Request` data and consumes native events
-and `Response` directly. No any-llm completion object mediates this path. Direct
-`completion_response` calls are legacy-only and reject Republic selection.
+and `Response` directly. Codex consumes one SSE request, with leading system
+messages becoming `instructions`; it preserves native Responses history.
 
 Each attempt owns and closes its provider/client. An embedding application can
-override `ModelRunner.create_republic_provider(candidate)` and return an adapter
+override async `ModelRunner.create_provider(candidate)` and return an adapter
 constructed with `client=your_official_async_client`. That client is borrowed:
 its settings are unchanged, Republic calls disable SDK retries, and the caller
 closes it after active calls. Bub closes the response and adapter on success,
@@ -104,8 +153,7 @@ The Bub agent may explicitly advance its loop after tools, subject to `max_steps
 Configured `fallback_models` remain Bub policy. A provider error before **any
 native stream event** can try the next configured candidate. There is no fallback
 after output, on invalid history/options or on an incomplete terminal outcome.
-Each candidate issues one HTTP request. There is no fallback to any-llm, automatic
-refresh or retry inside a Republic operation.
+Each candidate issues one HTTP request. There is no automatic refresh or retry inside a Republic operation.
 
 ## Durable history and compatibility
 
@@ -119,7 +167,7 @@ are recorded with existing run events; native usage fields/raw data are retained
 
 Legacy text and complete function history remain readable. Extra legacy metadata,
 missing tool identity or media are rejected instead of silently discarded. New
-native history cannot be switched to another protocol or to any-llm. Start a new
+native history cannot be switched to another protocol. Start a new
 tape or perform an explicit caller-owned migration. A hook cannot change only the
 visible view of a native message: the view and native payload must agree, and the
 SDK also checks native item consistency. Old Bub releases do not understand the
@@ -139,34 +187,29 @@ python scripts/check_republic_wheel.py \
   --source-commit 5dff4aa7bdbf6f81411f16d64f74307d4d83f167
 ```
 
-The script creates a new Python 3.12 environment, installs Bub non-editably and
+The script creates a new Python 3.12 environment with the trace extra, installs Bub non-editably and
 Republic from that wheel under Bub's locked dependency constraints, runs
-`uv pip check`, verifies both imports resolve to site-packages and checks installed
+`uv pip check`, asserts the removed SDK is absent, verifies both imports resolve to site-packages and checks installed
 Republic file contents against the selected archive. It records version, SHA256,
 source commit and import locations in the printed temporary evidence directory.
 No absolute dependency path is written to the project or lock.
 
 The integration suite uses real official SDK methods and HTTPX transports with
-synthetic HTTP/SSE fixtures. For both Responses and Anthropic, separate Python
+synthetic HTTP/SSE fixtures. For Responses, Anthropic and Codex, separate Python
 processes execute the real runner/tool/tape path: one model response requests a
 tool, Bub executes it once and writes JSONL; the next process reads that file,
 sends the retained encrypted reasoning or signature and gets the final answer.
 Each process asserts one HTTP request, released resources and the same single
 tool execution record. Tests also cover the actual agent loop, Chat/OpenRouter,
-hooks, explicit fallback, tool failures, truncation, tape-write failure, early
+the complete synthetic Codex login/refresh flow, CLI/config, tracing, hooks, explicit fallback, tool failures, truncation, tape-write failure, early
 close, cancellation, borrowed clients and unsupported inputs.
 
 This evidence does not establish OAuth entitlement, login success, live model
 availability or production endpoint compatibility. No real token file or account
 is needed by the suite. Standard repository checks remain `make check`, `make test`
-and `make docs-test`; the optional integration suite skips when no Republic SDK
-is installed, but the wheel acceptance script requires it and verifies the import.
+and `make docs-test`. Republic is required for test collection and runtime imports.
 
-Local evidence (2026-09-28): Republic source
-`5dff4aa7bdbf6f81411f16d64f74307d4d83f167`, wheel version
-`0.5.9.dev17+g5dff4aa7b`, SHA256
+The accepted SDK runtime wheel is `0.5.9.dev17+g5dff4aa7b`, source commit
+`5dff4aa7bdbf6f81411f16d64f74307d4d83f167`, SHA256
 `217d45d0c354b83916412296ac2efdeb018d3399117e30f158d223c4bca6e06c`.
-Full Bub tests with the trace extra: 558 passed, 1 skipped (PowerShell unavailable),
-including 54 new Republic integration cases. `make check` and `make docs-test`
-passed. Locked dependencies are OpenAI 2.31.0, Anthropic 0.94.0, Authlib 1.7.2,
-HTTPX 0.28.1 and Pydantic 2.12.5; no dependency conflict or ignored dependencies.
+Current acceptance counts and limits are recorded in Republic's `docs/rebuild-plan.md`.

@@ -1,10 +1,11 @@
-"""Optional Republic boundary: native model data, with execution/lifecycle in Bub."""
+"""Republic model boundary: native model data, with execution/lifecycle in Bub."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import AsyncGenerator
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from republic import (
@@ -21,10 +22,12 @@ from republic import (
 )
 from republic import Tool as ModelTool
 from republic.providers.anthropic import AnthropicMessages
+from republic.providers.codex import OpenAICodex
 from republic.providers.openai import OpenAIChatCompletions, OpenAIResponses
 
+from bub.builtin import auth
 from bub.builtin.context import render_tool_result
-from bub.builtin.settings import AgentSettings, ModelCandidate
+from bub.builtin.settings import DEFAULT_MAX_TOKENS, AgentSettings, ModelCandidate
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import LlmCallRequest
 from bub.streaming import StreamEvent, StreamState
@@ -33,20 +36,34 @@ from bub.tools import Tool, ToolExecution
 from bub.tracing import current_span, event
 
 if TYPE_CHECKING:
-    from bub.builtin.model_runner import ModelOutputAccumulator, ModelRunner
+    from bub.builtin.model_runner import ModelRunner
 
-Provider = OpenAIChatCompletions | OpenAIResponses | AnthropicMessages
+Provider = OpenAIChatCompletions | OpenAIResponses | AnthropicMessages | OpenAICodex
 _DEFAULTS = {"openai": "chat", "openrouter": "chat", "anthropic": "messages"}
 
 
 def protocol_for(settings: AgentSettings, candidate: ModelCandidate) -> str:
-    provider = candidate.provider.value
+    provider = candidate.provider
     if settings.republic_protocols.keys() - _DEFAULTS.keys():
         raise BubError(ErrorKind.CONFIG, "Unsupported Republic provider configuration.")
     protocol = settings.republic_protocols.get(provider, _DEFAULTS.get(provider))
+    config = settings.model_client_kwargs(provider)
+    if (
+        provider == "openai"
+        and provider not in settings.republic_protocols
+        and not config["api_key"]
+        and not config["api_base"]
+    ):
+        if auth.codex_token_path(settings.codex_home).is_file():
+            protocol = "codex"
+        elif (auth.resolve_codex_home(settings.codex_home) / "auth.json").is_file():
+            raise BubError(
+                ErrorKind.CONFIG, "Migrate existing Codex credentials with bub login openai --migrate, or log in again."
+            )
     if (provider, protocol) not in {
         ("openai", "chat"),
         ("openai", "responses"),
+        ("openai", "codex"),
         ("openrouter", "chat"),
         ("anthropic", "messages"),
     }:
@@ -54,19 +71,17 @@ def protocol_for(settings: AgentSettings, candidate: ModelCandidate) -> str:
     return f"{provider}.{protocol}"
 
 
-def create_provider(settings: AgentSettings, candidate: ModelCandidate) -> Provider:
+async def create_provider(settings: AgentSettings, candidate: ModelCandidate) -> Provider:
     protocol = protocol_for(settings, candidate)
-    if settings.client_args:
-        raise BubError(
-            ErrorKind.CONFIG, "Republic client_args are unsupported; use the provider factory for injected clients."
-        )
     config = settings.model_client_kwargs(candidate.provider)
+    if protocol == "openai.codex":
+        if config["api_key"] or config["api_base"]:
+            raise BubError(ErrorKind.CONFIG, "Codex uses its own tokens and endpoint; remove api_key/api_base.")
+        return OpenAICodex(await auth.prepare_codex_tokens(settings.codex_home))
     if not config["api_key"]:
-        raise BubError(
-            ErrorKind.CONFIG, "Republic requires an explicit Bub API key; OAuth login discovery is not enabled."
-        )
+        raise BubError(ErrorKind.CONFIG, "Set a Bub API key, or use bub login openai for Codex.")
     base_url = config["api_base"]
-    if candidate.provider.value == "openrouter" and base_url is None:
+    if candidate.provider == "openrouter" and base_url is None:
         base_url = "https://openrouter.ai/api/v1"
     adapter = (
         AnthropicMessages
@@ -187,9 +202,13 @@ def _options(settings: AgentSettings, request: LlmCallRequest, protocol: str, ef
     if "max_output_tokens" in raw:
         raise BubError(ErrorKind.CONFIG, "Set Bub max_tokens; max_output_tokens is managed by the runner.")
     raw["max_output_tokens"] = request.max_tokens
+    if not protocol.endswith(".codex") and request.max_tokens is None:
+        raw["max_output_tokens"] = DEFAULT_MAX_TOKENS
+    if protocol.endswith(".messages"):
+        raw.setdefault("provider_options", {}).setdefault("cache_control", {"type": "ephemeral"})
     if effort not in (None, "auto"):
         native = raw.setdefault("provider_options", {})
-        key = "reasoning" if protocol.endswith(".responses") else "reasoning_effort"
+        key = "reasoning" if protocol.endswith((".responses", ".codex")) else "reasoning_effort"
         if protocol.endswith(".messages") or key in native:
             raise BubError(
                 ErrorKind.CONFIG, "Reasoning effort is unsupported or conflicts with explicit native options."
@@ -198,16 +217,11 @@ def _options(settings: AgentSettings, request: LlmCallRequest, protocol: str, ef
     return RequestOptions.model_validate(raw)
 
 
-def _accept_response(
-    response: Response | None, protocol: str, output: ModelOutputAccumulator, state: StreamState
-) -> None:
+def _accept_response(response: Response | None, protocol: str, output: ModelOutput, state: StreamState) -> None:
     if response is None:
         raise BubError(ErrorKind.PROVIDER, "Republic stream has no terminal response.")
     output.response = response
-    output.native_protocol = protocol
-    output.native_message = stored_message(response.message, protocol)
-    output.native_calls = [_call_payload(call) for call in response.message.tool_calls]
-    output.finish_reason = response.finish_reason
+    output.protocol = protocol
     if response.usage is not None:
         usage = response.usage
         state.usage = {
@@ -224,7 +238,7 @@ def _accept_response(
             "gen_ai.response.finish_reasons": [response.finish_reason],
         })
     if response.finish_reason not in {"stop", "tool_call"} or (
-        output.native_calls and response.finish_reason != "tool_call"
+        output.serialized_tool_calls and response.finish_reason != "tool_call"
     ):
         output.failure = BubError(ErrorKind.PROVIDER, f"Incomplete model outcome: {response.finish_reason}")
         return
@@ -254,7 +268,7 @@ async def completion_events(
     tools: list[Tool],
     tape: Tape,
     state: StreamState,
-    output: ModelOutputAccumulator,
+    output: ModelOutput,
 ) -> AsyncGenerator[StreamEvent, None]:
     """Bub's explicit fallback policy surrounds individual Republic operations."""
     first_error = None
@@ -269,16 +283,19 @@ async def completion_events(
             ],
             options=_options(runner.settings, request, protocol, tape.context.state.get("reasoning_effort")),
         )
+        if span := current_span():
+            span.rename(f"chat {candidate.model_id}")
+            span.set(**{"gen_ai.provider.name": candidate.provider, "gen_ai.request.model": candidate.model_id})
         observed = False
         try:
             async with (
-                runner.create_republic_provider(candidate) as provider,
+                await runner.create_provider(candidate) as provider,
                 stream(provider, native_request) as response_stream,
             ):
                 async for item in response_stream:
                     observed = True
                     if isinstance(item, events.TextDelta):
-                        output.add_text(item.chunk)
+                        output.text += item.chunk
                         yield StreamEvent("text", {"delta": item.chunk})
                     elif isinstance(item, events.ReasoningDelta):
                         yield StreamEvent("reasoning", {"delta": item.chunk})
@@ -287,8 +304,7 @@ async def completion_events(
             event("bub.model.attempt_failed", model=candidate.name, error=repr(exc))
             if observed:
                 raise
-            if first_error is None:
-                first_error = exc
+            first_error = first_error or exc
             if index == len(candidates) - 1:
                 raise first_error from None
         else:
@@ -314,3 +330,51 @@ def tool_result_messages(protocol: str, calls: list[dict[str, Any]], execution: 
         )
         for call, result, failed in zip(calls, execution.tool_results, execution.tool_errors, strict=True)
     ]
+
+
+@dataclass
+class ModelOutput:
+    """Caller state for partial display, a native response and execution gating."""
+
+    text: str = ""
+    response: Response | None = None
+    protocol: str | None = None
+    failure: BubError | None = None
+
+    @property
+    def finish_reason(self) -> str | None:
+        return self.response.finish_reason if self.response else None
+
+    @property
+    def native_message(self) -> dict[str, Any] | None:
+        return stored_message(self.response.message, self.protocol) if self.response and self.protocol else None
+
+    @property
+    def serialized_tool_calls(self) -> list[dict[str, Any]]:
+        return [_call_payload(call) for call in self.response.message.tool_calls] if self.response else []
+
+    def invocations(self, tools: dict[str, Tool]) -> list[tuple[Tool, dict[str, Any]]]:
+        return [tool_invocation(call, tools) for call in self.response.message.tool_calls] if self.response else []
+
+    def result_messages(self, execution: ToolExecution) -> list[dict[str, Any]]:
+        if self.protocol is None:
+            raise BubError(ErrorKind.PROVIDER, "No provider response for tool execution.")
+        return tool_result_messages(self.protocol, self.serialized_tool_calls, execution)
+
+
+def tool_invocation(call: ToolCallPart, tools: dict[str, Tool]) -> tuple[Tool, dict[str, Any]]:
+    """An unknown tool still flows through Bub hooks and produces a tool error."""
+    try:
+        arguments = json.loads(call.tool_args)
+    except ValueError:
+        arguments = None
+    if not isinstance(arguments, dict):
+        raise BubError(ErrorKind.INVALID_INPUT, "Expected JSON object tool arguments.")
+    tool = tools.get(call.tool_name)
+    if tool is None:
+
+        def missing(**_: Any) -> None:
+            raise BubError(ErrorKind.TOOL, f"Unknown tool name: {call.tool_name}.")
+
+        tool = Tool(name=call.tool_name, handler=missing)
+    return tool, arguments

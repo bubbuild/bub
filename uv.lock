@@ -166,24 +166,6 @@ wheels = [
 ]
 
 [[package]]
-name = "any-llm-sdk"
-version = "1.22.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anthropic" },
-    { name = "httpx" },
-    { name = "openai" },
-    { name = "openresponses-types" },
-    { name = "pydantic" },
-    { name = "rich" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/bf/de/a29738e1c8702a79a514f9521430fe77686fb9f9122980f4899a7baf58b5/any_llm_sdk-1.22.1.tar.gz", hash = "sha256:b07c6fcef6d7fc13e0f0419bc1464f9316b17e663c34382fb7722a906241f635", size = 164931, upload-time = "2026-07-22T15:43:29.12Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/03/5a/85c558cc9fb6fd8a7fd3e7523c9c20545316190d22372026ddbf53cdc0c9/any_llm_sdk-1.22.1-py3-none-any.whl", hash = "sha256:950339b68ca1d99fb123c523d246140e1c947b0ff26e3fb9bc37194a49f3b509", size = 217209, upload-time = "2026-07-22T15:43:27.664Z" },
-]
-
-[[package]]
 name = "anyio"
 version = "4.13.0"
 source = { registry = "https://pypi.org/simple" }
@@ -223,8 +205,6 @@ name = "bub"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
-    { name = "any-llm-sdk" },
-    { name = "authlib" },
     { name = "httpx", extra = ["socks"] },
     { name = "inquirer-textual" },
     { name = "loguru" },
@@ -235,6 +215,7 @@ dependencies = [
     { name = "python-telegram-bot" },
     { name = "pyyaml" },
     { name = "rapidfuzz" },
+    { name = "republic" },
     { name = "rich" },
     { name = "typer" },
     { name = "typing-extensions" },
@@ -267,8 +248,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.3" },
-    { name = "any-llm-sdk", extras = ["anthropic"], specifier = ">=1.22.1" },
-    { name = "authlib", specifier = ">=1.7.2" },
     { name = "httpx", extras = ["socks"], specifier = ">=0.28.1" },
     { name = "inquirer-textual", specifier = ">=0.8.0" },
     { name = "logfire", marker = "extra == 'logfire'", specifier = ">=4.32.0" },
@@ -286,6 +265,7 @@ requires-dist = [
     { name = "python-telegram-bot", specifier = ">=22.7" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "rapidfuzz", specifier = ">=3.14.5" },
+    { name = "republic", directory = "../republic-dev" },
     { name = "rich", specifier = ">=14.3.4" },
     { name = "typer", specifier = ">=0.24.1" },
     { name = "typing-extensions", specifier = ">=4.15.0" },
@@ -1148,18 +1128,6 @@ wheels = [
 ]
 
 [[package]]
-name = "openresponses-types"
-version = "2.3.0.post1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pydantic" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d9/26/b612c3215f5599714fa94d63eb5ee59b4eb66dbdeeaf86bb4d848359484d/openresponses_types-2.3.0.post1.tar.gz", hash = "sha256:11b8896d3621d2ac2439f6ff106f34ddcb1bbd517c317a6c852a9df2e98a0753", size = 19254, upload-time = "2026-01-22T20:02:03.933Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/5f/e16dad89ed24f586da5b01b9b206d3adbf21fe1af8e4dc55d5b93158fde6/openresponses_types-2.3.0.post1-py3-none-any.whl", hash = "sha256:88f6abcef9cad839203abff420dd080978bf6eb33cc06ddc5d78da4ccdba7613", size = 13847, upload-time = "2026-01-22T20:02:02.582Z" },
-]
-
-[[package]]
 name = "opentelemetry-api"
 version = "1.39.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1728,6 +1696,41 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/bb/ce/ff942d19fce5385054650bb71a58495ddda299d94661ccc4e6e7fa44868b/rapidfuzz-3.14.5-cp314-cp314t-win32.whl", hash = "sha256:0f23e37019ec07712d58976b1ab2b889f8649a7f7c2f626a2f34ea9139e79279", size = 1803950, upload-time = "2026-04-07T11:16:10.873Z" },
     { url = "https://files.pythonhosted.org/packages/5c/0f/9aafc63f9661222b819b391c187eed29fc90ad5935f9690e5ecc2d2047a4/rapidfuzz-3.14.5-cp314-cp314t-win_amd64.whl", hash = "sha256:7d5ca9c7832e6879a707296d1463685f7c243a27846227044504741640caec66", size = 1632357, upload-time = "2026-04-07T11:16:13.1Z" },
     { url = "https://files.pythonhosted.org/packages/70/a6/51fc1b0e61e3326e1c68a61cfd0c6b3c34c843681c4b1eefbf0596f59162/rapidfuzz-3.14.5-cp314-cp314t-win_arm64.whl", hash = "sha256:3e91dcd2549b8f8d843f98ba03a17e01f3d8b72ce942adbbb6761bc58ffce813", size = 855409, upload-time = "2026-04-07T11:16:15.787Z" },
+]
+
+[[package]]
+name = "republic"
+source = { directory = "../republic-dev" }
+dependencies = [
+    { name = "anthropic" },
+    { name = "authlib" },
+    { name = "httpx" },
+    { name = "openai" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", specifier = ">=0.83.0,<1" },
+    { name = "authlib", specifier = ">=1.6.5,<1.8" },
+    { name = "httpx", specifier = ">=0.28.1,<1" },
+    { name = "openai", specifier = ">=2.16.0,<3" },
+    { name = "pydantic", specifier = ">=2.7.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mkdocs", specifier = ">=1.6.1" },
+    { name = "mkdocs-terminal", specifier = ">=4.8.0" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.0" },
+    { name = "prek", specifier = ">=0.3.2" },
+    { name = "pymdown-extensions", specifier = ">=10.12" },
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
+    { name = "ruff", specifier = ">=0.14.10" },
+    { name = "tox-uv", specifier = ">=1.29.0" },
+    { name = "ty", specifier = ">=0.0.8" },
 ]
 
 [[package]]

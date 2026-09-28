@@ -1,483 +1,372 @@
+"""Bub login UX -> Republic Authlib -> native Codex SSE, using synthetic credentials."""
+
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
+import queue
 import time
-from datetime import UTC, datetime
-from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from contextlib import contextmanager
+from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
-from any_llm.constants import LLMProvider
-from any_llm.types.completion import CompletionParams
-from any_llm.types.responses import ResponsesParams
+from republic import IncompleteStreamError, ProviderError, UnsupportedRequestError
+from republic.auth import codex
+from republic.auth.codex import CodexAuthError, CodexTokens
+from republic_fixtures import Body, Transport, responses, sdk_transport, tape_at
+from test_republic_integration import collect
 
-from bub.builtin.auth import (
-    OpenAICodexOAuthTokens,
-    extract_openai_codex_account_id,
-    load_openai_codex_oauth_tokens,
-    openai_codex_oauth_resolver,
-    save_openai_codex_oauth_tokens,
-)
-from bub.builtin.codex_provider import (
-    DEFAULT_CODEX_INCLUDE,
-    DEFAULT_CODEX_INSTRUCTIONS,
-    DEFAULT_CODEX_TEXT_CONFIG,
-    OpenaiCodexProvider,
-    build_openai_codex_default_headers,
-    resolve_openai_codex_api_base,
-    should_use_openai_codex_provider,
-)
-from bub.builtin.model_runner import ModelOutputAccumulator, ModelRunner
-from bub.builtin.settings import ModelCandidate
-
-TEST_REFRESH_TOKEN = "refresh"  # noqa: S105
-TEST_REFRESH_TOKEN_OLD = "refresh_old"  # noqa: S105
-TEST_REFRESH_TOKEN_NEW = "refresh_new"  # noqa: S105
+from bub.builtin import auth
+from bub.builtin.model_provider import protocol_for
+from bub.builtin.model_runner import ModelRunner
+from bub.builtin.settings import AgentSettings
+from bub.errors import BubError
+from bub.tools import Tool
 
 
-def _jwt_with_account(account_id: str, *, exp: int | None = None) -> str:
-    header = _b64({"alg": "none"})
-    claims: dict[str, Any] = {"https://api.openai.com/auth": {"chatgpt_account_id": account_id}}
-    if exp is not None:
-        claims["exp"] = exp
-    payload = _b64(claims)
-    return f"{header}.{payload}.sig"
+def jwt(account="acct_test", expiry=None):
+    payload = {"https://api.openai.com/auth": {"chatgpt_account_id": account}}
+    if expiry is not None:
+        payload["exp"] = expiry
+    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    return f"e30.{encoded}.fixture"
 
 
-def _b64(payload: dict[str, Any]) -> str:
-    raw = json.dumps(payload, separators=(",", ":")).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+def save(home, *, expired=False):
+    tokens = CodexTokens(jwt(), "fixture-refresh", time.time() + (-1 if expired else 3600), "acct_test")
+    path = auth.codex_token_path(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    codex.write_tokens(path, tokens)
+    return tokens
 
 
-def _write_codex_auth_without_expiry(home: Path, access_token: str, last_refresh: int) -> None:
-    (home / "auth.json").write_text(
+def config(home, **extra):
+    return AgentSettings.model_construct(model="openai:codex-fixture", codex_home=home, **extra)
+
+
+def selected(settings):
+    return protocol_for(settings, settings.model_candidates(settings.model)[0])
+
+
+@pytest.mark.parametrize("expiry", [1900000000, "2030-03-17T17:46:40+00:00", None])
+def test_explicit_legacy_migration_preserves_original_and_uses_real_expiry(tmp_path, expiry):
+    tokens = {"access_token": jwt(expiry=1900000000), "refresh_token": "fixture-refresh"}
+    if expiry is not None:
+        tokens["expires_at"] = expiry
+    old = json.dumps({"tokens": tokens, "last_refresh": "2000-01-01T00:00:00Z"})
+    (tmp_path / "auth.json").write_text(old)
+    destination = auth.migrate_codex_tokens(tmp_path)
+    loaded = codex.read_tokens(destination)
+    assert loaded.account_id == "acct_test"
+    assert loaded.expires_at == 1900000000
+    assert destination.name == "bub-republic.json"
+    assert destination.stat().st_mode & 0o777 == 0o600
+    assert (tmp_path / "auth.json").read_text() == old
+    with pytest.raises(CodexAuthError, match="migration_destination_exists"):
+        auth.migrate_codex_tokens(tmp_path)
+
+
+@pytest.mark.parametrize("expiry", [None, True, "tomorrow", "2030-01-01T00:00:00", float("nan"), -1])
+def test_migration_never_guesses_expiry_or_exposes_secrets(tmp_path, expiry):
+    (tmp_path / "auth.json").write_text(
         json.dumps({
-            "last_refresh": datetime.fromtimestamp(last_refresh, tz=UTC).isoformat(),
-            "tokens": {"access_token": access_token, "refresh_token": TEST_REFRESH_TOKEN},
+            "last_refresh": time.time(),
+            "tokens": {"access_token": "secret-access", "refresh_token": "secret-refresh", "expires_at": expiry},
         })
     )
+    with pytest.raises(CodexAuthError) as error:
+        auth.migrate_codex_tokens(tmp_path)
+    assert error.value.code == "invalid_legacy_credentials"
+    assert error.value.__context__ is None and error.value.__cause__ is None
+    assert "secret" not in repr(error.value)
+    assert not auth.codex_token_path(tmp_path).exists()
 
 
-def test_openai_codex_oauth_tokens_round_trip(tmp_path: Path) -> None:
-    tokens = OpenAICodexOAuthTokens(
-        access_token=_jwt_with_account("acct_123"),
-        refresh_token=TEST_REFRESH_TOKEN,
-        expires_at=1_900_000_000,
-        account_id="acct_123",
-    )
-
-    auth_path = save_openai_codex_oauth_tokens(tokens, tmp_path)
-    loaded = load_openai_codex_oauth_tokens(tmp_path)
-
-    assert auth_path == tmp_path / "auth.json"
-    assert loaded == tokens
-    assert auth_path.stat().st_mode & 0o777 == 0o600
+def test_selection_is_explicit_and_never_treats_oauth_as_api_key(tmp_path):
+    settings = config(tmp_path)
+    assert selected(settings) == "openai.chat"
+    (tmp_path / "auth.json").write_text("must not be read automatically")
+    with pytest.raises(BubError, match="--migrate"):
+        selected(settings)
+    save(tmp_path)
+    assert selected(settings) == "openai.codex"
+    assert selected(config(tmp_path, api_key="fixture-key")) == "openai.chat"
+    assert selected(config(tmp_path, api_base="https://fixture.test")) == "openai.chat"
+    assert selected(config(tmp_path, republic_protocols={"openai": "responses"})) == "openai.responses"
 
 
-def test_openai_codex_oauth_resolver_refreshes_expired_token(tmp_path: Path) -> None:
-    save_openai_codex_oauth_tokens(
-        OpenAICodexOAuthTokens(
-            access_token=_jwt_with_account("acct_old"),
-            refresh_token=TEST_REFRESH_TOKEN_OLD,
-            expires_at=int(time.time()) - 1,
-            account_id="acct_old",
-        ),
-        tmp_path,
-    )
-    refreshed = OpenAICodexOAuthTokens(
-        access_token=_jwt_with_account("acct_new"),
-        refresh_token=TEST_REFRESH_TOKEN_NEW,
-        expires_at=int(time.time()) + 3600,
-        account_id="acct_new",
-    )
+@pytest.mark.asyncio
+async def test_login_inference_refresh_and_second_native_inference(tmp_path, monkeypatch):
+    auth_requests = []
 
-    resolver = openai_codex_oauth_resolver(tmp_path, refresher=lambda refresh_token: refreshed)
+    def token_endpoint(request):
+        auth_requests.append(request)
+        values = {
+            "access_token": jwt("acct_new" if len(auth_requests) == 2 else "acct_test"),
+            "token_type": "Bearer",
+            "expires_in": 3600,
+        }
+        if len(auth_requests) == 1:
+            values["refresh_token"] = "fixture-refresh"  # noqa: S105 - synthetic fixture
+        return httpx.Response(200, json=values)
 
-    assert resolver("openai") == refreshed.access_token
-    assert load_openai_codex_oauth_tokens(tmp_path) == refreshed
+    transport = httpx.MockTransport(token_endpoint)
+    exchange, refresh = codex.exchange_code, codex.refresh_tokens
 
+    async def exchange_offline(authorization, callback):
+        return await exchange(authorization, callback, transport=transport)
 
-def test_codex_auth_without_expires_at_uses_access_token_jwt_exp(tmp_path: Path) -> None:
-    now = int(time.time())
-    token = _jwt_with_account("acct_123", exp=now + 10 * 86400)
-    _write_codex_auth_without_expiry(tmp_path, token, last_refresh=now - 7200)
-    refresh_calls: list[str] = []
+    async def refresh_offline(tokens):
+        return await refresh(tokens, transport=transport)
 
-    def fail_refresh(refresh_token: str) -> OpenAICodexOAuthTokens:
-        refresh_calls.append(refresh_token)
-        raise RuntimeError("refresh should not run")
+    monkeypatch.setattr(codex, "exchange_code", exchange_offline)
+    monkeypatch.setattr(codex, "refresh_tokens", refresh_offline)
 
-    loaded = load_openai_codex_oauth_tokens(tmp_path)
-    assert loaded is not None
-    assert loaded.expires_at == now + 10 * 86400
-    assert openai_codex_oauth_resolver(tmp_path, refresher=fail_refresh)("openai") == token
-    assert refresh_calls == []
+    def callback(url):
+        query = parse_qs(urlsplit(url).query)
+        assert query["code_challenge_method"] == ["S256"]
+        return query["redirect_uri"][0] + "?state=" + query["state"][0] + "&code=fixture-code"
 
+    tokens = await auth.login_openai_codex_oauth(codex_home=tmp_path, open_browser=False, prompt_for_redirect=callback)
+    assert codex.read_tokens(auth.codex_token_path(tmp_path)) == tokens
+    http = Transport([Body(responses(tool=True)), Body(responses())])
+    tool_calls = []
 
-@pytest.mark.parametrize("expiry_offset, expected_token", [(60, True), (-60, False)])
-def test_codex_auth_jwt_exp_controls_refresh_failure_fallback(
-    tmp_path: Path, expiry_offset: int, expected_token: bool
-) -> None:
-    now = int(time.time())
-    token = _jwt_with_account("acct_123", exp=now + expiry_offset)
-    _write_codex_auth_without_expiry(tmp_path, token, last_refresh=now - 7200)
-    refresh_calls: list[str] = []
+    def inspect(value: int):
+        tool_calls.append(value)
+        return "checked"
 
-    def fail_refresh(refresh_token: str) -> OpenAICodexOAuthTokens:
-        refresh_calls.append(refresh_token)
-        raise RuntimeError("refresh unavailable")
-
-    resolved = openai_codex_oauth_resolver(tmp_path, refresher=fail_refresh)("openai")
-    assert resolved == (token if expected_token else None)
-    assert refresh_calls == [TEST_REFRESH_TOKEN]
-
-
-def test_codex_auth_explicit_expiry_precedes_jwt_exp_and_missing_claim_falls_back(tmp_path: Path) -> None:
-    now = int(time.time())
-    token = _jwt_with_account("acct_123", exp=now + 10 * 86400)
-    _write_codex_auth_without_expiry(tmp_path, token, last_refresh=now - 7200)
-    auth_path = tmp_path / "auth.json"
-    payload = json.loads(auth_path.read_text())
-    payload["tokens"]["expires_at"] = now + 3600
-    auth_path.write_text(json.dumps(payload))
-    loaded = load_openai_codex_oauth_tokens(tmp_path)
-    assert loaded is not None
-    assert loaded.expires_at == now + 3600
-
-    for fallback_token in (_jwt_with_account("acct_123"), "not-a-jwt"):
-        _write_codex_auth_without_expiry(tmp_path, fallback_token, last_refresh=now - 7200)
-        loaded = load_openai_codex_oauth_tokens(tmp_path)
-        assert loaded is not None
-        assert loaded.expires_at == now - 7200 + 3600
-
-
-def test_extract_openai_codex_account_id() -> None:
-    assert extract_openai_codex_account_id(_jwt_with_account("acct_123")) == "acct_123"
-    assert extract_openai_codex_account_id("not-a-jwt") is None
-
-
-def test_codex_provider_selection_requires_oauth_file_or_oauth_token(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "bub.builtin.codex_provider.load_openai_codex_oauth_tokens",
-        lambda: OpenAICodexOAuthTokens(
-            access_token=_jwt_with_account("acct_123"),
-            refresh_token=TEST_REFRESH_TOKEN,
-            expires_at=1_900_000_000,
-        ),
-    )
-
-    assert should_use_openai_codex_provider("openai", "gpt-5.5", api_key=None, api_base=None) is True
+    settings = config(tmp_path)
+    tape = tape_at(tmp_path / "tape")
+    with sdk_transport(http) as clients:
+        await collect(ModelRunner(settings), tape, tools=[Tool.from_callable(inspect)])
+        codex.write_tokens(
+            auth.codex_token_path(tmp_path),
+            CodexTokens(tokens.access_token, tokens.refresh_token, time.time() - 1, tokens.account_id),
+        )
+        output = await collect(ModelRunner(settings), tape_at(tmp_path / "tape"), prompt=None)
+    assert len(http.requests) == 2 and len(auth_requests) == 2 and tool_calls == [2]
+    assert all(client.is_closed for client in clients)
+    assert output[-1].data["text"] == "finished"
+    assert all(str(request.url) == "https://chatgpt.com/backend-api/codex/responses" for request in http.requests)
+    assert [request.headers["chatgpt-account-id"] for request in http.requests] == ["acct_test", "acct_new"]
+    first, second = http.payload(0), http.payload(1)
+    assert first["store"] is False and first["stream"] is True and first["instructions"] == ""
+    assert first["include"] == ["reasoning.encrypted_content"] and "max_output_tokens" not in first
     assert (
-        should_use_openai_codex_provider("openai", "gpt-4o", api_key=_jwt_with_account("acct_123"), api_base=None)
-        is True
+        next(item for item in second["input"] if item.get("type") == "reasoning")["encrypted_content"]
+        == "opaque-reasoning"
     )
-    assert should_use_openai_codex_provider("openai", "gpt-5-codex", api_key="sk-test", api_base=None) is False
-    assert should_use_openai_codex_provider("openai", "gpt-5-codex", api_key=None, api_base="https://api.test") is False
-
-
-def test_codex_provider_selection_uses_normal_openai_without_oauth(monkeypatch) -> None:
-    monkeypatch.setattr("bub.builtin.codex_provider.load_openai_codex_oauth_tokens", lambda: None)
-
-    assert should_use_openai_codex_provider("openai", "gpt-5.5", api_key=None, api_base=None) is False
-
-
-def test_model_runner_creates_codex_provider_for_codex_model(monkeypatch) -> None:
-    fake_provider = MagicMock()
-    provider_class = MagicMock(return_value=fake_provider)
-    monkeypatch.setattr("bub.builtin.model_runner.OpenaiCodexProvider", provider_class)
-    monkeypatch.setattr(
-        "bub.builtin.codex_provider.load_openai_codex_oauth_tokens",
-        lambda: OpenAICodexOAuthTokens(
-            access_token=_jwt_with_account("acct_123"),
-            refresh_token=TEST_REFRESH_TOKEN,
-            expires_at=1_900_000_000,
-        ),
+    call = next(item for item in second["input"] if item.get("type") == "function_call")
+    assert call["id"] == "function-item" and call["call_id"] == "call-original"
+    assert (
+        next(item for item in second["input"] if item.get("type") == "function_call_output")["call_id"]
+        == "call-original"
     )
-    candidate = ModelCandidate(provider=LLMProvider.OPENAI, model_id="gpt-5.5", name="openai:gpt-5.5")
-
-    client = ModelRunner.create_llm_client(candidate, {"api_key": None, "api_base": None})
-
-    assert client is fake_provider
-    provider_class.assert_called_once_with(api_key=None, api_base=None)
-
-
-def test_codex_provider_adds_response_defaults() -> None:
-    provider = OpenaiCodexProvider(api_key=_jwt_with_account("acct_123"))
-    params = ResponsesParams(model="gpt-5-codex", input="hello", stream=True, text={"format": {"type": "text"}})
-
-    prepared = provider._with_codex_response_defaults(params)
-
-    assert prepared.store is False
-    assert prepared.instructions == DEFAULT_CODEX_INSTRUCTIONS
-    assert prepared.include == DEFAULT_CODEX_INCLUDE
-    assert prepared.text == {**DEFAULT_CODEX_TEXT_CONFIG, "format": {"type": "text"}}
-
-
-def test_codex_provider_preserves_explicit_response_options() -> None:
-    provider = OpenaiCodexProvider(api_key=_jwt_with_account("acct_123"))
-    params = ResponsesParams(
-        model="gpt-5-codex",
-        input="hello",
-        instructions="custom",
-        include=[],
-        store=True,
-        text={"verbosity": "low"},
-    )
-
-    prepared = provider._with_codex_response_defaults(params)
-
-    assert prepared.store is True
-    assert prepared.instructions == "custom"
-    assert prepared.include == []
-    assert prepared.text == {**DEFAULT_CODEX_TEXT_CONFIG, "verbosity": "low"}
-
-
-def test_codex_completion_params_use_official_responses_payload_fields() -> None:
-    provider = OpenaiCodexProvider(api_key=_jwt_with_account("acct_123"))
-    params = CompletionParams(
-        model_id="gpt-5.5",
-        messages=[{"role": "user", "content": "hello"}],
-        max_tokens=100,
-        temperature=0.2,
-        top_p=0.9,
-        presence_penalty=0.1,
-        frequency_penalty=0.1,
-        user="user_123",
-        stream=True,
-        stream_options={"include_usage": True},
-    )
-
-    responses_params = provider._completion_params_to_responses_params(params)
-    payload = responses_params.model_dump(exclude_none=True, exclude={"response_format"})
-
-    assert payload == {
-        "model": "gpt-5.5",
-        "input": [{"role": "user", "content": "hello"}],
-        "stream": True,
-    }
-
-
-def test_codex_completion_params_convert_chat_tool_messages_to_responses_items() -> None:
-    provider = OpenaiCodexProvider(api_key=_jwt_with_account("acct_123"))
-    params = CompletionParams(
-        model_id="gpt-5.5",
-        messages=[
-            {"role": "user", "content": "run bash"},
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": "call_1",
-                        "type": "function",
-                        "function": {"name": "bash", "arguments": '{"command":"pwd"}'},
-                    }
-                ],
-            },
-            {"role": "tool", "tool_call_id": "call_1", "name": "bash", "content": "workspace"},
-        ],
-        stream=True,
-    )
-
-    responses_params = provider._completion_params_to_responses_params(params)
-    payload = responses_params.model_dump(exclude_none=True, exclude={"response_format"})
-
-    assert payload == {
-        "model": "gpt-5.5",
-        "input": [
-            {"role": "user", "content": "run bash"},
-            {
-                "type": "function_call",
-                "call_id": "call_1",
-                "name": "bash",
-                "arguments": '{"command":"pwd"}',
-                "status": "completed",
-            },
-            {"type": "function_call_output", "call_id": "call_1", "output": "workspace"},
-        ],
-        "stream": True,
-    }
-
-
-def test_codex_provider_resolves_codex_api_base_and_headers() -> None:
-    token = _jwt_with_account("acct_123")
-
-    assert resolve_openai_codex_api_base(None) == "https://chatgpt.com/backend-api/codex"
-    assert resolve_openai_codex_api_base("https://example.test/responses") == "https://example.test/codex"
-    assert build_openai_codex_default_headers(token) == {
-        "chatgpt-account-id": "acct_123",
-        "OpenAI-Beta": "responses=experimental",
-        "originator": "bub",
-    }
-
-
-async def _codex_response_events():
-    yield SimpleNamespace(type="response.output_text.delta", delta="hel")
-    yield SimpleNamespace(type="response.output_text.delta", delta="lo")
-    yield SimpleNamespace(
-        type="response.completed",
-        response=SimpleNamespace(
-            id="resp_123",
-            created_at=1,
-            model="gpt-5-codex",
-            usage=SimpleNamespace(
-                input_tokens=3,
-                output_tokens=2,
-                total_tokens=5,
-                input_tokens_details={"cached_tokens": 2},
-            ),
-        ),
-    )
+    saved = codex.read_tokens(auth.codex_token_path(tmp_path))
+    assert saved.account_id == "acct_new" and saved.refresh_token == tokens.refresh_token
+    grants = [parse_qs(request.content.decode()) for request in auth_requests]
+    assert grants[0]["grant_type"] == ["authorization_code"] and "code_verifier" in grants[0]
+    assert grants[1]["grant_type"] == ["refresh_token"]
 
 
 @pytest.mark.asyncio
-async def test_codex_completion_stream_maps_response_events_to_completion_chunks() -> None:
-    provider = OpenaiCodexProvider(api_key=_jwt_with_account("acct_123"))
-    provider._aresponses = AsyncMock(return_value=_codex_response_events())  # type: ignore[method-assign]
-    params = CompletionParams(
-        model_id="gpt-5-codex",
-        messages=[{"role": "user", "content": "hello"}],
-        stream=True,
-    )
+@pytest.mark.parametrize(
+    "callback_query",
+    [
+        "code=fixture-code",
+        "code=fixture-code&state=wrong",
+        "error=access_denied&state={state}",
+        "",
+        "code=&state={state}",
+    ],
+)
+async def test_invalid_callback_never_writes_credentials(tmp_path, callback_query):
+    def callback(url):
+        query = parse_qs(urlsplit(url).query)
+        return query["redirect_uri"][0] + "?" + callback_query.format(state=query["state"][0])
 
-    completion = await provider._acompletion(params)
-    chunks = [chunk async for chunk in completion]
-
-    assert [chunk.choices[0].delta.content for chunk in chunks[:2]] == ["hel", "lo"]
-    assert chunks[-1].choices[0].finish_reason == "stop"
-    assert chunks[-1].usage is not None
-    assert chunks[-1].usage.prompt_tokens == 3
-    assert chunks[-1].usage.completion_tokens == 2
-    assert chunks[-1].usage.prompt_tokens_details is not None
-    assert chunks[-1].usage.prompt_tokens_details.cached_tokens == 2
-
-
-async def _codex_tool_response_events():
-    yield SimpleNamespace(
-        type="response.output_item.added",
-        output_index=0,
-        item=SimpleNamespace(type="function_call", id="fc_1", call_id="call_1", name="bash", arguments=""),
-    )
-    yield SimpleNamespace(type="response.function_call_arguments.delta", output_index=0, delta='{"command":')
-    yield SimpleNamespace(type="response.function_call_arguments.delta", output_index=0, delta='"pwd"}')
-    yield SimpleNamespace(
-        type="response.completed",
-        response=SimpleNamespace(id="resp_123", created_at=1, model="gpt-5-codex", usage=None),
-    )
+    with pytest.raises(CodexAuthError):
+        await auth.login_openai_codex_oauth(codex_home=tmp_path, open_browser=False, prompt_for_redirect=callback)
+    assert not auth.codex_token_path(tmp_path).exists()
 
 
 @pytest.mark.asyncio
-async def test_codex_completion_stream_maps_response_tool_calls_to_completion_chunks() -> None:
-    provider = OpenaiCodexProvider(api_key=_jwt_with_account("acct_123"))
-    provider._aresponses = AsyncMock(return_value=_codex_tool_response_events())  # type: ignore[method-assign]
-    params = CompletionParams(
-        model_id="gpt-5-codex",
-        messages=[{"role": "user", "content": "hello"}],
-        stream=True,
-    )
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_callback_timeout_and_cancel_release_receiver(tmp_path, monkeypatch, cancel):
+    exited = []
+    entered = asyncio.Event()
+    loop = asyncio.get_running_loop()
 
-    completion = await provider._acompletion(params)
-    chunks = [chunk async for chunk in completion]
+    @contextmanager
+    def receiver(uri):
+        def wait(timeout):
+            loop.call_soon_threadsafe(entered.set)
+            raise queue.Empty
 
-    first_tool_delta = chunks[0].choices[0].delta.tool_calls[0]
-    assert first_tool_delta.id == "call_1"
-    assert first_tool_delta.function.name == "bash"
-    assert "".join(chunk.choices[0].delta.tool_calls[0].function.arguments or "" for chunk in chunks[1:3]) == (
-        '{"command":"pwd"}'
-    )
-    assert chunks[-1].choices[0].finish_reason == "tool_calls"
+        try:
+            yield wait
+        finally:
+            exited.append(True)
 
+    monkeypatch.setattr(auth, "_callback_receiver", receiver)
+    if cancel:
 
-async def _codex_custom_tool_response_events():
-    yield SimpleNamespace(
-        type="response.output_item.added",
-        output_index=1,
-        item=SimpleNamespace(type="custom_tool_call", id="ctc_1", call_id="call_1", name="bash", input=""),
-    )
-    yield SimpleNamespace(
-        type="response.custom_tool_call_input.delta", item_id="ctc_1", call_id="call_1", delta='{"command":'
-    )
-    yield SimpleNamespace(
-        type="response.custom_tool_call_input.delta", item_id="ctc_1", call_id="call_1", delta='"pwd"}'
-    )
-    yield SimpleNamespace(
-        type="response.completed",
-        response=SimpleNamespace(id="resp_123", created_at=1, model="gpt-5-codex", usage=None),
-    )
+        async def exchange(*args):
+            entered.set()
+            await asyncio.Event().wait()
 
-
-@pytest.mark.asyncio
-async def test_codex_completion_stream_maps_custom_tool_call_input_deltas_to_completion_chunks() -> None:
-    provider = OpenaiCodexProvider(api_key=_jwt_with_account("acct_123"))
-    provider._aresponses = AsyncMock(return_value=_codex_custom_tool_response_events())  # type: ignore[method-assign]
-    params = CompletionParams(
-        model_id="gpt-5-codex",
-        messages=[{"role": "user", "content": "hello"}],
-        stream=True,
-    )
-
-    completion = await provider._acompletion(params)
-    chunks = [chunk async for chunk in completion]
-
-    first_tool_delta = chunks[0].choices[0].delta.tool_calls[0]
-    assert first_tool_delta.index == 1
-    assert first_tool_delta.id == "call_1"
-    assert first_tool_delta.function.name == "bash"
-    assert "".join(chunk.choices[0].delta.tool_calls[0].function.arguments or "" for chunk in chunks[1:3]) == (
-        '{"command":"pwd"}'
-    )
-    assert chunks[-1].choices[0].finish_reason == "tool_calls"
-
-
-async def _codex_tool_done_name_null_response_events():
-    yield SimpleNamespace(
-        type="response.function_call_arguments.done",
-        item_id="fc_1",
-        output_index=0,
-        name=None,
-        arguments='{"message":"hello"}',
-    )
-    yield SimpleNamespace(
-        type="response.output_item.done",
-        output_index=0,
-        item=SimpleNamespace(
-            type="function_call",
-            id="fc_1",
-            call_id="call_1",
-            name="echo",
-            arguments='{"message":"hello"}',
-            status="completed",
-        ),
-    )
-    yield SimpleNamespace(
-        type="response.completed",
-        response=SimpleNamespace(id="resp_123", created_at=1, model="gpt-5-codex", usage=None),
-    )
+        monkeypatch.setattr(codex, "exchange_code", exchange)
+        task = asyncio.create_task(
+            auth.login_openai_codex_oauth(
+                codex_home=tmp_path, open_browser=False, prompt_for_redirect=lambda _: "callback"
+            )
+        )
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        with pytest.raises(CodexAuthError, match="callback_timeout"):
+            await auth.login_openai_codex_oauth(codex_home=tmp_path, open_browser=False, timeout_seconds=0.01)
+        assert exited == [True]
+    assert not auth.codex_token_path(tmp_path).exists()
 
 
 @pytest.mark.asyncio
-async def test_codex_completion_stream_keeps_tool_name_when_arguments_done_name_is_null() -> None:
-    provider = OpenaiCodexProvider(api_key=_jwt_with_account("acct_123"))
-    provider._aresponses = AsyncMock(return_value=_codex_tool_done_name_null_response_events())  # type: ignore[method-assign]
-    params = CompletionParams(
-        model_id="gpt-5-codex",
-        messages=[{"role": "user", "content": "call echo"}],
-        stream=True,
+@pytest.mark.parametrize("status", [401, 403, 429])
+async def test_inference_error_does_not_refresh_or_retry(tmp_path, monkeypatch, status):
+    save(tmp_path)
+
+    async def unexpected(*args):
+        pytest.fail("401 must not trigger refresh/replay")
+
+    monkeypatch.setattr(codex, "refresh_tokens", unexpected)
+    transport = Transport([httpx.Response(status, json={"error": {"message": "secret-access"}})])
+    with sdk_transport(transport) as clients, pytest.raises(ProviderError) as error:
+        await collect(ModelRunner(config(tmp_path)), tape_at(tmp_path / "tape"))
+    assert error.value.status_code == status
+    assert error.value.__context__ is None and error.value.__cause__ is None
+    assert "secret-access" not in repr(error.value)
+    assert len(transport.requests) == 1 and all(client.is_closed for client in clients)
+
+
+@pytest.mark.asyncio
+async def test_failed_pre_call_refresh_does_not_use_stale_token(tmp_path, monkeypatch):
+    save(tmp_path, expired=True)
+    refresh = codex.refresh_tokens
+    token_http = Transport([httpx.Response(400, json={"error": "invalid_grant", "error_description": "secret"})])
+
+    async def refresh_offline(tokens):
+        return await refresh(tokens, transport=token_http)
+
+    monkeypatch.setattr(codex, "refresh_tokens", refresh_offline)
+    inference = Transport([])
+    with sdk_transport(inference), pytest.raises(CodexAuthError):
+        await collect(ModelRunner(config(tmp_path)), tape_at(tmp_path / "tape"))
+    assert inference.requests == [] and len(token_http.requests) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"max_tokens": 100},
+        {"completion_args": {"temperature": 0.2}},
+        {"completion_args": {"provider_options": {"store": True}}},
+    ],
+)
+async def test_codex_unsupported_options_are_not_silently_removed(tmp_path, extra):
+    save(tmp_path)
+    transport = Transport([])
+    with sdk_transport(transport), pytest.raises(UnsupportedRequestError):
+        await collect(ModelRunner(config(tmp_path, **extra)), tape_at(tmp_path / "tape"))
+    assert transport.requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_local_callback_server_closes_after_wait(tmp_path, cancel):
+    import socket
+
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+    opened = asyncio.Event()
+    task = asyncio.create_task(
+        auth.login_openai_codex_oauth(
+            codex_home=tmp_path,
+            redirect_uri=f"http://127.0.0.1:{port}/auth/callback",
+            timeout_seconds=0.03,
+            browser_opener=lambda _: opened.set(),
+        )
     )
+    await opened.wait()
+    if cancel:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        with pytest.raises(CodexAuthError, match="callback_timeout"):
+            await task
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", port))
+    assert not auth.codex_token_path(tmp_path).exists()
 
-    completion = await provider._acompletion(params)
-    output = ModelOutputAccumulator()
-    chunks = [chunk async for chunk in completion]
-    for chunk in chunks:
-        tool_calls = chunk.choices[0].delta.tool_calls
-        if tool_calls:
-            output.merge_delta_tool_calls(tool_calls)
 
-    tool_call = output.tool_calls[0]
-    assert tool_call.id == "call_1"
-    assert tool_call.function.name == "echo"
-    assert tool_call.function.arguments == '{"message":"hello"}'
-    assert chunks[-1].choices[0].finish_reason == "tool_calls"
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["close", "cancel", "missing"])
+async def test_codex_partial_stream_never_executes_tools_and_releases_resources(tmp_path, mode):
+    from contextlib import aclosing
+
+    from test_republic_integration import partial
+
+    save(tmp_path)
+    body = Body(partial("responses"), wait=mode != "missing")
+    http = Transport([body])
+    tape = tape_at(tmp_path / "tape")
+    await tape.ensure_bootstrap_anchor()
+    with sdk_transport(http) as clients:
+        output = ModelRunner(config(tmp_path)).run(
+            tape=tape, model="openai:codex-fixture", tools=[], system_prompt=None, prompt="hello"
+        )
+        async with aclosing(output):
+            assert (await anext(output)).kind == "text"
+            if mode == "cancel":
+                task = asyncio.create_task(anext(output))
+                await body.waiting.wait()
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            elif mode == "missing":
+                with pytest.raises(IncompleteStreamError):
+                    await anext(output)
+    assert body.closed == 1 and len(http.requests) == 1
+    assert all(client.is_closed for client in clients)
+    assert not await tape.store.fetch_all(tape.query().kinds("tool_call"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("options", [{"api_key": "fixture-key"}, {"api_base": "https://custom.test"}])
+async def test_explicit_codex_rejects_api_key_or_endpoint_override(tmp_path, options):
+    transport = Transport([])
+    with sdk_transport(transport), pytest.raises(BubError, match="Codex uses its own"):
+        await collect(
+            ModelRunner(config(tmp_path, republic_protocols={"openai": "codex"}, **options)), tape_at(tmp_path / "tape")
+        )
+    assert transport.requests == []
+
+
+@pytest.mark.asyncio
+async def test_codex_native_options_and_reasoning_effort_reach_the_wire(tmp_path):
+    save(tmp_path)
+    settings = config(tmp_path, completion_args={"provider_options": {"text": {"verbosity": "low"}}})
+    tape = tape_at(tmp_path / "tape")
+    tape.context.state["reasoning_effort"] = "high"
+    transport = Transport([Body(responses())])
+    with sdk_transport(transport):
+        await collect(ModelRunner(settings), tape)
+    assert transport.payload()["text"] == {"verbosity": "low"}
+    assert transport.payload()["reasoning"] == {"effort": "high"}
