@@ -531,7 +531,7 @@ def test_login_openai_command_runs_codex_oauth(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "login: ok" in result.stdout
-    assert f"auth_file: {tmp_path / 'bub-republic.json'}" in result.stdout
+    assert f"auth_file: {tmp_path / 'auth.json'}" in result.stdout
     login_mock.assert_called_once()
     assert login_mock.call_args.kwargs["codex_home"] == tmp_path
     assert login_mock.call_args.kwargs["open_browser"] is False
@@ -650,23 +650,6 @@ def test_chat_accepts_optional_initial_prompt(initial_prompt: str | None, monkey
     assert observed == expected
 
 
-def test_login_migrate_imports_only_the_explicit_legacy_file(tmp_path: Path, monkeypatch) -> None:
-    old = json.dumps({
-        "tokens": {
-            "access_token": "fixture-access",
-            "refresh_token": "fixture-refresh",
-            "expires_at": 1900000000,
-            "account_id": "acct_fixture",
-        }
-    })
-    (tmp_path / "auth.json").write_text(old)
-
-    async def unexpected(**kwargs):
-        pytest.fail("Migration must not start login")
-
-    monkeypatch.setattr(auth, "login_openai_codex_oauth", unexpected)
+def test_experimental_migration_option_is_not_a_user_step(tmp_path: Path) -> None:
     result = CliRunner().invoke(_create_app(), ["login", "openai", "--migrate", "--codex-home", str(tmp_path)])
-    assert result.exit_code == 0, result.output
-    assert auth.codex.read_tokens(auth.codex_token_path(tmp_path)).account_id == "acct_fixture"
-    assert (tmp_path / "auth.json").read_text() == old
-    assert "fixture-access" not in result.output
+    assert result.exit_code == 2 and "No such option" in result.stderr

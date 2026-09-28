@@ -186,7 +186,7 @@ bub login [OPTIONS] COMMAND [ARGS]...
 
 ### `bub login openai`
 
-用 Republic 完成 ChatGPT/Codex OAuth，Bub 负责登录 UX；也可显式迁移旧文件。这些 token 不是通用 OpenAI API key。
+用 Republic 完成 ChatGPT/Codex OAuth，Bub 负责登录 UX，直接复用现有 auth.json。这些 token 不是通用 OpenAI API key。
 
 ```text
 bub login openai [OPTIONS]
@@ -194,11 +194,10 @@ bub login openai [OPTIONS]
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
-| `--codex-home` | PATH | `$CODEX_HOME` 或 `~/.codex` | 写入 `bub-republic.json` 的目录。 |
+| `--codex-home` | PATH | `$CODEX_HOME` 或 `~/.codex` | 写入 `auth.json` 的目录。 |
 | `--browser` / `--no-browser` | flag | `--browser` | 在默认浏览器中打开 OAuth authorize URL。 |
-| `--manual` | flag | off | 跳过本地回调服务器,改为提示粘贴 包含 state 的完整 callback URL。 |
+| `--manual` | flag | off | 跳过本地回调服务器,改为提示粘贴 包含 state 的 callback URL 或授权码。 |
 | `--timeout` | FLOAT | `300.0` | OAuth 等待超时时间(秒)。 |
-| `--migrate` | flag | off | 从旧 `auth.json` 导入新 `bub-republic.json`；不登录、不联网、不覆盖。 |
 
 行为说明:
 

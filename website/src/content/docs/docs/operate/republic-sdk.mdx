@@ -18,7 +18,7 @@ workspace/
 ```
 
 In Bub, `uv sync --locked --extra trace` installs its required dependency
-`republic>=0.5.9.dev17,<0.6` from the repository-relative source `../republic-dev`.
+`republic>=0.5.9.dev21,<0.6` from the repository-relative source `../republic-dev`.
 The lock contains that relative source; no machine-specific path or unpublished
 remote commit is required. `trace` is optional telemetry, not a model backend.
 The removed SDK is not installed. Current source instructions require both checkouts.
@@ -75,34 +75,41 @@ Anthropic. It lists models with the official SDK and zero retries; model discove
 does not prove tool support or inference access. Codex selection skips API-key
 discovery. Copilot/Grok login UX is not connected in Bub.
 
-## ChatGPT/Codex login
+## ChatGPT/Codex login and existing credentials
 
 `bub login openai` retains browser/local callback UX. `--manual --no-browser`
-accepts the **full callback URL including state**. Republic Authlib performs
-PKCE/state validation, exchange, expiry validation and refresh. Bub writes
-`bub-republic.json` inside `--codex-home`, `CODEX_HOME`, or `~/.codex`, with mode
-0600 and atomic replacement. Set runtime `codex_home` / `BUB_CODEX_HOME` to the same
-directory if using a custom login path. No provider starts login during inference.
+accepts a callback URL or a bare authorization code. URLs must contain the correct
+state; Republic handles PKCE and OAuth exchange. Bub owns the manual-code UX.
+Login writes the existing nested `tokens` format at `CODEX_HOME/auth.json`
+(default `~/.codex/auth.json`). `--codex-home` selects the login directory; set
+runtime `codex_home` / `BUB_CODEX_HOME` to match when using a custom directory.
+Existing parseable auth.json files work directly. Reading does not write or move
+the file, and there is no credential migration step.
 
-Existing `auth.json` is never silently consumed or modified. To explicitly import it:
+Automatic Codex selection applies only to `openai:` without an explicit base URL
+or protocol override. A normal API key uses the API path. A supplied access token
+with a ChatGPT account claim selects Codex without a refresh token or known expiry.
+With no explicit key/base, a parseable auth.json selects Codex; file existence or
+a model name containing "codex" is insufficient. An explicit protocol map still
+selects the requested protocol and permits explicit credentials/endpoint.
 
-```bash
-bub login openai --migrate --codex-home /explicit/credential-directory
-```
+Bub preserves its prior expiry policy: stored `tokens.expires_at` (numeric or
+RFC3339), then access JWT `exp`, then `last_refresh + 3600`, or current time plus
+3600 when no hint exists. These last fallbacks are Bub freshness estimates, not
+server guarantees. JWT claims are unverified routing/time hints. Republic does
+not impose these policies. Bub refreshes 120 seconds early, before creating the
+provider. If refresh fails, an unexpired old token remains usable; expired tokens
+fail. A successful refresh updates the same auth.json, preserving unknown fields
+and the prior account ID when no replacement is returned, then atomically writes
+with mode 0600. Persistence failure stops inference after rotation. There is no
+401 refresh/replay, login UI during inference or cross-process refresh locking.
 
-Migration writes a separate `bub-republic.json`, requires access/refresh tokens
-and actual expiry (stored expiry or JWT claim hint), and refuses to overwrite an
-existing destination. JWT hints are not verified identity. Missing/invalid expiry
-requires a new login; `last_refresh + one hour` is not a valid substitute.
+Republic supplies auth/request mechanisms and accepts existing credentials.
+Bub's default factory explicitly uses zero SDK retries; a custom factory can
+choose its own transport policy. ChatGPT tokens are not general OpenAI API keys.
+All login/inference/refresh evidence is synthetic fixtures; live account and
+entitlement acceptance remain unverified. Copilot/Grok login UX is not connected.
 
-Use `openai:<codex-model>` with API key/base unset; explicitly choose `codex` in
-`republic_protocols` if desired. The factory reads the configured Bub token file
-and refreshes within 120 seconds of expiry **before constructing the provider**.
-Refresh failure stops the call; 401 never triggers refresh/replay. Each call owns
-an adapter with immutable tokens; the next call reads refreshed data. Concurrent
-process refresh coordination remains caller-owned. ChatGPT OAuth is not an
-OpenAI API key. All login/inference/refresh evidence here is synthetic fixtures;
-real account entitlement and live acceptance remain unverified.
 
 ## Request options
 
@@ -132,7 +139,7 @@ messages becoming `instructions`; it preserves native Responses history.
 Each attempt owns and closes its provider/client. An embedding application can
 override async `ModelRunner.create_provider(candidate)` and return an adapter
 constructed with `client=your_official_async_client`. That client is borrowed:
-its settings are unchanged, Republic calls disable SDK retries, and the caller
+its settings and configured retries are retained, and the caller
 closes it after active calls. Bub closes the response and adapter on success,
 failure, timeout, cancellation or consumer `aclose()`; early exit does not drain
 or restart inference. Consumers must close streams they stop reading.
@@ -153,7 +160,8 @@ The Bub agent may explicitly advance its loop after tools, subject to `max_steps
 Configured `fallback_models` remain Bub policy. A provider error before **any
 native stream event** can try the next configured candidate. There is no fallback
 after output, on invalid history/options or on an incomplete terminal outcome.
-Each candidate issues one HTTP request. There is no automatic refresh or retry inside a Republic operation.
+The default Bub factory explicitly disables SDK retries; each candidate then
+issues one HTTP attempt. Republic adds no automatic refresh or agent loop.
 
 ## Durable history and compatibility
 
@@ -184,7 +192,7 @@ From this Bub checkout, pass the exact wheel and full clean source commit:
 ```bash
 python scripts/check_republic_wheel.py \
   /explicit/path/to/republic-VERSION-py3-none-any.whl \
-  --source-commit 5dff4aa7bdbf6f81411f16d64f74307d4d83f167
+  --source-commit 8c6531070b0ef2f22fba843e1cc46055d6e697a0
 ```
 
 The script creates a new Python 3.12 environment with the trace extra, installs Bub non-editably and
@@ -209,7 +217,7 @@ availability or production endpoint compatibility. No real token file or account
 is needed by the suite. Standard repository checks remain `make check`, `make test`
 and `make docs-test`. Republic is required for test collection and runtime imports.
 
-The accepted SDK runtime wheel is `0.5.9.dev17+g5dff4aa7b`, source commit
-`5dff4aa7bdbf6f81411f16d64f74307d4d83f167`, SHA256
-`217d45d0c354b83916412296ac2efdeb018d3399117e30f158d223c4bca6e06c`.
+The accepted SDK runtime wheel is `0.5.9.dev21+g8c6531070`, source commit
+`8c6531070b0ef2f22fba843e1cc46055d6e697a0`, SHA256
+`6078583c4704c4727a547abca6ea8e5920a7d7187039aa5936cf375db24c59bb`.
 Current acceptance counts and limits are recorded in Republic's `docs/rebuild-plan.md`.

@@ -62,7 +62,7 @@ telegram:
 | `BUB_<PROVIDER>_API_KEY` | 单个提供商的 key，如 `BUB_OPENROUTER_API_KEY`。 |
 | `BUB_<PROVIDER>_API_BASE` | 单个提供商的基础 URL。 |
 
-Codex 登录和显式 `auth.json` 迁移已使用 Republic。Bub 保存 `bub-republic.json`，在必要时于模型调用前刷新；401 后不会刷新重发。使用 `openai:` 并保持 API key/base 未设置，详见 [Republic 配置](/zh-cn/docs/operate/republic-sdk/)。
+Codex 登录使用 Republic，直接复用 `auth.json`，必要时在推理前刷新并写回同一文件，保留未知字段；提前刷新失败可继续使用尚未过期的旧 token；401 后不会刷新重发。使用 `openai:` 并保持 API key/base 未设置，详见 [Republic 配置](/zh-cn/docs/operate/republic-sdk/)。
 
 完整变量表（包括 channel 防抖参数和高级模型客户端设置）见 [Settings 参考](/zh-cn/docs/reference/settings/)。
 

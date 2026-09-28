@@ -62,7 +62,7 @@ Every YAML key has a matching environment variable. The pattern is `BUB_<UPPERCA
 | `BUB_<PROVIDER>_API_KEY` | Per-provider key, e.g. `BUB_OPENROUTER_API_KEY`. |
 | `BUB_<PROVIDER>_API_BASE` | Per-provider base URL. |
 
-Codex login and explicit `auth.json` migration now use Republic. Bub stores `bub-republic.json` and refreshes before a model call when needed; it never refreshes/replays after a 401. Use `openai:` without API key/base overrides. See [Republic setup](/docs/operate/republic-sdk/).
+Codex login uses Republic; existing `auth.json` is directly reused. Bub refreshes before inference and writes back the same file, retaining unknown fields. Failed early refresh can use an unexpired old token; it never refreshes/replays after a 401. Use `openai:` without API key/base overrides. See [Republic setup](/docs/operate/republic-sdk/).
 
 For the full table, including channel debounce knobs and advanced model-client settings, see [Settings reference](/docs/reference/settings/).
 

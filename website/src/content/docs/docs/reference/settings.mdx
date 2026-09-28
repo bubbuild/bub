@@ -82,9 +82,9 @@ uses Republic `RequestOptions`; unsupported/managed fields and nonempty
 `ANTHROPIC_API_KEY` are lower-priority provider defaults.
 
 `bub login openai` uses Republic Codex OAuth with Bub-owned login UX and pre-call
-refresh. It writes `bub-republic.json`; old `auth.json` requires explicit `--migrate`.
+refresh. It directly reuses and writes the original nested `auth.json` format.
 Runtime `codex_home` / `BUB_CODEX_HOME` overrides `CODEX_HOME` / `~/.codex`.
-API-key/base overrides or an explicit API protocol disable automatic Codex selection.
+A normal API key, explicit base URL or protocol selects the API route. A recognizable OAuth access token selects Codex.
 See the [Republic guide](/docs/operate/republic-sdk/) for migration and fixture limits.
 
 ## Spill sidecar — `SpillSettings`
@@ -159,7 +159,7 @@ See [Operate › Channels › Telegram](/docs/operate/channels/telegram/) for de
 
 | Env var | Default | Read by | Description |
 | --- | --- | --- | --- |
-| `CODEX_HOME` | `~/.codex` | `bub login openai` (`src/bub/builtin/auth.py`) | Directory for Bub Codex OAuth `bub-republic.json`. Overridden by `--codex-home`. |
+| `CODEX_HOME` | `~/.codex` | `bub login openai` (`src/bub/builtin/auth.py`) | Directory for Bub Codex OAuth `auth.json`. Overridden by `--codex-home`. |
 
 ## Plugin-specific settings
 

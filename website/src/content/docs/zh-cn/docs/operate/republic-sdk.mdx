@@ -17,7 +17,7 @@ workspace/
 ```
 
 在 Bub 执行 `uv sync --locked --extra trace`，会从仓库相对路径 `../republic-dev` 安装必需依赖
-`republic>=0.5.9.dev17,<0.6`。锁文件记录相对来源，不固化本机路径或无法获取的远端提交。
+`republic>=0.5.9.dev21,<0.6`。锁文件记录相对来源，不固化本机路径或无法获取的远端提交。
 `trace` 仅为可选遥测功能。当前源码安装要求两个 checkout，已移除的旧 SDK 不会安装。
 
 如需仅用 wheel 部署，分别构建两库 wheel，在同一次依赖解析中安装两个显式产物：
@@ -61,26 +61,31 @@ completion_args:
 onboarding 提供 OpenRouter、OpenAI、OpenAI-compatible 自定义地址、Anthropic，使用官方 SDK 查询模型且禁用重试。
 模型列表成功不证明工具能力或推理授权；Codex 跳过 API-key 模型发现。Bub 尚未接入 Copilot/Grok 登录 UX。
 
-## ChatGPT/Codex 登录与迁移
+## ChatGPT/Codex 登录与现有凭据
 
-`bub login openai` 保留浏览器/本地回调 UX，`--manual --no-browser` 接受**包含 state 的完整回调 URL**。
-Republic 的 Authlib 实现负责 PKCE/state、exchange、expiry 和 refresh。Bub 将凭据以原子写和 0600 权限保存在
-`--codex-home`、`CODEX_HOME` 或 `~/.codex` 下的 `bub-republic.json`。自定义登录路径时，将运行时
-`codex_home` / `BUB_CODEX_HOME` 设为同一目录。模型调用不会自动启动登录。
+`bub login openai` 保留浏览器和本地回调 UX；`--manual --no-browser` 接受完整回调 URL 或裸授权码。
+URL 必须包含正确的 state，Republic 负责 PKCE 与标准 OAuth 交换，Bub 负责手动输入 UX。
+新登录沿用 `CODEX_HOME/auth.json`（默认 `~/.codex/auth.json`）的嵌套 `tokens` 格式。
+`--codex-home` 指定登录目录；使用自定义目录时，运行时 `codex_home` / `BUB_CODEX_HOME` 也应设为同一路径。
+现有可解析的 auth.json 直接复用，读取不写盘、不搬家，无需迁移步骤。
 
-旧 `auth.json` 不会被静默消费或改写。显式导入命令：
+自动选择 Codex 仅适用于未显式设置 base URL 或协议的 `openai:`。普通 API key 使用标准 API；
+带 ChatGPT account claim 的显式 access token 可直接走 Codex，无需 refresh token 或已知 expiry。
+没有显式 key/base 时，可解析的 auth.json 才会选择 Codex；不能只凭文件存在或模型名含 codex 判断。
+显式协议映射仍决定协议，并允许显式凭据和 endpoint。
 
-```bash
-bub login openai --migrate --codex-home /explicit/credential-directory
-```
+Bub 保留原到期策略：优先 `tokens.expires_at`（数字或 RFC3339），其次 access JWT `exp`，
+再其次 `last_refresh + 3600`，均缺失时使用当前时间加 3600。这些 fallback 是 Bub 的时效估计，
+不是服务端保证；JWT claim 只作未验证的路由和时效提示。Republic 不强制这些策略。
+Bub 在推理前提前 120 秒刷新；刷新失败而旧 token 尚未到期时继续使用，已过期则失败。
+刷新成功原地更新 auth.json 的 token、expiry、account 和 last_refresh，保留未知顶层/嵌套字段；
+没有新 account 时沿用旧值。原子写使用 0600 权限，轮换后保存失败会阻止推理。
+不在 401 后刷新重发，不在推理时弹登录 UI；跨进程刷新锁仍未提供。
 
-迁移要求 access/refresh token 及实际 expiry（已存值或 JWT claim 提示），新建独立 `bub-republic.json`，
-目标已存在则拒绝覆盖。JWT 提示不等于已验证身份。缺失或畸形 expiry 需要重新登录，不能猜测 `last_refresh + 一小时`。
+Republic 提供认证和请求能力，接受已有凭据。Bub 默认工厂显式设 SDK 重试为零；
+自定义工厂可选择自己的 transport 策略。ChatGPT token 不是通用 OpenAI API key。
+本轮证据均为合成 fixtures，真实账号登录、推理、刷新和 entitlement 仍未验收；没有新增 Copilot/Grok 登录 UX。
 
-使用 `openai:<codex-model>` 且不设置 API key/base，也可显式设置 `republic_protocols.openai: codex`。
-Bub 工厂在创建 provider 前读取指定凭据，距离到期不足 120 秒时刷新并保存。刷新失败则终止本次调用，
-401 后绝不刷新重发。每次调用的 adapter 持有不可变 token，下次调用读取更新值；跨进程并发刷新协调仍由调用者负责。
-ChatGPT OAuth token 不是通用 OpenAI API key。登录、推理、刷新证据均为合成 fixtures，真实账号验收尚未完成。
 
 ## 请求选项与媒体
 
@@ -98,7 +103,7 @@ reasoning 使用既有 UI event，完整原生消息独立持久化。Codex 使�
 
 `ModelRunner.run` 直接使用 Republic Request/Response/events。每次尝试拥有并关闭自己的 adapter/client。
 嵌入者可覆盖 async `ModelRunner.create_provider(candidate)`，返回以 `client=...` 构造的 adapter。
-借用的官方 client 不被修改或关闭；Republic 实际禁用 SDK 重试，最终由调用者关闭 client。
+借用的官方 client 不被修改或关闭，保留调用者配置的重试策略，最终由调用者关闭 client。
 Bub 在成功、失败、超时、取消和提前 `aclose()` 时关闭 stream；停止消费时调用者必须关闭 stream。
 
 只有完成的 `stop`/`tool_call` 可继续。工具须保有原始 ID/名称、对象 JSON 参数及 completed 原生 item 状态（若有）。
@@ -107,7 +112,7 @@ Bub 在成功、失败、超时、取消和提前 `aclose()` 时关闭 stream；
 含 `is_error: true` 的显式 JSON 结果。Republic 不执行工具、不续轮；Bub agent loop 可在 `max_steps` 内继续。
 
 `fallback_models` 是 Bub 策略，仅在尚无任何原生流事件的 ProviderError 时尝试下一候选。
-已有输出、无效历史/选项、不完整终止均不回退。每个候选一次 HTTP，Republic 调用内不刷新或重试。
+已有输出、无效历史/选项、不完整终止均不回退。Bub 默认工厂显式禁用 SDK 重试，每个候选一次 HTTP；自定义工厂可选择自己的 transport 策略，Republic 不自动刷新。
 
 ## tape 兼容边界
 
@@ -124,7 +129,7 @@ tape 写入失败向外传播，不重跑已执行工具；外部副作用与持
 ```bash
 python scripts/check_republic_wheel.py \
   /explicit/path/to/republic-VERSION-py3-none-any.whl \
-  --source-commit 5dff4aa7bdbf6f81411f16d64f74307d4d83f167
+  --source-commit 8c6531070b0ef2f22fba843e1cc46055d6e697a0
 ```
 
 脚本新建 Python 3.12 环境（含 trace extra），安装两个 wheel，运行 `uv pip check`，断言旧 SDK 不存在、两库均从
@@ -137,6 +142,6 @@ site-packages 导入、安装文件与指定 wheel 一致，并记录版本/hash
 测试不需要真实凭据；模型 SDK 是运行和测试的必需依赖，不会因缺失而跳过。常规检查为 `make check/test/docs-test`。
 这些证据不证明真实账号 entitlement、OAuth live 登录或在线推理已验收。
 
-已验收 runtime wheel：`0.5.9.dev17+g5dff4aa7b`，来源 `5dff4aa7bdbf6f81411f16d64f74307d4d83f167`，
-SHA256 `217d45d0c354b83916412296ac2efdeb018d3399117e30f158d223c4bca6e06c`。
+已验收 runtime wheel：`0.5.9.dev21+g8c6531070`，来源 `8c6531070b0ef2f22fba843e1cc46055d6e697a0`，
+SHA256 `6078583c4704c4727a547abca6ea8e5920a7d7187039aa5936cf375db24c59bb`。
 本轮具体测试数量与剩余限制记录在 Republic 的 `docs/rebuild-plan.md`。

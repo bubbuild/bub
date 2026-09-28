@@ -186,3 +186,9 @@ See [CONTRIBUTING.md](https://github.com/bubbuild/bub/blob/main/CONTRIBUTING.md)
 ## License
 
 [Apache-2.0](https://github.com/bubbuild/bub/blob/main/LICENSE)
+
+Codex credentials keep their existing `CODEX_HOME/auth.json` nested format.
+`bub login openai` accepts browser callbacks or manual URL/code input. Existing
+credentials are reused directly; Bub refreshes before inference and writes back
+the same file, preserving other fields. Failed early refresh can use a still-valid
+old token. See the [SDK guide](website/src/content/docs/docs/operate/republic-sdk.mdx).

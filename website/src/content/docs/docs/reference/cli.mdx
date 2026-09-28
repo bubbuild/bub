@@ -194,11 +194,10 @@ bub login openai [OPTIONS]
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--codex-home` | PATH | `$CODEX_HOME` or `~/.codex` | Directory to store `bub-republic.json`. |
+| `--codex-home` | PATH | `$CODEX_HOME` or `~/.codex` | Directory to store `auth.json`. |
 | `--browser` / `--no-browser` | flag | `--browser` | Open the OAuth authorize URL in the default browser. |
-| `--manual` | flag | off | Skip the local callback server and prompt for the full callback URL including state. |
+| `--manual` | flag | off | Skip the local callback server and prompt for a callback URL (with state) or authorization code. |
 | `--timeout` | FLOAT | `300.0` | OAuth wait timeout in seconds. |
-| `--migrate` | flag | off | Import existing `auth.json` to a new `bub-republic.json`; no login/network or overwrite. |
 
 Behavior notes:
 

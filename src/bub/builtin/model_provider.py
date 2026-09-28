@@ -48,18 +48,10 @@ def protocol_for(settings: AgentSettings, candidate: ModelCandidate) -> str:
         raise BubError(ErrorKind.CONFIG, "Unsupported Republic provider configuration.")
     protocol = settings.republic_protocols.get(provider, _DEFAULTS.get(provider))
     config = settings.model_client_kwargs(provider)
-    if (
-        provider == "openai"
-        and provider not in settings.republic_protocols
-        and not config["api_key"]
-        and not config["api_base"]
-    ):
-        if auth.codex_token_path(settings.codex_home).is_file():
+    if provider == "openai" and provider not in settings.republic_protocols and not config["api_base"]:
+        key = config["api_key"]
+        if (key and auth.codex_account_id(key)) or (not key and auth.load_codex_tokens(settings.codex_home)):
             protocol = "codex"
-        elif (auth.resolve_codex_home(settings.codex_home) / "auth.json").is_file():
-            raise BubError(
-                ErrorKind.CONFIG, "Migrate existing Codex credentials with bub login openai --migrate, or log in again."
-            )
     if (provider, protocol) not in {
         ("openai", "chat"),
         ("openai", "responses"),
@@ -75,9 +67,15 @@ async def create_provider(settings: AgentSettings, candidate: ModelCandidate) ->
     protocol = protocol_for(settings, candidate)
     config = settings.model_client_kwargs(candidate.provider)
     if protocol == "openai.codex":
-        if config["api_key"] or config["api_base"]:
-            raise BubError(ErrorKind.CONFIG, "Codex uses its own tokens and endpoint; remove api_key/api_base.")
-        return OpenAICodex(await auth.prepare_codex_tokens(settings.codex_home))
+        key = config["api_key"]
+        credentials = key if key else await auth.prepare_codex_tokens(settings.codex_home)
+        return OpenAICodex(
+            credentials,
+            account_id=auth.codex_account_id(key) if key else None,
+            base_url=config["api_base"],
+            max_retries=0,
+            headers={"originator": "bub", "OpenAI-Beta": "responses=experimental"},
+        )
     if not config["api_key"]:
         raise BubError(ErrorKind.CONFIG, "Set a Bub API key, or use bub login openai for Codex.")
     base_url = config["api_base"]
@@ -88,7 +86,7 @@ async def create_provider(settings: AgentSettings, candidate: ModelCandidate) ->
         if protocol.endswith(".messages")
         else (OpenAIResponses if protocol.endswith(".responses") else OpenAIChatCompletions)
     )
-    return adapter(api_key=config["api_key"], base_url=base_url)
+    return adapter(api_key=config["api_key"], base_url=base_url, max_retries=0)
 
 
 def _call_payload(part: ToolCallPart) -> dict[str, Any]:

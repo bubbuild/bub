@@ -81,9 +81,9 @@ Republic 是必需的模型 SDK。provider 只支持 `openai`、`openrouter`、`
 `OPENROUTER_API_KEY`、`ANTHROPIC_API_KEY` 是较低优先级的 provider 默认值。
 
 `bub login openai` 使用 Republic Codex OAuth，Bub 负责登录 UX 和推理前刷新。
-凭据写入 `bub-republic.json`；旧 `auth.json` 必须显式 `--migrate`。
+凭据直接复用并写回原有嵌套格式的 `auth.json`，读取不会写盘。
 运行时 `codex_home` / `BUB_CODEX_HOME` 优先于 `CODEX_HOME` / `~/.codex`。
-显式 API key/base 或 API 协议会关闭 Codex 自动选择。详见 [Republic 指南](/zh-cn/docs/operate/republic-sdk/)。
+普通 API key、显式 base 或 API 协议会关闭 Codex 自动选择；可识别的 OAuth access token 可直接走 Codex。详见 [Republic 指南](/zh-cn/docs/operate/republic-sdk/)。
 
 ## Spill sidecar —— `SpillSettings`
 
@@ -157,7 +157,7 @@ class TelegramSettings(Settings):
 
 | 环境变量 | 默认值 | 读取方 | 描述 |
 | --- | --- | --- | --- |
-| `CODEX_HOME` | `~/.codex` | `bub login openai`(`src/bub/builtin/auth.py`) | Codex OAuth `bub-republic.json` 的存放目录。可被 `--codex-home` 覆盖。 |
+| `CODEX_HOME` | `~/.codex` | `bub login openai`(`src/bub/builtin/auth.py`) | Codex OAuth `auth.json` 的存放目录。可被 `--codex-home` 覆盖。 |
 
 ## 插件自定义配置
 

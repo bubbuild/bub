@@ -23,11 +23,11 @@ async def main(protocol: str, phase: int, directory: Path) -> None:
     if protocol == "codex":
         import time
 
-        from republic.auth.codex import CodexTokens, write_tokens
+        from republic.auth.codex import CodexTokens
 
-        from bub.builtin.auth import codex_token_path
+        from bub.builtin.auth import codex_token_path, save_codex_tokens
 
-        write_tokens(
+        save_codex_tokens(
             codex_token_path(directory),
             CodexTokens("fixture-access", "fixture-refresh", time.time() + 3600, "acct_fixture"),
         )

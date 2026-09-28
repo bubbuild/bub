@@ -40,7 +40,12 @@ def main() -> None:
         parser.error("Build Republic from a clean commit, not a dirty checkout")
     root = Path(__file__).resolve().parents[1]
     directory = Path(tempfile.mkdtemp(prefix="bub-republic-wheel-"))
-    environment = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(directory / "venv")}
+    environment = {
+        **os.environ,
+        "UV_PROJECT_ENVIRONMENT": str(directory / "venv"),
+        "PYTHON_DOTENV_DISABLED": "1",
+        "CODEX_HOME": str(directory / "synthetic-codex"),
+    }
 
     def run(*command: str, capture: bool = False) -> str:
         result = subprocess.run(

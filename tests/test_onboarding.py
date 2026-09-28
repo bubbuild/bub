@@ -435,7 +435,7 @@ def test_oauth_login_skips_api_key_discovery_and_preserves_runtime_auth(prompts,
     answers["key"] = ""
     path = auth.codex_token_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.touch()  # Onboarding only selects; it never reads or refreshes a token.
+    auth.save_codex_tokens(path, auth.CodexTokens("fixture-access", "fixture-refresh", 1900000000, "acct_fixture"))
     config = onboarding.collect_model_config({})
     assert config == {"model": "openai:model-b"}
     assert "discover" not in dict(calls)
@@ -461,7 +461,7 @@ def test_leaving_default_url_blank_during_edit_does_not_disable_oauth(prompts, m
     assert not api_base
     path = auth.codex_token_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.touch()  # Onboarding only selects; it never reads or refreshes a token.
+    auth.save_codex_tokens(path, auth.CodexTokens("fixture-access", "fixture-refresh", 1900000000, "acct_fixture"))
     assert protocol_for(settings, settings.model_candidates(settings.model)[0]) == "openai.codex"
 
 
@@ -470,7 +470,7 @@ def test_explicit_official_base_does_not_switch_to_oauth(prompts, monkeypatch):
     answers["key"] = ""
     path = auth.codex_token_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.touch()  # Onboarding only selects; it never reads or refreshes a token.
+    auth.save_codex_tokens(path, auth.CodexTokens("fixture-access", "fixture-refresh", 1900000000, "acct_fixture"))
     config = onboarding.collect_model_config({"model": "openai:model-b", "api_base": onboarding.OPENAI_BASE})
     assert config["api_base"] == onboarding.OPENAI_BASE
     assert "discover" in dict(calls)

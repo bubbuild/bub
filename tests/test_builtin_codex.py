@@ -22,7 +22,6 @@ from bub.builtin import auth
 from bub.builtin.model_provider import protocol_for
 from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
-from bub.errors import BubError
 from bub.tools import Tool
 
 
@@ -38,7 +37,7 @@ def save(home, *, expired=False):
     tokens = CodexTokens(jwt(), "fixture-refresh", time.time() + (-1 if expired else 3600), "acct_test")
     path = auth.codex_token_path(home)
     path.parent.mkdir(parents=True, exist_ok=True)
-    codex.write_tokens(path, tokens)
+    auth.save_codex_tokens(path, tokens)
     return tokens
 
 
@@ -51,50 +50,51 @@ def selected(settings):
 
 
 @pytest.mark.parametrize("expiry", [1900000000, "2030-03-17T17:46:40+00:00", None])
-def test_explicit_legacy_migration_preserves_original_and_uses_real_expiry(tmp_path, expiry):
+def test_existing_auth_file_is_read_without_migration_or_write(tmp_path, expiry):
     tokens = {"access_token": jwt(expiry=1900000000), "refresh_token": "fixture-refresh"}
     if expiry is not None:
         tokens["expires_at"] = expiry
     old = json.dumps({"tokens": tokens, "last_refresh": "2000-01-01T00:00:00Z"})
-    (tmp_path / "auth.json").write_text(old)
-    destination = auth.migrate_codex_tokens(tmp_path)
-    loaded = codex.read_tokens(destination)
-    assert loaded.account_id == "acct_test"
-    assert loaded.expires_at == 1900000000
-    assert destination.name == "bub-republic.json"
-    assert destination.stat().st_mode & 0o777 == 0o600
-    assert (tmp_path / "auth.json").read_text() == old
-    with pytest.raises(CodexAuthError, match="migration_destination_exists"):
-        auth.migrate_codex_tokens(tmp_path)
+    path = tmp_path / "auth.json"
+    path.write_text(old)
+    assert selected(config(tmp_path)) == "openai.codex"
+    loaded = auth.load_codex_tokens(tmp_path)
+    assert loaded.account_id == "acct_test" and loaded.expires_at == 1900000000
+    assert path.read_text() == old and list(tmp_path.iterdir()) == [path]
 
 
-@pytest.mark.parametrize("expiry", [None, True, "tomorrow", "2030-01-01T00:00:00", float("nan"), -1])
-def test_migration_never_guesses_expiry_or_exposes_secrets(tmp_path, expiry):
-    (tmp_path / "auth.json").write_text(
-        json.dumps({
-            "last_refresh": time.time(),
-            "tokens": {"access_token": "secret-access", "refresh_token": "secret-refresh", "expires_at": expiry},
-        })
-    )
-    with pytest.raises(CodexAuthError) as error:
-        auth.migrate_codex_tokens(tmp_path)
-    assert error.value.code == "invalid_legacy_credentials"
-    assert error.value.__context__ is None and error.value.__cause__ is None
-    assert "secret" not in repr(error.value)
-    assert not auth.codex_token_path(tmp_path).exists()
+@pytest.mark.parametrize(
+    "raw",
+    [
+        [],
+        {},
+        {"tokens": {}},
+        {"tokens": {"access_token": "secret"}},
+        {"tokens": {"access_token": [], "refresh_token": "secret"}},
+        {"tokens": {"access_token": "", "refresh_token": "secret"}},
+    ],
+)
+def test_bad_file_does_not_select_codex_or_expose_secrets(tmp_path, raw):
+    path = tmp_path / "auth.json"
+    path.write_text(json.dumps(raw))
+    assert selected(config(tmp_path)) == "openai.chat"
+    assert auth.load_codex_tokens(tmp_path) is None
 
 
-def test_selection_is_explicit_and_never_treats_oauth_as_api_key(tmp_path):
-    settings = config(tmp_path)
-    assert selected(settings) == "openai.chat"
-    (tmp_path / "auth.json").write_text("must not be read automatically")
-    with pytest.raises(BubError, match="--migrate"):
-        selected(settings)
+def test_selection_preserves_api_key_base_and_explicit_protocol_precedence(tmp_path):
+    assert selected(config(tmp_path)) == "openai.chat"
+    (tmp_path / "auth.json").write_text("invalid json")
+    assert selected(config(tmp_path)) == "openai.chat"
+    (tmp_path / "auth.json").unlink()
     save(tmp_path)
-    assert selected(settings) == "openai.codex"
+    assert selected(config(tmp_path)) == "openai.codex"
     assert selected(config(tmp_path, api_key="fixture-key")) == "openai.chat"
+    assert selected(config(tmp_path, api_key=jwt())) == "openai.codex"
     assert selected(config(tmp_path, api_base="https://fixture.test")) == "openai.chat"
+    assert selected(config(tmp_path, api_key=jwt(), api_base="https://fixture.test")) == "openai.chat"
     assert selected(config(tmp_path, republic_protocols={"openai": "responses"})) == "openai.responses"
+    settings = AgentSettings.model_construct(model="openrouter:codex-fixture", codex_home=tmp_path)
+    assert selected(settings) == "openrouter.chat"
 
 
 @pytest.mark.asyncio
@@ -130,7 +130,7 @@ async def test_login_inference_refresh_and_second_native_inference(tmp_path, mon
         return query["redirect_uri"][0] + "?state=" + query["state"][0] + "&code=fixture-code"
 
     tokens = await auth.login_openai_codex_oauth(codex_home=tmp_path, open_browser=False, prompt_for_redirect=callback)
-    assert codex.read_tokens(auth.codex_token_path(tmp_path)) == tokens
+    assert auth.load_codex_tokens(tmp_path) == tokens
     http = Transport([Body(responses(tool=True)), Body(responses())])
     tool_calls = []
 
@@ -142,7 +142,7 @@ async def test_login_inference_refresh_and_second_native_inference(tmp_path, mon
     tape = tape_at(tmp_path / "tape")
     with sdk_transport(http) as clients:
         await collect(ModelRunner(settings), tape, tools=[Tool.from_callable(inspect)])
-        codex.write_tokens(
+        auth.save_codex_tokens(
             auth.codex_token_path(tmp_path),
             CodexTokens(tokens.access_token, tokens.refresh_token, time.time() - 1, tokens.account_id),
         )
@@ -165,7 +165,7 @@ async def test_login_inference_refresh_and_second_native_inference(tmp_path, mon
         next(item for item in second["input"] if item.get("type") == "function_call_output")["call_id"]
         == "call-original"
     )
-    saved = codex.read_tokens(auth.codex_token_path(tmp_path))
+    saved = auth.load_codex_tokens(tmp_path)
     assert saved.account_id == "acct_new" and saved.refresh_token == tokens.refresh_token
     grants = [parse_qs(request.content.decode()) for request in auth_requests]
     assert grants[0]["grant_type"] == ["authorization_code"] and "code_verifier" in grants[0]
@@ -218,7 +218,7 @@ async def test_callback_timeout_and_cancel_release_receiver(tmp_path, monkeypatc
             entered.set()
             await asyncio.Event().wait()
 
-        monkeypatch.setattr(codex, "exchange_code", exchange)
+        monkeypatch.setattr(codex, "exchange_authorization_code", exchange)
         task = asyncio.create_task(
             auth.login_openai_codex_oauth(
                 codex_home=tmp_path, open_browser=False, prompt_for_redirect=lambda _: "callback"
@@ -275,7 +275,6 @@ async def test_failed_pre_call_refresh_does_not_use_stale_token(tmp_path, monkey
     [
         {"max_tokens": 100},
         {"completion_args": {"temperature": 0.2}},
-        {"completion_args": {"provider_options": {"store": True}}},
     ],
 )
 async def test_codex_unsupported_options_are_not_silently_removed(tmp_path, extra):
@@ -349,14 +348,23 @@ async def test_codex_partial_stream_never_executes_tools_and_releases_resources(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("options", [{"api_key": "fixture-key"}, {"api_base": "https://custom.test"}])
-async def test_explicit_codex_rejects_api_key_or_endpoint_override(tmp_path, options):
-    transport = Transport([])
-    with sdk_transport(transport), pytest.raises(BubError, match="Codex uses its own"):
+async def test_explicit_codex_allows_caller_access_token_and_endpoint(tmp_path):
+    transport = Transport([Body(responses())])
+    with sdk_transport(transport):
         await collect(
-            ModelRunner(config(tmp_path, republic_protocols={"openai": "codex"}, **options)), tape_at(tmp_path / "tape")
+            ModelRunner(
+                config(
+                    tmp_path,
+                    republic_protocols={"openai": "codex"},
+                    api_key="direct-access",
+                    api_base="https://custom.test/v1",
+                )
+            ),
+            tape_at(tmp_path / "tape"),
         )
-    assert transport.requests == []
+    assert transport.requests[0].url.host == "custom.test"
+    assert transport.requests[0].headers["authorization"] == "Bearer direct-access"
+    assert not auth.codex_token_path(tmp_path).exists()
 
 
 @pytest.mark.asyncio
@@ -370,3 +378,176 @@ async def test_codex_native_options_and_reasoning_effort_reach_the_wire(tmp_path
         await collect(ModelRunner(settings), tape)
     assert transport.payload()["text"] == {"verbosity": "low"}
     assert transport.payload()["reasoning"] == {"effort": "high"}
+
+
+@pytest.mark.asyncio
+async def test_valid_existing_credentials_infer_without_refresh_or_file_changes(tmp_path, monkeypatch):
+    save(tmp_path)
+    original = auth.codex_token_path(tmp_path).read_bytes()
+
+    async def unexpected(*args):
+        pytest.fail("Valid credentials must not be refreshed")
+
+    monkeypatch.setattr(codex, "refresh_tokens", unexpected)
+    http = Transport([Body(responses())])
+    with sdk_transport(http):
+        await collect(ModelRunner(config(tmp_path)), tape_at(tmp_path / "tape"))
+    assert len(http.requests) == 1 and auth.codex_token_path(tmp_path).read_bytes() == original
+    assert http.requests[0].headers["originator"] == "bub"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("write_failure", [False, True])
+async def test_refresh_rotates_original_file_retaining_unknown_fields_before_inference(
+    tmp_path, monkeypatch, write_failure
+):
+    save(tmp_path, expired=True)
+    path = auth.codex_token_path(tmp_path)
+    raw = json.loads(path.read_text())
+    raw.update(untouched={"custom": 1})
+    raw["tokens"].update({"id_token": "opaque-id", "other_token_field": {"value": 2}})
+    path.write_text(json.dumps(raw))
+    original = path.read_bytes()
+    refresh = codex.refresh_tokens
+    auth_http = Transport([
+        httpx.Response(
+            200,
+            json={
+                "access_token": "rotated-access",
+                "refresh_token": "rotated-refresh",
+                "expires_in": 3600,
+            },
+        )
+    ])
+
+    async def offline(tokens):
+        return await refresh(tokens, transport=auth_http)
+
+    monkeypatch.setattr(codex, "refresh_tokens", offline)
+    if write_failure:
+
+        def fail_replace(*args):
+            raise OSError("secret-from-filesystem")
+
+        monkeypatch.setattr(auth.os, "replace", fail_replace)
+    inference = Transport([] if write_failure else [Body(responses())])
+    with sdk_transport(inference):
+        if write_failure:
+            with pytest.raises(CodexAuthError) as error:
+                await collect(ModelRunner(config(tmp_path)), tape_at(tmp_path / "tape"))
+            assert error.value.code == "credential_write_failed"
+            assert error.value.__cause__ is None and error.value.__context__ is None
+            assert "secret" not in repr(error.value) and path.read_bytes() == original
+            assert not inference.requests
+        else:
+            await collect(ModelRunner(config(tmp_path)), tape_at(tmp_path / "tape"))
+            saved = json.loads(path.read_text())
+            assert saved["untouched"] == raw["untouched"]
+            assert saved["tokens"]["other_token_field"] == {"value": 2}
+            assert saved["tokens"]["id_token"] == raw["tokens"]["id_token"]
+            assert saved["tokens"]["account_id"] == "acct_test"
+            assert saved["tokens"]["refresh_token"] == "rotated-refresh"  # noqa: S105 - synthetic fixture
+            assert isinstance(saved["tokens"]["expires_at"], str)
+            assert saved["last_refresh"] != raw["last_refresh"]
+            assert path.stat().st_mode & 0o777 == 0o600
+            assert len(inference.requests) == 1
+            assert inference.requests[0].headers["authorization"] == "Bearer rotated-access"
+    assert len(auth_http.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_early_refresh_failure_uses_still_valid_old_token_without_rewriting(tmp_path, monkeypatch):
+    tokens = save(tmp_path)
+    auth.save_codex_tokens(
+        auth.codex_token_path(tmp_path),
+        CodexTokens(tokens.access_token, tokens.refresh_token, time.time() + 60, tokens.account_id),
+    )
+    original = auth.codex_token_path(tmp_path).read_bytes()
+    refresh = codex.refresh_tokens
+    auth_http = Transport([httpx.Response(400, json={"error": "invalid_grant", "error_description": "secret"})])
+
+    async def offline(tokens):
+        return await refresh(tokens, transport=auth_http)
+
+    monkeypatch.setattr(codex, "refresh_tokens", offline)
+    inference = Transport([Body(responses())])
+    with sdk_transport(inference):
+        await collect(ModelRunner(config(tmp_path)), tape_at(tmp_path / "tape"))
+    assert len(auth_http.requests) == len(inference.requests) == 1
+    assert inference.requests[0].headers["authorization"] == f"Bearer {tokens.access_token}"
+    assert auth.codex_token_path(tmp_path).read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "fields,access_exp,expected",
+    [
+        ({"expires_at": 1900000200}, 1900000100, 1900000200),
+        ({}, 1900000100, 1900000100),
+        ({"last_refresh": 1900000000}, None, 1900003600),
+        ({"last_refresh": "2030-03-17T17:46:40Z"}, None, 1900003600),
+        ({}, None, 1900003600),
+    ],
+)
+def test_original_expiry_priority_and_fallback_are_bub_policy(tmp_path, monkeypatch, fields, access_exp, expected):
+    monkeypatch.setattr(auth.time, "time", lambda: 1900000000)
+    raw = {"tokens": {"access_token": jwt(expiry=access_exp), "refresh_token": "refresh"}}
+    if "expires_at" in fields:
+        raw["tokens"]["expires_at"] = fields["expires_at"]
+    if "last_refresh" in fields:
+        raw["last_refresh"] = fields["last_refresh"]
+    path = auth.codex_token_path(tmp_path)
+    path.write_text(json.dumps(raw))
+    before = path.read_bytes()
+    assert auth.load_codex_tokens(tmp_path).expires_at == expected
+    assert path.read_bytes() == before
+
+
+@pytest.mark.asyncio
+async def test_manual_bare_code_uses_republic_pkce_and_writes_original_auth_format(tmp_path, monkeypatch):
+    transport = Transport([
+        httpx.Response(
+            200,
+            json={
+                "access_token": jwt(),
+                "refresh_token": "refresh",
+                "expires_in": 3600,
+            },
+        )
+    ])
+    exchange = codex.exchange_authorization_code
+
+    async def offline(authorization, code):
+        return await exchange(authorization, code, transport=transport)
+
+    monkeypatch.setattr(codex, "exchange_authorization_code", offline)
+    (tmp_path / "auth.json").write_text("old malformed layout")
+    await auth.login_openai_codex_oauth(
+        codex_home=tmp_path, open_browser=False, prompt_for_redirect=lambda _: "manual-code"
+    )
+    body = parse_qs(transport.requests[0].content.decode())
+    assert body["code"] == ["manual-code"] and "code_verifier" in body
+    saved = json.loads((tmp_path / "auth.json").read_text())
+    assert saved["tokens"]["refresh_token"] == "refresh" and saved["last_refresh"]  # noqa: S105 - fixture
+    assert len(transport.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_recognizable_access_token_infers_without_file_refresh_or_expiry(tmp_path):
+    transport = Transport([Body(responses())])
+    with sdk_transport(transport):
+        await collect(ModelRunner(config(tmp_path, api_key=jwt())), tape_at(tmp_path / "tape"))
+    assert str(transport.requests[0].url) == "https://chatgpt.com/backend-api/codex/responses"
+    assert transport.requests[0].headers["chatgpt-account-id"] == "acct_test"
+    assert len(transport.requests) == 1 and not auth.codex_token_path(tmp_path).exists()
+
+
+@pytest.mark.asyncio
+async def test_malformed_manual_url_is_a_sanitized_login_error(tmp_path):
+    with pytest.raises(CodexAuthError, match="invalid_callback") as caught:
+        await auth.login_openai_codex_oauth(
+            codex_home=tmp_path,
+            open_browser=False,
+            prompt_for_redirect=lambda _: "https://[private-code",
+        )
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+    assert "private" not in repr(caught.value) and not auth.codex_token_path(tmp_path).exists()
