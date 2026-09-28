@@ -18,7 +18,7 @@ workspace/
 ```
 
 In Bub, `uv sync --locked --extra trace` installs its required dependency
-`republic>=0.5.9.dev26,<0.6` from the repository-relative source `../republic-dev`.
+`republic>=0.5.9.dev28,<0.6` from the repository-relative source `../republic-dev`.
 The lock contains that relative source; no machine-specific path or unpublished
 remote commit is required. `trace` is optional telemetry, not a model backend.
 The removed SDK is not installed. Current source instructions require both checkouts.
@@ -128,8 +128,11 @@ Consult the matching protocol guide in the Republic checkout for allowed options
 `build_prompt` image_url, input_audio and video_url blocks become Republic FilePart
 values in their original order. Images work through Chat, Responses, Anthropic and
 Codex; inline audio uses Chat (native OpenAI mp3/wav, compatible services may accept
-more formats); video_url is an OpenRouter/compatible Chat extension. Anthropic,
-Responses and Codex do not acquire audio/video support from this conversion.
+more formats) or Codex's own input_audio/audio_url wire. Codex audio is established
+by the fixed upstream Responses client tests, not only Realtime. video_url is an
+OpenRouter/compatible Chat extension. Anthropic and standard Responses still reject
+audio/video; Codex still rejects video. Codec/model/account availability needs live
+validation; request adaptation is verified offline.
 Unsupported protocol/media combinations and unknown fields fail before HTTP.
 The SDK never downloads URLs or reads local files. Bub's existing channel-owned
 media fetchers still run before building the prompt. Generated audio/images and
@@ -204,7 +207,7 @@ From this Bub checkout, pass the exact wheel and full clean source commit:
 ```bash
 python scripts/check_republic_wheel.py \
   /explicit/path/to/republic-VERSION-py3-none-any.whl \
-  --source-commit 3c5638118952744cd53738be956d1c02354f5fc8
+  --source-commit 68e13a4ccc3177ae6b036c094dff83f980482b7f
 ```
 
 The script creates a new Python 3.12 environment with the trace extra, installs Bub non-editably and
@@ -219,7 +222,7 @@ synthetic HTTP/SSE fixtures. For Chat/OpenRouter, Responses, Anthropic and Codex
 processes execute build_prompt and the real runner/tool/tape path: one model response requests a
 tool, Bub executes it once and writes JSONL; the next process reads that file,
 sends the same ordered media and retained encrypted reasoning or signature where
-applicable, and gets the final answer. Chat additionally replays inline audio and video.
+applicable, and gets the final answer. Codex also replays audio alongside encrypted reasoning; Chat replays audio and video.
 Each process asserts one HTTP request, released resources and the same single
 tool execution record. Tests also cover the actual agent loop, Chat/OpenRouter,
 the complete synthetic Codex login/refresh flow, CLI/config, tracing, hooks, explicit fallback, tool failures, truncation, tape-write failure, early
@@ -230,7 +233,7 @@ availability or production endpoint compatibility. No real token file or account
 is needed by the suite. Standard repository checks remain `make check`, `make test`
 and `make docs-test`. Republic is required for test collection and runtime imports.
 
-The accepted SDK runtime wheel is `0.5.9.dev26+g3c5638118`, source commit
-`3c5638118952744cd53738be956d1c02354f5fc8`, SHA256
-`4053168afadc79e5f9e0e913eb173c2de11e96782f971d6dce6f51fed1d7ecdc`.
+The accepted SDK runtime wheel is `0.5.9.dev28+g68e13a4cc`, source commit
+`68e13a4ccc3177ae6b036c094dff83f980482b7f`, SHA256
+`9a83feedd03931beaf1e565479b93ad8f0193b1e005eff16dd01b4223756e3c8`.
 Current acceptance counts and limits are recorded in Republic's `docs/rebuild-plan.md`.

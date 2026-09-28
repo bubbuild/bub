@@ -19,6 +19,20 @@ from bub.framework import BubFramework
 from bub.tools import Tool
 
 
+async def media_prompt(protocol: str, directory: Path) -> list[dict]:
+    attachments = [MediaItem(type="image", mime_type="image/png", url="https://assets.test/image")]
+    if protocol in {"chat", "codex"}:
+        attachments.append(MediaItem(type="audio", mime_type="audio/wav", url="data:audio/wav;base64,YXVkaW8="))
+    if protocol == "chat":
+        attachments.append(MediaItem(type="video", mime_type="video/mp4", url="data:video/mp4;base64,dmlkZW8="))
+    impl = BuiltinImpl(BubFramework(config_file=directory / "no-config.toml"))
+    return await impl.build_prompt(
+        ChannelMessage(session_id="media", channel="cli", content="inspect once", media=attachments),
+        session_id="media",
+        state={},
+    )
+
+
 async def main(protocol: str, phase: int, directory: Path, media: bool = False) -> None:
     import republic
 
@@ -40,18 +54,7 @@ async def main(protocol: str, phase: int, directory: Path, media: bool = False) 
     body = Body(wire("responses" if protocol == "codex" else protocol, tool=phase == 1))
     prompt = "inspect once" if phase == 1 else None
     if media and phase == 1:
-        attachments = [MediaItem(type="image", mime_type="image/png", url="https://assets.test/image")]
-        if protocol == "chat":
-            attachments.extend([
-                MediaItem(type="audio", mime_type="audio/wav", url="data:audio/wav;base64,YXVkaW8="),
-                MediaItem(type="video", mime_type="video/mp4", url="data:video/mp4;base64,dmlkZW8="),
-            ])
-        impl = BuiltinImpl(BubFramework(config_file=directory / "no-config.toml"))
-        prompt = await impl.build_prompt(
-            ChannelMessage(session_id="media", channel="cli", content="inspect once", media=attachments),
-            session_id="media",
-            state={},
-        )
+        prompt = await media_prompt(protocol, directory)
     transport = Transport([body])
 
     def inspect(value: int) -> str:

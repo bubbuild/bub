@@ -185,7 +185,7 @@ def partial(protocol: str) -> bytes:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("protocol", ["responses", "messages", "chat"])
+@pytest.mark.parametrize("protocol", ["responses", "messages", "chat", "codex"])
 @pytest.mark.parametrize("mode", ["close", "cancel", "missing"])
 @pytest.mark.parametrize("media", [False, True])
 async def test_stream_exit_and_missing_terminal_release_resources(
@@ -206,6 +206,8 @@ async def test_stream_exit_and_missing_terminal_release_resources(
         tape = tape_at(tmp_path)
         await tape.ensure_bootstrap_anchor()
         prompt = [{"type": "image_url", "image_url": {"url": "https://assets.test/image"}}] if media else "hello"
+        if media and protocol == "codex":
+            prompt.append({"type": "input_audio", "input_audio": {"data": "YXVkaW8=", "format": "wav"}})
         output = runner.run(tape=tape, model=config.model, tools=[], system_prompt=None, prompt=prompt)
         async with aclosing(output):
             assert (await anext(output)).kind == "text"
@@ -483,10 +485,14 @@ def test_build_prompt_media_tool_tape_survives_new_process(protocol: str, tmp_pa
         ]
     else:
         assert image == {"type": "input_image", "image_url": "https://assets.test/image"}
+        if protocol == "codex":
+            assert before[2:] == [{"type": "input_audio", "audio_url": "data:audio/wav;base64,YXVkaW8="}]
     persisted = (tmp_path / "integration.jsonl").read_text()
     assert "https://assets.test/image" in persisted and "call-original" in persisted
+    if protocol in {"chat", "codex"}:
+        assert "YXVkaW8=" in persisted
     if protocol == "chat":
-        assert "YXVkaW8=" in persisted and "dmlkZW8=" in persisted
+        assert "dmlkZW8=" in persisted
     else:
         assert "sig-opaque" in persisted if protocol == "messages" else "opaque-reasoning" in persisted
 

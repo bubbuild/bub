@@ -165,4 +165,4 @@ See [Operate › Channels › Telegram](/docs/operate/channels/telegram/) for de
 
 Plugins can register their own `Settings` subclass via the `@config(name="...")` decorator (see [Build › Plugins](/docs/build/plugins/)). The decorator records the class under `CONFIG_MAP[name]`, which `configure.validate` then validates and `ensure_config` reads. The YAML key matches the registered name; env vars follow whatever `env_prefix` the subclass declares.
 
-Media inputs use the selected protocol: images across Chat/Responses/Messages/Codex, inline audio through Chat, and video_url through an explicitly compatible Chat service such as OpenRouter. Unsupported combinations fail; see the [media and tape boundaries](/docs/operate/republic-sdk/).
+Media inputs use the selected protocol: images across Chat/Responses/Messages/Codex, inline audio through Chat or Codex, and video_url through an explicitly compatible Chat service such as OpenRouter. Unsupported combinations fail; see the [media and tape boundaries](/docs/operate/republic-sdk/).

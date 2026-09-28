@@ -163,4 +163,4 @@ class TelegramSettings(Settings):
 
 插件可以通过 `@config(name="...")` 装饰器注册自己的 `Settings` 子类（参见 [构建 › 插件](/zh-cn/docs/build/plugins/)）。装饰器把类记录进 `CONFIG_MAP[name]`，然后由 `configure.validate` 验证、`ensure_config` 读取。YAML key 与注册名一致；环境变量遵循子类声明的 `env_prefix`。
 
-媒体能力按所选协议区分：Chat/Responses/Messages/Codex 接通图片，Chat 接通内联音频，video_url 通过 OpenRouter 等明确兼容的 Chat 服务发送。不支持的组合报错，详见[媒体与 tape 边界](/zh-cn/docs/operate/republic-sdk/)。
+媒体能力按所选协议区分：Chat/Responses/Messages/Codex 接通图片，Chat/Codex 接通内联音频，video_url 通过 OpenRouter 等明确兼容的 Chat 服务发送。不支持的组合报错，详见[媒体与 tape 边界](/zh-cn/docs/operate/republic-sdk/)。
