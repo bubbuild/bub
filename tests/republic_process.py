@@ -12,14 +12,19 @@ from pathlib import Path
 
 from republic_fixtures import Body, Transport, sdk_transport, settings, tape_at, wire
 
+from bub.builtin.hook_impl import BuiltinImpl
 from bub.builtin.model_runner import ModelRunner
+from bub.channels.message import ChannelMessage, MediaItem
+from bub.framework import BubFramework
 from bub.tools import Tool
 
 
-async def main(protocol: str, phase: int, directory: Path) -> None:
+async def main(protocol: str, phase: int, directory: Path, media: bool = False) -> None:
     import republic
 
     config = settings(protocol)
+    if protocol == "chat":
+        config = settings("chat", model="openrouter:fixture-model", api_base=None, republic_protocols={})
     if protocol == "codex":
         import time
 
@@ -33,6 +38,20 @@ async def main(protocol: str, phase: int, directory: Path) -> None:
         )
         config = settings(protocol, api_key=None, api_base=None, codex_home=directory)
     body = Body(wire("responses" if protocol == "codex" else protocol, tool=phase == 1))
+    prompt = "inspect once" if phase == 1 else None
+    if media and phase == 1:
+        attachments = [MediaItem(type="image", mime_type="image/png", url="https://assets.test/image")]
+        if protocol == "chat":
+            attachments.extend([
+                MediaItem(type="audio", mime_type="audio/wav", url="data:audio/wav;base64,YXVkaW8="),
+                MediaItem(type="video", mime_type="video/mp4", url="data:video/mp4;base64,dmlkZW8="),
+            ])
+        impl = BuiltinImpl(BubFramework(config_file=directory / "no-config.toml"))
+        prompt = await impl.build_prompt(
+            ChannelMessage(session_id="media", channel="cli", content="inspect once", media=attachments),
+            session_id="media",
+            state={},
+        )
     transport = Transport([body])
 
     def inspect(value: int) -> str:
@@ -50,7 +69,7 @@ async def main(protocol: str, phase: int, directory: Path) -> None:
                 model=config.model,
                 tools=[Tool.from_callable(inspect)],
                 system_prompt="system",
-                prompt="inspect once" if phase == 1 else None,
+                prompt=prompt,
             )
             async with aclosing(output):
                 events = [item async for item in output]
@@ -69,6 +88,10 @@ async def main(protocol: str, phase: int, directory: Path) -> None:
             assert history[2]["id"] == "reasoning-item" and history[2]["encrypted_content"] == "opaque-reasoning"
             assert history[3]["id"] == "function-item" and history[3]["call_id"] == "call-original"
             assert history[4] == {"type": "function_call_output", "call_id": "call-original", "output": "value=2"}
+        elif protocol == "chat":
+            history = payload["messages"]
+            assert history[2]["tool_calls"][0]["id"] == "call-original"
+            assert history[3] == {"role": "tool", "tool_call_id": "call-original", "content": "value=2"}
         else:
             history = payload["messages"]
             assert history[1]["content"][0] == {"type": "thinking", "thinking": "plan", "signature": "sig-opaque"}
@@ -87,4 +110,4 @@ async def main(protocol: str, phase: int, directory: Path) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main(sys.argv[1], int(sys.argv[2]), Path(sys.argv[3])))
+    asyncio.run(main(sys.argv[1], int(sys.argv[2]), Path(sys.argv[3]), len(sys.argv) > 4 and sys.argv[4] == "media"))

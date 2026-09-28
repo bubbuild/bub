@@ -149,7 +149,7 @@ Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-sk
 
 Republic is the required provider SDK in this local development branch. See the [local wheel integration guide](website/src/content/docs/docs/operate/republic-sdk.mdx)
 for the required sibling checkout or explicit wheel installation, supported protocols,
-Codex login/migration and tape compatibility. Republic is the sole model SDK on
+Codex login/auth.json compatibility, protocol-specific image/audio/video input and durable tape replay. Republic is the sole model SDK on
 this local branch; no package from this rebuild has been published.
 
 ## Background

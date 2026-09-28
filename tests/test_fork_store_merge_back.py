@@ -99,3 +99,24 @@ async def test_reset_for_unbound_tape_resets_parent_immediately() -> None:
 
     entries = parent.read("test-tape")
     assert entries is None
+
+
+@pytest.mark.asyncio
+async def test_media_replay_fields_survive_merge_while_unknown_blocks_stay_filtered() -> None:
+    parent = InMemoryTapeStore()
+    store = ForkTapeStore(AsyncTapeStoreAdapter(parent), "test-tape")
+    media = [
+        {"type": "text", "text": "compare"},
+        {"type": "image_url", "image_url": {"url": "https://assets.test/image", "detail": "low"}},
+        {"type": "input_audio", "input_audio": {"data": "YXVkaW8=", "format": "wav"}},
+        {"type": "video_url", "video_url": {"url": "https://assets.test/video"}, "processing": "static"},
+    ]
+    excluded = [
+        {"type": "private", "value": "not a model media part"},
+        {"type": "image_url", "image_url": {"url": "https://assets.test/image", "private": "extra"}},
+        {"type": "input_audio", "input_audio": {"data": "YQ==", "format": "wav"}, "private": "extra"},
+    ]
+    await store.append("test-tape", TapeEntry.message({"role": "user", "content": [*media, *excluded]}))
+    await store.merge_back()
+    entries = parent.read("test-tape")
+    assert entries is not None and entries[0].payload["content"] == media

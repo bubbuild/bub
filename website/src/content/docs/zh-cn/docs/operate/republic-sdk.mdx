@@ -17,7 +17,7 @@ workspace/
 ```
 
 在 Bub 执行 `uv sync --locked --extra trace`，会从仓库相对路径 `../republic-dev` 安装必需依赖
-`republic>=0.5.9.dev21,<0.6`。锁文件记录相对来源，不固化本机路径或无法获取的远端提交。
+`republic>=0.5.9.dev26,<0.6`。锁文件记录相对来源，不固化本机路径或无法获取的远端提交。
 `trace` 仅为可选遥测功能。当前源码安装要求两个 checkout，已移除的旧 SDK 不会安装。
 
 如需仅用 wheel 部署，分别构建两库 wheel，在同一次依赖解析中安装两个显式产物：
@@ -95,7 +95,13 @@ Republic 提供认证和请求能力，接受已有凭据。Bub 默认工厂显�
 非空 `client_args` 明确拒绝。tape 的 `reasoning_effort` 映射到 Chat 或 Responses/Codex 原生选项；
 `auto` 省略，冲突报错。Anthropic 默认 ephemeral `cache_control`，显式原生选项优先；thinking 通过 `provider_options` 配置。
 
-Bub 当前支持文本输入和 function tools/results。旧媒体块、未知字段在 HTTP 前报错；SDK 媒体能力不等于 Bub 已接入。
+`build_prompt` 的 image_url、input_audio、video_url 按原顺序转为 Republic FilePart。
+Chat、Responses、Anthropic 和 Codex 接通图片；内联音频使用 Chat（OpenAI 原生 mp3/wav，兼容服务可支持更多格式）；
+video_url 是 OpenRouter/兼容 Chat 扩展，不代表 OpenAI 原生视频能力。Anthropic、Responses、Codex 仍不支持音视频。
+协议不支持的媒体组合和未知字段在 HTTP 前明确报错。SDK 不下载 URL 或读取本地文件；Bub 既有 channel media fetcher
+仍在 build_prompt 前处理调用方提供的附件。生成图片/音频与独立语音/转写操作不属于本次消息输入路径。
+
+Republic 另提供独立 OpenAI embeddings 与直接 Cohere v2 rerank，Bub 不新增检索或重排编排。
 reasoning 使用既有 UI event，完整原生消息独立持久化。Codex 使用一次 SSE 请求，领先的 system 消息成为 instructions，
 不经 Chat 中间转换，不重排历史。
 
@@ -120,7 +126,9 @@ Bub 在成功、失败、超时、取消和提前 `aclose()` 时关闭 stream；
 工具结果记录增加 `messages`；可见 content/calls/results 保留。新进程从实际 JSONL 还原 Responses item ID、
 encrypted reasoning、Anthropic signature 和原始 call ID。usage 原生/raw 字段、finish reason 随 run event 保存。
 
-旧文本及完整 function 历史可读；未知旧 metadata、缺失工具身份、媒体明确报错。原生历史不能直接换协议，
+旧文本、image_url/input_audio/video_url 及完整 function 历史可读。tape 保留这些媒体的 URL/base64 字段和顺序；
+原过滤路径仍过滤未知块类型或额外媒体字段。完整 FilePart 与 metadata 可通过原生 envelope 往返。
+未知旧消息 metadata 和缺失工具身份明确报错。原生历史不能直接换协议，
 应新建 tape 或显式迁移。hook 不能只改可见文本而留下旧原生数据。旧 Bub 版本不理解 envelope，无法保证无损续用。
 tape 写入失败向外传播，不重跑已执行工具；外部副作用与持久化不构成事务，崩溃窗口不保证 exactly-once。
 
@@ -129,19 +137,20 @@ tape 写入失败向外传播，不重跑已执行工具；外部副作用与持
 ```bash
 python scripts/check_republic_wheel.py \
   /explicit/path/to/republic-VERSION-py3-none-any.whl \
-  --source-commit 8c6531070b0ef2f22fba843e1cc46055d6e697a0
+  --source-commit 3c5638118952744cd53738be956d1c02354f5fc8
 ```
 
 脚本新建 Python 3.12 环境（含 trace extra），安装两个 wheel，运行 `uv pip check`，断言旧 SDK 不存在、两库均从
 site-packages 导入、安装文件与指定 wheel 一致，并记录版本/hash/source commit。不会依赖 editable sibling。
 
-真实官方 SDK + HTTPX fixtures 验证 Responses、Anthropic、Codex 的双进程链：第一次模型请求工具，Bub 执行一次并落盘；
-第二进程读取 JSONL、回传 encrypted reasoning/signature/ID，得到结果。每进程一次 HTTP、资源释放、工具只执行一次。
+真实官方 SDK + HTTPX fixtures 验证 Chat/OpenRouter、Responses、Anthropic、Codex 的双进程链：
+build_prompt 构造媒体消息，第一次模型请求工具，Bub 执行一次并落盘；第二进程读取 JSONL，按原顺序回传媒体、
+原生 encrypted reasoning/signature（适用协议）和 call ID，得到结果。Chat 另覆盖内联音频和兼容视频回传。每进程一次 HTTP、资源释放、工具只执行一次。
 另覆盖 agent loop、Chat/OpenRouter、Codex 授权/刷新、CLI/config、tracing、hooks/fallback、错误工具、截断、落盘失败及取消。
 
 测试不需要真实凭据；模型 SDK 是运行和测试的必需依赖，不会因缺失而跳过。常规检查为 `make check/test/docs-test`。
 这些证据不证明真实账号 entitlement、OAuth live 登录或在线推理已验收。
 
-已验收 runtime wheel：`0.5.9.dev21+g8c6531070`，来源 `8c6531070b0ef2f22fba843e1cc46055d6e697a0`，
-SHA256 `6078583c4704c4727a547abca6ea8e5920a7d7187039aa5936cf375db24c59bb`。
+已验收 runtime wheel：`0.5.9.dev26+g3c5638118`，来源 `3c5638118952744cd53738be956d1c02354f5fc8`，
+SHA256 `4053168afadc79e5f9e0e913eb173c2de11e96782f971d6dce6f51fed1d7ecdc`。
 本轮具体测试数量与剩余限制记录在 Republic 的 `docs/rebuild-plan.md`。

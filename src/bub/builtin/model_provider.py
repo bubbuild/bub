@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from republic import (
+    FilePart,
     Message,
     ProviderError,
     Request,
@@ -144,7 +145,7 @@ def _read_message(raw: dict[str, Any], protocol: str) -> Message:
         )
     if "tool_call_id" in raw or "name" in raw:
         raise BubError(ErrorKind.INVALID_INPUT, "Tool-result fields require a tool role.")
-    parts.extend(_text_parts(content))
+    parts.extend(_content_parts(content))
     parts.extend(_legacy_calls(raw.get("tool_calls")))
     return Message(role=raw["role"], parts=parts)
 
@@ -168,17 +169,57 @@ def _legacy_calls(calls: Any) -> list[ToolCallPart]:
     return parts
 
 
-def _text_parts(content: Any) -> list[TextPart]:
-    parts: list[TextPart] = []
+def _media_part(raw: dict[str, Any]) -> FilePart:
+    kind = raw.get("type")
+    if kind in {"image_url", "video_url"}:
+        data = raw.get(kind)
+        allowed = {"url", "detail"} if kind == "image_url" else {"url"}
+        if (
+            raw.keys() - {"type", kind, "processing"}
+            or not isinstance(data, dict)
+            or data.keys() - allowed
+            or not isinstance(data.get("url"), str)
+            or (kind == "image_url" and "processing" in raw)
+        ):
+            raise BubError(ErrorKind.INVALID_INPUT, "Unsupported media URL content or metadata.")
+        url = data["url"]
+        media_type = url[5:].partition(";")[0] if url.startswith("data:") else f"{kind.removesuffix('_url')}/*"
+        if not media_type.startswith(kind.removesuffix("_url") + "/"):
+            raise BubError(ErrorKind.INVALID_INPUT, "Media data URL does not match its content type.")
+        metadata = {key: value for key, value in data.items() if key != "url"}
+        if "processing" in raw:
+            metadata["processing"] = raw["processing"]
+        return FilePart(data=url, media_type=media_type, provider_metadata={"openai": metadata} if metadata else None)
+    if kind == "input_audio":
+        audio = raw.get("input_audio")
+        if (
+            set(raw) != {"type", "input_audio"}
+            or not isinstance(audio, dict)
+            or set(audio) != {"data", "format"}
+            or any(not isinstance(audio.get(key), str) or not audio[key] for key in ("data", "format"))
+        ):
+            raise BubError(ErrorKind.INVALID_INPUT, "Expected base64 audio data and its format.")
+        return FilePart(data=audio["data"], media_type=f"audio/{audio['format']}", encoding="base64")
+    raise BubError(ErrorKind.INVALID_INPUT, "Unsupported message content part.")
+
+
+def _content_parts(content: Any) -> list[TextPart | FilePart]:
     if isinstance(content, str):
-        parts.append(TextPart(text=content))
-    elif isinstance(content, list):
-        for part in content:
-            if not isinstance(part, dict) or set(part) != {"type", "text"} or part["type"] != "text":
-                raise BubError(ErrorKind.INVALID_INPUT, "Republic integration currently accepts text input only.")
-            parts.append(TextPart(text=part["text"]))
-    elif content is not None:
+        return [TextPart(text=content)]
+    if content is None:
+        return []
+    if not isinstance(content, list):
         raise BubError(ErrorKind.INVALID_INPUT, "Unsupported message content.")
+    parts: list[TextPart | FilePart] = []
+    for part in content:
+        if not isinstance(part, dict):
+            raise BubError(ErrorKind.INVALID_INPUT, "Expected a content part object.")
+        if part.get("type") == "text":
+            if set(part) != {"type", "text"}:
+                raise BubError(ErrorKind.INVALID_INPUT, "Unsupported text part metadata.")
+            parts.append(TextPart(text=part["text"]))
+        else:
+            parts.append(_media_part(part))
     return parts
 
 

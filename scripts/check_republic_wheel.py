@@ -100,6 +100,10 @@ from importlib.util import find_spec
 import bub, republic
 from republic.providers.openai import OpenAIChatCompletions, OpenAIResponses
 from republic.providers.anthropic import AnthropicMessages
+from republic.providers.openai_embeddings import OpenAIEmbeddings
+from republic.providers.cohere import CohereRerank
+from republic import EmbeddingRequest, RerankRequest, FilePart
+assert FilePart(data="file-fixture", media_type="image/png", encoding="file_id").encoding == "file_id"
 assert '/site-packages/' in bub.__file__ and '/site-packages/' in republic.__file__
 assert find_spec('any_llm') is None
 try:

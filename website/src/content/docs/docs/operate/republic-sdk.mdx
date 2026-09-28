@@ -18,7 +18,7 @@ workspace/
 ```
 
 In Bub, `uv sync --locked --extra trace` installs its required dependency
-`republic>=0.5.9.dev21,<0.6` from the repository-relative source `../republic-dev`.
+`republic>=0.5.9.dev26,<0.6` from the repository-relative source `../republic-dev`.
 The lock contains that relative source; no machine-specific path or unpublished
 remote commit is required. `trace` is optional telemetry, not a model backend.
 The removed SDK is not installed. Current source instructions require both checkouts.
@@ -125,10 +125,19 @@ Anthropic requests default to ephemeral `cache_control`; an explicit native opti
 takes precedence. Anthropic thinking configuration goes in `provider_options`, not that tape flag.
 Consult the matching protocol guide in the Republic checkout for allowed options.
 
-Only text input and function tools/results are enabled in this Bub adapter.
-Legacy image blocks and unsupported fields fail before HTTP; broader SDK media
-support is not automatically Bub support. Output reasoning uses the existing UI
-reasoning event; the complete native message is saved independently of display.
+`build_prompt` image_url, input_audio and video_url blocks become Republic FilePart
+values in their original order. Images work through Chat, Responses, Anthropic and
+Codex; inline audio uses Chat (native OpenAI mp3/wav, compatible services may accept
+more formats); video_url is an OpenRouter/compatible Chat extension. Anthropic,
+Responses and Codex do not acquire audio/video support from this conversion.
+Unsupported protocol/media combinations and unknown fields fail before HTTP.
+The SDK never downloads URLs or reads local files. Bub's existing channel-owned
+media fetchers still run before building the prompt. Generated audio/images and
+independent speech/transcription operations are outside this input path.
+
+Republic additionally exposes independent OpenAI embeddings and direct Cohere v2
+reranking; Bub adds no retrieval or rerank orchestration. Output reasoning retains
+the existing UI event; the complete native message is saved independently of display.
 
 ## Ownership, tools and fallback
 
@@ -173,8 +182,11 @@ the actual JSONL tape, including Responses item IDs/encrypted reasoning,
 Anthropic thinking signatures and original tool call IDs. Usage and finish reason
 are recorded with existing run events; native usage fields/raw data are retained.
 
-Legacy text and complete function history remain readable. Extra legacy metadata,
-missing tool identity or media are rejected instead of silently discarded. New
+Legacy text, image_url/input_audio/video_url and complete function history remain
+readable. Tape preserves the recognized media URL/base64 fields and order; its
+existing filter still removes unknown block types/extra media fields. Full native
+FilePart data and metadata survive the versioned envelope. Extra legacy message
+metadata and missing tool identity are rejected. New
 native history cannot be switched to another protocol. Start a new
 tape or perform an explicit caller-owned migration. A hook cannot change only the
 visible view of a native message: the view and native payload must agree, and the
@@ -192,7 +204,7 @@ From this Bub checkout, pass the exact wheel and full clean source commit:
 ```bash
 python scripts/check_republic_wheel.py \
   /explicit/path/to/republic-VERSION-py3-none-any.whl \
-  --source-commit 8c6531070b0ef2f22fba843e1cc46055d6e697a0
+  --source-commit 3c5638118952744cd53738be956d1c02354f5fc8
 ```
 
 The script creates a new Python 3.12 environment with the trace extra, installs Bub non-editably and
@@ -203,10 +215,11 @@ source commit and import locations in the printed temporary evidence directory.
 No absolute dependency path is written to the project or lock.
 
 The integration suite uses real official SDK methods and HTTPX transports with
-synthetic HTTP/SSE fixtures. For Responses, Anthropic and Codex, separate Python
-processes execute the real runner/tool/tape path: one model response requests a
+synthetic HTTP/SSE fixtures. For Chat/OpenRouter, Responses, Anthropic and Codex, separate Python
+processes execute build_prompt and the real runner/tool/tape path: one model response requests a
 tool, Bub executes it once and writes JSONL; the next process reads that file,
-sends the retained encrypted reasoning or signature and gets the final answer.
+sends the same ordered media and retained encrypted reasoning or signature where
+applicable, and gets the final answer. Chat additionally replays inline audio and video.
 Each process asserts one HTTP request, released resources and the same single
 tool execution record. Tests also cover the actual agent loop, Chat/OpenRouter,
 the complete synthetic Codex login/refresh flow, CLI/config, tracing, hooks, explicit fallback, tool failures, truncation, tape-write failure, early
@@ -217,7 +230,7 @@ availability or production endpoint compatibility. No real token file or account
 is needed by the suite. Standard repository checks remain `make check`, `make test`
 and `make docs-test`. Republic is required for test collection and runtime imports.
 
-The accepted SDK runtime wheel is `0.5.9.dev21+g8c6531070`, source commit
-`8c6531070b0ef2f22fba843e1cc46055d6e697a0`, SHA256
-`6078583c4704c4727a547abca6ea8e5920a7d7187039aa5936cf375db24c59bb`.
+The accepted SDK runtime wheel is `0.5.9.dev26+g3c5638118`, source commit
+`3c5638118952744cd53738be956d1c02354f5fc8`, SHA256
+`4053168afadc79e5f9e0e913eb173c2de11e96782f971d6dce6f51fed1d7ecdc`.
 Current acceptance counts and limits are recorded in Republic's `docs/rebuild-plan.md`.

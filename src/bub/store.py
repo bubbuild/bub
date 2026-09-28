@@ -328,9 +328,29 @@ class ForkTapeStore:
             return prompt
         new_prompt = []
         for part in prompt:
-            if part.get("type") == "text":
+            if part.get("type") == "text" or ForkTapeStore._is_replayable_media(part):
                 new_prompt.append(part)
         return new_prompt
+
+    @staticmethod
+    def _is_replayable_media(part: dict) -> bool:
+        """Retain only the caller-authorized media wire fields for tape replay."""
+        kind = part.get("type")
+        fields = {
+            "image_url": {"url", "detail"},
+            "video_url": {"url"},
+            "input_audio": {"data", "format"},
+        }
+        if kind not in fields:
+            return False
+        outer = {"type", kind, "processing"} if kind == "video_url" else {"type", kind}
+        value = part.get(kind)
+        return (
+            not part.keys() - outer
+            and isinstance(value, dict)
+            and not value.keys() - fields[kind]
+            and all(isinstance(item, str) for item in value.values())
+        )
 
     @staticmethod
     def _redact_payload(payload: dict) -> None:

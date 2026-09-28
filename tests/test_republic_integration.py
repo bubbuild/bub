@@ -25,7 +25,7 @@ from bub.tools import Tool
 
 
 async def collect(
-    runner: ModelRunner, tape: Any, *, tools: list[Tool] | None = None, prompt: str | None = "hello"
+    runner: ModelRunner, tape: Any, *, tools: list[Tool] | None = None, prompt: str | list[dict] | None = "hello"
 ) -> list[Any]:
     await tape.ensure_bootstrap_anchor()
     output = runner.run(tape=tape, model=runner.settings.model, tools=tools or [], system_prompt=None, prompt=prompt)
@@ -187,7 +187,10 @@ def partial(protocol: str) -> bytes:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("protocol", ["responses", "messages", "chat"])
 @pytest.mark.parametrize("mode", ["close", "cancel", "missing"])
-async def test_stream_exit_and_missing_terminal_release_resources(protocol: str, mode: str, tmp_path: Path) -> None:
+@pytest.mark.parametrize("media", [False, True])
+async def test_stream_exit_and_missing_terminal_release_resources(
+    protocol: str, mode: str, media: bool, tmp_path: Path
+) -> None:
     after = []
 
     class Observe:
@@ -202,7 +205,8 @@ async def test_stream_exit_and_missing_terminal_release_resources(protocol: str,
     with sdk_transport(transport) as clients:
         tape = tape_at(tmp_path)
         await tape.ensure_bootstrap_anchor()
-        output = runner.run(tape=tape, model=config.model, tools=[], system_prompt=None, prompt="hello")
+        prompt = [{"type": "image_url", "image_url": {"url": "https://assets.test/image"}}] if media else "hello"
+        output = runner.run(tape=tape, model=config.model, tools=[], system_prompt=None, prompt=prompt)
         async with aclosing(output):
             assert (await anext(output)).kind == "text"
             if mode == "cancel":
@@ -397,7 +401,7 @@ async def test_http_failures_fire_after_hook_once_without_retry(status: int, tmp
 @pytest.mark.parametrize(
     "message",
     [
-        {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://fixture.test/image"}}]},
+        {"role": "user", "content": [{"type": "unknown_media", "data": "unrepresentable"}]},
         {"role": "assistant", "content": "text", "unknown_metadata": "must not drop"},
         {"role": "assistant", "content": None, "tool_calls": {}},
         {"role": "assistant", "content": "text", "tool_call_id": "extra"},
@@ -447,3 +451,96 @@ async def test_tape_records_actual_response_identity_and_inclusive_usage(protoco
     assert run["usage"]["input_tokens"] == (15 if protocol == "messages" else 10)
     assert run["usage"]["total_tokens"] == (20 if protocol == "messages" else 15)
     assert run["usage"]["raw"]
+
+
+@pytest.mark.parametrize("protocol", ["chat", "responses", "messages", "codex"])
+def test_build_prompt_media_tool_tape_survives_new_process(protocol: str, tmp_path: Path) -> None:
+    script = Path(__file__).with_name("republic_process.py")
+    for phase in (1, 2):
+        result = subprocess.run(
+            [sys.executable, str(script), protocol, str(phase), str(tmp_path), "media"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+    first, second = [json.loads((tmp_path / f"phase-{phase}.json").read_text()) for phase in (1, 2)]
+    assert first["pid"] != second["pid"] and first["requests"] == second["requests"] == 1
+    assert (tmp_path / "executions.log").read_text() == "2\n"
+    key = "input" if protocol in {"responses", "codex"} else "messages"
+    index = 1 if protocol in {"responses", "chat"} else 0
+    before = first["payload"][key][index]["content"]
+    after = second["payload"][key][index]["content"]
+    assert before == after and "inspect once" in before[0]["text"]
+    image = before[1]
+    if protocol == "messages":
+        assert image == {"type": "image", "source": {"type": "url", "url": "https://assets.test/image"}}
+    elif protocol == "chat":
+        assert image == {"type": "image_url", "image_url": {"url": "https://assets.test/image"}}
+        assert before[2:] == [
+            {"type": "input_audio", "input_audio": {"data": "YXVkaW8=", "format": "wav"}},
+            {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,dmlkZW8="}},
+        ]
+    else:
+        assert image == {"type": "input_image", "image_url": "https://assets.test/image"}
+    persisted = (tmp_path / "integration.jsonl").read_text()
+    assert "https://assets.test/image" in persisted and "call-original" in persisted
+    if protocol == "chat":
+        assert "YXVkaW8=" in persisted and "dmlkZW8=" in persisted
+    else:
+        assert "sig-opaque" in persisted if protocol == "messages" else "opaque-reasoning" in persisted
+
+
+@pytest.mark.asyncio
+async def test_legacy_multimodal_tape_reaches_openrouter_without_reordering(tmp_path: Path) -> None:
+    from bub.tape import TapeEntry
+
+    content = [
+        {"type": "text", "text": "compare"},
+        {"type": "image_url", "image_url": {"url": "https://assets.test/image", "detail": "low"}},
+        {"type": "input_audio", "input_audio": {"data": "YXVkaW8=", "format": "ogg"}},
+        {"type": "video_url", "video_url": {"url": "https://assets.test/video"}, "processing": "static"},
+    ]
+    tape = tape_at(tmp_path)
+    await tape.ensure_bootstrap_anchor()
+    await tape.store.append(tape.name, TapeEntry.message({"role": "user", "content": content}))
+    transport = Transport([Body(chat())])
+    config = settings("chat", model="openrouter:fixture", republic_protocols={}, api_base=None)
+    with sdk_transport(transport):
+        await collect(ModelRunner(config), tape_at(tmp_path), prompt=None)
+    sent = json.loads(transport.requests[0].content)
+    assert sent["messages"] == [{"role": "user", "content": content}]
+
+
+def test_native_file_reference_tape_json_round_trip() -> None:
+    from bub.builtin.model_provider import _read_message, stored_message
+
+    message = republic.Message(
+        role="user",
+        parts=[
+            republic.TextPart(text="read"),
+            republic.FilePart(data="file-original", encoding="file_id", media_type="application/pdf"),
+            republic.FilePart(
+                data="https://assets.test/image", media_type="image/*", provider_metadata={"openai": {"detail": "high"}}
+            ),
+        ],
+    )
+    stored = json.loads(json.dumps(stored_message(message, "openai.responses")))
+    assert _read_message(stored, "openai.responses") == message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "part",
+    [
+        {"type": "image_url", "image_url": {"url": "https://assets.test/image", "unknown": "keep"}},
+        {"type": "image_url", "image_url": {"url": "data:audio/wav;base64,YQ=="}},
+        {"type": "input_audio", "input_audio": {"data": "YQ=="}},
+        {"type": "video_url", "video_url": {"url": "https://assets.test/video"}, "unknown": "keep"},
+    ],
+)
+async def test_unrepresentable_media_fails_before_http(part: dict, tmp_path: Path) -> None:
+    transport = Transport([])
+    with sdk_transport(transport), pytest.raises(BubError):
+        await collect(ModelRunner(settings("chat")), tape_at(tmp_path), prompt=[part])
+    assert not transport.requests
