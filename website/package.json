@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "packageManager": "pnpm@10.34.6",
   "engines": {
-    "node": ">=22.12.0"
+    "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
     "generate:github-snapshot": "node ./scripts/generate-github-snapshot.mjs",

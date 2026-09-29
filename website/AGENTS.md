@@ -37,6 +37,10 @@ Site URL: `https://bub.build`
 **pnpm** — always use `pnpm` to install packages and run scripts.
 
 Use the version pinned in `package.json#packageManager`; CI reads the same field.
+Keep the root and website `.node-version` pins aligned. Use Node 24.21.0 for
+development and deployment; `package.json#engines` and `engineStrict` enforce
+the dependency minimum (Node 22.19+ on the 22.x line, or Node 24+). Older Node
+versions can silently omit optional WASM dependencies before the build fails.
 Keep dependency overrides and build-script permissions in `pnpm-workspace.yaml`.
 Astro 7, `@astrojs/cloudflare` 14, and Starlight 0.42 use Vite 8 and the default
 Sätteri Markdown processor. Upgrade these packages together and do not restore

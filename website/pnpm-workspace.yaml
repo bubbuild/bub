@@ -1,4 +1,5 @@
 strictPeerDependencies: true
+engineStrict: true
 
 # Patch pinned transitive dependencies until upstream adopts these fixes.
 overrides:

@@ -62,5 +62,6 @@ jobs:
 
       - name: Check if documentation can be built
         run: |
+          diff -u .node-version website/.node-version
           pnpm --dir website install --frozen-lockfile
           pnpm --dir website build

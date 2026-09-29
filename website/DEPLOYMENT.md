@@ -19,12 +19,21 @@ Recommended settings:
 - Deploy command: `pnpm wrangler deploy`
 - Path: `website`
 - Environment variable: `SITE_URL=https://bub.build`
-- Environment variable: `NODE_VERSION=22.16.0`
+- Node version: `24.21.0` (pinned in both `.node-version` files; remove any older
+  `NODE_VERSION` override, or set it to `24.21.0`)
 - Build secret: `GITHUB_TOKEN=<GitHub PAT>` (optional, recommended for higher GitHub API limits)
 
 The repo keeps a minimal [wrangler.jsonc](./wrangler.jsonc) and relies on
 Astro/Wrangler's default Cloudflare integration for the generated Worker
 configuration.
+
+Keep the repository and website Node pins aligned so Cloudflare and GitHub
+Actions install the same dependencies. Node 22.12 causes pnpm to skip
+`@napi-rs/wasm-runtime`, which requires Node 22.13+ on the 22.x line; the
+Cloudflare bundle then fails to resolve it. Other dependencies require Node
+22.19+, so the website enforces that minimum during installation. After changing
+the build Node version, clear Cloudflare's build cache and retry if a cached
+installation still lacks the WASM runtime.
 
 Astro sessions are explicitly disabled because the site does not use per-user
 server state. The generated Worker should have only the `ASSETS` binding, with
