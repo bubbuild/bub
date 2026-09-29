@@ -22,6 +22,7 @@ from bub.builtin.model_runner import (
     is_context_length_error,
 )
 from bub.builtin.settings import load_settings
+from bub.commands import parse_command, validate_command_prefix
 from bub.envelope import field_of
 from bub.framework import BubFramework
 from bub.skills import discover_skills, render_skills_prompt
@@ -47,6 +48,7 @@ class Agent:
         tools: Collection[Tool] | None = None,
         tape_store: TapeStore | AsyncTapeStore | None = None,
         skill_dirs: Collection[Path] | None = None,
+        command_prefix: str | None = None,
     ) -> None:
         """Create a builtin agent with instance-specific tools, skills, and storage.
 
@@ -59,11 +61,16 @@ class Agent:
                 store. Without either, the agent uses an in-memory store.
             skill_dirs: Skill roots in precedence order. None uses project, user,
                 and builtin discovery; an empty collection disables discovery.
+            command_prefix: Non-empty prefix without whitespace. None uses the
+                configured prefix (a comma by default).
 
         Settings come from Bub's process-wide configuration. The caller owns the
         lifecycle of an explicitly supplied store.
         """
         self.settings = load_settings()
+        self.command_prefix = validate_command_prefix(
+            self.settings.command_prefix if command_prefix is None else command_prefix
+        )
         self.framework = framework
         self.tools = {tool.name: tool for tool in tools} if tools is not None else REGISTRY.copy()
         self.tape_store = tape_store
@@ -120,8 +127,8 @@ class Agent:
         Args:
             session_id: Session identity within the workspace. A ``temp/`` prefix
                 prevents the turn's fork from merging back into its parent tape.
-            prompt: Text or multimodal content parts. Text beginning with a comma
-                after stripping whitespace invokes a builtin command.
+            prompt: Text or multimodal content parts. Text beginning with this
+                agent's command prefix after stripping whitespace invokes a command.
             state: Mutable turn state. None loads state through framework hooks
                 using this agent's store; supplied state skips that loading.
                 The current agent is always bound into the state.
@@ -173,8 +180,9 @@ class Agent:
                         tape.fork_tape(merge_back=not session_id.startswith("temp/"))
                     )
                     await tape.ensure_bootstrap_anchor()
-                    if isinstance(prompt, str) and prompt.strip().startswith(","):
-                        result = await self._run_command(tape=tape, line=prompt.strip())
+                    command = parse_command(prompt, self.command_prefix) if isinstance(prompt, str) else None
+                    if command is not None:
+                        result = await self._run_command(tape=tape, line=command)
                         events = self._events_from_iterable([
                             StreamEvent("text", {"delta": result}),
                             StreamEvent("final", {"text": result, "ok": True}),
@@ -229,7 +237,6 @@ class Agent:
             span.messages("gen_ai.output.messages", messages)
 
     async def _run_command(self, tape: Tape, *, line: str) -> str:
-        line = line[1:].strip()
         if not line:
             raise ValueError("empty command")
 

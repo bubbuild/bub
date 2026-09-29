@@ -111,6 +111,7 @@ Use `load_hooks()` when you also want installed plugins from the `bub` entry-poi
 | `skill_dirs=None`        | Searches project, user, and builtin roots. `skill_dirs=[]` disables discovery.                                         |
 | `tape_store=...`         | Uses the supplied `TapeStore` or `AsyncTapeStore`. `FileTapeStore(path)` persists session tapes in that directory.     |
 | `tape_store=None`        | Uses the framework's active store, or an instance-local memory store if no store is active.                            |
+| `command_prefix="::"`  | Overrides the command prefix for this Agent. `None` uses `BUB_COMMAND_PREFIX` / YAML `command_prefix`, defaulting to `,`. |
 
 Unlike `@tool`, `Tool.from_callable()` does not register the tool globally.
 Include `skill_describe` in the tool set when the model needs to load skill bodies on demand.
@@ -152,7 +153,7 @@ stream = await agent.run_stream(
 Always consume the returned stream. `allowed_tools` accepts runtime names and model aliases
 (for example, `fs.read` and `fs_read`). Explicit `model` and `reasoning_effort` take precedence over saved settings.
 Normally omit `state` to load session state automatically; passing a state dictionary skips that loading and mutates it.
-Comma-prefixed text is still treated as a command. Command execution uses the instance tool set directly,
+Text starting with the agent's command prefix (`,` by default) is treated as a command. Prefixes must be non-empty and contain no whitespace. Command execution uses the instance tool set directly,
 so loop-level `allowed_tools` filtering is not a command permission boundary.
 
 ## Streams and lifecycle

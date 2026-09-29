@@ -23,15 +23,15 @@ class CliRenderer:
 
     console: Console
 
-    def welcome(self, *, model: str, workspace: str) -> None:
+    def welcome(self, *, model: str, workspace: str, command_prefix: str = ",") -> None:
         body = (
             f"workspace: {workspace}\n"
             f"model: {model}\n"
-            "internal command prefix: ','\n"
-            "shell command prefix: ',' at line start (Ctrl-X for shell mode)\n"
-            "type ',help' for command list"
+            f"internal command prefix: '{command_prefix}'\n"
+            f"shell command prefix: '{command_prefix}' at line start (Ctrl-X for shell mode)\n"
+            f"type '{command_prefix}help' for command list"
         )
-        self.console.print(Panel(body, title="Bub", border_style="cyan"))
+        self.console.print(Panel(Text(body), title="Bub", border_style="cyan"))
 
     def info(self, text: str) -> None:
         if not text.strip():

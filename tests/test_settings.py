@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from any_llm.constants import LLMProvider
+from pydantic import ValidationError
 
 from bub.builtin.settings import DEFAULT_MODEL, AgentSettings, load_settings
 from bub.builtin.spill import SpillSettings
@@ -14,6 +15,22 @@ from bub.configure import ensure_config
 def _settings_with_env(env: dict[str, str]) -> AgentSettings:
     with patch.dict("os.environ", env, clear=True):
         return AgentSettings()
+
+
+def test_command_prefix_defaults_to_comma_and_env_overrides_yaml(load_config, monkeypatch) -> None:
+    monkeypatch.delenv("BUB_COMMAND_PREFIX", raising=False)
+    assert AgentSettings().command_prefix == ","
+    load_config('command_prefix: "::"')
+    assert load_settings().command_prefix == "::"
+    monkeypatch.setenv("BUB_COMMAND_PREFIX", "!")
+    load_config('command_prefix: "::"')
+    assert load_settings().command_prefix == "!"
+
+
+@pytest.mark.parametrize("prefix", ["", " ", " !", "!\t", "! a"])
+def test_command_prefix_rejects_empty_or_whitespace(prefix: str) -> None:
+    with pytest.raises(ValidationError, match="command_prefix"):
+        _settings_with_env({"BUB_COMMAND_PREFIX": prefix})
 
 
 def test_settings_single_api_key_and_base() -> None:

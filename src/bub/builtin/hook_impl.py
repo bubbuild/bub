@@ -18,6 +18,7 @@ from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem, audio_format_from_mime_type
+from bub.commands import parse_command
 from bub.envelope import Envelope, content_of, field_of
 from bub.errors import BubError
 from bub.framework import BubFramework
@@ -173,9 +174,9 @@ class BuiltinImpl:
     @hookimpl
     async def build_prompt(self, message: ChannelMessage, session_id: str, state: TurnState) -> str | list[dict]:
         content = content_of(message)
-        if content.startswith(","):
+        if parse_command(content, self._get_agent(state).command_prefix) is not None:
             message.kind = "command"
-            return content
+            return content.strip()
         context = field_of(message, "context_str")
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         context_prefix = f"{context}\n---Date: {now}---\n" if context else ""
@@ -278,9 +279,10 @@ class BuiltinImpl:
         from bub.channels.cli import CliChannel
         from bub.channels.telegram import TelegramChannel
 
+        agent = self._get_agent()
         return [
-            TelegramChannel(on_receive=message_handler),
-            CliChannel(on_receive=message_handler, agent=self._get_agent()),
+            TelegramChannel(on_receive=message_handler, command_prefix=agent.command_prefix),
+            CliChannel(on_receive=message_handler, agent=agent),
         ]
 
     @hookimpl

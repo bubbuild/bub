@@ -50,6 +50,7 @@ def _make_agent() -> Agent:
         agent = Agent.__new__(Agent)
 
     agent.settings = AgentSettings.model_construct(model="test:model", api_key="k", api_base="b", client_args={})
+    agent.command_prefix = agent.settings.command_prefix
     agent.framework = framework
     agent.tools = REGISTRY.copy()
     agent.tape_store = None

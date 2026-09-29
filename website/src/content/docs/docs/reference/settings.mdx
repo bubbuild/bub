@@ -41,6 +41,7 @@ Defined in `src/bub/builtin/settings.py`:
 class AgentSettings(Settings):
     model_config = SettingsConfigDict(env_prefix="BUB_", env_parse_none_str="null", extra="ignore")
     model: str = DEFAULT_MODEL  # "openrouter:openrouter/free"
+    command_prefix: str = ","
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None
@@ -57,6 +58,7 @@ Loaded under the YAML root section.
 | Env var | Default | YAML key | Description |
 | --- | --- | --- | --- |
 | `BUB_MODEL` | `openrouter:openrouter/free` | `model` | Default model identifier (`provider:model_name`). |
+| `BUB_COMMAND_PREFIX` | `,` | `command_prefix` | Command prefix for the builtin agent and channels. Must be non-empty and contain no whitespace; multi-character prefixes are supported. |
 | `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | Optional list of fallback model identifiers. |
 | `BUB_API_KEY` | unset | `api_key` | Default API key. May also be a JSON object mapping provider → key. |
 | `BUB_API_BASE` | unset | `api_base` | Default API base URL or per-provider mapping. |
@@ -68,6 +70,9 @@ Loaded under the YAML root section.
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | Extra kwargs passed to the underlying model client (JSON / dict). |
 | `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | Extra kwargs passed to each completion call, e.g. `{"reasoning_effort":"high"}`. Bub-managed arguments take precedence. |
 | `BUB_VERBOSE` | `0` | `verbose` | Logging verbosity level (`0`–`2`). |
+
+For example, `command_prefix: "!"` enables `!help` in builtin channels. Telegram keeps its existing
+native slash-command filtering; with `/` as the prefix, use `/bub /help`.
 
 Provider-specific defaults are gathered at startup by scanning `os.environ` for `^BUB_(.+)_(API_KEY|API_BASE)$` and lowercasing the captured provider name.
 

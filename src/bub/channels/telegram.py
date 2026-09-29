@@ -18,6 +18,7 @@ from bub import config
 from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem, MediaType
+from bub.commands import parse_command, validate_command_prefix
 from bub.configure import Settings, ensure_config
 from bub.utils import exclude_none
 
@@ -149,8 +150,9 @@ class TelegramChannel(Channel):
     name = "telegram"
     _app: Application
 
-    def __init__(self, on_receive: MessageHandler) -> None:
+    def __init__(self, on_receive: MessageHandler, *, command_prefix: str = ",") -> None:
         self._on_receive = on_receive
+        self.command_prefix = validate_command_prefix(command_prefix)
         self._settings = ensure_config(TelegramSettings)
         self._allow_users = {uid.strip() for uid in (self._settings.allow_users or "").split(",") if uid.strip()}
         self._allow_chats = {cid.strip() for cid in (self._settings.allow_chats or "").split(",") if cid.strip()}
@@ -245,9 +247,10 @@ class TelegramChannel(Channel):
         if content.startswith("/bub "):
             content = content[5:]
 
-        # Pass comma commands directly to the input handler
-        if content.strip().startswith(","):
-            return ChannelMessage(session_id=session_id, content=content.strip(), channel=self.name, chat_id=chat_id)
+        if parse_command(content, self.command_prefix) is not None:
+            return ChannelMessage(
+                session_id=session_id, content=content.strip(), channel=self.name, chat_id=chat_id, kind="command"
+            )
 
         media_items = _extract_media_items(metadata)
         reply_meta = await self._parser.get_reply(message)

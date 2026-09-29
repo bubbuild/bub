@@ -284,6 +284,8 @@ async def test_telegram_build_message_no_media_for_text(monkeypatch: pytest.Monk
 
 
 class FakeAgent:
+    command_prefix = ","
+
     def __init__(self, home: Path) -> None:
         self.settings = SimpleNamespace(home=home)
 

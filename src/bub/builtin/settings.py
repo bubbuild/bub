@@ -14,6 +14,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from bub import Settings, config, ensure_config
+from bub.commands import validate_command_prefix
 
 DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 16384
@@ -54,6 +55,7 @@ class AgentSettings(Settings):
 
     model_config = SettingsConfigDict(env_prefix="BUB_", env_parse_none_str="null", extra="ignore")
     model: str = DEFAULT_MODEL
+    command_prefix: str = ","
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None
@@ -85,6 +87,11 @@ class AgentSettings(Settings):
     @classmethod
     def default_dict_args(cls, value: Any) -> Any:
         return {} if value is None else value
+
+    @field_validator("command_prefix")
+    @classmethod
+    def valid_command_prefix(cls, value: str) -> str:
+        return validate_command_prefix(value)
 
     def model_candidates(self, model: str) -> list[ModelCandidate]:
         candidate_names = [model]

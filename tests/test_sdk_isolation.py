@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import pytest
 
 from bub.builtin import Agent
-from bub.builtin.tools import resolve_tool_names, run_subagent
+from bub.builtin.tools import resolve_tool_names, run_subagent, show_help
 from bub.framework import BubFramework
 from bub.store import InMemoryTapeStore
 from bub.streaming import AsyncStreamEvents, StreamEvent
@@ -27,6 +27,34 @@ def framework(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> BubFramework:
     framework.workspace = tmp_path
     framework.load_builtin_hooks()
     return framework
+
+
+@pytest.mark.asyncio
+async def test_sdk_command_prefix_is_instance_local(framework: BubFramework, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BUB_COMMAND_PREFIX", "!")
+    lookup = Tool.from_callable(lambda: "found", name="sdk.lookup")
+    configured = Agent(framework, tools=[lookup], skill_dirs=[])
+    custom = Agent(framework, tools=[lookup, show_help], skill_dirs=[], command_prefix="::")
+    assert configured.command_prefix == "!"
+    assert configured.settings.command_prefix == custom.settings.command_prefix == "!"
+
+    for agent, prefix in [(configured, "!"), (custom, "::")]:
+        agent.model_runner.run = Mock(side_effect=AssertionError("commands must not invoke the model"))
+        stream = await agent.run_stream(session_id="sdk", prompt=f" {prefix}sdk.lookup ")
+        assert [event async for event in stream][-1].data["text"] == "found"
+        tape = agent.tape.session_tape("sdk", framework.workspace)
+        entries = list(await tape.store.fetch_all(tape.query().kinds("event")))
+        command = next(entry.payload["data"] for entry in entries if entry.payload.get("name") == "command")
+        assert command["raw"] == "sdk.lookup"
+
+    stream = await custom.run_stream(session_id="sdk", prompt="::help")
+    assert "::bash.output" in [event async for event in stream][-1].data["text"]
+
+    custom.model_runner.run = Mock(side_effect=lambda **kwargs: _reply())
+    for prompt in [",sdk.lookup", "!sdk.lookup"]:
+        stream = await custom.run_stream(session_id="sdk", prompt=prompt)
+        assert [event.kind async for event in stream] == ["text", "final"]
+        assert custom.model_runner.run.call_args.kwargs["prompt"] == prompt
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@ from bub.builtin.tools import show_help
 
 @pytest.mark.asyncio
 async def test_help_lists_correct_tool_names() -> None:
-    help_text = await show_help.run()
+    help_text = await show_help.run(context=None)
 
     assert ",bash.output" in help_text
     assert ",bash.kill" in help_text

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, cast
 
 from pydantic import BaseModel, Field
 
+from bub.builtin.settings import load_settings
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
 from bub.tools import REGISTRY, Tool, ToolContext, tool
@@ -368,26 +369,28 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
     return output
 
 
-@tool(name="help", agent_use=False)
-def show_help() -> str:
+@tool(name="help", context=True, agent_use=False)
+def show_help(*, context: ToolContext | None = None) -> str:
     """Show a help message."""
+    agent = context.state.get("_runtime_agent") if context is not None else None
+    prefix = agent.command_prefix if agent is not None else load_settings().command_prefix
     return (
-        "Commands use ',' at line start.\n"
+        f"Commands use '{prefix}' at line start.\n"
         "Known internal commands:\n"
-        "  ,help\n"
-        "  ,skill name=foo\n"
-        "  ,tape.info\n"
-        "  ,tape.search query=error\n"
-        "  ,tape.handoff name=phase-1 summary='done'\n"
-        "  ,tape.anchors\n"
-        "  ,fs.read path=README.md\n"
-        "  ,fs.write path=tmp.txt content='hello'\n"
-        "  ,fs.edit path=tmp.txt old=hello new=world\n"
-        "  ,bash command='sleep 5' background=true\n"
-        "  ,bash.output shell_id=bsh-12345678\n"
-        "  ,bash.kill shell_id=bsh-12345678\n"
-        "  ,quit\n"
-        "Any unknown command after ',' is executed as shell via bash."
+        f"  {prefix}help\n"
+        f"  {prefix}skill name=foo\n"
+        f"  {prefix}tape.info\n"
+        f"  {prefix}tape.search query=error\n"
+        f"  {prefix}tape.handoff name=phase-1 summary='done'\n"
+        f"  {prefix}tape.anchors\n"
+        f"  {prefix}fs.read path=README.md\n"
+        f"  {prefix}fs.write path=tmp.txt content='hello'\n"
+        f"  {prefix}fs.edit path=tmp.txt old=hello new=world\n"
+        f"  {prefix}bash command='sleep 5' background=true\n"
+        f"  {prefix}bash.output shell_id=bsh-12345678\n"
+        f"  {prefix}bash.kill shell_id=bsh-12345678\n"
+        f"  {prefix}quit\n"
+        f"Any unknown command after '{prefix}' is executed as shell via bash."
     )
 
 

@@ -266,8 +266,11 @@ class CliChannel(Interface):
         await self._presenter.write(lambda: self._renderer.error(message.content))
 
     async def _main_loop(self) -> None:
+        prefix = self._agent.command_prefix
         await self._presenter.write(
-            lambda: self._renderer.welcome(model=self._agent.settings.model, workspace=str(self._workspace))
+            lambda: self._renderer.welcome(
+                model=self._agent.settings.model, workspace=str(self._workspace), command_prefix=prefix
+            )
         )
         await self._refresh_tape_info()
 
@@ -282,16 +285,16 @@ class CliChannel(Interface):
                     with patch_stdout(raw=True):
                         raw = (await self._prompt.prompt_async(self._prompt_message)).strip()
             except KeyboardInterrupt:
-                await self._presenter.write(lambda: self._renderer.info("Interrupted. Use ',quit' to exit."))
+                await self._presenter.write(lambda: self._renderer.info(f"Interrupted. Use '{prefix}quit' to exit."))
                 continue
             except EOFError:
                 break
 
             if not raw:
                 continue
-            if raw in {",quit", ",exit"}:
+            if raw in {f"{prefix}quit", f"{prefix}exit"}:
                 break
-            if raw == ",thinking":
+            if raw == f"{prefix}thinking":
                 await self._echo_input(raw)
                 await self._toggle_thinking()
                 continue
@@ -329,9 +332,9 @@ class CliChannel(Interface):
     def _normalize_input(self, raw: str) -> str:
         if self._mode != "shell":
             return raw
-        if raw.startswith(","):
+        if raw.startswith(self._agent.command_prefix):
             return raw
-        return f",{raw}"
+        return f"{self._agent.command_prefix}{raw}"
 
     def _prompt_message(self) -> AnyFormattedText:
         return FormattedText([("bold", self._prompt_label())])
@@ -362,7 +365,7 @@ class CliChannel(Interface):
 
     def _prompt_label(self) -> str:
         cwd = Path.cwd().name
-        symbol = ">" if self._mode == "agent" else ","
+        symbol = ">" if self._mode == "agent" else self._agent.command_prefix
         return f"{cwd} {symbol} "
 
     async def _echo_input(self, raw: str, steering: bool = False) -> None:
@@ -429,7 +432,8 @@ class CliChannel(Interface):
         history_file = self._history_file(bub.home, workspace)
         history_file.parent.mkdir(parents=True, exist_ok=True)
         history = FileHistory(str(history_file))
-        tool_names = sorted([*(f",{name}" for name in REGISTRY), ",thinking"], key=_tool_sort_key)
+        prefix = self._agent.command_prefix
+        tool_names = sorted([*(f"{prefix}{name}" for name in REGISTRY), f"{prefix}thinking"], key=_tool_sort_key)
         completer = WordCompleter(tool_names, ignore_case=True, sentence=True)
         prompt: PromptSession[str] = PromptSession(
             completer=completer,

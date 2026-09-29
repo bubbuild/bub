@@ -111,6 +111,7 @@ if __name__ == "__main__":
 | `skill_dirs=None`        | 搜索项目、用户和 builtin 目录。`skill_dirs=[]` 禁用发现。                                        |
 | `tape_store=...`         | 使用传入的 `TapeStore` 或 `AsyncTapeStore`。`FileTapeStore(path)` 将会话 tape 持久化到指定目录。 |
 | `tape_store=None`        | 使用 framework 当前的 store；没有活动 store 时使用实例独立的内存存储。                           |
+| `command_prefix="::"`  | 覆盖当前 Agent 的命令前缀。`None` 使用 `BUB_COMMAND_PREFIX` / YAML `command_prefix`，默认 `,`。 |
 
 与 `@tool` 不同，`Tool.from_callable()` 不会把工具注册到全局表。
 模型需要按需读取 skill 正文时，将 `skill_describe` 加入工具集合。
@@ -153,7 +154,7 @@ stream = await agent.run_stream(
 显式 `model` 和 `reasoning_effort` 优先于已保存设置；示例中的模型标识需要替换成实际模型，
 reasoning effort 也需使用该模型支持的值。
 通常省略 `state`，由 framework 自动加载；传入字典会跳过加载，并在执行中修改该字典。
-逗号开头的文本仍被解释为命令。命令直接使用实例工具集合，agent loop 的 `allowed_tools` 过滤不适合作为命令权限边界。
+以 Agent 命令前缀（默认 `,`）开头的文本会被解释为命令。前缀不能为空或包含空白字符。命令直接使用实例工具集合，agent loop 的 `allowed_tools` 过滤不适合作为命令权限边界。
 
 ## 流式事件与生命周期
 
