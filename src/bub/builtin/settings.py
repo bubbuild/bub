@@ -14,7 +14,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from bub import Settings, config, ensure_config
-from bub.commands import validate_command_prefix
+from bub.builtin.commands import validate_command_prefix
 
 DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 16384

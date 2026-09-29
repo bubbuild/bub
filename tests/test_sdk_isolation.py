@@ -50,6 +50,15 @@ async def test_sdk_command_prefix_is_instance_local(framework: BubFramework, mon
     stream = await custom.run_stream(session_id="sdk", prompt="::help")
     assert "::bash.output" in [event async for event in stream][-1].data["text"]
 
+    async def bash(*, command: str, context: ToolContext) -> str:
+        return command
+
+    custom.tools["bash"] = Tool.from_callable(bash, context=True)
+    stream = await custom.run_stream(session_id="sdk", prompt="::::echo hello")
+    assert [event async for event in stream][-1].data["text"] == "::echo hello"
+    with pytest.raises(ValueError, match="empty command"):
+        await custom.run_stream(session_id="sdk", prompt=" :: ")
+
     custom.model_runner.run = Mock(side_effect=lambda **kwargs: _reply())
     for prompt in [",sdk.lookup", "!sdk.lookup"]:
         stream = await custom.run_stream(session_id="sdk", prompt=prompt)

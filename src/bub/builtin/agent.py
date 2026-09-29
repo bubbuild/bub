@@ -17,12 +17,12 @@ from typing import Any
 
 from loguru import logger
 
+from bub.builtin.commands import strip_command_prefix, validate_command_prefix
 from bub.builtin.model_runner import (
     ModelRunner,
     is_context_length_error,
 )
 from bub.builtin.settings import load_settings
-from bub.commands import parse_command, validate_command_prefix
 from bub.envelope import field_of
 from bub.framework import BubFramework
 from bub.skills import discover_skills, render_skills_prompt
@@ -180,7 +180,7 @@ class Agent:
                         tape.fork_tape(merge_back=not session_id.startswith("temp/"))
                     )
                     await tape.ensure_bootstrap_anchor()
-                    command = parse_command(prompt, self.command_prefix) if isinstance(prompt, str) else None
+                    command = strip_command_prefix(prompt, self.command_prefix) if isinstance(prompt, str) else None
                     if command is not None:
                         result = await self._run_command(tape=tape, line=command)
                         events = self._events_from_iterable([

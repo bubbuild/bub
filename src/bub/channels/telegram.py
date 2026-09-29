@@ -15,10 +15,10 @@ from telegram.ext import MessageHandler as TelegramMessageHandler
 from telegram.request import HTTPXRequest
 
 from bub import config
+from bub.builtin.commands import strip_command_prefix, validate_command_prefix
 from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem, MediaType
-from bub.commands import parse_command, validate_command_prefix
 from bub.configure import Settings, ensure_config
 from bub.utils import exclude_none
 
@@ -247,7 +247,7 @@ class TelegramChannel(Channel):
         if content.startswith("/bub "):
             content = content[5:]
 
-        if parse_command(content, self.command_prefix) is not None:
+        if strip_command_prefix(content, self.command_prefix) is not None:
             return ChannelMessage(
                 session_id=session_id, content=content.strip(), channel=self.name, chat_id=chat_id, kind="command"
             )

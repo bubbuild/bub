@@ -26,6 +26,7 @@ from rich.tree import Tree
 
 import bub
 from bub.builtin.agent import Agent
+from bub.builtin.commands import strip_command_prefix
 from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.base import Interface
 from bub.channels.cli.ansi_bridge import render_to_ansi
@@ -307,6 +308,7 @@ class CliChannel(Interface):
                 chat_id=self._message_template["chat_id"],
                 context={"thread_id": self._message_template["session_id"]},  # use the same thread_id for all messages
                 content=request,
+                kind="command" if strip_command_prefix(request, prefix) is not None else "normal",
                 lifespan=self.message_lifespan(),
             )
             self._set_llm_loop_running(True)

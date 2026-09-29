@@ -153,8 +153,12 @@ stream = await agent.run_stream(
 Always consume the returned stream. `allowed_tools` accepts runtime names and model aliases
 (for example, `fs.read` and `fs_read`). Explicit `model` and `reasoning_effort` take precedence over saved settings.
 Normally omit `state` to load session state automatically; passing a state dictionary skips that loading and mutates it.
-Text starting with the agent's command prefix (`,` by default) is treated as a command. Prefixes must be non-empty and contain no whitespace. Command execution uses the instance tool set directly,
-so loop-level `allowed_tools` filtering is not a command permission boundary.
+
+String prompts starting with the agent's command prefix (`,` by default) after trimming whitespace are commands.
+Prefixes must be non-empty and contain no whitespace. Exactly one prefix is removed; a bare prefix raises `ValueError`.
+After overriding the prefix, text using the old prefix is ordinary input. Multimodal prompt lists are not commands.
+Known commands call instance tools directly; unknown commands run through the instance's `bash` tool when available.
+Direct commands bypass model/tool interception hooks and loop-level `allowed_tools` filtering.
 
 ## Streams and lifecycle
 
@@ -233,7 +237,7 @@ Multiple worker processes sharing a store need coordination across workers; a fi
 
 ## Agent versus the full message pipeline
 
-Direct `Agent.run_stream()` uses the builtin loop and its model/tool interception hooks.
+For ordinary prompts, `Agent.run_stream()` uses the builtin loop and its model/tool interception hooks.
 It does not run `build_prompt`, `save_state`, outbound rendering, or channel dispatch, and does not select a plugin's
 replacement `run_model` implementation. Your application consumes the result.
 
@@ -241,6 +245,10 @@ Use `BubFramework.process_inbound()` for the complete message pipeline and model
 It returns a `TurnResult` with `model_output`, `state`, and `outbounds`; `stream_output=True` routes streaming output
 through a bound channel router but still returns the completed result.
 See [Hooks](/docs/build/hooks/) for those extension points.
+
+Custom channels must set `ChannelMessage.kind="command"` before passing commands to the channel manager to bypass
+buffering and active-window filtering. The buffer no longer infers commands from a leading comma.
+When using the builtin agent, preserve the configured prefix in the message content for execution.
 
 Configuration loading remains process-wide. Configure once at application startup;
 separate tool/skill/store instances do not imply isolated configuration files or environment variables.

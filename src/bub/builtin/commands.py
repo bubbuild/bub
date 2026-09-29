@@ -1,4 +1,4 @@
-"""Shared command prefix validation and recognition."""
+"""Command prefix rules for the builtin agent and its channel adapters."""
 
 
 def validate_command_prefix(prefix: str) -> str:
@@ -7,10 +7,11 @@ def validate_command_prefix(prefix: str) -> str:
     return prefix
 
 
-def parse_command(text: str, prefix: str = ",") -> str | None:
+def strip_command_prefix(text: str, prefix: str) -> str | None:
     """Return the command without its prefix, or None for ordinary text.
 
-    A bare prefix returns an empty string so execution can report an empty command.
+    Strip surrounding whitespace and exactly one prefix. A bare prefix returns
+    an empty string so execution can report an empty command.
     Callers validate the prefix when configuring it.
     """
     text = text.strip()

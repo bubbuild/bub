@@ -4,7 +4,6 @@ from loguru import logger
 
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
-from bub.commands import parse_command
 
 
 class BufferedMessageHandler:
@@ -40,8 +39,7 @@ class BufferedMessageHandler:
 
     async def __call__(self, message: ChannelMessage) -> None:
         now = self._loop.time()
-        # Keep recognizing unmarked comma commands from existing channel plugins.
-        if message.kind == "command" or parse_command(message.content) is not None:
+        if message.kind == "command":
             logger.info(
                 "session.message received command session_id={}, content={}", message.session_id, message.content
             )

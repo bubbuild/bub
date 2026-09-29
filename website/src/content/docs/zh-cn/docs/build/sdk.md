@@ -154,7 +154,12 @@ stream = await agent.run_stream(
 显式 `model` 和 `reasoning_effort` 优先于已保存设置；示例中的模型标识需要替换成实际模型，
 reasoning effort 也需使用该模型支持的值。
 通常省略 `state`，由 framework 自动加载；传入字典会跳过加载，并在执行中修改该字典。
-以 Agent 命令前缀（默认 `,`）开头的文本会被解释为命令。前缀不能为空或包含空白字符。命令直接使用实例工具集合，agent loop 的 `allowed_tools` 过滤不适合作为命令权限边界。
+
+字符串 prompt 去掉首尾空白后，以 Agent 命令前缀（默认 `,`）开头时会被解释为命令。
+前缀不能为空或包含空白字符。执行时只去掉一次前缀；只有前缀时抛出 `ValueError`。
+覆盖前缀后，旧前缀开头的文本按普通输入处理；多模态 prompt 列表不会被识别为命令。
+已知命令直接调用实例工具，未知命令交给实例的 `bash` 工具执行（需有该工具）。
+直接命令不经过模型和工具拦截 hooks，也不受 agent loop 的 `allowed_tools` 过滤限制。
 
 ## 流式事件与生命周期
 
@@ -235,7 +240,7 @@ async def run_task(task: Task, request: Request):
 
 ## Agent 与完整消息管线
 
-直接调用 `Agent.run_stream()` 会运行 builtin loop，以及模型和工具拦截 hooks。
+对于普通 prompt，`Agent.run_stream()` 会运行 builtin loop，以及模型和工具拦截 hooks。
 它不会调用 `build_prompt`、`save_state`、outbound 渲染或 channel 分发，
 也不会选择插件替换的 `run_model` 实现。输出由应用消费。
 
@@ -243,6 +248,10 @@ async def run_task(task: Task, request: Request):
 它返回包含 `model_output`、`state` 和 `outbounds` 的 `TurnResult`；
 `stream_output=True` 会通过绑定的 channel router 路由流式输出，但最终仍返回完整结果。
 扩展点详见 [Hooks](/zh-cn/docs/build/hooks/)。
+
+自定义 channel 必须在把命令交给 channel manager 前设置 `ChannelMessage.kind="command"`，
+才能跳过缓冲和活跃窗口过滤。缓冲层不再根据开头的逗号推断命令。
+使用 builtin Agent 时，消息内容仍需保留配置的前缀，供 Agent 执行命令。
 
 配置加载仍是进程级的，应在应用启动时统一配置。
 工具、skills 和 store 按实例隔离，不代表配置文件和环境变量也按实例隔离。

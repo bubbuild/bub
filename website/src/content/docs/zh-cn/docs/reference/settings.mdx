@@ -71,7 +71,8 @@ class AgentSettings(Settings):
 | `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | 传递给每次 completion 调用的额外 kwargs,例如 `{"reasoning_effort":"high"}`;Bub 管理的参数优先。 |
 | `BUB_VERBOSE` | `0` | `verbose` | 日志详细级别(`0`–`2`)。 |
 
-例如，配置 `command_prefix: "!"` 后，内置 channel 使用 `!help`。
+例如，配置 `command_prefix: "!"` 后，内置 channel 使用 `!help`，`,help` 按普通文本处理。
+CLI 控制命令（`quit`、`exit`、`thinking`）、补全和 shell 模式使用同一前缀。
 Telegram 保留现有的原生斜杠命令过滤；前缀设为 `/` 时，使用 `/bub /help`。
 
 启动时 `ProviderSpecificEnvSource` 会扫描 `os.environ` 中匹配 `^BUB_(.+)_(API_KEY|API_BASE)$` 的变量,把捕获到的 provider 名称小写后作为 key 收集。

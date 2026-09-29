@@ -71,8 +71,9 @@ Loaded under the YAML root section.
 | `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | Extra kwargs passed to each completion call, e.g. `{"reasoning_effort":"high"}`. Bub-managed arguments take precedence. |
 | `BUB_VERBOSE` | `0` | `verbose` | Logging verbosity level (`0`–`2`). |
 
-For example, `command_prefix: "!"` enables `!help` in builtin channels. Telegram keeps its existing
-native slash-command filtering; with `/` as the prefix, use `/bub /help`.
+For example, `command_prefix: "!"` enables `!help` in builtin channels; `,help` becomes ordinary text.
+CLI controls (`quit`, `exit`, `thinking`), completion, and shell mode use the same prefix.
+Telegram keeps its existing native slash-command filtering; with `/` as the prefix, use `/bub /help`.
 
 Provider-specific defaults are gathered at startup by scanning `os.environ` for `^BUB_(.+)_(API_KEY|API_BASE)$` and lowercasing the captured provider name.
 
