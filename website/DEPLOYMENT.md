@@ -26,6 +26,11 @@ The repo keeps a minimal [wrangler.jsonc](./wrangler.jsonc) and relies on
 Astro/Wrangler's default Cloudflare integration for the generated Worker
 configuration.
 
+Astro sessions are explicitly disabled because the site does not use per-user
+server state. The generated Worker should have only the `ASSETS` binding, with
+no automatically provisioned `SESSION` KV namespace. Verify this with
+`pnpm wrangler versions upload --dry-run` after building.
+
 GitHub repo stats are snapshotted during `pnpm build` into
 `src/data/github-snapshot.ts`. The Worker does not call the GitHub API at
 runtime, so `GITHUB_TOKEN` only needs to exist as a build secret.

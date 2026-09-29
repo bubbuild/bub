@@ -25,18 +25,15 @@
     "@tailwindcss/vite": "^4.3.3",
     "astro": "^7.3.5",
     "astro-mermaid": "^2.1.0",
-    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "mermaid": "^11.17.2",
     "motion": "^13.4.5",
     "satori": "^0.33.5",
     "sharp": "^0.35.5",
-    "tailwind-merge": "^3.7.0",
-    "tw-animate-css": "^1.4.0"
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@lucide/astro": "^1.48.0",
-    "react-grab": "^0.2.0",
     "tailwindcss": "^4.3.3",
     "wrangler": "^4.143.0"
   }

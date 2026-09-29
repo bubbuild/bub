@@ -47,6 +47,8 @@ site's HTML-aware spacing between inline elements.
 Keep both `current` and `wasm32` in `supportedArchitectures.cpu`: Starlight's
 HTML processors need Sätteri's WASI package when bundled for Cloudflare, while
 Node prerendering uses the native binding. Keep strict peer checks enabled.
+Keep `session: false` while the site has no server-side user state. The generated
+Cloudflare configuration should contain only `ASSETS`, without a `SESSION` KV binding.
 
 Check the [Astro migration guide](https://docs.astro.build/en/guides/upgrade-to/v7/)
 and [Starlight changelog](https://github.com/withastro/starlight/blob/main/packages/starlight/CHANGELOG.md)
@@ -193,6 +195,7 @@ if generated subgroups should start collapsed.
 **Content schema** — `src/content.config.ts`:
 - Uses `docsLoader()` + `docsSchema()` from `@astrojs/starlight/loaders` and `@astrojs/starlight/schema`.
 - Uses `i18nLoader()` + `i18nSchema()` for the i18n collection.
+- Import Zod from `astro/zod`, using `z.url()` for URL fields.
 - Extend the i18n schema with a Zod object if custom Starlight component overrides need translated keys.
 - Extend the docs schema if docs need custom frontmatter fields.
 
@@ -388,13 +391,12 @@ Starlight ships with a blue accent (hue 224/234) and blue-tinted grays. The main
 3. Starlight bridge:        @import '@astrojs/starlight-tailwind';
 4. Tailwind layers:         @import 'tailwindcss/theme.css' layer(theme);
                             @import 'tailwindcss/utilities.css' layer(utilities);
-5. Animation utilities:     @import "tw-animate-css";  (unlayered — @utility can't nest)
-6. @theme inline { … }     — fonts, Starlight color scales, site design tokens, radius
-7. :root { … }             — raw light tokens (unlayered)
-8. .dark, [data-theme="dark"] { … } — raw dark tokens (unlayered)
-9. :root { --sl-font/color overrides } — unlayered to beat bridge @layer utilities
-10. .dark, [data-theme="dark"] { --sl-color-* overrides }
-11. @layer base { … }       — Tailwind preflight + site base resets (lowest priority)
+5. @theme inline { … }     — fonts, Starlight color scales, site design tokens, radius
+6. :root { … }             — raw light tokens (unlayered)
+7. .dark, [data-theme="dark"] { … } — raw dark tokens (unlayered)
+8. :root { --sl-font/color overrides } — unlayered to beat bridge @layer utilities
+9. .dark, [data-theme="dark"] { --sl-color-* overrides }
+10. @layer base { … }       — Tailwind preflight + site base resets (lowest priority)
 ```
 
 **Why this order matters:**
@@ -413,7 +415,6 @@ Starlight ships with a blue accent (hue 224/234) and blue-tinted grays. The main
 - **Define Starlight colors via `@theme` scales** — `--color-accent-50` through `--color-accent-950` and `--color-gray-50` through `--color-gray-950`. The bridge reads these and generates `--sl-color-*` in `@layer utilities`.
 - **Override `--sl-*` colors and fonts manually (unlayered)** — the bridge's auto-mapped values don't produce the right contrast for the monochrome theme. Unlayered `:root` / `.dark, [data-theme="dark"]` blocks with explicit `--sl-color-*` values win over the bridge's `@layer utilities` output.
 - **Import `tailwindcss/preflight.css` in `@layer base`** — restores box-sizing, link resets, and other base styles that the split Tailwind import omits. Because `base` is the lowest layer, EC and Starlight styles still override it.
-- **`tw-animate-css` must be imported unlayered** — it contains `@utility` directives that cannot be nested inside `@layer`.
 - **The `@layer base` `*` reset is safe** — because EC styles live in `@layer starlight.components` (higher priority), they always win.
 
 **Starlight color scales (in `@theme`):**

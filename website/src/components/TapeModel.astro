@@ -345,7 +345,7 @@ const t = useTranslations(getLangFromUrl(Astro.url));
 
       // ─ Phase 1: header
       sched(() => {
-        if (header) runAnimation(header, { opacity: [0, 1] }, { duration: 0.3, ease: 'ease-out' });
+        if (header) runAnimation(header, { opacity: [0, 1] }, { duration: 0.3, ease: 'easeOut' });
       }, 60);
 
       // ─ Phase 2: staggered rows
@@ -353,7 +353,7 @@ const t = useTranslations(getLangFromUrl(Astro.url));
         runAnimation(
           rows,
           { opacity: [0, 1], y: [10, 0] },
-          { delay: stagger(GAP, { start: BASE }), duration: 0.4, ease: [0.22, 1, 0.36, 1] }
+          { delay: stagger(GAP, { startDelay: BASE }), duration: 0.4, ease: [0.22, 1, 0.36, 1] }
         );
       }, 80);
 
@@ -392,7 +392,7 @@ const t = useTranslations(getLangFromUrl(Astro.url));
 
       // ─ Phase 5: cursor
       sched(() => {
-        if (cursor) runAnimation(cursor, { opacity: [0, 1] }, { duration: 0.4, ease: 'ease-out' });
+        if (cursor) runAnimation(cursor, { opacity: [0, 1] }, { duration: 0.4, ease: 'easeOut' });
       }, (ENTRANCE_END + 0.5) * 1000);
 
       // ─ Phase 6: view assembly
@@ -404,7 +404,7 @@ const t = useTranslations(getLangFromUrl(Astro.url));
       const fadeAt = (ENTRANCE_END + 1.8 + HOLD) * 1000;
       sched(() => {
         const all = [header, ...rows, viewEl, cursor].filter(Boolean) as HTMLElement[];
-        runAnimation(all, { opacity: 0 }, { duration: FADE, ease: 'ease-in' });
+        runAnimation(all, { opacity: 0 }, { duration: FADE, ease: 'easeIn' });
         sched(() => cycle(), (FADE + PAUSE) * 1000);
       }, fadeAt);
     }

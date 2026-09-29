@@ -45,11 +45,6 @@
 @import 'tailwindcss/theme.css' layer(theme);
 @import 'tailwindcss/utilities.css' layer(utilities);
 
-/* Animation utilities — imported unlayered because tw-animate-css
-   uses @utility directives that cannot be nested inside @layer. */
-@import "tw-animate-css";
-
-
 /* ═══ Tailwind theme tokens ═══ */
 @theme inline {
     /* ─ Typography ─ */

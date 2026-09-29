@@ -177,7 +177,7 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? SITE_URL).href;
             const controls = animate(
               htmlEl,
               { opacity: [0, 1], transform: ['translateY(24px)', 'translateY(0)'] },
-              { duration: 0.6, easing: [0.25, 0.1, 0.25, 1] },
+              { duration: 0.6, ease: [0.25, 0.1, 0.25, 1] },
             );
             return () => {
               controls.stop();

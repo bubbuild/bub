@@ -19,7 +19,7 @@ const hasContributors = contributors.length > 0;
 {hasContributors && (
   <div class="flex flex-col gap-2.5">
     <div class="flex -space-x-3">
-      {contributors.map((c, i) => (
+      {contributors.map((c) => (
         <div
           class:list={[
             'group relative size-8 md:size-9',
@@ -38,10 +38,10 @@ const hasContributors = contributors.length > 0;
               width="40"
               height="40"
               loading="lazy"
-              class="avatar-img h-full w-full object-cover"
-              onerror="this.hidden=true;this.parentElement.querySelector('.avatar-fallback').hidden=false"
+              class="avatar-img relative z-10 h-full w-full object-cover"
+              onerror="this.hidden=true"
             />
-            <div class="avatar-fallback flex h-full w-full items-center justify-center bg-secondary text-muted-foreground" hidden>
+            <div class="avatar-fallback absolute inset-0 flex items-center justify-center bg-secondary text-muted-foreground">
               <Icon name="circleUserRound" size={18} aria-hidden="true" />
             </div>
           </a>

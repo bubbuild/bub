@@ -16,6 +16,8 @@ const image_service =
 export default defineConfig({
   // Preserve HTML-aware spacing between inline elements after the Astro 7 upgrade.
   compressHTML: true,
+  // The site has no per-user state; avoid provisioning an unused SESSION KV namespace.
+  session: false,
   // SSG by default; landing pages opt-in to SSR via `export const prerender = false`.
   adapter: cloudflare({
     // Prefer an explicit mode from the calling command so local docs workflows

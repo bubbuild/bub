@@ -1,7 +1,8 @@
-import { defineCollection, z } from 'astro:content';
+import { defineCollection } from 'astro:content';
 import { docsLoader, i18nLoader } from '@astrojs/starlight/loaders';
 import { docsSchema, i18nSchema } from '@astrojs/starlight/schema';
 import { file, glob } from 'astro/loaders';
+import { z } from 'astro/zod';
 
 const posts = defineCollection({
   loader: glob({ pattern: '**/*.md', base: './src/content/posts' }),
@@ -22,7 +23,7 @@ const userwall = defineCollection({
     platform: z.string().optional(),
     github: z.string().optional(),
     text: z.string(),
-    ref: z.string().url().optional(),
+    ref: z.url().optional(),
   }),
 });
 
