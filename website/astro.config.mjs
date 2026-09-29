@@ -14,6 +14,8 @@ const image_service =
   astro_image_mode === 'dev' ? 'cloudflare' : { build: 'compile', runtime: 'passthrough' };
 
 export default defineConfig({
+  // Preserve HTML-aware spacing between inline elements after the Astro 7 upgrade.
+  compressHTML: true,
   // SSG by default; landing pages opt-in to SSR via `export const prerender = false`.
   adapter: cloudflare({
     // Prefer an explicit mode from the calling command so local docs workflows
@@ -43,7 +45,7 @@ export default defineConfig({
     },
   },
   integrations: [
-    // Must come BEFORE starlight so its remark plugin transforms `mermaid`
+    // Must come BEFORE starlight so its Markdown plugin transforms `mermaid`
     // code blocks before Starlight's markdown pipeline highlights them.
     mermaid({
       theme: 'neutral',
@@ -92,7 +94,7 @@ export default defineConfig({
       },
       // Use the resolved file URL so Vite's module graph reliably
       // includes global.css on every Starlight docs page in dev mode.
-      // (Astro v6 scopes CSS per-page from the import graph; with a
+      // (Astro scopes CSS per-page from the import graph; with a
       // relative path Vite occasionally fails to resolve / dedupe in
       // dev, leaving the docs route unstyled even though
       // `astro build` + preview both work.)
@@ -113,32 +115,32 @@ export default defineConfig({
         {
           label: 'Getting Started',
           translations: { 'zh-CN': '快速开始' },
-          autogenerate: { directory: 'docs/getting-started' },
+          items: [{ autogenerate: { directory: 'docs/getting-started' } }],
         },
         {
           label: 'Concepts',
           translations: { 'zh-CN': '概念' },
-          autogenerate: { directory: 'docs/concepts' },
+          items: [{ autogenerate: { directory: 'docs/concepts' } }],
         },
         {
           label: 'Operate',
           translations: { 'zh-CN': '运行' },
-          autogenerate: { directory: 'docs/operate' },
+          items: [{ autogenerate: { directory: 'docs/operate' } }],
         },
         {
           label: 'Build',
           translations: { 'zh-CN': '构建' },
-          autogenerate: { directory: 'docs/build' },
+          items: [{ autogenerate: { directory: 'docs/build' } }],
         },
         {
           label: 'Tutorials',
           translations: { 'zh-CN': '教程' },
-          autogenerate: { directory: 'docs/tutorials' },
+          items: [{ autogenerate: { directory: 'docs/tutorials' } }],
         },
         {
           label: 'Reference',
           translations: { 'zh-CN': '参考' },
-          autogenerate: { directory: 'docs/reference' },
+          items: [{ autogenerate: { directory: 'docs/reference' } }],
         },
       ],
     }),

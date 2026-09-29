@@ -1,0 +1,20 @@
+strictPeerDependencies: true
+
+# Patch pinned transitive dependencies until upstream adopts these fixes.
+overrides:
+  # https://github.com/advisories/GHSA-px8p-9vwx-vf98
+  satori>fflate: ^0.7.5
+  # https://github.com/advisories/GHSA-3wwx-pv8p-q78v
+  miniflare>undici: ^7.29.1
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - workerd
+
+# Starlight's HTML processors use Sätteri in the Cloudflare bundle. Install
+# its WASI fallback as well as the native binding used to prerender in Node.
+supportedArchitectures:
+  cpu:
+    - current
+    - wasm32
