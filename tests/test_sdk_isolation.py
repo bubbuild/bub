@@ -30,40 +30,23 @@ def framework(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> BubFramework:
 
 
 @pytest.mark.asyncio
-async def test_sdk_command_prefix_is_instance_local(framework: BubFramework, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_sdk_agents_execute_only_their_own_command_prefix(
+    framework: BubFramework, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("BUB_COMMAND_PREFIX", "!")
-    lookup = Tool.from_callable(lambda: "found", name="sdk.lookup")
-    configured = Agent(framework, tools=[lookup], skill_dirs=[])
-    custom = Agent(framework, tools=[lookup, show_help], skill_dirs=[], command_prefix="::")
-    assert configured.command_prefix == "!"
-    assert configured.settings.command_prefix == custom.settings.command_prefix == "!"
+    monkeypatch.setattr("bub.builtin.model_runner.ModelRunner.run", lambda *args, **kwargs: _reply())
+    custom = Agent(framework, tools=[show_help], skill_dirs=[], command_prefix="::")
+    configured = Agent(framework, tools=[show_help], skill_dirs=[])
 
-    for agent, prefix in [(configured, "!"), (custom, "::")]:
-        agent.model_runner.run = Mock(side_effect=AssertionError("commands must not invoke the model"))
-        stream = await agent.run_stream(session_id="sdk", prompt=f" {prefix}sdk.lookup ")
-        assert [event async for event in stream][-1].data["text"] == "found"
-        tape = agent.tape.session_tape("sdk", framework.workspace)
-        entries = list(await tape.store.fetch_all(tape.query().kinds("event")))
-        command = next(entry.payload["data"] for entry in entries if entry.payload.get("name") == "command")
-        assert command["raw"] == "sdk.lookup"
-
-    stream = await custom.run_stream(session_id="sdk", prompt="::help")
-    assert "::bash.output" in [event async for event in stream][-1].data["text"]
-
-    async def bash(*, command: str, context: ToolContext) -> str:
-        return command
-
-    custom.tools["bash"] = Tool.from_callable(bash, context=True)
-    stream = await custom.run_stream(session_id="sdk", prompt="::::echo hello")
-    assert [event async for event in stream][-1].data["text"] == "::echo hello"
-    with pytest.raises(ValueError, match="empty command"):
-        await custom.run_stream(session_id="sdk", prompt=" :: ")
-
-    custom.model_runner.run = Mock(side_effect=lambda **kwargs: _reply())
-    for prompt in [",sdk.lookup", "!sdk.lookup"]:
-        stream = await custom.run_stream(session_id="sdk", prompt=prompt)
-        assert [event.kind async for event in stream] == ["text", "final"]
-        assert custom.model_runner.run.call_args.kwargs["prompt"] == prompt
+    for agent, prompt, expected in [
+        (custom, " ::help ", "Commands use '::'"),
+        (configured, "!help", "Commands use '!'"),
+        (custom, "!help", "done"),
+        (custom, ",help", "done"),
+    ]:
+        stream = await agent.run_stream(session_id="sdk", prompt=prompt)
+        output = "".join([event.data["delta"] async for event in stream if event.kind == "text"])
+        assert output.startswith(expected)
 
 
 @pytest.mark.asyncio

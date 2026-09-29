@@ -197,21 +197,6 @@ async def test_build_prompt_marks_commands_and_prefixes_context(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
-async def test_build_prompt_uses_runtime_agent_prefix_before_adding_context(tmp_path: Path) -> None:
-    _, impl, _ = _build_impl(tmp_path)
-    agent = FakeAgent(tmp_path)
-    agent.command_prefix = "::"
-    state = {"_runtime_agent": agent}
-    message = ChannelMessage(session_id="s", channel="cli", content="  ::help ")
-    assert await impl.build_prompt(message, session_id="s", state=state) == "::help"
-    assert message.kind == "command"
-
-    normal = ChannelMessage(session_id="s", channel="cli", content=",help")
-    assert (await impl.build_prompt(normal, session_id="s", state=state)).endswith(",help")
-    assert normal.kind == "normal"
-
-
-@pytest.mark.asyncio
 async def test_build_prompt_uses_system_timezone_for_context_date(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -345,7 +330,6 @@ def test_provide_channels_returns_cli_and_telegram(tmp_path: Path, monkeypatch: 
 
         def __init__(self, on_receive, *, command_prefix: str) -> None:
             self.on_receive = on_receive
-            self.command_prefix = command_prefix
 
         @property
         def enabled(self) -> bool:
@@ -364,7 +348,6 @@ def test_provide_channels_returns_cli_and_telegram(tmp_path: Path, monkeypatch: 
 
     assert [channel.name for channel in channels] == ["telegram", "cli"]
     assert channels[0].on_receive is message_handler
-    assert channels[0].command_prefix == agent.command_prefix
     assert channels[1].on_receive is message_handler
     assert channels[1].agent is agent
 

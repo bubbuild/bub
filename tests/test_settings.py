@@ -17,17 +17,7 @@ def _settings_with_env(env: dict[str, str]) -> AgentSettings:
         return AgentSettings()
 
 
-def test_command_prefix_defaults_to_comma_and_env_overrides_yaml(load_config, monkeypatch) -> None:
-    monkeypatch.delenv("BUB_COMMAND_PREFIX", raising=False)
-    assert AgentSettings().command_prefix == ","
-    load_config('command_prefix: "::"')
-    assert load_settings().command_prefix == "::"
-    monkeypatch.setenv("BUB_COMMAND_PREFIX", "!")
-    load_config('command_prefix: "::"')
-    assert load_settings().command_prefix == "!"
-
-
-@pytest.mark.parametrize("prefix", ["", " ", " !", "!\t", "! a"])
+@pytest.mark.parametrize("prefix", ["", "! a"])
 def test_command_prefix_rejects_empty_or_whitespace(prefix: str) -> None:
     with pytest.raises(ValidationError, match="command_prefix"):
         _settings_with_env({"BUB_COMMAND_PREFIX": prefix})

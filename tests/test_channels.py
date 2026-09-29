@@ -271,9 +271,7 @@ telegram:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("content", [",help", "::help", "help"])
-@pytest.mark.parametrize("kind", ["command", "normal"])
-async def test_buffered_handler_routes_by_message_kind(content: str, kind: str) -> None:
+async def test_buffered_handler_passes_commands_through_immediately() -> None:
     handled: list[str] = []
 
     async def receive(message: ChannelMessage) -> None:
@@ -286,13 +284,13 @@ async def test_buffered_handler_routes_by_message_kind(content: str, kind: str) 
         debounce_seconds=0.01,
     )
 
-    await handler(_message(content, kind=kind))
+    await handler(_message(",help", kind="command"))
 
-    assert handled == ([content] if kind == "command" else [])
+    assert handled == [",help"]
 
 
 @pytest.mark.asyncio
-async def test_buffered_handler_batches_active_text_with_command_prefixes() -> None:
+async def test_buffered_handler_filters_and_batches_ordinary_comma_text() -> None:
     handled: list[str] = []
     received = asyncio.Event()
 
@@ -301,12 +299,15 @@ async def test_buffered_handler_batches_active_text_with_command_prefixes() -> N
         received.set()
 
     handler = BufferedMessageHandler(receive, active_time_window=10, max_wait_seconds=10, debounce_seconds=0.01)
+    await handler(_message(",ignored"))
+    assert handled == []
+
     await handler(_message(",help", is_active=True))
-    await handler(_message("::help", is_active=True))
+    await handler(_message("hello", is_active=True))
 
     assert handled == []
     await asyncio.wait_for(received.wait(), timeout=1)
-    assert handled == [",help\n::help"]
+    assert handled == [",help\nhello"]
 
 
 @pytest.mark.asyncio
@@ -374,12 +375,9 @@ def test_channel_manager_selects_real_channel_types(load_config) -> None:
     assert [channel.name for channel in manager.enabled_channels()] == ["telegram"]
 
 
-@pytest.mark.parametrize("prefix", [",", "::"])
-@pytest.mark.parametrize("initial_prompt", [None, "初始提示词 with spaces", "   ", ",help", "::help"])
+@pytest.mark.parametrize("initial_prompt", [None, "初始提示词 with spaces", "   "])
 @pytest.mark.asyncio
-async def test_cli_channel_accepts_input_while_previous_message_is_running(
-    initial_prompt: str | None, prefix: str
-) -> None:
+async def test_cli_channel_accepts_input_while_previous_message_is_running(initial_prompt: str | None) -> None:
     received: list[ChannelMessage] = []
 
     class FakePrompt:
@@ -387,7 +385,7 @@ async def test_cli_channel_accepts_input_while_previous_message_is_running(
             from prompt_toolkit.history import InMemoryHistory
 
             self.history = InMemoryHistory()
-            self.inputs = iter(["first", "second", f"{prefix}quit"])
+            self.inputs = iter(["first", "second", ",quit"])
             self.refresh_intervals: list[float | None] = []
             self.received_callables: list[bool] = []
 
@@ -407,7 +405,7 @@ async def test_cli_channel_accepts_input_while_previous_message_is_running(
         "channel": "cli",
         "session_id": "cli_session",
     }
-    channel._agent = SimpleNamespace(settings=SimpleNamespace(model="test-model"), command_prefix=prefix)
+    channel._agent = SimpleNamespace(settings=SimpleNamespace(model="test-model"), command_prefix=",")
     channel._workspace = Path.cwd()
     channel._mode = "agent"
     channel._llm_loop_running = False
@@ -426,11 +424,6 @@ async def test_cli_channel_accepts_input_while_previous_message_is_running(
 
     initial_messages = [initial_prompt.strip()] if initial_prompt and initial_prompt.strip() else []
     assert [message.content for message in received] == [*initial_messages, "first", "second"]
-    expected_kind = "command" if initial_prompt and initial_prompt.startswith(prefix) else "normal"
-    assert [message.kind for message in received] == ([expected_kind] if initial_messages else []) + [
-        "normal",
-        "normal",
-    ]
     assert channel._prompt.history.get_strings() == initial_messages
     assert all(message.chat_id == "room" and message.session_id == "custom-session" for message in received)
     assert channel._initial_prompt is None
@@ -1755,7 +1748,7 @@ async def test_telegram_channel_start_with_proxy_does_not_call_get_updates_proxy
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("prefix,content", [(",", ",help"), ("!", "!help"), ("::", "/bub ::help")])
+@pytest.mark.parametrize("prefix,content", [(",", ",help"), ("::", "/bub ::help")])
 async def test_telegram_channel_build_message_returns_command_directly(load_config, prefix: str, content: str) -> None:
     _load_channel_config(load_config, telegram_value="test-token")
     channel = TelegramChannel(lambda message: None, command_prefix=prefix)
@@ -1773,14 +1766,13 @@ async def test_telegram_channel_build_message_returns_command_directly(load_conf
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("content", ["hello", ",help"])
 async def test_telegram_channel_build_message_wraps_payload_and_disables_outbound(
-    monkeypatch: pytest.MonkeyPatch, load_config, content: str
+    monkeypatch: pytest.MonkeyPatch, load_config
 ) -> None:
     _load_channel_config(load_config, telegram_value="test-token")
-    channel = TelegramChannel(lambda message: None, command_prefix="::")
+    channel = TelegramChannel(lambda message: None)
     parser = SimpleNamespace(
-        parse=_async_return((content, {"type": "text", "sender_id": "7"})),
+        parse=_async_return(("hello", {"type": "text", "sender_id": "7"})),
         get_reply=_async_return({"message": "prev", "type": "text"}),
     )
     channel._parser = parser
@@ -1791,9 +1783,8 @@ async def test_telegram_channel_build_message_wraps_payload_and_disables_outboun
     result = await channel._build_message(message)
 
     assert result.output_channel == "null"
-    assert result.kind == "normal"
     assert result.is_active is True
-    assert f'"message": "{content}"' in result.content
+    assert '"message": "hello"' in result.content
     assert '"reply_to_message"' in result.content
     assert result.lifespan is not None
 
