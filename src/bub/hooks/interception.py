@@ -61,11 +61,16 @@ class LlmCallDecision:
 
 @dataclass(frozen=True)
 class ToolCall:
-    """One tool invocation exposed to interception hooks."""
+    """One tool invocation exposed to interception hooks.
+
+    ``code_mode`` marks calls made from model-written code (``run_code``); their
+    results are structured values for that code, not model-facing text.
+    """
 
     run_id: str
     tool: str
     arguments: dict[str, Any]
+    code_mode: bool = False
 
 
 @dataclass(frozen=True)

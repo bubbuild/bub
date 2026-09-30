@@ -158,6 +158,21 @@ async def test_load_state_injects_reasoning_effort_recorded_on_session_tape(tmp_
 
 
 @pytest.mark.asyncio
+async def test_load_state_injects_latest_code_mode_recorded_on_session_tape(tmp_path: Path) -> None:
+    _, impl, agent = _build_impl(tmp_path)
+    session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
+    await session.append_event("code_mode_switch", {"code_mode": True})
+    await session.append_event("code_mode_switch", {"code_mode": False})
+    message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
+
+    state = await impl.load_state(message=message, session_id="resolved-session")
+    fresh_state = await impl.load_state(message=message, session_id="fresh-session")
+
+    assert state["code_mode"] is False
+    assert "code_mode" not in fresh_state
+
+
+@pytest.mark.asyncio
 async def test_load_state_does_not_inject_model_for_unknown_session(tmp_path: Path) -> None:
     """A session with nothing recorded on its tape must not inherit any model (no leakage)."""
     _, impl, _ = _build_impl(tmp_path)
@@ -170,14 +185,17 @@ async def test_load_state_does_not_inject_model_for_unknown_session(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_recover_session_model_returns_latest_recorded(tmp_path: Path) -> None:
+async def test_load_state_restores_latest_recorded_model(tmp_path: Path) -> None:
     """When several switches were recorded, the most recent one wins."""
     _, impl, agent = _build_impl(tmp_path)
     session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
     await session.append_event("model_switch", {"model": "openai:gpt-4o"})
     await session.append_event("model_switch", {"model": "anthropic:claude-3"})
+    message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
 
-    assert await impl._recover_session_model("resolved-session", agent=agent) == "anthropic:claude-3"
+    state = await impl.load_state(message=message, session_id="resolved-session")
+
+    assert state["model"] == "anthropic:claude-3"
 
 
 @pytest.mark.asyncio

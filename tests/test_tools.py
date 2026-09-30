@@ -6,7 +6,10 @@ import pytest
 from loguru import logger
 from pydantic import BaseModel
 
-from bub.tools import REGISTRY, Tool, model_tools, tool, tool_call_reporter
+from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
+from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.tape import Tape, TapeContext
+from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool, tool_call_reporter
 
 
 class EchoInput(BaseModel):
@@ -187,3 +190,101 @@ async def test_tool_direct_call_registers_wrapped_instance_in_registry() -> None
 
     assert REGISTRY[tool_name] is direct_tool
     assert await REGISTRY[tool_name].run("hello") == "HELLO"
+
+
+def _context(tmp_path, *, code_mode: bool = False) -> ToolContext:
+    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+    return ToolContext(tape=tape, run_id="run-1", code_mode=code_mode)
+
+
+def test_tool_render_defaults_to_json_for_structured_results() -> None:
+    sample = Tool(name="tests.render_default", handler=lambda: None)
+
+    assert sample.render("plain") == "plain"
+    assert sample.render({"value": "é"}) == '{"value": "é"}'
+    assert sample.render(EchoInput(value="x")) == '{"value":"x"}'
+
+
+@pytest.mark.parametrize(
+    ("agent_use", "preserve", "code_use"),
+    [(True, False, True), (True, True, False), (False, False, False), (False, True, False)],
+)
+def test_tool_code_use_excludes_preserved_and_agent_hidden_tools(
+    agent_use: bool, preserve: bool, code_use: bool
+) -> None:
+    sample = Tool(name="tests.code_use", handler=lambda: None, agent_use=agent_use, preserve=preserve)
+
+    assert sample.code_use is code_use
+
+
+def test_tool_decorator_accepts_renderer() -> None:
+    tool_name = "tests.custom_renderer"
+    REGISTRY.pop(tool_name, None)
+
+    @tool(name=tool_name, renderer=lambda result: f"count={result['count']}")
+    def counted() -> dict[str, int]:
+        return {"count": 3}
+
+    try:
+        assert counted.render({"count": 3}) == "count=3"
+        assert model_tools([counted])[0].render({"count": 1}) == "count=1"
+    finally:
+        REGISTRY.pop(tool_name, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("render", "code_mode", "expected"),
+    [(True, False, "count=3"), (True, True, "count=3"), (False, False, {"count": 3}), (False, True, {"count": 3})],
+)
+async def test_executor_render_option_decides_result_format(
+    tmp_path, render: bool, code_mode: bool, expected: object
+) -> None:
+    structured = Tool(
+        name="tests.structured",
+        handler=lambda: {"count": 3},
+        renderer=lambda result: f"count={result['count']}",
+    )
+
+    execution = await ToolExecutor(render=render).execute_async(
+        [(structured, {})], context=_context(tmp_path, code_mode=code_mode)
+    )
+
+    assert execution.error is None
+    assert execution.tool_results == [expected]
+
+
+@pytest.mark.asyncio
+async def test_executor_exposes_code_mode_to_context_tools_and_hooks(tmp_path) -> None:
+    seen: dict[str, Any] = {}
+
+    class RecordingHooks:
+        async def before_tool_call(self, call: ToolCall, state: dict[str, Any]) -> tuple[ToolCall, ToolCallDecision]:
+            seen["before"] = call.code_mode
+            return call, ToolCallDecision.proceed()
+
+        async def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict[str, Any]) -> None:
+            seen["after"] = (call.code_mode, result.result)
+
+    def mode(*, context: ToolContext) -> dict[str, bool]:
+        return {"code_mode": context.code_mode}
+
+    execution = await ToolExecutor(hooks=RecordingHooks(), render=False).execute_async(  # type: ignore[arg-type]
+        [(Tool.from_callable(mode, context=True), {})], context=_context(tmp_path, code_mode=True)
+    )
+
+    assert execution.tool_results == [{"code_mode": True}]
+    assert seen == {"before": True, "after": (True, {"code_mode": True})}
+
+
+@pytest.mark.asyncio
+async def test_executor_reports_renderer_failures_as_tool_errors(tmp_path) -> None:
+    def broken_renderer(_result: object) -> str:
+        raise KeyError("missing")
+
+    broken = Tool(name="tests.broken_renderer", handler=lambda: {}, renderer=broken_renderer)
+
+    execution = await ToolExecutor().execute_async([(broken, {})], context=_context(tmp_path))
+
+    assert execution.error is not None
+    assert execution.tool_results[0]["message"] == "Tool 'tests.broken_renderer' execution failed."

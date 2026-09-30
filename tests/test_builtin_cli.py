@@ -423,6 +423,7 @@ def test_run_help_uses_the_configured_prefix(
     assert result.exit_code == 0, result.output
     assert f"Commands use '{prefix}'" in result.output
     assert f"{prefix}bash.output" in result.output
+    assert f"{prefix}code_mode enable=true" in result.output
     assert f"{prefix}quit" in result.output
 
 

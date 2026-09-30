@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from bub.tape import TapeContext, TapeEntry
+from bub.tools import render_result
 
 
 def default_tape_context() -> TapeContext:
@@ -69,7 +70,7 @@ def _build_tool_result_message(
     pending_calls: list[dict[str, Any]],
     index: int,
 ) -> dict[str, Any]:
-    message: dict[str, Any] = {"role": "tool", "content": render_tool_result(result)}
+    message: dict[str, Any] = {"role": "tool", "content": render_result(result)}
     if index >= len(pending_calls):
         return message
 
@@ -94,14 +95,3 @@ def _normalize_tool_calls(value: object) -> list[dict[str, Any]]:
         if isinstance(item, dict):
             calls.append(dict(item))
     return calls
-
-
-def render_tool_result(result: object) -> str:
-    """Render a tool result exactly as it will appear in model context."""
-
-    if isinstance(result, str):
-        return result
-    try:
-        return json.dumps(result, ensure_ascii=False)
-    except TypeError:
-        return str(result)

@@ -63,7 +63,8 @@ async def test_tape_info_formats_token_cache_hit_rate(tmp_path) -> None:
 
     result = await tape_info.run(context=context)
 
-    assert "last_token_cache_hit_rate: 37.50%" in result
+    assert result["last_token_cache_hit_rate"] == 0.375
+    assert "last_token_cache_hit_rate: 37.50%" in tape_info.render(result)
 
 
 def test_render_tools_prompt_renders_available_tools_block() -> None:
@@ -166,8 +167,7 @@ async def test_set_model_writes_model_into_state_and_records_on_tape(tmp_path) -
     result = await set_model.run(model_id="openai:gpt-4o", context=context)
 
     assert context.state["model"] == "openai:gpt-4o"
-    assert "openai:gpt-4o" in result
-    assert "next turn" in result.lower()
+    assert result == "Session model set to openai:gpt-4o (applies from the next turn)."
     # The switch is also persisted as a `model_switch` event on the session
     # tape, which load_state recovers on the next turn / after restart.
     entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))

@@ -8,7 +8,7 @@ import json
 import time
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Protocol, overload
+from typing import TYPE_CHECKING, Any, Protocol, get_type_hints, overload
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
@@ -24,11 +24,29 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ToolContext:
-    """Runtime context passed to tools that opt into context."""
+    """Runtime context passed to tools that opt into context.
+
+    ``code_mode`` is true when the tool is invoked from model-written code rather than
+    as a direct model tool call. Whether the result is rendered to text is decided by the
+    ``ToolExecutor`` running the call, not by this flag.
+    """
 
     tape: Tape
     run_id: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
+    code_mode: bool = False
+
+
+def render_result(result: Any) -> str:
+    """Render a structured tool result as plain text (the default tool renderer)."""
+    if isinstance(result, str):
+        return result
+    if isinstance(result, BaseModel):
+        return result.model_dump_json()
+    try:
+        return json.dumps(result, ensure_ascii=False)
+    except TypeError:
+        return str(result)
 
 
 def _to_snake_case(name: str) -> str:
@@ -60,13 +78,38 @@ def _schema_from_signature(signature: inspect.Signature, *, ignore_params: set[s
             continue
         if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
             continue
-        properties[param.name] = _schema_from_annotation(param.annotation)
+        property_schema = _schema_from_annotation(param.annotation)
         if param.default is param.empty:
             required.append(param.name)
+        elif _is_json_value(param.default):
+            property_schema = {**property_schema, "default": param.default}
+        properties[param.name] = property_schema
     schema: dict[str, Any] = {"type": "object", "properties": properties}
     if required:
         schema["required"] = required
     return schema
+
+
+def _is_json_value(value: Any) -> bool:
+    try:
+        json.dumps(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _output_schema(func: Callable[..., Any]) -> dict[str, Any] | None:
+    """Build a JSON schema for the callable's return annotation, if it can be resolved."""
+    try:
+        annotation = get_type_hints(func).get("return", inspect.Signature.empty)
+    except Exception:
+        return None
+    if annotation is inspect.Signature.empty:
+        return None
+    try:
+        return _schema_from_annotation(annotation)
+    except ValueError:
+        return None
 
 
 def _signature_without_context(signature: inspect.Signature) -> inspect.Signature:
@@ -80,9 +123,14 @@ def _validate_without_context(func: Callable[..., Any], signature: inspect.Signa
 
     validate_target.__name__ = _callable_name(func)
     validate_target.__qualname__ = getattr(func, "__qualname__", validate_target.__name__)
+    # Only arguments are validated; dropping the return annotation also avoids resolving
+    # forward references to types that live in the tool's module, not this one.
     validate_target.__annotations__ = dict(getattr(func, "__annotations__", {}))
     validate_target.__annotations__.pop("context", None)
-    validate_target.__signature__ = _signature_without_context(signature)  # type: ignore[attr-defined]
+    validate_target.__annotations__.pop("return", None)
+    validate_target.__signature__ = _signature_without_context(signature).replace(  # type: ignore[attr-defined]
+        return_annotation=inspect.Signature.empty
+    )
     return validate_call(validate_target)
 
 
@@ -96,9 +144,28 @@ class Tool:
     parameters: dict[str, Any] = field(default_factory=dict)
     context: bool = False
     agent_use: bool = True
+    renderer: Callable[[Any], str] | None = None
+    preserve: bool = False
+    """Keep the tool directly callable by the model in code mode; others are reachable only from code."""
+    output_schema: dict[str, Any] | None = None
+    """JSON schema of the structured result, used to describe the tool to model-written code."""
+
+    @property
+    def code_use(self) -> bool:
+        """Whether the tool is callable from model-written code (``tools.*`` in ``run_code``).
+
+        Preserved tools stay model-facing only, and tools hidden from the agent are never exposed to code.
+        """
+        return self.agent_use and not self.preserve
 
     def run(self, *args: Any, **kwargs: Any) -> Any:
         return self.handler(*args, **kwargs)
+
+    def render(self, result: Any) -> str:
+        """Render a structured result of this tool as plain text for the model."""
+        if self.renderer is None:
+            return render_result(result)
+        return self.renderer(result)
 
     def to_schema(self) -> dict[str, Any]:
         """Build an any-llm completion tool payload."""
@@ -120,6 +187,8 @@ class Tool:
         description: str | None = None,
         context: bool = False,
         agent_use: bool = True,
+        renderer: Callable[[Any], str] | None = None,
+        preserve: bool = False,
     ) -> Tool:
         signature = inspect.signature(func)
         if context and "context" not in signature.parameters:
@@ -144,6 +213,9 @@ class Tool:
             handler=validated,
             context=context,
             agent_use=agent_use,
+            renderer=renderer,
+            preserve=preserve,
+            output_schema=_output_schema(func),
         )
 
 
@@ -192,10 +264,16 @@ async def _await_report(report: Awaitable[None] | None) -> None:
 
 
 class ToolExecutor:
-    """Execute already-resolved Bub tool invocations."""
+    """Execute already-resolved Bub tool invocations.
 
-    def __init__(self, hooks: AgentHooks | None = None) -> None:
+    With ``render`` (the default) successful results are rendered to model-facing text with
+    ``Tool.render``; ``render=False`` returns tools' structured results unchanged, as needed
+    when the caller is code rather than the model.
+    """
+
+    def __init__(self, hooks: AgentHooks | None = None, *, render: bool = True) -> None:
         self._hooks = hooks
+        self._render = render
 
     async def execute_async(
         self,
@@ -292,6 +370,7 @@ class ToolExecutor:
             run_id=(context.run_id if context is not None else None) or "",
             tool=tool_name,
             arguments=dict(tool_args),
+            code_mode=context is not None and context.code_mode,
         )
         hook_state = context.state if context is not None else {}
         if self._hooks is not None and context is not None:
@@ -313,7 +392,7 @@ class ToolExecutor:
             return outcome.result
 
     async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:
-        """Run the tool with errors normalized to BubError."""
+        """Run the tool with errors normalized to BubError; render the result if configured to."""
 
         tool_name = tool_obj.name
         try:
@@ -325,6 +404,8 @@ class ToolExecutor:
             )
             if inspect.isawaitable(value):
                 value = await value
+            if self._render:
+                value = tool_obj.render(value)
         except BubError:
             raise
         except ValidationError as exc:
@@ -475,6 +556,8 @@ def tool(
     description: str | None = ...,
     context: bool = ...,
     agent_use: bool = ...,
+    renderer: Callable[[Any], str] | None = ...,
+    preserve: bool = ...,
 ) -> Tool: ...
 
 
@@ -487,6 +570,8 @@ def tool(
     description: str | None = ...,
     context: bool = ...,
     agent_use: bool = ...,
+    renderer: Callable[[Any], str] | None = ...,
+    preserve: bool = ...,
 ) -> Callable[[Callable], Tool]: ...
 
 
@@ -498,8 +583,14 @@ def tool(
     description: str | None = None,
     context: bool = False,
     agent_use: bool = True,
+    renderer: Callable[[Any], str] | None = None,
+    preserve: bool = False,
 ) -> Tool | Callable[[Callable], Tool]:
-    """Decorator to convert a function into a Tool instance."""
+    """Decorator to convert a function into a Tool instance.
+
+    Tools should return structured results; ``renderer`` turns such a result into the
+    plain text shown to the model outside code mode (defaults to JSON for non-strings).
+    """
 
     def decorator(func: Callable) -> Tool:
         if model is not None:
@@ -515,11 +606,14 @@ def tool(
 
             result = Tool(
                 name=name or _to_snake_case(model.__name__),
-                description=description if description is not None else (model.__doc__ or ""),
+                description=description if description is not None else (inspect.getdoc(func) or model.__doc__ or ""),
                 parameters=model.model_json_schema(),
                 handler=handler,
                 context=context,
                 agent_use=agent_use,
+                renderer=renderer,
+                preserve=preserve,
+                output_schema=_output_schema(func),
             )
         else:
             result = Tool.from_callable(
@@ -528,6 +622,8 @@ def tool(
                 description=description,
                 context=context,
                 agent_use=agent_use,
+                renderer=renderer,
+                preserve=preserve,
             )
         tool_instance = _add_logging(result)
         REGISTRY[tool_instance.name] = tool_instance

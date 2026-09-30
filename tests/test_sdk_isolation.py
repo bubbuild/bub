@@ -4,6 +4,7 @@ from unittest.mock import Mock
 import pytest
 
 from bub.builtin import Agent
+from bub.builtin.codemode import run_code, set_code_mode
 from bub.builtin.tools import resolve_tool_names, run_subagent, show_help
 from bub.framework import BubFramework
 from bub.store import InMemoryTapeStore
@@ -47,6 +48,61 @@ async def test_sdk_agents_execute_only_their_own_command_prefix(
         stream = await agent.run_stream(session_id="sdk", prompt=prompt)
         output = "".join([event.data["delta"] async for event in stream if event.kind == "text"])
         assert output.startswith(expected)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", [",", "::"])
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_prefixed_code_mode_command_is_restored_by_a_new_agent(
+    framework: BubFramework, prefix: str, enabled: bool
+) -> None:
+    store = InMemoryTapeStore()
+    tools = [set_code_mode, run_code]
+    agent = Agent(framework, tools=tools, tape_store=store, skill_dirs=[], command_prefix=prefix)
+    tape = agent.tape.session_tape("sdk", framework.workspace)
+    await tape.append_event("code_mode_switch", {"code_mode": not enabled})
+
+    stream = await agent.run_stream(session_id="sdk", prompt=f"{prefix}code_mode enable={str(enabled).lower()}")
+    events = [event async for event in stream]
+    status = "enabled" if enabled else "disabled"
+    assert any(
+        event.data.get("delta") == f"Session code mode {status} (applies from the next turn)." for event in events
+    )
+
+    restored = Agent(framework, tools=tools, tape_store=store, skill_dirs=[], command_prefix=prefix)
+    runner = Mock(side_effect=lambda **kwargs: _reply())
+    restored.model_runner.run = runner
+    stream = await restored.run_stream(session_id="sdk", prompt="hello")
+
+    assert [event.kind async for event in stream] == ["text", "final"]
+    call = runner.call_args.kwargs
+    assert call["tape"].context.state["code_mode"] is enabled
+    assert [tool.name for tool in call["tools"]] == (["run_code"] if enabled else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["sdk.lookup", "echo hello"])
+async def test_prefixed_commands_render_structured_results(framework: BubFramework, command: str) -> None:
+    async def lookup(**kwargs: object) -> dict[str, str]:
+        return {"output": "found"}
+
+    command_tool = Tool(
+        name="sdk.lookup" if command == "sdk.lookup" else "bash",
+        handler=lookup,
+        renderer=lambda result: result["output"],
+    )
+    agent = Agent(framework, tools=[command_tool], skill_dirs=[], command_prefix="::")
+
+    stream = await agent.run_stream(session_id="sdk", prompt=f"::{command}")
+    output = "".join([event.data["delta"] async for event in stream if event.kind == "text"])
+
+    assert output == "found"
+    tape = agent.tape.session_tape("sdk", framework.workspace)
+    events = list(await tape.store.fetch_all(tape.query().kinds("event")))
+    recorded = [entry.payload["data"] for entry in events if entry.payload.get("name") == "command"]
+    assert len(recorded) == 1
+    assert recorded[0]["output"] == "found"
+    assert recorded[0]["status"] == "ok"
 
 
 @pytest.mark.asyncio
@@ -119,5 +175,6 @@ async def test_subagent_uses_parent_instance_tools(framework: BubFramework, allo
         state={"_runtime_agent": agent, "session_id": "parent", "_runtime_workspace": str(framework.workspace)},
     )
     result = await run_subagent.run(prompt="lookup", allowed_tools=allowed_tools, context=context)
-    assert result == "done"
+    assert result["output"] == "done"
+    assert run_subagent.render(result) == "done"
     assert [tool.name for tool in runner.call_args.kwargs["tools"]] == ["sdk_lookup"]

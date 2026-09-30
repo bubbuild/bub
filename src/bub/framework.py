@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from bub import configure
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import ChannelRouter, MessageHandler
 from bub.envelope import Envelope, content_of, field_of, unpack_batch
+from bub.environment import ENVIRONMENT_STATE_KEY, Environment
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import AgentHooks
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
@@ -62,6 +64,7 @@ class BubFramework:
         self._channel_router: ChannelRouter | None = None
         self._tape_store: TapeStore | AsyncTapeStore | None = None
         self._steering_inbox: SteeringInbox | None = None
+        self._environments: dict[str, Environment | None] = {}
         configure.load(self.config_file)
 
     @property
@@ -153,7 +156,12 @@ class BubFramework:
         supply their Agent in the message's ``_runtime_agent`` field so builtin
         session recovery reads that agent's store.
         """
-        state = {"_runtime_workspace": str(self.workspace), "_runtime_steering_inbox": self.get_steering_inbox()}
+        state: TurnState = {
+            "_runtime_workspace": str(self.workspace),
+            "_runtime_steering_inbox": self.get_steering_inbox(),
+        }
+        if (environment := await self.get_environment(session_id)) is not None:
+            state[ENVIRONMENT_STATE_KEY] = environment
         for hook_state in reversed(
             await self._hook_runtime.call_many("load_state", message=message, session_id=session_id)
         ):
@@ -416,6 +424,37 @@ class BubFramework:
             finally:
                 self._tape_store = None
                 self._steering_inbox = None
+                await self._close_environments()
+
+    async def get_environment(self, session_id: str) -> Environment | None:
+        """Return the session's environment, creating it through ``provide_environment`` on first use.
+
+        Returns ``None`` when no hook provides one. ``running()`` closes all environments when it exits.
+        """
+        if session_id in self._environments:
+            return self._environments[session_id]
+        environment = await self._hook_runtime.call_first(
+            "provide_environment", session_id=session_id, workspace=self.workspace
+        )
+        if environment is not None and not isinstance(environment, Environment):
+            raise TypeError("hook.provide_environment must return Environment or None")
+        if (
+            existing := self._environments.setdefault(session_id, environment)
+        ) is not environment and environment is not None:
+            # Another turn of this session created one while the provider was running.
+            await environment.close()
+        return existing
+
+    async def _close_environments(self) -> None:
+        environments = [environment for environment in self._environments.values() if environment is not None]
+        self._environments = {}
+        for environment, result in zip(
+            environments,
+            await asyncio.gather(*(environment.close() for environment in environments), return_exceptions=True),
+            strict=True,
+        ):
+            if isinstance(result, Exception):
+                logger.opt(exception=result).warning("Failed to close environment {!r}", environment)
 
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         """Return the store acquired by ``running()``, or None when unavailable."""

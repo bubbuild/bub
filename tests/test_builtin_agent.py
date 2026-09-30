@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import AsyncGenerator, AsyncIterator
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from any_llm.types.completion import ChatCompletionChunk
 
+import bub.builtin.codemode
 import bub.builtin.tools  # noqa: F401  — registers builtin tools (incl. `model`)
 from bub.builtin.agent import Agent
 from bub.builtin.model_runner import ModelRunner
@@ -496,3 +498,77 @@ async def test_run_command_model_switches_session_model_directly() -> None:
     assert state["model"] == "openai:gpt-4o"
     deltas = [event.data.get("delta", "") for event in events if event.kind == "text"]
     assert any("Session model set to openai:gpt-4o" in delta for delta in deltas)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allow_run_code", [True, False])
+async def test_code_mode_exposes_preserved_tools_and_run_code_with_stub(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, allow_run_code: bool
+) -> None:
+    from bub.builtin.codemode import CODE_TOOLS_STATE_KEY, RUN_CODE_TOOL_NAME, run_code
+
+    monkeypatch.setenv("BUB_HOME", str(tmp_path / "home"))
+    agent = _make_agent()
+    agent.tools[RUN_CODE_TOOL_NAME] = run_code
+    agent.tape = _FakeTapeFactory(_ForkCapture())  # type: ignore[assignment]
+    allowed_tools = ["bash", "bash.output", "fs.read", "tape.info", *([RUN_CODE_TOOL_NAME] if allow_run_code else [])]
+    state: dict[str, Any] = {"_runtime_workspace": str(tmp_path), "code_mode": True}
+
+    result = await agent.run_stream(session_id="user/s1", prompt="hello", state=state, allowed_tools=allowed_tools)
+    [event async for event in result]
+
+    completion_kwargs = _model_runner(agent).completion_kwargs
+    assert completion_kwargs is not None
+    tool_names = [tool.name for tool in completion_kwargs["tools"]]
+    system_prompt = completion_kwargs["messages"][0]["content"]
+    if not allow_run_code:
+        assert sorted(tool_names) == ["bash", "bash_output", "fs_read", "tape_info"]
+        assert "<code_mode>" not in system_prompt
+        assert CODE_TOOLS_STATE_KEY not in state
+        return
+
+    assert sorted(tool_names) == ["bash", "bash_output", "fs_read", RUN_CODE_TOOL_NAME]
+    assert "tape_info" not in system_prompt.split("<code_mode>")[0]
+    stub_path = Path(system_prompt.split("stub file: ", 1)[1].splitlines()[0])
+    assert stub_path.is_relative_to(tmp_path / "home" / "codemode")
+    stub = stub_path.read_text(encoding="utf-8")
+    assert "async def tape_info() -> TapeInfoResult:" in stub
+    assert "async def bash(" not in stub
+    assert "async def bash_output(" not in stub
+    assert "async def fs_read(" not in stub
+    assert "def run_code(" not in stub
+    assert [tool.name for tool in state[CODE_TOOLS_STATE_KEY]] == ["tape_info"]
+
+
+@pytest.mark.asyncio
+async def test_run_code_is_hidden_when_session_code_mode_is_off(tmp_path: Path) -> None:
+    from bub.builtin.codemode import RUN_CODE_TOOL_NAME, run_code
+
+    agent = _make_agent()
+    agent.tools[RUN_CODE_TOOL_NAME] = run_code
+    agent.tape = _FakeTapeFactory(_ForkCapture())  # type: ignore[assignment]
+
+    result = await agent.run_stream(session_id="user/s1", prompt="hello", state={"_runtime_workspace": str(tmp_path)})
+    [event async for event in result]
+
+    completion_kwargs = _model_runner(agent).completion_kwargs
+    assert completion_kwargs is not None
+    assert RUN_CODE_TOOL_NAME not in [tool.name for tool in completion_kwargs["tools"]]
+    assert "tape_info" in [tool.name for tool in completion_kwargs["tools"]]
+    assert "<code_mode>" not in completion_kwargs["messages"][0]["content"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("command", "expected"), [(",code_mode enable=true", True), (",code_mode false", False)])
+async def test_code_mode_command_switches_session_code_mode(command: str, expected: bool) -> None:
+    agent = _make_agent()
+    agent.tape = _FakeTapeFactory(_ForkCapture())  # type: ignore[assignment]
+    state: dict[str, Any] = {"_runtime_workspace": "/tmp"}  # noqa: S108
+
+    stream = await agent.run_stream(session_id="user/s1", prompt=command, state=state)
+    events = [event async for event in stream]
+
+    assert state["code_mode"] is expected
+    deltas = [event.data.get("delta", "") for event in events if event.kind == "text"]
+    status = "enabled" if expected else "disabled"
+    assert f"Session code mode {status} (applies from the next turn)." in deltas
