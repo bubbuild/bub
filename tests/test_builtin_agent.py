@@ -406,7 +406,7 @@ async def test_agent_run_resolves_allowed_tool_aliases_and_limits_prompt() -> No
     assert completion_kwargs is not None
     assert [tool.name for tool in completion_kwargs["tools"]] == ["tests_allowed_agent_tool"]
     system_prompt = completion_kwargs["messages"][0]["content"]
-    assert "- tests_allowed_agent_tool(): Allowed tool" in system_prompt
+    assert "tests_allowed_agent_tool" not in system_prompt
     assert "tests_denied_agent_tool" not in system_prompt
 
 
@@ -441,7 +441,7 @@ async def test_agent_run_excludes_tools_disabled_for_agent_use() -> None:
     assert completion_kwargs is not None
     assert [tool.name for tool in completion_kwargs["tools"]] == ["tests_visible_agent_tool"]
     system_prompt = completion_kwargs["messages"][0]["content"]
-    assert "tests_visible_agent_tool" in system_prompt
+    assert "tests_visible_agent_tool" not in system_prompt
     assert "tests_internal_agent_tool" not in system_prompt
 
 

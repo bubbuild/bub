@@ -28,6 +28,14 @@ def add(a: int, b: int) -> int:
 
 The tool's name defaults to the function name. Override it with `@tool(name="math.add")` or pass `description=` to control how it appears in the model prompt. Dotted registry names are preserved for runtime lookup and comma commands, but model-facing tool names replace dots with underscores (`math.add` becomes `math_add`). Async functions are supported — the wrapper awaits them.
 
+## Load definitions on demand
+
+Builtin tools and ordinary plugin tools are declared in full to the model immediately. Their signatures and descriptions are not repeated in the system prompt.
+
+Set `defer_loading=True` on `@tool`, `Tool.from_callable`, or a `Tool` instance to expose only its name and a short summary initially. In ordinary tool mode, the model calls `tool_describe(names=["orders_get"])` to make the complete native definition available on the next request, then calls `orders_get` normally. The lookup result acknowledges the names; it does not repeat the schema as text.
+
+Requested definitions are recorded on the tape and reused across turns and restarts within the current tape context. A new session, tape reset, or handoff starts discovery again. Only currently allowed tools can be described or invoked. SDK callers can restrict tools with `allowed_tools`; the describe helper remains available when needed for an allowed deferred tool. Code mode continues to expose allowed tools through its Python stub without this discovery step.
+
 ## Return structured results
 
 Tools should return structured data — a `dict`, `TypedDict`, list, or Pydantic model — rather than pre-formatted prose. The exceptions are tools marked `preserve=True` (see [Code mode](#code-mode)) and comma-command-only tools (`agent_use=False`): code never calls them, so they return plain text. Pass `renderer=` to control how that result is turned into the plain text the model reads:

@@ -474,9 +474,19 @@ class Agent:
         allowed_skills: set[str] | None,
         tools: list[Tool],
     ) -> AsyncStreamEvents:
+        from bub.builtin.deferred_tools import DESCRIBE_TOOL
+
+        tools = [tool for tool in tools if tool is not DESCRIBE_TOOL]
         tools, stub_path = self._prepare_code_mode(tools, state=tape.context.state)
+        deferred_tools: list[Tool] = []
+        if stub_path is None:
+            tools, deferred_tools = await self._prepare_deferred_tools(tools, tape=tape)
         system_prompt = self._system_prompt(
-            prompt_text, state=tape.context.state, allowed_skills=allowed_skills, tools=tools, stub_path=stub_path
+            prompt_text,
+            state=tape.context.state,
+            allowed_skills=allowed_skills,
+            tools=deferred_tools,
+            stub_path=stub_path,
         )
         resolved_model = model or self.settings.model
 
@@ -505,6 +515,23 @@ class Agent:
             prompt=prompt,
             steering_messages=steering_messages,
         )
+
+    async def _prepare_deferred_tools(self, tools: list[Tool], *, tape: Tape) -> tuple[list[Tool], list[Tool]]:
+        from bub.builtin.deferred_tools import DEFERRED_TOOLS_STATE_KEY, DESCRIBE_TOOL, loaded_tool_names
+
+        deferred = {tool.name: tool for tool in tools if tool.agent_use and tool.defer_loading}
+        if not deferred:
+            tape.context.state.pop(DEFERRED_TOOLS_STATE_KEY, None)
+            return tools, []
+        if self.tools.get(DESCRIBE_TOOL.name, DESCRIBE_TOOL) is not DESCRIBE_TOOL:
+            raise ValueError(f"reserved tool name: {DESCRIBE_TOOL.name}")
+        self.tools[DESCRIBE_TOOL.name] = DESCRIBE_TOOL
+        # Refresh the current scope on every request; recorded names never grant access.
+        tape.context.state[DEFERRED_TOOLS_STATE_KEY] = deferred
+        loaded = await loaded_tool_names(tape)
+        pending = [tool for name, tool in deferred.items() if name not in loaded]
+        pending_names = {tool.name for tool in pending}
+        return [tool for tool in tools if tool.name not in pending_names] + [DESCRIBE_TOOL], pending
 
     def _prepare_code_mode(self, tools: list[Tool], *, state: TurnState) -> tuple[list[Tool], Path | None]:
         """Split tools for code mode and return the model-facing tools plus the stub path.
@@ -541,12 +568,12 @@ class Agent:
         stub_path: Path | None = None,
     ) -> str:
         from bub.builtin.codemode import render_code_mode_prompt
-        from bub.builtin.tools import render_tools_prompt
+        from bub.builtin.deferred_tools import render_deferred_tools_prompt
 
         blocks: list[str] = []
         if result := self.framework.get_system_prompt(prompt=prompt, state=state):
             blocks.append(result)
-        tools_prompt = render_tools_prompt(tools if tools is not None else self.tools.values())
+        tools_prompt = render_deferred_tools_prompt(tools if tools is not None else self.tools.values())
         if tools_prompt:
             blocks.append(tools_prompt)
         if stub_path is not None:
