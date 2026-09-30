@@ -7,7 +7,8 @@ from collections.abc import AsyncIterator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
-from bub.sandbox import LocalSandbox, Sandbox, SandboxProcess
+from bub.builtin.sandbox import LocalSandbox
+from bub.sandbox import Sandbox, SandboxProcess
 
 
 @dataclass(eq=False)

@@ -73,7 +73,7 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 - `workspace` 是沙箱内的工作目录，`resolve_path` 基于它解析相对路径。
 - `aclose()` 释放沙箱。
 
-通过 `provide_sandbox(session_id, workspace)` hook 为每个 session 提供沙箱。Bub 在 session 的第一个 turn 调用它，把结果放进 `state["_runtime_sandbox"]`，并在 `framework.running()` 退出时关闭。没有 provider 时，工具通过 `LocalSandbox` 在宿主上运行。自定义工具可以用 `sandbox_from_state(context.state)` 使用同一个环境。
+通过 `provide_sandbox(session_id, workspace)` hook 为每个 session 提供沙箱。Bub 在 session 的第一个 turn 调用它，把结果放进 `state["_runtime_sandbox"]`，并在 `framework.running()` 退出时关闭。Bub 的 builtin hook 提供 `LocalSandbox`（见 [`bub.builtin.sandbox`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/sandbox.py)），直接在宿主上运行；插件提供的实现会优先于它。自定义工具可以用 `bub.builtin.sandbox.sandbox_from_state(context.state)` 使用同一个环境。
 
 ## 工具如何变得可用
 

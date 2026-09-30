@@ -24,6 +24,7 @@ from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
 from bub.model_selection import ModelChoice, ModelOptions
+from bub.sandbox import Sandbox
 from bub.sidecars import TapeSidecar
 from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents
@@ -298,6 +299,12 @@ class BuiltinImpl:
 
         async with shell_manager.lifespan():
             yield
+
+    @hookimpl
+    def provide_sandbox(self, session_id: str, workspace: Path) -> Sandbox:
+        from bub.builtin.sandbox import LocalSandbox
+
+        return LocalSandbox(workspace)
 
     @hookimpl
     def provide_tape_store(self) -> TapeStore:

@@ -131,7 +131,8 @@ class BubHookSpecs:
 
         Called once per session and cached until ``framework.running()`` exits,
         which closes it with ``Sandbox.aclose()``. ``workspace`` is the host
-        workspace. Without a provider, tools run on the host (``LocalSandbox``).
+        workspace. Bub's builtin hooks provide a host sandbox (``bub.builtin.sandbox.LocalSandbox``);
+        a higher-priority plugin replaces it.
         """
 
     @hookspec

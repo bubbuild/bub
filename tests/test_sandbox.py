@@ -6,10 +6,11 @@ from pathlib import Path
 import pytest
 
 import bub.builtin.tools as builtin_tools
+from bub.builtin.sandbox import LocalProcess, LocalSandbox, sandbox_from_state
 from bub.builtin.shell_manager import ShellManager
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
-from bub.sandbox import SANDBOX_STATE_KEY, LocalProcess, LocalSandbox, Sandbox, sandbox_from_state
+from bub.sandbox import SANDBOX_STATE_KEY, Sandbox, SandboxProcess
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
 from bub.tools import ToolContext
@@ -25,7 +26,7 @@ class MemorySandbox(Sandbox):
 
     async def spawn(
         self, command: str | Sequence[str], *, cwd: str | None = None, env: Mapping[str, str] | None = None
-    ) -> LocalProcess:
+    ) -> SandboxProcess:
         raise NotImplementedError
 
     async def read_text(self, path: str) -> str:
@@ -140,7 +141,7 @@ async def test_framework_caches_provided_sandbox_per_session_and_closes_it(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_framework_runs_tools_on_the_host_without_a_sandbox_provider(tmp_path: Path) -> None:
+async def test_builtin_hooks_provide_a_host_sandbox_for_the_workspace(tmp_path: Path) -> None:
     framework = BubFramework(config_file=tmp_path / "config.yml")
     framework.load_builtin_hooks()
 
@@ -149,3 +150,13 @@ async def test_framework_runs_tools_on_the_host_without_a_sandbox_provider(tmp_p
     sandbox = state[SANDBOX_STATE_KEY]
     assert isinstance(sandbox, LocalSandbox)
     assert sandbox.workspace == str(framework.workspace)
+
+
+@pytest.mark.asyncio
+async def test_framework_has_no_sandbox_without_a_provider(tmp_path: Path) -> None:
+    framework = BubFramework(config_file=tmp_path / "config.yml")
+
+    state = await framework.build_state({"content": "hi"}, "session")
+
+    assert await framework.get_sandbox("session") is None
+    assert SANDBOX_STATE_KEY not in state

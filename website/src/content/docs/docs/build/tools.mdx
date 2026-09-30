@@ -73,7 +73,7 @@ If `run_code` is not allowed (for example, a subagent restricted with `allowed_t
 - `workspace` is the working directory inside the sandbox; `resolve_path` resolves relative paths against it.
 - `aclose()` releases the sandbox.
 
-Provide one per session with the `provide_sandbox(session_id, workspace)` hook. Bub calls it on the session's first turn, puts the result in `state["_runtime_sandbox"]`, and closes it when `framework.running()` exits. Without a provider, tools run on the host through `LocalSandbox`. Your own tools can use the same environment through `sandbox_from_state(context.state)`.
+Provide one per session with the `provide_sandbox(session_id, workspace)` hook. Bub calls it on the session's first turn, puts the result in `state["_runtime_sandbox"]`, and closes it when `framework.running()` exits. Bub's builtin hooks provide `LocalSandbox` (in [`bub.builtin.sandbox`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/sandbox.py)), which runs everything on the host; a plugin's implementation takes precedence over it. Your own tools can use the same environment through `bub.builtin.sandbox.sandbox_from_state(context.state)`.
 
 ## How tools become available
 
