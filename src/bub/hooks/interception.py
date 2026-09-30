@@ -63,8 +63,8 @@ class LlmCallDecision:
 class ToolCall:
     """One tool invocation exposed to interception hooks.
 
-    ``code_mode`` marks calls made from model-written code; their results stay
-    structured instead of being rendered to model-facing text.
+    ``code_mode`` marks calls made from model-written code (``run_code``); their
+    results are structured values for that code, not model-facing text.
     """
 
     run_id: str

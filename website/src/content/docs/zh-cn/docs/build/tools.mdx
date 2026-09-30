@@ -30,7 +30,7 @@ def add(a: int, b: int) -> int:
 
 ## 返回结构化结果
 
-工具应返回结构化数据 —— `dict`、`TypedDict`、列表或 Pydantic 模型 —— 而不是预先排版好的文本。通过 `renderer=` 控制如何把结果转换成模型读取的纯文本：
+工具应返回结构化数据 —— `dict`、`TypedDict`、列表或 Pydantic 模型 —— 而不是预先排版好的文本。例外是标记为 `preserve=True` 的工具（见 [Code mode](#code-mode)）：它们只会被模型直接调用，因此返回纯文本。通过 `renderer=` 控制如何把结果转换成模型读取的纯文本：
 
 ```python
 from typing import TypedDict
@@ -49,11 +49,20 @@ def get_order(order_id: str) -> Order:
     return {"id": order_id, "status": "shipped"}
 ```
 
-`Tool.render(result)` 会调用 renderer；未提供时，字符串原样返回，其他值序列化为 JSON。模型直接调用工具时，执行器会在 `after_tool_call` hook 和写入 tape 之前完成渲染，因此 hook 看到的就是模型将读到的文本。
+`Tool.render(result)` 会调用 renderer；未提供时，字符串原样返回，其他值序列化为 JSON。模型直接调用工具时，执行器会在 `after_tool_call` hook 和写入 tape 之前完成渲染，因此 hook 看到的就是模型将读到的文本。是否渲染由 `ToolExecutor` 决定：面向模型的执行器会渲染，而 `run_code` 使用的 `ToolExecutor(render=False)` 原样返回结构化结果。
 
 ### Code mode
 
-在 code mode 下，模型编写代码并以函数形式调用工具，因此结果必须保持机器可读。执行这类代码的运行时应以 `ToolContext(..., code_mode=True)` 调用工具；此时执行器原样返回结构化结果，跳过渲染和 spill。需要区别处理的工具可以读取 `context.code_mode`，hook 可以读取 `ToolCall.code_mode`。
+Code mode 让模型在 Python 中调用工具，而不必一次只发起一个工具调用。它是按 session 生效的开关：发送逗号命令 `,code_mode enable=true`（或 `,code_mode enable=false`）来开启或关闭，从下一个 turn 起生效，并在重启后保留。SDK 调用方也可以直接设置 `state["code_mode"] = True`。在开启 code mode 的 turn 中，只要 `run_code` 在允许的工具之内：
+
+- 模型只直接看到标记为 `preserve=True` 的工具（`bash`、`bash.output`、`bash.kill`、`fs.read`、`fs.write`、`fs.edit`）以及 `run_code(code: str) -> str`。preserve 工具只能直接调用，不会出现在 `tools.*` 中。
+- 其他允许的工具在 `run_code` 中都是异步函数，名称使用面向模型的形式（`tape.info` 对应 `await tools.tape_info()`）。支持顶层 `await`，可以用 `asyncio.gather` 并发调用。调用只接受关键字参数，照常经过 `before_tool_call`/`after_tool_call` hook，返回结构化结果，失败时抛出异常。
+- Bub 会在 `~/.bub/codemode/` 下为允许的非 preserve 工具生成一个 Python stub 文件，每个工具对应一个函数，包含参数类型、返回类型和 docstring，并把文件路径写入 system prompt。只要工具集合不变，同一个 session 中这个路径保持不变。
+- `run_code` 返回代码打印的内容。未捕获的异常会变成工具错误，错误详情中包含已打印的输出和 traceback。
+
+如果 `run_code` 不在允许范围内（例如被 `allowed_tools` 限制的 subagent），该 turn 会退回直接调用工具的方式。给自己的工具声明 `preserve=True` 可以让它保持直接可调用。嵌套调用时 `ToolContext.code_mode`（hook 中为 `ToolCall.code_mode`）为 `True`，结果不会被渲染或 spill。
+
+`run_code` 在 Bub 的事件循环上执行代码，拥有完整的 Python 权限；它不是沙箱，因此只应在允许使用 `bash` 的场景下开启 code mode。阻塞代码（例如 `time.sleep`）会卡住事件循环，应优先使用异步工具和 `await asyncio.sleep`。stub 中的结果类型来自工具函数的返回注解（手动构造的工具则来自 `Tool.output_schema`）。
 
 ## 工具如何变得可用
 

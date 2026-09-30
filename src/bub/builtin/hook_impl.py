@@ -12,6 +12,7 @@ from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context
 from bub.builtin.onboarding import collect_model_config
+from bub.builtin.session_settings import load_session_settings
 from bub.builtin.settings import load_settings
 from bub.builtin.steering import InMemorySteeringInbox
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
@@ -69,7 +70,7 @@ class BuiltinImpl:
     """Default hook implementations for basic runtime operations."""
 
     def __init__(self, framework: BubFramework) -> None:
-        from bub.builtin import spill, tools  # noqa: F401
+        from bub.builtin import codemode, spill, tools  # noqa: F401
 
         self.framework = framework
         self._agent: Agent | None = None
@@ -80,33 +81,6 @@ class BuiltinImpl:
         if self._agent is None:
             self._agent = Agent(self.framework)
         return self._agent
-
-    async def _recover_session_model(self, session_id: str, *, agent: Agent) -> str | None:
-        """Recover the latest per-session model override recorded on the session tape.
-
-        The ``model`` tool records each switch as a ``model_switch`` event on the
-        session's tape. Scanning that tape here (before the per-turn fork exists)
-        reads the persisted store, so a choice from a prior turn or restart is
-        restored. Returns ``None`` when nothing was recorded, so a fresh session
-        never inherits another session's model.
-        """
-        session = agent.tape.session_tape(session_id, self.framework.workspace)
-        entries = list(await session.store.fetch_all(session.query().kinds("event")))
-        for entry in reversed(entries):
-            if entry.kind == "event" and entry.payload.get("name") == "model_switch":
-                model = (entry.payload.get("data") or {}).get("model")
-                return str(model) if model else None
-        return None
-
-    async def _recover_session_reasoning_effort(self, session_id: str, *, agent: Agent) -> str | None:
-        """Recover the latest per-session reasoning effort override."""
-        session = agent.tape.session_tape(session_id, self.framework.workspace)
-        entries = list(await session.store.fetch_all(session.query().kinds("event")))
-        for entry in reversed(entries):
-            if entry.kind == "event" and entry.payload.get("name") == "reasoning_effort_switch":
-                reasoning_effort = (entry.payload.get("data") or {}).get("reasoning_effort")
-                return str(reasoning_effort) if reasoning_effort else None
-        return None
 
     @staticmethod
     async def _discard_message(_: ChannelMessage) -> None:
@@ -149,13 +123,10 @@ class BuiltinImpl:
         state = {"session_id": session_id, "_runtime_agent": agent}
         if context := field_of(message, "context_str"):
             state["context"] = context
-        # Carry over a previously recorded per-session model override from the
-        # session tape. Only set when a prior turn actually recorded one, so a
-        # fresh/unknown session never inherits another session's model.
-        if model := await self._recover_session_model(session_id, agent=agent):
-            state["model"] = model
-        if reasoning_effort := await self._recover_session_reasoning_effort(session_id, agent=agent):
-            state["reasoning_effort"] = reasoning_effort
+        # Carry over per-session settings (model, reasoning effort, code mode) recorded
+        # on the session tape. Only settings a prior turn actually recorded are set, so
+        # a fresh/unknown session never inherits another session's choices.
+        state.update(await load_session_settings(agent.tape.session_tape(session_id, self.framework.workspace)))
         if model := field_of(message, "context", {}).get("model"):
             state["model"] = model
         if thread_id := field_of(message, "context", {}).get("thread_id"):

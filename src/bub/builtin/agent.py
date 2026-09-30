@@ -467,8 +467,9 @@ class Agent:
         allowed_skills: set[str] | None,
         tools: list[Tool],
     ) -> AsyncStreamEvents:
+        tools, stub_path = self._prepare_code_mode(tools, state=tape.context.state)
         system_prompt = self._system_prompt(
-            prompt_text, state=tape.context.state, allowed_skills=allowed_skills, tools=tools
+            prompt_text, state=tape.context.state, allowed_skills=allowed_skills, tools=tools, stub_path=stub_path
         )
         resolved_model = model or self.settings.model
 
@@ -498,13 +499,42 @@ class Agent:
             steering_messages=steering_messages,
         )
 
+    def _prepare_code_mode(self, tools: list[Tool], *, state: TurnState) -> tuple[list[Tool], Path | None]:
+        """Split tools for code mode and return the model-facing tools plus the stub path.
+
+        Code mode is a session setting (``state["code_mode"]``, switched by the ``code_mode``
+        command) and applies only when ``run_code`` is among the allowed tools: the model then
+        sees preserved tools directly, and every other tool is callable only from code.
+        """
+        from bub.builtin.codemode import (
+            CODE_MODE_STATE_KEY,
+            CODE_TOOLS_STATE_KEY,
+            RUN_CODE_TOOL_NAME,
+            write_tool_stub,
+        )
+
+        direct_tools = [tool for tool in tools if tool.name != RUN_CODE_TOOL_NAME]
+        if not state.get(CODE_MODE_STATE_KEY) or len(direct_tools) == len(tools):
+            state.pop(CODE_TOOLS_STATE_KEY, None)
+            return direct_tools, None
+
+        # Preserved tools stay model-facing only; tools.* in run_code exposes the rest.
+        code_tools = [tool for tool in direct_tools if tool.agent_use and not tool.preserve]
+        state[CODE_TOOLS_STATE_KEY] = model_tools(code_tools)
+        stub_path = write_tool_stub(
+            code_tools, session_id=str(state.get("session_id", "")), workspace=workspace_from_state(state)
+        )
+        return [tool for tool in tools if tool.preserve], stub_path
+
     def _system_prompt(
         self,
         prompt: str,
         state: TurnState,
         allowed_skills: set[str] | None = None,
         tools: Iterable[Tool] | None = None,
+        stub_path: Path | None = None,
     ) -> str:
+        from bub.builtin.codemode import render_code_mode_prompt
         from bub.builtin.tools import render_tools_prompt
 
         blocks: list[str] = []
@@ -513,6 +543,8 @@ class Agent:
         tools_prompt = render_tools_prompt(tools if tools is not None else self.tools.values())
         if tools_prompt:
             blocks.append(tools_prompt)
+        if stub_path is not None:
+            blocks.append(render_code_mode_prompt(stub_path))
         workspace = workspace_from_state(state)
         if skills_prompt := self._load_skills_prompt(prompt, workspace, allowed_skills):
             blocks.append(skills_prompt)

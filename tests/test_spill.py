@@ -344,7 +344,8 @@ async def test_code_mode_results_stay_structured_and_are_not_spilled(tmp_path: P
 
     async with root.fork_tape() as tape:
         context = ToolContext(tape=tape, run_id="run-1", code_mode=True)
-        execution = await _spill_executor().execute_async(
+        executor = ToolExecutor(hooks=_SpillHooks(), render=False)  # type: ignore[arg-type]
+        execution = await executor.execute_async(
             [(Tool(name="structured", handler=lambda: output), {})], context=context
         )
 

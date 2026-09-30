@@ -30,7 +30,7 @@ The tool's name defaults to the function name. Override it with `@tool(name="mat
 
 ## Return structured results
 
-Tools should return structured data — a `dict`, `TypedDict`, list, or Pydantic model — rather than pre-formatted prose. Pass `renderer=` to control how that result is turned into the plain text the model reads:
+Tools should return structured data — a `dict`, `TypedDict`, list, or Pydantic model — rather than pre-formatted prose. The exception is tools marked `preserve=True` (see [Code mode](#code-mode)): they are only ever called by the model directly, so they return plain text. Pass `renderer=` to control how that result is turned into the plain text the model reads:
 
 ```python
 from typing import TypedDict
@@ -49,11 +49,20 @@ def get_order(order_id: str) -> Order:
     return {"id": order_id, "status": "shipped"}
 ```
 
-`Tool.render(result)` applies the renderer; without one, strings pass through and other values are serialized as JSON. When the model calls a tool directly, the executor renders the result before `after_tool_call` hooks and tape recording, so hooks see the same text the model will.
+`Tool.render(result)` applies the renderer; without one, strings pass through and other values are serialized as JSON. When the model calls a tool directly, the executor renders the result before `after_tool_call` hooks and tape recording, so hooks see the same text the model will. Rendering is a property of the `ToolExecutor`: the model-facing executor renders, while `ToolExecutor(render=False)` — used by `run_code` — returns structured results unchanged.
 
 ### Code mode
 
-In code mode the model writes code that calls tools as functions, so results must stay machine-readable. A runtime that executes such code invokes tools with `ToolContext(..., code_mode=True)`; the executor then returns the structured result as-is and skips rendering and spill. Tools that need to adapt can read `context.code_mode`, and hooks can read `ToolCall.code_mode`.
+Code mode lets the model call tools from Python instead of one tool call at a time. It is a per-session switch: send the comma command `,code_mode enable=true` (or `,code_mode enable=false`) to turn it on or off. The change applies from the next turn and persists across restarts. SDK callers can set `state["code_mode"] = True` instead. In a code-mode turn where `run_code` is among the allowed tools:
+
+- The model sees only tools marked `preserve=True` (`bash`, `bash.output`, `bash.kill`, `fs.read`, `fs.write`, `fs.edit`) plus `run_code(code: str) -> str`. Preserved tools are called directly only; they are not available under `tools.*`.
+- Every other allowed tool is an async function inside `run_code`, named after its model-facing name (`tape.info` becomes `await tools.tape_info()`). Top-level `await` is allowed and `asyncio.gather` runs calls concurrently. Calls take keyword arguments, go through the usual `before_tool_call`/`after_tool_call` hooks, return structured results, and raise on failure.
+- Bub writes a Python stub with one function per non-preserved allowed tool — parameter and return types plus docstring — under `~/.bub/codemode/` and puts its path in the system prompt. The path stays the same for a session as long as its tool set does not change.
+- `run_code` returns what the code prints. An uncaught exception becomes a tool error whose details carry the printed output and the traceback.
+
+If `run_code` is not allowed (for example, a subagent restricted with `allowed_tools`), that turn falls back to direct tool calls. Declare `preserve=True` on your own tools to keep them directly callable. Nested calls run with `ToolContext.code_mode` (and `ToolCall.code_mode` for hooks) set to `True`; their results are not rendered or spilled.
+
+`run_code` runs the code on the Bub event loop with full Python access; it is not a sandbox, so enable code mode only where `bash` would be acceptable. Blocking code (for example `time.sleep`) stalls the loop, so prefer the async tools and `await asyncio.sleep`. The return annotation of a tool function (or `Tool.output_schema`, for tools built by hand) determines the result type shown in the stub.
 
 ## How tools become available
 

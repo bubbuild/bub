@@ -221,15 +221,22 @@ def test_tool_decorator_accepts_renderer() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("code_mode", "expected"), [(False, "count=3"), (True, {"count": 3})])
-async def test_executor_renders_results_unless_in_code_mode(tmp_path, code_mode: bool, expected: object) -> None:
+@pytest.mark.parametrize(
+    ("render", "code_mode", "expected"),
+    [(True, False, "count=3"), (True, True, "count=3"), (False, False, {"count": 3}), (False, True, {"count": 3})],
+)
+async def test_executor_render_option_decides_result_format(
+    tmp_path, render: bool, code_mode: bool, expected: object
+) -> None:
     structured = Tool(
         name="tests.structured",
         handler=lambda: {"count": 3},
         renderer=lambda result: f"count={result['count']}",
     )
 
-    execution = await ToolExecutor().execute_async([(structured, {})], context=_context(tmp_path, code_mode=code_mode))
+    execution = await ToolExecutor(render=render).execute_async(
+        [(structured, {})], context=_context(tmp_path, code_mode=code_mode)
+    )
 
     assert execution.error is None
     assert execution.tool_results == [expected]
@@ -250,7 +257,7 @@ async def test_executor_exposes_code_mode_to_context_tools_and_hooks(tmp_path) -
     def mode(*, context: ToolContext) -> dict[str, bool]:
         return {"code_mode": context.code_mode}
 
-    execution = await ToolExecutor(hooks=RecordingHooks()).execute_async(  # type: ignore[arg-type]
+    execution = await ToolExecutor(hooks=RecordingHooks(), render=False).execute_async(  # type: ignore[arg-type]
         [(Tool.from_callable(mode, context=True), {})], context=_context(tmp_path, code_mode=True)
     )
 

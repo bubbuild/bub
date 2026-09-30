@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast, final
 
 from pydantic import BaseModel, Field
 
-from bub.builtin.shell_manager import ManagedShell, shell_manager
+from bub.builtin.session_settings import set_session_setting
+from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
 from bub.tools import REGISTRY, Tool, ToolContext, tool
 
@@ -147,45 +148,6 @@ class SubAgentInput(BaseModel):
     )
 
 
-class BashResult(TypedDict):
-    shell_id: str
-    status: str
-    exit_code: int | None
-    output: str
-    background: bool
-    """Whether the command is still running in the background."""
-    timed_out_after: int | None
-    """Seconds after which a foreground command timed out and moved to the background."""
-
-
-class ShellStatus(TypedDict):
-    shell_id: str
-    status: str
-    exit_code: int | None
-
-
-class BashOutputResult(ShellStatus):
-    next_offset: int
-    output: str
-
-
-class FileReadResult(TypedDict):
-    path: str
-    content: str
-    offset: int
-    next_offset: int
-    total_lines: int
-
-
-class FileWriteResult(TypedDict):
-    path: str
-
-
-class FileEditResult(TypedDict):
-    path: str
-    replacements: int
-
-
 @final
 class SkillList(TypedDict):
     skills: list[str]
@@ -203,6 +165,16 @@ class ToolFailure(TypedDict):
     """A recoverable failure reported to the caller instead of raising."""
 
     error: str
+
+
+class TapeInfoResult(TypedDict):
+    name: str
+    entries: int
+    anchors: int
+    last_anchor: str | None
+    entries_since_last_anchor: int
+    last_token_usage: int | None
+    last_token_cache_hit_rate: float | None
 
 
 class TapeSearchMatch(TypedDict):
@@ -228,33 +200,6 @@ class SubAgentResult(TypedDict):
     errors: list[str]
 
 
-def _render_bash(result: BashResult) -> str:
-    if result["timed_out_after"] is not None:
-        return (
-            f"command timed out after {result['timed_out_after']} seconds; continuing in background\n"
-            f"shell_id: {result['shell_id']}"
-        )
-    if result["background"]:
-        return (
-            f"Shell started, shell_id: {result['shell_id']}\n"
-            "Retrieve the output with bash_output or terminate it with bash_kill."
-        )
-    return result["output"].strip() or "(no output)"
-
-
-def _render_shell_status(result: ShellStatus) -> str:
-    return f"id: {result['shell_id']}\nstatus: {result['status']}\nexit_code: {result['exit_code']}"
-
-
-def _render_bash_output(result: BashOutputResult) -> str:
-    exit_code = "null" if result["exit_code"] is None else str(result["exit_code"])
-    body = result["output"].rstrip() or "(no output)"
-    return (
-        f"id: {result['shell_id']}\nstatus: {result['status']}\nexit_code: {exit_code}\n"
-        f"next_offset: {result['next_offset']}\noutput:\n{body}"
-    )
-
-
 def _render_skill(result: SkillList | SkillContent | ToolFailure) -> str:
     if "error" in result:
         return f"({result['error']})"
@@ -263,7 +208,7 @@ def _render_skill(result: SkillList | SkillContent | ToolFailure) -> str:
     return f"Location: {result['location']}\n---\n{result['content'] or '(no content)'}"
 
 
-def _render_tape_info(result: dict[str, Any]) -> str:
+def _render_tape_info(result: TapeInfoResult) -> str:
     hit_rate = result["last_token_cache_hit_rate"]
     cache_hit_rate = f"{hit_rate:.2%}" if hit_rate is not None else "None"
     return (
@@ -294,7 +239,7 @@ def _render_subagent(result: SubAgentResult) -> str:
     return result["output"] + "".join(f"[Error: {message}]" for message in result["errors"])
 
 
-@tool(context=True, renderer=_render_bash)
+@tool(context=True, preserve=True)
 async def bash(
     command: str,
     cwd: str | None = None,
@@ -302,7 +247,7 @@ async def bash(
     background: bool = False,
     *,
     context: ToolContext,
-) -> BashResult:
+) -> str:
     """Run a shell command. Use background=true to keep it running and fetch output later via bash_output.
 
     Foreground commands that exceed timeout_seconds continue in the background
@@ -315,7 +260,7 @@ async def bash(
     session_id = str(raw_session_id) if raw_session_id is not None else None
     shell = await shell_manager.start(cmd=command, cwd=target_cwd, session_id=session_id)
     if background:
-        return _bash_result(shell, background=True)
+        return f"Shell started, shell_id: {shell.shell_id}\nRetrieve the output with bash_output or terminate it with bash_kill."
     try:
         async with asyncio.timeout(timeout_seconds):
             shell = await shell_manager.wait_closed(shell.shell_id)
@@ -327,24 +272,13 @@ async def bash(
         # Cancellation during descendant cleanup waits for termination to finish.
         # A released shell must not be advertised as a running background command.
         if shell.termination_task is None or not shell.termination_task.done():
-            return _bash_result(shell, background=True, timed_out_after=timeout_seconds)
+            return f"command timed out after {timeout_seconds} seconds; continuing in background\nshell_id: {shell.shell_id}"
     _raise_for_failed_shell(shell.returncode, shell.output)
-    return _bash_result(shell)
+    return shell.output.strip() or "(no output)"
 
 
-def _bash_result(shell: ManagedShell, *, background: bool = False, timed_out_after: int | None = None) -> BashResult:
-    return {
-        "shell_id": shell.shell_id,
-        "status": shell.status,
-        "exit_code": shell.returncode,
-        "output": shell.output,
-        "background": background,
-        "timed_out_after": timed_out_after,
-    }
-
-
-@tool(name="bash.output", renderer=_render_bash_output)
-async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) -> BashOutputResult:
+@tool(name="bash.output", preserve=True)
+async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) -> str:
     """Read buffered output from a background shell, with optional offset/limit for incremental polling."""
     shell = shell_manager.get(shell_id)
     if shell.returncode is not None:
@@ -352,50 +286,41 @@ async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) 
     output = shell.output
     start = max(0, min(offset, len(output)))
     end = len(output) if limit is None else min(len(output), start + max(0, limit))
-    return {
-        "shell_id": shell.shell_id,
-        "status": shell.status,
-        "exit_code": shell.returncode,
-        "next_offset": end,
-        "output": output[start:end],
-    }
+    chunk = output[start:end].rstrip()
+    exit_code = "null" if shell.returncode is None else str(shell.returncode)
+    body = chunk or "(no output)"
+    return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {exit_code}\nnext_offset: {end}\noutput:\n{body}"
 
 
-@tool(name="bash.kill", renderer=_render_shell_status)
-async def kill_bash(shell_id: str) -> ShellStatus:
+@tool(name="bash.kill", preserve=True)
+async def kill_bash(shell_id: str) -> str:
     """Terminate a background shell process."""
     shell = await shell_manager.terminate(shell_id)
-    return {"shell_id": shell.shell_id, "status": shell.status, "exit_code": shell.returncode}
+    return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {shell.returncode}"
 
 
-@tool(context=True, name="fs.read", renderer=lambda result: result["content"])
-def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> FileReadResult:
+@tool(context=True, name="fs.read", preserve=True)
+def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> str:
     """Read a text file and return its content. Supports optional pagination with offset and limit."""
     resolved_path = _resolve_path(context, path)
     text = resolved_path.read_text(encoding="utf-8")
     lines = text.splitlines()
     start = max(0, min(offset, len(lines)))
     end = len(lines) if limit is None else min(len(lines), start + max(0, limit))
-    return {
-        "path": str(resolved_path),
-        "content": "\n".join(lines[start:end]),
-        "offset": start,
-        "next_offset": end,
-        "total_lines": len(lines),
-    }
+    return "\n".join(lines[start:end])
 
 
-@tool(context=True, name="fs.write", renderer=lambda result: f"wrote: {result['path']}")
-def fs_write(path: str, content: str, *, context: ToolContext) -> FileWriteResult:
+@tool(context=True, name="fs.write", preserve=True)
+def fs_write(path: str, content: str, *, context: ToolContext) -> str:
     """Write content to a text file."""
     resolved_path = _resolve_path(context, path)
     resolved_path.parent.mkdir(parents=True, exist_ok=True)
     resolved_path.write_text(content, encoding="utf-8")
-    return {"path": str(resolved_path)}
+    return f"wrote: {resolved_path}"
 
 
-@tool(context=True, name="fs.edit", renderer=lambda result: f"edited: {result['path']}")
-def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> FileEditResult:
+@tool(context=True, name="fs.edit", preserve=True)
+def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> str:
     """Edit a text file by replacing old text with new text. You can specify the line number to start searching for the old text."""
     resolved_path = _resolve_path(context, path)
     text = resolved_path.read_text(encoding="utf-8")
@@ -403,12 +328,11 @@ def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolConte
     prev, to_replace = "\n".join(lines[:start]), "\n".join(lines[start:])
     if old not in to_replace:
         raise ValueError(f"'{old}' not found in {resolved_path} from line {start}")
-    replacements = to_replace.count(old)
     replaced = to_replace.replace(old, new)
     if prev:
         replaced = prev + "\n" + replaced
     resolved_path.write_text(replaced, encoding="utf-8")
-    return {"path": str(resolved_path), "replacements": replacements}
+    return f"edited: {resolved_path}"
 
 
 @tool(context=True, name="skill", renderer=_render_skill)
@@ -434,9 +358,9 @@ def skill_describe(name: str | None = None, *, context: ToolContext) -> SkillLis
 
 
 @tool(context=True, name="tape.info", renderer=_render_tape_info)
-async def tape_info(context: ToolContext) -> dict[str, Any]:
+async def tape_info(context: ToolContext) -> TapeInfoResult:
     """Get information about the current tape, such as number of entries and anchors."""
-    return asdict(await context.tape.info())
+    return cast(TapeInfoResult, asdict(await context.tape.info()))
 
 
 @tool(context=True, name="tape.search", model=SearchInput, renderer=_render_tape_search)
@@ -547,6 +471,7 @@ def show_help() -> str:
         "  ,bash command='sleep 5' background=true\n"
         "  ,bash.output shell_id=bsh-12345678\n"
         "  ,bash.kill shell_id=bsh-12345678\n"
+        "  ,code_mode enable=true\n"
         "  ,quit\n"
         "Any unknown command after ',' is executed as shell via bash."
     )
@@ -576,10 +501,7 @@ async def set_model(model_id: str, *, context: ToolContext) -> dict[str, str]:
     ``openrouter:openrouter/free``). An invalid model surfaces as an error on the
     next turn — run `,model <valid_id>` again to recover.
     """
-    context.state["model"] = model_id
-    # Persist on the session tape (merged back at end of turn); load_state
-    # recovers the latest `model_switch` event next turn / after restart.
-    await context.tape.append_event("model_switch", {"model": model_id})
+    await set_session_setting(context, "model", model_id)
     return {"model": model_id}
 
 
@@ -596,8 +518,7 @@ async def set_reasoning_effort(reasoning_effort: str, *, context: ToolContext) -
     reasoning_effort = reasoning_effort.strip()
     if not reasoning_effort:
         raise ValueError("reasoning_effort must not be empty")
-    context.state["reasoning_effort"] = reasoning_effort
-    await context.tape.append_event("reasoning_effort_switch", {"reasoning_effort": reasoning_effort})
+    await set_session_setting(context, "reasoning_effort", reasoning_effort)
     return {"reasoning_effort": reasoning_effort}
 
 
