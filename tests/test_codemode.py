@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import ast
+import asyncio
+import os
+import shutil
+import subprocess
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -15,6 +20,8 @@ from bub.builtin.codemode import (
     set_code_mode,
     write_tool_stub,
 )
+from bub.builtin.environment import LocalEnvironment, LocalProcess
+from bub.environment import ENVIRONMENT_STATE_KEY
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
@@ -235,3 +242,106 @@ async def test_run_code_without_await_executes_synchronously(tmp_path: Path) -> 
     output = await run_code.run(code="print(sum(range(4)))", context=_context(tmp_path, []))
 
     assert output == "6\n"
+
+
+class _RecordingEnvironment(LocalEnvironment):
+    def __init__(self, workspace: Path) -> None:
+        super().__init__(workspace)
+        self.spawned: list[Sequence[str] | str] = []
+
+    async def spawn(
+        self, command: str | Sequence[str], *, cwd: str | None = None, env: Mapping[str, str] | None = None
+    ) -> LocalProcess:
+        self.spawned.append(command)
+        return await super().spawn(command, cwd=cwd, env=env)
+
+
+@pytest.mark.asyncio
+async def test_run_code_runs_in_a_process_of_the_session_environment(tmp_path: Path) -> None:
+    environment = _RecordingEnvironment(tmp_path)
+    context = _context(tmp_path, [], **{ENVIRONMENT_STATE_KEY: environment})
+
+    output = await run_code.run(code="import os\nprint(os.getpid())", context=context)
+
+    assert int(output) != os.getpid()
+    assert len(environment.spawned) == 1
+    assert environment.spawned[0][0] == environment.python
+
+
+@pytest.mark.asyncio
+async def test_run_code_uses_the_environment_workspace_as_working_directory(tmp_path: Path) -> None:
+    context = _context(tmp_path, [], **{ENVIRONMENT_STATE_KEY: LocalEnvironment(tmp_path)})
+
+    output = await run_code.run(code="import os\nprint(os.path.realpath(os.getcwd()))", context=context)
+
+    assert output == f"{tmp_path.resolve()}\n"
+
+
+@pytest.mark.asyncio
+async def test_run_code_timeout_kills_the_process_and_keeps_printed_output(tmp_path: Path) -> None:
+    code = "import time\nprint('started')\ntime.sleep(30)\n"
+
+    with pytest.raises(BubError) as exc_info:
+        await run_code.run(code=code, timeout_seconds=1, context=_context(tmp_path, []))
+
+    assert exc_info.value.message == "Code timed out after 1 seconds"
+    assert exc_info.value.details == {"output": "started\n"}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+@pytest.mark.asyncio
+async def test_run_code_kills_processes_the_code_started(tmp_path: Path) -> None:
+    code = (
+        "import subprocess, sys\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+        "print(child.pid)\n"
+    )
+
+    output = await run_code.run(code=code, context=_context(tmp_path, []))
+
+    pid = int(output)
+    ps = shutil.which("ps")
+    assert ps is not None
+    for _ in range(100):
+        status = subprocess.run([ps, "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, check=False)
+        if not status.stdout.strip() or status.stdout.strip().startswith("Z"):
+            break
+        await asyncio.sleep(0.05)
+    else:
+        pytest.fail(f"child process {pid} is still running")
+
+
+@pytest.mark.asyncio
+async def test_run_code_reports_a_runner_that_exits_without_a_result(tmp_path: Path) -> None:
+    code = "import os, sys\nprint('partial', flush=True)\nsys.stderr.write('dying')\nsys.stderr.flush()\nos._exit(3)\n"
+
+    with pytest.raises(BubError) as exc_info:
+        await run_code.run(code=code, context=_context(tmp_path, []))
+
+    assert exc_info.value.message == "Code runner exited unexpectedly with code 3"
+    assert exc_info.value.details == {"output": "partial\n", "stderr": "dying"}
+
+
+@pytest.mark.asyncio
+async def test_run_code_passes_large_results_and_collects_all_stdout(tmp_path: Path) -> None:
+    big_tool = Tool.from_callable(lambda size: {"text": "x" * size}, name="big")
+    code = (
+        "import sys\n"
+        "result = await tools.big(size=200_000)\n"
+        "sys.stdout.write(f'{len(result[\"text\"])}\\n')\n"
+        "print('stray', file=sys.__stdout__, flush=True)\n"
+    )
+
+    output = await run_code.run(code=code, context=_context(tmp_path, [big_tool]))
+
+    assert sorted(output.splitlines()) == ["200000", "stray"]
+
+
+@pytest.mark.asyncio
+async def test_run_code_raises_in_code_when_a_result_is_not_serializable(tmp_path: Path) -> None:
+    opaque = Tool.from_callable(lambda: object(), name="opaque")
+    code = "try:\n    await tools.opaque()\nexcept Exception as exc:\n    print(type(exc).__name__, 'not JSON serializable' in str(exc))\n"
+
+    output = await run_code.run(code=code, context=_context(tmp_path, [opaque]))
+
+    assert output == "BubError True\n"

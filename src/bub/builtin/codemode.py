@@ -2,23 +2,25 @@
 
 from __future__ import annotations
 
-import ast
-import builtins
+import asyncio
+import contextlib
 import hashlib
-import inspect
-import io
+import json
 import keyword
-import linecache
 import re
-import traceback
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import AsyncGenerator, Iterable
+from contextlib import aclosing
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
+from pydantic_core import to_jsonable_python
+
+from bub.builtin import codemode_runner
+from bub.builtin.environment import environment_from_state
 from bub.builtin.settings import set_session_setting
+from bub.environment import Process
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import AgentHooks
 from bub.tools import Tool, ToolContext, ToolExecutor, model_tools, tool
@@ -26,6 +28,9 @@ from bub.tools import Tool, ToolContext, ToolExecutor, model_tools, tool
 RUN_CODE_TOOL_NAME = "run_code"
 CODE_MODE_STATE_KEY = "code_mode"
 CODE_TOOLS_STATE_KEY = "_runtime_code_tools"
+DEFAULT_RUN_CODE_TIMEOUT_SECONDS = 120
+_STOP_TIMEOUT_SECONDS = 3.0
+_RUNNER_SOURCE = Path(codemode_runner.__file__).read_text(encoding="utf-8")
 
 _STUB_HEADER = '''"""Bub tools available inside `run_code` as `tools.<name>(...)`.
 
@@ -254,75 +259,151 @@ def render_code_mode_prompt(stub_path: Path) -> str:
     )
 
 
-def _tool_function(tool_item: Tool, executor: ToolExecutor, context: ToolContext) -> Callable[..., Any]:
-    async def call(*args: Any, **kwargs: Any) -> Any:
-        if args:
-            raise TypeError(f"tools.{_identifier(tool_item.name)}() accepts keyword arguments only")
-        execution = await executor.execute_async([(tool_item, kwargs)], context=context)
-        if execution.error is not None:
-            raise execution.error
-        return execution.tool_results[0]
+class _CodeRunner:
+    """Drive one runner process: send the code, serve its tool calls, and collect the outcome."""
 
-    call.__name__ = _identifier(tool_item.name)
-    call.__doc__ = tool_item.description
-    return call
+    def __init__(self, process: Process, tools: dict[str, Tool], executor: ToolExecutor, context: ToolContext):
+        self.process = process
+        self.tools = tools
+        self.executor = executor
+        self.context = context
+        self.output: list[str] = []
+        self._write_lock = asyncio.Lock()
+
+    async def send(self, message: dict[str, Any]) -> None:
+        async with self._write_lock:
+            await self.process.write_stdin(json.dumps(message).encode() + b"\n")
+
+    async def run(self, code: str, filename: str) -> dict[str, Any]:
+        await self.send({"type": "run", "code": code, "filename": filename, "tools": list(self.tools)})
+        calls: set[asyncio.Task[None]] = set()
+        try:
+            async with aclosing(_read_lines(self.process.stdout)) as lines:
+                async for line in lines:
+                    message = _parse_message(line)
+                    if message is None:
+                        # Text the code wrote around the protocol, e.g. to sys.__stdout__.
+                        self.output.append(line.decode("utf-8", errors="replace") + "\n")
+                    elif message.get("type") == "output":
+                        self.output.append(str(message.get("data", "")))
+                    elif message.get("type") == "call":
+                        task = asyncio.create_task(self._serve_call(message))
+                        calls.add(task)
+                        task.add_done_callback(calls.discard)
+                    elif message.get("type") in ("done", "failed"):
+                        return message
+        finally:
+            for task in calls:
+                task.cancel()
+            await asyncio.gather(*calls, return_exceptions=True)
+        raise EOFError("code runner exited before reporting a result")
+
+    async def _serve_call(self, message: dict[str, Any]) -> None:
+        call_id, name, arguments = message.get("id"), message.get("name"), message.get("arguments")
+        tool_item = self.tools.get(name) if isinstance(name, str) else None
+        if tool_item is None or not isinstance(arguments, dict):
+            reply: dict[str, Any] = {"type": "error", "id": call_id, "message": f"unknown tool call: {name!r}"}
+        else:
+            execution = await self.executor.execute_async([(tool_item, arguments)], context=self.context)
+            if execution.error is not None:
+                reply = {"type": "error", "id": call_id, "message": str(execution.error)}
+            else:
+                try:
+                    value = to_jsonable_python(execution.tool_results[0])
+                except (TypeError, ValueError) as exc:
+                    reply = {"type": "error", "id": call_id, "message": f"tool result is not JSON serializable: {exc}"}
+                else:
+                    reply = {"type": "result", "id": call_id, "value": value}
+        with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+            # If the runner already exited, run() reports that.
+            await self.send(reply)
 
 
-def _code_error(exc: BaseException, *, filename: str, output: str) -> BubError:
-    error = traceback.TracebackException.from_exception(exc)
-    # Keep only frames from the model's code; runtime frames are noise to the model.
-    error.stack = traceback.StackSummary.from_list([frame for frame in error.stack if frame.filename == filename])
-    return BubError(
-        ErrorKind.TOOL,
-        f"Code raised {type(exc).__name__}: {exc}",
-        details={"output": output, "traceback": "".join(error.format())},
-    )
+async def _read_lines(stream: asyncio.StreamReader) -> AsyncGenerator[bytes]:
+    """Split a stream into lines without the StreamReader line-length limit; results can be large."""
+    buffer = bytearray()
+    while chunk := await stream.read(1 << 16):
+        buffer += chunk
+        while (index := buffer.find(b"\n")) >= 0:
+            yield bytes(buffer[:index])
+            del buffer[: index + 1]
+    if buffer:
+        yield bytes(buffer)
+
+
+def _parse_message(line: bytes) -> dict[str, Any] | None:
+    try:
+        message = json.loads(line)
+    except ValueError:
+        return None
+    return message if isinstance(message, dict) and isinstance(message.get("type"), str) else None
+
+
+async def _stop(process: Process) -> None:
+    """Kill the runner and anything the code started, and reap it."""
+    process.signal(kill=True)
+    with contextlib.suppress(TimeoutError):
+        async with asyncio.timeout(_STOP_TIMEOUT_SECONDS):
+            await process.wait()
 
 
 @tool(name=RUN_CODE_TOOL_NAME, context=True, preserve=True)
-async def run_code(code: str, *, context: ToolContext) -> str:
-    """Run Python code and return everything it prints.
+async def run_code(code: str, timeout_seconds: int = DEFAULT_RUN_CODE_TIMEOUT_SECONDS, *, context: ToolContext) -> str:
+    """Run Python code in a separate process and return everything it prints.
 
     Tools are async functions available as `tools.<name>(...)`: await them with keyword arguments
     (top-level `await` is allowed). See the tool stub file referenced in the system prompt for their
-    signatures and result types.
+    signatures and result types. The process is killed after timeout_seconds.
     """
     code_tools = context.state.get(CODE_TOOLS_STATE_KEY)
     if code_tools is None:
         raise BubError(ErrorKind.INVALID_INPUT, "Code mode is not enabled for this run.")
     agent = context.state.get("_runtime_agent")
     hooks: AgentHooks | None = getattr(getattr(agent, "model_runner", None), "hooks", None)
-    # Code consumes structured results, so this executor does not render them to text.
-    executor = ToolExecutor(hooks=hooks, render=False)
-    code_context = replace(context, code_mode=True)
-    output = io.StringIO()
-
-    def print_to_output(*args: Any, **kwargs: Any) -> None:
-        if kwargs.get("file") is None:
-            kwargs["file"] = output
-        builtins.print(*args, **kwargs)
-
-    namespace = {
-        "__name__": "__run_code__",
-        "__builtins__": builtins,
-        "print": print_to_output,
-        "tools": SimpleNamespace(**{
-            _identifier(item.name): _tool_function(item, executor, code_context) for item in code_tools
-        }),
-    }
-    filename = f"<run_code-{uuid.uuid4().hex[:8]}>"
-    linecache.cache[filename] = (len(code), None, code.splitlines(keepends=True), filename)
+    environment = environment_from_state(context.state)
+    process = await environment.spawn([environment.python, "-u", "-c", _RUNNER_SOURCE])
+    runner = _CodeRunner(
+        process,
+        {_identifier(item.name): item for item in code_tools},
+        # Code consumes structured results, so this executor does not render them to text.
+        ToolExecutor(hooks=hooks, render=False),
+        replace(context, code_mode=True),
+    )
+    stderr = asyncio.create_task(process.stderr.read())
     try:
-        compiled = compile(code, filename, "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
-        # With top-level await enabled, eval returns a coroutine when the code awaits anything.
-        result = eval(compiled, namespace)  # noqa: S307
-        if inspect.iscoroutine(result):
-            await result
-    except (Exception, SystemExit) as exc:
-        raise _code_error(exc, filename=filename, output=output.getvalue()) from exc
+        async with asyncio.timeout(timeout_seconds):
+            outcome = await runner.run(code, f"<run_code-{uuid.uuid4().hex[:8]}>")
+    except TimeoutError:
+        raise BubError(
+            ErrorKind.TOOL,
+            f"Code timed out after {timeout_seconds} seconds",
+            details={"output": "".join(runner.output)},
+        ) from None
+    except (EOFError, BrokenPipeError, ConnectionResetError) as exc:
+        await _stop(process)
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(_STOP_TIMEOUT_SECONDS):
+                await asyncio.shield(stderr)
+        raise BubError(
+            ErrorKind.TOOL,
+            f"Code runner exited unexpectedly with code {process.returncode}",
+            details={
+                "output": "".join(runner.output),
+                "stderr": stderr.result().decode("utf-8", errors="replace") if stderr.done() else "",
+            },
+        ) from exc
     finally:
-        linecache.cache.pop(filename, None)
-    return output.getvalue()
+        await _stop(process)
+        stderr.cancel()
+        await asyncio.gather(stderr, return_exceptions=True)
+    output = "".join(runner.output)
+    if outcome["type"] == "failed":
+        raise BubError(
+            ErrorKind.TOOL,
+            f"Code raised {outcome.get('error')}",
+            details={"output": output, "traceback": str(outcome.get("traceback", ""))},
+        )
+    return output
 
 
 @tool(name="code_mode", context=True, agent_use=False)
