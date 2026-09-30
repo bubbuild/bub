@@ -19,12 +19,12 @@ from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem, audio_format_from_mime_type
 from bub.envelope import Envelope, content_of, field_of
+from bub.environment import Environment
 from bub.errors import BubError
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
 from bub.model_selection import ModelChoice, ModelOptions
-from bub.sandbox import Sandbox
 from bub.sidecars import TapeSidecar
 from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents
@@ -301,10 +301,10 @@ class BuiltinImpl:
             yield
 
     @hookimpl
-    def provide_sandbox(self, session_id: str, workspace: Path) -> Sandbox:
-        from bub.builtin.sandbox import LocalSandbox
+    def provide_environment(self, session_id: str, workspace: Path) -> Environment:
+        from bub.builtin.environment import LocalEnvironment
 
-        return LocalSandbox(workspace)
+        return LocalEnvironment(workspace)
 
     @hookimpl
     def provide_tape_store(self) -> TapeStore:

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast, final
 
 from pydantic import BaseModel, Field
 
-from bub.builtin.sandbox import sandbox_from_state
+from bub.builtin.environment import environment_from_state
 from bub.builtin.settings import set_session_setting
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
@@ -254,11 +254,11 @@ async def bash(
     and return a shell ID. Use bash.output to read output or bash.kill to stop them.
     Background commands do not use timeout_seconds.
     """
-    sandbox = sandbox_from_state(context.state)
-    target_cwd = sandbox.resolve_path(cwd) if cwd else None
+    environment = environment_from_state(context.state)
+    target_cwd = environment.resolve_path(cwd) if cwd else None
     raw_session_id = context.state.get("session_id")
     session_id = str(raw_session_id) if raw_session_id is not None else None
-    shell = await shell_manager.start(cmd=command, cwd=target_cwd, session_id=session_id, sandbox=sandbox)
+    shell = await shell_manager.start(cmd=command, cwd=target_cwd, session_id=session_id, environment=environment)
     if background:
         return f"Shell started, shell_id: {shell.shell_id}\nRetrieve the output with bash_output or terminate it with bash_kill."
     try:
@@ -302,8 +302,8 @@ async def kill_bash(shell_id: str) -> str:
 @tool(context=True, name="fs.read", preserve=True)
 async def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> str:
     """Read a text file and return its content. Supports optional pagination with offset and limit."""
-    sandbox = sandbox_from_state(context.state)
-    text = await sandbox.read_text(sandbox.resolve_path(path))
+    environment = environment_from_state(context.state)
+    text = await environment.read_text(environment.resolve_path(path))
     lines = text.splitlines()
     start = max(0, min(offset, len(lines)))
     end = len(lines) if limit is None else min(len(lines), start + max(0, limit))
@@ -313,18 +313,18 @@ async def fs_read(path: str, offset: int = 0, limit: int | None = None, *, conte
 @tool(context=True, name="fs.write", preserve=True)
 async def fs_write(path: str, content: str, *, context: ToolContext) -> str:
     """Write content to a text file."""
-    sandbox = sandbox_from_state(context.state)
-    resolved_path = sandbox.resolve_path(path)
-    await sandbox.write_text(resolved_path, content)
+    environment = environment_from_state(context.state)
+    resolved_path = environment.resolve_path(path)
+    await environment.write_text(resolved_path, content)
     return f"wrote: {resolved_path}"
 
 
 @tool(context=True, name="fs.edit", preserve=True)
 async def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> str:
     """Edit a text file by replacing old text with new text. You can specify the line number to start searching for the old text."""
-    sandbox = sandbox_from_state(context.state)
-    resolved_path = sandbox.resolve_path(path)
-    text = await sandbox.read_text(resolved_path)
+    environment = environment_from_state(context.state)
+    resolved_path = environment.resolve_path(path)
+    text = await environment.read_text(resolved_path)
     lines = text.splitlines()
     prev, to_replace = "\n".join(lines[:start]), "\n".join(lines[start:])
     if old not in to_replace:
@@ -332,7 +332,7 @@ async def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: Too
     replaced = to_replace.replace(old, new)
     if prev:
         replaced = prev + "\n" + replaced
-    await sandbox.write_text(resolved_path, replaced)
+    await environment.write_text(resolved_path, replaced)
     return f"edited: {resolved_path}"
 
 

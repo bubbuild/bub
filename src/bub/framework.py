@@ -18,12 +18,12 @@ from bub import configure
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import ChannelRouter, MessageHandler
 from bub.envelope import Envelope, content_of, field_of, unpack_batch
+from bub.environment import ENVIRONMENT_STATE_KEY, Environment
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import AgentHooks
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.model_selection import ModelOptions
-from bub.sandbox import SANDBOX_STATE_KEY, Sandbox
 from bub.sidecars import TapeSidecar
 from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import StreamState
@@ -64,7 +64,7 @@ class BubFramework:
         self._channel_router: ChannelRouter | None = None
         self._tape_store: TapeStore | AsyncTapeStore | None = None
         self._steering_inbox: SteeringInbox | None = None
-        self._sandboxes: dict[str, Sandbox | None] = {}
+        self._environments: dict[str, Environment | None] = {}
         configure.load(self.config_file)
 
     @property
@@ -160,8 +160,8 @@ class BubFramework:
             "_runtime_workspace": str(self.workspace),
             "_runtime_steering_inbox": self.get_steering_inbox(),
         }
-        if (sandbox := await self.get_sandbox(session_id)) is not None:
-            state[SANDBOX_STATE_KEY] = sandbox
+        if (environment := await self.get_environment(session_id)) is not None:
+            state[ENVIRONMENT_STATE_KEY] = environment
         for hook_state in reversed(
             await self._hook_runtime.call_many("load_state", message=message, session_id=session_id)
         ):
@@ -424,35 +424,37 @@ class BubFramework:
             finally:
                 self._tape_store = None
                 self._steering_inbox = None
-                await self._close_sandboxes()
+                await self._close_environments()
 
-    async def get_sandbox(self, session_id: str) -> Sandbox | None:
-        """Return the session's sandbox, creating it through ``provide_sandbox`` on first use.
+    async def get_environment(self, session_id: str) -> Environment | None:
+        """Return the session's environment, creating it through ``provide_environment`` on first use.
 
-        Returns ``None`` when no hook provides one. ``running()`` closes all sandboxes when it exits.
+        Returns ``None`` when no hook provides one. ``running()`` closes all environments when it exits.
         """
-        if session_id in self._sandboxes:
-            return self._sandboxes[session_id]
-        sandbox = await self._hook_runtime.call_first(
-            "provide_sandbox", session_id=session_id, workspace=self.workspace
+        if session_id in self._environments:
+            return self._environments[session_id]
+        environment = await self._hook_runtime.call_first(
+            "provide_environment", session_id=session_id, workspace=self.workspace
         )
-        if sandbox is not None and not isinstance(sandbox, Sandbox):
-            raise TypeError("hook.provide_sandbox must return Sandbox or None")
-        if (existing := self._sandboxes.setdefault(session_id, sandbox)) is not sandbox and sandbox is not None:
+        if environment is not None and not isinstance(environment, Environment):
+            raise TypeError("hook.provide_environment must return Environment or None")
+        if (
+            existing := self._environments.setdefault(session_id, environment)
+        ) is not environment and environment is not None:
             # Another turn of this session created one while the provider was running.
-            await sandbox.aclose()
+            await environment.aclose()
         return existing
 
-    async def _close_sandboxes(self) -> None:
-        sandboxes = [sandbox for sandbox in self._sandboxes.values() if sandbox is not None]
-        self._sandboxes = {}
-        for sandbox, result in zip(
-            sandboxes,
-            await asyncio.gather(*(sandbox.aclose() for sandbox in sandboxes), return_exceptions=True),
+    async def _close_environments(self) -> None:
+        environments = [environment for environment in self._environments.values() if environment is not None]
+        self._environments = {}
+        for environment, result in zip(
+            environments,
+            await asyncio.gather(*(environment.aclose() for environment in environments), return_exceptions=True),
             strict=True,
         ):
             if isinstance(result, Exception):
-                logger.opt(exception=result).warning("Failed to close sandbox {!r}", sandbox)
+                logger.opt(exception=result).warning("Failed to close environment {!r}", environment)
 
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         """Return the store acquired by ``running()``, or None when unavailable."""

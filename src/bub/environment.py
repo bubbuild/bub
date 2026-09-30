@@ -1,11 +1,11 @@
 """Execution environments for tools that run processes or touch files.
 
-A :class:`Sandbox` provides a few low-level capabilities — spawn a process,
+A :class:`Environment` provides a few low-level capabilities — spawn a process,
 read and write text files, resolve paths — and tools such as ``bash`` and
 ``fs.*`` run on top of it. Tool semantics (background shells, timeouts,
-rendering, hooks) stay on the host; only execution moves into the sandbox.
-Plugins provide one per session through the ``provide_sandbox`` hook; Bub's
-builtin hooks provide ``bub.builtin.sandbox.LocalSandbox``, which runs
+rendering, hooks) stay on the host; only execution moves into the environment.
+Plugins provide one per session through the ``provide_environment`` hook; Bub's
+builtin hooks provide ``bub.builtin.environment.LocalEnvironment``, which runs
 everything on the host.
 """
 
@@ -15,11 +15,11 @@ import abc
 import asyncio
 from collections.abc import Mapping, Sequence
 
-SANDBOX_STATE_KEY = "_runtime_sandbox"
+ENVIRONMENT_STATE_KEY = "_runtime_environment"
 
 
-class SandboxProcess(abc.ABC):
-    """A process started by a sandbox, with piped stdin, stdout and stderr."""
+class Process(abc.ABC):
+    """A process started by an environment, with piped stdin, stdout and stderr."""
 
     @property
     @abc.abstractmethod
@@ -63,26 +63,26 @@ class SandboxProcess(abc.ABC):
         return self.returncode is None
 
 
-class Sandbox(abc.ABC):
+class Environment(abc.ABC):
     """An environment where tools run processes and access files.
 
-    Paths passed to a sandbox are paths inside the sandbox; ``workspace`` is the
+    Paths passed to an environment are paths inside the environment; ``workspace`` is the
     working directory that relative paths resolve against.
     """
 
     workspace: str | None = None
-    """The default working directory inside the sandbox, if any."""
+    """The default working directory inside the environment, if any."""
 
     python: str = "python3"
-    """The Python executable inside the sandbox."""
+    """The Python executable inside the environment."""
 
     @abc.abstractmethod
     async def spawn(
         self, command: str | Sequence[str], *, cwd: str | None = None, env: Mapping[str, str] | None = None
-    ) -> SandboxProcess:
+    ) -> Process:
         """Start a process: a string runs through the shell, a sequence runs as an argument vector.
 
-        ``cwd`` defaults to ``workspace``; ``env`` adds to the sandbox's default environment.
+        ``cwd`` defaults to ``workspace``; ``env`` adds to the environment's default environment.
         """
 
     @abc.abstractmethod
@@ -104,4 +104,4 @@ class Sandbox(abc.ABC):
         return posixpath.normpath(posixpath.join(self.workspace, path))
 
     async def aclose(self) -> None:  # noqa: B027
-        """Release the sandbox's resources. Called when the framework stops."""
+        """Release the environment's resources. Called when the framework stops."""

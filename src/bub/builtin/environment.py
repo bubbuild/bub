@@ -1,4 +1,4 @@
-"""Host implementation of :class:`bub.sandbox.Sandbox`, provided by Bub's builtin hooks."""
+"""Host implementation of :class:`bub.environment.Environment`, provided by Bub's builtin hooks."""
 
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from bub.sandbox import SANDBOX_STATE_KEY, Sandbox, SandboxProcess
+from bub.environment import ENVIRONMENT_STATE_KEY, Environment, Process
 
 if TYPE_CHECKING:
     from bub.turn import TurnState
 
 
-class LocalProcess(SandboxProcess):
+class LocalProcess(Process):
     """A host process in its own session, so signals reach the whole process group."""
 
     def __init__(self, process: asyncio.subprocess.Process) -> None:
@@ -78,7 +78,7 @@ class LocalProcess(SandboxProcess):
         return True
 
 
-class LocalSandbox(Sandbox):
+class LocalEnvironment(Environment):
     """Run processes and access files directly on the host."""
 
     SHELL = shutil.which("bash") or shutil.which("sh") if os.name != "nt" else None
@@ -124,15 +124,15 @@ class LocalSandbox(Sandbox):
         return str((Path(self.workspace) / expanded).resolve())
 
 
-def sandbox_from_state(state: TurnState) -> Sandbox:
-    """Return the session's sandbox, or a host sandbox for the state's workspace when none was provided.
+def environment_from_state(state: TurnState) -> Environment:
+    """Return the session's environment, or a host environment for the state's workspace when none was provided.
 
     The fallback covers tools run outside a framework turn, for example by SDK callers or tests.
     """
-    sandbox = state.get(SANDBOX_STATE_KEY)
-    if isinstance(sandbox, Sandbox):
-        return sandbox
+    environment = state.get(ENVIRONMENT_STATE_KEY)
+    if isinstance(environment, Environment):
+        return environment
     workspace = state.get("_runtime_workspace")
     if workspace is not None and not isinstance(workspace, str | Path):
         raise TypeError("runtime workspace must be a filesystem path")
-    return LocalSandbox(workspace)
+    return LocalEnvironment(workspace)

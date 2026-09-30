@@ -64,16 +64,16 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 
 `run_code` 在 Bub 的事件循环上执行代码，拥有完整的 Python 权限；它不是沙箱，因此只应在允许使用 `bash` 的场景下开启 code mode。阻塞代码（例如 `time.sleep`）会卡住事件循环，应优先使用异步工具和 `await asyncio.sleep`。stub 中的结果类型来自工具函数的返回注解（手动构造的工具则来自 `Tool.output_schema`）。
 
-## 在沙箱中运行工具
+## 在执行环境中运行工具
 
-`bash`、`bash.output`、`bash.kill` 和 `fs.*` 不直接操作宿主机，而是在当前 session 的 `Sandbox`（见 [`bub.sandbox`](https://github.com/bubbuild/bub/blob/main/src/bub/sandbox.py)）里启动进程、读写文本文件。工具本身的行为（后台 shell、超时、渲染、hook）都留在宿主上，所以一个沙箱只需要实现几个操作：
+`bash`、`bash.output`、`bash.kill` 和 `fs.*` 不直接操作宿主机，而是在当前 session 的 `Environment`（见 [`bub.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/environment.py)）里启动进程、读写文本文件。工具本身的行为（后台 shell、超时、渲染、hook）都留在宿主上，所以一个执行环境只需要实现几个操作：
 
-- `spawn(command, *, cwd=None, env=None)` 返回一个 `SandboxProcess`：传字符串时经 shell 执行，传序列时作为参数列表直接执行。进程提供 `stdout`/`stderr` 流、`write_stdin`、`wait` 和 `signal(kill=...)`，其中 `signal` 必须作用到整个进程树。
-- `read_text(path)` 和 `write_text(path, content)` 读写沙箱内的文件。
-- `workspace` 是沙箱内的工作目录，`resolve_path` 基于它解析相对路径。
-- `aclose()` 释放沙箱。
+- `spawn(command, *, cwd=None, env=None)` 返回一个 `Process`：传字符串时经 shell 执行，传序列时作为参数列表直接执行。进程提供 `stdout`/`stderr` 流、`write_stdin`、`wait` 和 `signal(kill=...)`，其中 `signal` 必须作用到整个进程树。
+- `read_text(path)` 和 `write_text(path, content)` 读写执行环境内的文件。
+- `workspace` 是执行环境内的工作目录，`resolve_path` 基于它解析相对路径。
+- `aclose()` 释放执行环境。
 
-通过 `provide_sandbox(session_id, workspace)` hook 为每个 session 提供沙箱。Bub 在 session 的第一个 turn 调用它，把结果放进 `state["_runtime_sandbox"]`，并在 `framework.running()` 退出时关闭。Bub 的 builtin hook 提供 `LocalSandbox`（见 [`bub.builtin.sandbox`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/sandbox.py)），直接在宿主上运行；插件提供的实现会优先于它。自定义工具可以用 `bub.builtin.sandbox.sandbox_from_state(context.state)` 使用同一个环境。
+通过 `provide_environment(session_id, workspace)` hook 为每个 session 提供执行环境。Bub 在 session 的第一个 turn 调用它，把结果放进 `state["_runtime_environment"]`，并在 `framework.running()` 退出时关闭。Bub 的 builtin hook 提供 `LocalEnvironment`（见 [`bub.builtin.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/environment.py)），直接在宿主上运行；插件提供的实现会优先于它。自定义工具可以用 `bub.builtin.environment.environment_from_state(context.state)` 使用同一个环境。
 
 ## 工具如何变得可用
 

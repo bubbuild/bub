@@ -7,8 +7,8 @@ from collections.abc import AsyncIterator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
-from bub.builtin.sandbox import LocalSandbox
-from bub.sandbox import Sandbox, SandboxProcess
+from bub.builtin.environment import LocalEnvironment
+from bub.environment import Environment, Process
 
 
 @dataclass(eq=False)
@@ -22,7 +22,7 @@ class ManagedShell:
     cmd: str
     cwd: str | None
     session_id: str | None
-    process: SandboxProcess
+    process: Process
     output_chunks: list[str] = field(default_factory=list)
     read_tasks: list[asyncio.Task[None]] = field(default_factory=list)
     scope: _ShellScope | None = None
@@ -71,14 +71,16 @@ class ShellManager:
         await self._terminate_shells([shell for shell in self._shells.values() if shell.scope is scope])
 
     async def start(
-        self, *, cmd: str, cwd: str | None, session_id: str | None = None, sandbox: Sandbox | None = None
+        self, *, cmd: str, cwd: str | None, session_id: str | None = None, environment: Environment | None = None
     ) -> ManagedShell:
-        """Start ``cmd`` in ``sandbox``, which defaults to the host."""
+        """Start ``cmd`` in ``environment``, which defaults to the host."""
         scope = self._scope.get()
         if scope is not None and scope.closed:
             raise RuntimeError("shell runtime is closed")
         task = asyncio.create_task(
-            self._start(cmd=cmd, cwd=cwd, session_id=session_id, scope=scope, sandbox=sandbox or LocalSandbox())
+            self._start(
+                cmd=cmd, cwd=cwd, session_id=session_id, scope=scope, environment=environment or LocalEnvironment()
+            )
         )
         self._starting[task] = scope
         try:
@@ -100,9 +102,9 @@ class ShellManager:
             self._starting.pop(task, None)
 
     async def _start(
-        self, *, cmd: str, cwd: str | None, session_id: str | None, scope: _ShellScope | None, sandbox: Sandbox
+        self, *, cmd: str, cwd: str | None, session_id: str | None, scope: _ShellScope | None, environment: Environment
     ) -> ManagedShell:
-        process = await sandbox.spawn(cmd, cwd=cwd)
+        process = await environment.spawn(cmd, cwd=cwd)
         # Commands get EOF on stdin instead of waiting for input nobody will send.
         process.close_stdin()
         shell = ManagedShell(

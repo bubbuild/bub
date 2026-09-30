@@ -11,6 +11,7 @@ import pluggy
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import MessageHandler
 from bub.envelope import Envelope
+from bub.environment import Environment
 from bub.hooks.interception import (
     LlmCallDecision,
     LlmCallRequest,
@@ -20,7 +21,6 @@ from bub.hooks.interception import (
     ToolCallResult,
 )
 from bub.model_selection import ModelOptions
-from bub.sandbox import Sandbox
 from bub.sidecars import TapeSidecar
 from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import AsyncStreamEvents, StreamState
@@ -126,12 +126,12 @@ class BubHookSpecs:
         """Provide model choices for a session."""
 
     @hookspec(firstresult=True)
-    def provide_sandbox(self, session_id: str, workspace: Path) -> Sandbox | None:
-        """Provide the sandbox where tools run processes and access files for one session.
+    def provide_environment(self, session_id: str, workspace: Path) -> Environment | None:
+        """Provide the environment where tools run processes and access files for one session.
 
         Called once per session and cached until ``framework.running()`` exits,
-        which closes it with ``Sandbox.aclose()``. ``workspace`` is the host
-        workspace. Bub's builtin hooks provide a host sandbox (``bub.builtin.sandbox.LocalSandbox``);
+        which closes it with ``Environment.aclose()``. ``workspace`` is the host
+        workspace. Bub's builtin hooks provide a host environment (``bub.builtin.environment.LocalEnvironment``);
         a higher-priority plugin replaces it.
         """
 
