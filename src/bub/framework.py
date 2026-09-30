@@ -442,7 +442,7 @@ class BubFramework:
             existing := self._environments.setdefault(session_id, environment)
         ) is not environment and environment is not None:
             # Another turn of this session created one while the provider was running.
-            await environment.aclose()
+            await environment.close()
         return existing
 
     async def _close_environments(self) -> None:
@@ -450,7 +450,7 @@ class BubFramework:
         self._environments = {}
         for environment, result in zip(
             environments,
-            await asyncio.gather(*(environment.aclose() for environment in environments), return_exceptions=True),
+            await asyncio.gather(*(environment.close() for environment in environments), return_exceptions=True),
             strict=True,
         ):
             if isinstance(result, Exception):

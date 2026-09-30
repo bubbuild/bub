@@ -103,5 +103,5 @@ class Environment(abc.ABC):
             raise ValueError(f"relative path '{path}' is not allowed without a workspace")
         return posixpath.normpath(posixpath.join(self.workspace, path))
 
-    async def aclose(self) -> None:  # noqa: B027
+    async def close(self) -> None:  # noqa: B027
         """Release the environment's resources. Called when the framework stops."""

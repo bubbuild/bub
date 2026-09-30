@@ -71,7 +71,7 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 - `spawn(command, *, cwd=None, env=None)` 返回一个 `Process`：传字符串时经 shell 执行，传序列时作为参数列表直接执行。进程提供 `stdout`/`stderr` 流、`write_stdin`、`wait` 和 `signal(kill=...)`，其中 `signal` 必须作用到整个进程树。
 - `read_text(path)` 和 `write_text(path, content)` 读写执行环境内的文件。
 - `workspace` 是执行环境内的工作目录，`resolve_path` 基于它解析相对路径。
-- `aclose()` 释放执行环境。
+- `close()` 释放执行环境。
 
 通过 `provide_environment(session_id, workspace)` hook 为每个 session 提供执行环境。Bub 在 session 的第一个 turn 调用它，把结果放进 `state["_runtime_environment"]`，并在 `framework.running()` 退出时关闭。Bub 的 builtin hook 提供 `LocalEnvironment`（见 [`bub.builtin.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/environment.py)），直接在宿主上运行；插件提供的实现会优先于它。自定义工具可以用 `bub.builtin.environment.environment_from_state(context.state)` 使用同一个环境。
 

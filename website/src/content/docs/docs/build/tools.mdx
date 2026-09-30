@@ -71,7 +71,7 @@ If `run_code` is not allowed (for example, a subagent restricted with `allowed_t
 - `spawn(command, *, cwd=None, env=None)` returns a `Process`: a string runs through the shell, a sequence runs as an argument vector. The process exposes `stdout`/`stderr` streams, `write_stdin`, `wait`, and `signal(kill=...)`, which must reach the whole process tree.
 - `read_text(path)` and `write_text(path, content)` access files inside the environment.
 - `workspace` is the working directory inside the environment; `resolve_path` resolves relative paths against it.
-- `aclose()` releases the environment.
+- `close()` releases the environment.
 
 Provide one per session with the `provide_environment(session_id, workspace)` hook. Bub calls it on the session's first turn, puts the result in `state["_runtime_environment"]`, and closes it when `framework.running()` exits. Bub's builtin hooks provide `LocalEnvironment` (in [`bub.builtin.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/environment.py)), which runs everything on the host; a plugin's implementation takes precedence over it. Your own tools can use the same environment through `bub.builtin.environment.environment_from_state(context.state)`.
 

@@ -38,7 +38,7 @@ class MemoryEnvironment(Environment):
     async def write_text(self, path: str, content: str) -> None:
         self.files[path] = content
 
-    async def aclose(self) -> None:
+    async def close(self) -> None:
         self.closed = True
 
 
