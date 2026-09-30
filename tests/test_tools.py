@@ -205,6 +205,18 @@ def test_tool_render_defaults_to_json_for_structured_results() -> None:
     assert sample.render(EchoInput(value="x")) == '{"value":"x"}'
 
 
+@pytest.mark.parametrize(
+    ("agent_use", "preserve", "code_use"),
+    [(True, False, True), (True, True, False), (False, False, False), (False, True, False)],
+)
+def test_tool_code_use_excludes_preserved_and_agent_hidden_tools(
+    agent_use: bool, preserve: bool, code_use: bool
+) -> None:
+    sample = Tool(name="tests.code_use", handler=lambda: None, agent_use=agent_use, preserve=preserve)
+
+    assert sample.code_use is code_use
+
+
 def test_tool_decorator_accepts_renderer() -> None:
     tool_name = "tests.custom_renderer"
     REGISTRY.pop(tool_name, None)

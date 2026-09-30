@@ -30,7 +30,7 @@ def add(a: int, b: int) -> int:
 
 ## 返回结构化结果
 
-工具应返回结构化数据 —— `dict`、`TypedDict`、列表或 Pydantic 模型 —— 而不是预先排版好的文本。例外是标记为 `preserve=True` 的工具（见 [Code mode](#code-mode)）：它们只会被模型直接调用，因此返回纯文本。通过 `renderer=` 控制如何把结果转换成模型读取的纯文本：
+工具应返回结构化数据 —— `dict`、`TypedDict`、列表或 Pydantic 模型 —— 而不是预先排版好的文本。例外是标记为 `preserve=True` 的工具（见 [Code mode](#code-mode)）和只作为逗号命令的工具（`agent_use=False`）：代码永远不会调用它们，因此返回纯文本。通过 `renderer=` 控制如何把结果转换成模型读取的纯文本：
 
 ```python
 from typing import TypedDict

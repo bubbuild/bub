@@ -30,7 +30,7 @@ The tool's name defaults to the function name. Override it with `@tool(name="mat
 
 ## Return structured results
 
-Tools should return structured data — a `dict`, `TypedDict`, list, or Pydantic model — rather than pre-formatted prose. The exception is tools marked `preserve=True` (see [Code mode](#code-mode)): they are only ever called by the model directly, so they return plain text. Pass `renderer=` to control how that result is turned into the plain text the model reads:
+Tools should return structured data — a `dict`, `TypedDict`, list, or Pydantic model — rather than pre-formatted prose. The exceptions are tools marked `preserve=True` (see [Code mode](#code-mode)) and comma-command-only tools (`agent_use=False`): code never calls them, so they return plain text. Pass `renderer=` to control how that result is turned into the plain text the model reads:
 
 ```python
 from typing import TypedDict

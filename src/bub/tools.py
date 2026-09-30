@@ -150,6 +150,14 @@ class Tool:
     output_schema: dict[str, Any] | None = None
     """JSON schema of the structured result, used to describe the tool to model-written code."""
 
+    @property
+    def code_use(self) -> bool:
+        """Whether the tool is callable from model-written code (``tools.*`` in ``run_code``).
+
+        Preserved tools stay model-facing only, and tools hidden from the agent are never exposed to code.
+        """
+        return self.agent_use and not self.preserve
+
     def run(self, *args: Any, **kwargs: Any) -> Any:
         return self.handler(*args, **kwargs)
 

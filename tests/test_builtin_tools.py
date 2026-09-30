@@ -167,8 +167,7 @@ async def test_set_model_writes_model_into_state_and_records_on_tape(tmp_path) -
     result = await set_model.run(model_id="openai:gpt-4o", context=context)
 
     assert context.state["model"] == "openai:gpt-4o"
-    assert result == {"model": "openai:gpt-4o"}
-    assert set_model.render(result) == "Session model set to openai:gpt-4o (applies from the next turn)."
+    assert result == "Session model set to openai:gpt-4o (applies from the next turn)."
     # The switch is also persisted as a `model_switch` event on the session
     # tape, which load_state recovers on the next turn / after restart.
     entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
@@ -204,8 +203,7 @@ async def test_set_reasoning_effort_writes_state_and_records_on_tape(tmp_path) -
     result = await set_reasoning_effort.run(reasoning_effort=" high ", context=context)
 
     assert context.state["reasoning_effort"] == "high"
-    assert result == {"reasoning_effort": "high"}
-    assert set_reasoning_effort.render(result) == "Session reasoning effort set to high (applies from the next turn)."
+    assert result == "Session reasoning effort set to high (applies from the next turn)."
     entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
     switches = [
         entry for entry in entries if entry.kind == "event" and entry.payload.get("name") == "reasoning_effort_switch"
@@ -479,8 +477,7 @@ async def test_quit_tool_terminates_background_shells_for_current_session(tmp_pa
 
     result = await quit_tool.run(context=context)
 
-    assert result == {"session_id": "session:target"}
-    assert quit_tool.render(result) == "Session tasks stopped."
+    assert result == "Session tasks stopped."
     assert framework.quit_sessions == ["session:target"]
     with pytest.raises(KeyError, match="unknown shell id"):
         await bash_output.run(shell_id=target_shell_id)

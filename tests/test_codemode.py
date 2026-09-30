@@ -202,9 +202,8 @@ async def test_code_mode_command_records_session_switch(tmp_path: Path) -> None:
 
     assert set_code_mode.name == "code_mode"
     assert set_code_mode.agent_use is False
-    assert result == {"code_mode": True}
+    assert result == "Session code mode enabled (applies from the next turn)."
     assert context.state["code_mode"] is True
-    assert set_code_mode.render(result) == "Session code mode enabled (applies from the next turn)."
     entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
     assert [entry.payload for entry in entries] == [{"name": "code_mode_switch", "data": {"code_mode": True}}]
 

@@ -518,8 +518,7 @@ class Agent:
             state.pop(CODE_TOOLS_STATE_KEY, None)
             return direct_tools, None
 
-        # Preserved tools stay model-facing only; tools.* in run_code exposes the rest.
-        code_tools = [tool for tool in direct_tools if tool.agent_use and not tool.preserve]
+        code_tools = [tool for tool in direct_tools if tool.code_use]
         state[CODE_TOOLS_STATE_KEY] = model_tools(code_tools)
         stub_path = write_tool_stub(
             code_tools, session_id=str(state.get("session_id", "")), workspace=workspace_from_state(state)

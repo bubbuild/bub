@@ -325,19 +325,12 @@ async def run_code(code: str, *, context: ToolContext) -> str:
     return output.getvalue()
 
 
-@tool(
-    name="code_mode",
-    context=True,
-    agent_use=False,
-    renderer=lambda result: (
-        f"Session code mode {'enabled' if result['code_mode'] else 'disabled'} (applies from the next turn)."
-    ),
-)
-async def set_code_mode(enable: bool, *, context: ToolContext) -> dict[str, bool]:
+@tool(name="code_mode", context=True, agent_use=False)
+async def set_code_mode(enable: bool, *, context: ToolContext) -> str:
     """Enable or disable code mode for THIS session. Invoke as the `,code_mode enable=true` command.
 
     In code mode the model calls preserved tools directly and every other tool from
     Python through `run_code`. Takes effect on the NEXT turn and persists across restarts.
     """
     await set_session_setting(context, CODE_MODE_STATE_KEY, enable)
-    return {"code_mode": enable}
+    return f"Session code mode {'enabled' if enable else 'disabled'} (applies from the next turn)."

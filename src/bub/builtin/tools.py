@@ -477,23 +477,18 @@ def show_help() -> str:
     )
 
 
-@tool(name="quit", context=True, agent_use=False, renderer=lambda _: "Session tasks stopped.")
-async def quit_tool(*, context: ToolContext) -> dict[str, str]:
+@tool(name="quit", context=True, agent_use=False)
+async def quit_tool(*, context: ToolContext) -> str:
     """Abort the tasks of the current session. DO NOT use it in a normal workflow."""
     agent = _get_agent(context)
     session_id = str(context.state.get("session_id", "temp/unknown"))
     await shell_manager.terminate_session(session_id)
     await agent.framework.quit_via_channel_router(session_id)
-    return {"session_id": session_id}
+    return "Session tasks stopped."
 
 
-@tool(
-    name="model",
-    context=True,
-    agent_use=False,
-    renderer=lambda result: f"Session model set to {result['model']} (applies from the next turn).",
-)
-async def set_model(model_id: str, *, context: ToolContext) -> dict[str, str]:
+@tool(name="model", context=True, agent_use=False)
+async def set_model(model_id: str, *, context: ToolContext) -> str:
     """Switch the model for THIS session. Invoke as the `,model <model_id>` command.
 
     Takes effect on the NEXT turn and persists across restarts. Pass any
@@ -502,24 +497,17 @@ async def set_model(model_id: str, *, context: ToolContext) -> dict[str, str]:
     next turn — run `,model <valid_id>` again to recover.
     """
     await set_session_setting(context, "model", model_id)
-    return {"model": model_id}
+    return f"Session model set to {model_id} (applies from the next turn)."
 
 
-@tool(
-    name="reasoning_effort",
-    context=True,
-    agent_use=False,
-    renderer=lambda result: (
-        f"Session reasoning effort set to {result['reasoning_effort']} (applies from the next turn)."
-    ),
-)
-async def set_reasoning_effort(reasoning_effort: str, *, context: ToolContext) -> dict[str, str]:
+@tool(name="reasoning_effort", context=True, agent_use=False)
+async def set_reasoning_effort(reasoning_effort: str, *, context: ToolContext) -> str:
     """Set the reasoning effort for this session starting from the next turn."""
     reasoning_effort = reasoning_effort.strip()
     if not reasoning_effort:
         raise ValueError("reasoning_effort must not be empty")
     await set_session_setting(context, "reasoning_effort", reasoning_effort)
-    return {"reasoning_effort": reasoning_effort}
+    return f"Session reasoning effort set to {reasoning_effort} (applies from the next turn)."
 
 
 def _resolve_path(context: ToolContext, raw_path: str) -> Path:
