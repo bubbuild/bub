@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import builtins
-import hashlib
 import inspect
 import io
 import keyword
@@ -14,9 +13,8 @@ import traceback
 import uuid
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import replace
-from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 from bub.builtin.settings import set_session_setting
 from bub.errors import BubError, ErrorKind
@@ -224,28 +222,12 @@ def render_tool_stub(tools: Iterable[Tool]) -> str:
     return "\n\n\n".join([_STUB_HEADER, *builder.classes.values(), *functions]) + "\n"
 
 
-def write_tool_stub(tools: Iterable[Tool], *, session_id: str, workspace: Path) -> Path:
-    """Write the tool stub under Bub home; the path stays stable while the session's tool set is unchanged."""
-    import bub
-
-    content = render_tool_stub(tools)
-    session_key = hashlib.sha256(f"{workspace}\0{session_id}".encode()).hexdigest()[:16]
-    content_key = hashlib.sha256(content.encode()).hexdigest()[:12]
-    path = bub.home / "codemode" / session_key / f"tools-{content_key}.pyi"
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-        temp_path.write_text(content, encoding="utf-8")
-        temp_path.replace(path)
-    return path
-
-
-def render_code_mode_prompt(stub_path: Path) -> str:
+def render_code_mode_prompt(tool_stub: str) -> str:
     return (
         "<code_mode>\n"
         f"More tools are available as async Python functions `tools.<name>(...)` inside `{RUN_CODE_TOOL_NAME}`. "
-        f"Their signatures, result types and documentation are in the stub file: {stub_path}\n"
-        "Read the stub before calling a tool you have not used yet. Always `await` tool calls (top-level `await` "
+        f"Their signatures, result types and documentation follow:\n```python\n{tool_stub}```\n"
+        "Consult these signatures before calling a tool you have not used yet. Always `await` tool calls (top-level `await` "
         "is allowed) and pass keyword arguments; they return structured values and raise on failure. "
         f"`{RUN_CODE_TOOL_NAME}` returns only what the code prints, so print the results you need, and combine "
         "several tool calls in one run when possible.\n"
@@ -283,13 +265,13 @@ async def run_code(code: str, *, context: ToolContext) -> str:
     """Run Python code and return everything it prints.
 
     Tools are async functions available as `tools.<name>(...)`: await them with keyword arguments
-    (top-level `await` is allowed). See the tool stub file referenced in the system prompt for their
+    (top-level `await` is allowed). See the tool signatures in the system prompt for their
     signatures and result types.
     """
-    from bub.builtin.environment import local_environment
+    from bub.builtin.environment import require_capability
 
-    local_environment(context)
-    return await _execute_local(code, code_tool_callbacks(context))
+    execute = require_capability(context, "execute_code")
+    return cast(str, await execute(code, code_tool_callbacks(context)))
 
 
 def code_tool_callbacks(context: ToolContext) -> Mapping[str, Callable[..., Awaitable[Any]]]:

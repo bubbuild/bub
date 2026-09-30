@@ -7,12 +7,11 @@ import uuid
 from collections.abc import Iterable
 from contextlib import aclosing
 from dataclasses import asdict
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict, cast, final
 
 from pydantic import BaseModel, Field
 
-from bub.builtin.environment import local_environment
+from bub.builtin.environment import require_capability
 from bub.builtin.settings import set_session_setting
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
@@ -255,28 +254,22 @@ async def bash(
     and return a shell ID. Use bash.output to read output or bash.kill to stop them.
     Background commands do not use timeout_seconds.
     """
-    environment = local_environment(context)
-    workspace = context.state.get("_runtime_workspace")
-    target_cwd = cwd or (str(environment.workspace) if environment and environment.workspace else workspace)
-    raw_session_id = context.state.get("session_id")
-    session_id = str(raw_session_id) if raw_session_id is not None else None
-    shell = await shell_manager.start(cmd=command, cwd=target_cwd, session_id=session_id)
-    if environment is not None:
-        environment._handles.add(shell.shell_id)
+    start_shell = require_capability(context, "start_shell")
+    wait_shell = require_capability(context, "wait_shell")
+    terminate_shell = require_capability(context, "terminate_shell")
+    shell = await start_shell(command, cwd)
     if background:
         return f"Shell started, shell_id: {shell.shell_id}\nRetrieve the output with bash_output or terminate it with bash_kill."
     try:
-        async with asyncio.timeout(timeout_seconds):
-            shell = await shell_manager.wait_closed(shell.shell_id)
+        shell = await wait_shell(shell.shell_id, timeout_seconds)
     except asyncio.CancelledError:
         with contextlib.suppress(KeyError):
-            await shell_manager.terminate(shell.shell_id)
+            await terminate_shell(shell.shell_id)
         raise
-    except TimeoutError:
-        # Cancellation during descendant cleanup waits for termination to finish.
-        # A released shell must not be advertised as a running background command.
-        if shell.termination_task is None or not shell.termination_task.done():
-            return f"command timed out after {timeout_seconds} seconds; continuing in background\nshell_id: {shell.shell_id}"
+    if shell.timed_out:
+        return (
+            f"command timed out after {timeout_seconds} seconds; continuing in background\nshell_id: {shell.shell_id}"
+        )
     _raise_for_failed_shell(shell.returncode, shell.output)
     return shell.output.strip() or "(no output)"
 
@@ -286,11 +279,7 @@ async def bash_output(
     shell_id: str, offset: int = 0, limit: int | None = None, *, context: ToolContext | None = None
 ) -> str:
     """Read buffered output from a background shell, with optional offset/limit for incremental polling."""
-    if context is not None and (environment := local_environment(context)) is not None:
-        environment._check_handle(shell_id)
-    shell = shell_manager.get(shell_id)
-    if shell.returncode is not None:
-        await shell_manager.wait_closed(shell_id)
+    shell = await require_capability(context, "read_shell")(shell_id)
     output = shell.output
     start = max(0, min(offset, len(output)))
     end = len(output) if limit is None else min(len(output), start + max(0, limit))
@@ -303,19 +292,14 @@ async def bash_output(
 @tool(name="bash.kill", preserve=True, context=True)
 async def kill_bash(shell_id: str, *, context: ToolContext | None = None) -> str:
     """Terminate a background shell process."""
-    if context is not None and (environment := local_environment(context)) is not None:
-        environment._check_handle(shell_id)
-    shell = await shell_manager.terminate(shell_id)
+    shell = await require_capability(context, "terminate_shell")(shell_id)
     return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {shell.returncode}"
 
 
 @tool(context=True, name="fs.read", preserve=True)
 async def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> str:
     """Read a text file and return its content. Supports optional pagination with offset and limit."""
-    from bub.builtin.environment import LocalExecutionEnvironment
-
-    environment = local_environment(context) or LocalExecutionEnvironment(context.state.get("_runtime_workspace"))
-    text = await environment._read_file(path)
+    text = await require_capability(context, "read_file")(path)
     lines = text.splitlines()
     start = max(0, min(offset, len(lines)))
     end = len(lines) if limit is None else min(len(lines), start + max(0, limit))
@@ -325,20 +309,15 @@ async def fs_read(path: str, offset: int = 0, limit: int | None = None, *, conte
 @tool(context=True, name="fs.write", preserve=True)
 async def fs_write(path: str, content: str, *, context: ToolContext) -> str:
     """Write content to a text file."""
-    from bub.builtin.environment import LocalExecutionEnvironment
-
-    environment = local_environment(context) or LocalExecutionEnvironment(context.state.get("_runtime_workspace"))
-    resolved_path = await environment._write_file(path, content)
+    resolved_path = await require_capability(context, "write_file")(path, content)
     return f"wrote: {resolved_path}"
 
 
 @tool(context=True, name="fs.edit", preserve=True)
 async def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> str:
     """Edit a text file by replacing old text with new text. You can specify the line number to start searching for the old text."""
-    from bub.builtin.environment import LocalExecutionEnvironment
-
-    environment = local_environment(context) or LocalExecutionEnvironment(context.state.get("_runtime_workspace"))
-    text = await environment._read_file(path)
+    write_file = require_capability(context, "write_file")
+    text = await require_capability(context, "read_file")(path)
     lines = text.splitlines()
     prev, to_replace = "\n".join(lines[:start]), "\n".join(lines[start:])
     if old not in to_replace:
@@ -346,7 +325,7 @@ async def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: Too
     replaced = to_replace.replace(old, new)
     if prev:
         replaced = prev + "\n" + replaced
-    resolved_path = await environment._write_file(path, replaced)
+    resolved_path = await write_file(path, replaced)
     return f"edited: {resolved_path}"
 
 
@@ -368,16 +347,8 @@ async def skill_describe(name: str | None = None, *, context: ToolContext) -> Sk
         return {"skills": list(skill_index)}
     if name.casefold() not in skill_index:
         return {"error": "no such skill"}
-    from bub.builtin.environment import environment_for
-
     skill = skill_index[name.casefold()]
-    environment = environment_for(context)
-    directory = await environment.map_resource(skill.location.parent)
-    return {
-        "name": skill.name,
-        "location": str(Path(directory) / skill.location.name),
-        "content": skill.body(skill_dir=directory, python=environment.render_context.get("PYTHON", "python")),
-    }
+    return {"name": skill.name, "location": str(skill.location), "content": skill.body()}
 
 
 @tool(context=True, name="tape.info", renderer=_render_tape_info)

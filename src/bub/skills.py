@@ -33,8 +33,8 @@ class SkillMetadata:
     source: str
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def body(self, *, skill_dir: str | None = None, python: str | None = None) -> str:
-        """Render content using execution-side values, defaulting to trusted local paths."""
+    def body(self) -> str:
+        """Render host-side skill content."""
         front_matter_pattern = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
         try:
             template_content = self.location.read_text(encoding="utf-8").strip()
@@ -43,8 +43,8 @@ class SkillMetadata:
         raw_content = front_matter_pattern.sub("", template_content, count=1).strip()
         content = _render_config_templates(raw_content)
         return string.Template(content).safe_substitute({
-            "SKILL_DIR": str(self.location.parent) if skill_dir is None else skill_dir,
-            "PYTHON": sys.executable if python is None else python,
+            "SKILL_DIR": str(self.location.parent),
+            "PYTHON": sys.executable,
         })
 
 

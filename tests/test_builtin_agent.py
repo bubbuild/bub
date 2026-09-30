@@ -531,9 +531,8 @@ async def test_code_mode_exposes_preserved_tools_and_run_code_with_stub(
 
     assert sorted(tool_names) == ["bash", "bash_output", "fs_read", RUN_CODE_TOOL_NAME]
     assert "tape_info" not in system_prompt.split("<code_mode>")[0]
-    stub_path = Path(system_prompt.split("stub file: ", 1)[1].splitlines()[0])
-    assert stub_path.is_relative_to(tmp_path / "home" / "codemode")
-    stub = stub_path.read_text(encoding="utf-8")
+    stub = system_prompt.split("<code_mode>", 1)[1]
+    assert not (tmp_path / "home" / "codemode").exists()
     assert "async def tape_info() -> TapeInfoResult:" in stub
     assert "async def bash(" not in stub
     assert "async def bash_output(" not in stub
@@ -659,12 +658,13 @@ async def test_environment_use_spans_stream_and_uses_acquired_view(consume: bool
 
 
 @pytest.mark.asyncio
-async def test_environment_use_released_on_binding_failure() -> None:
+async def test_environment_use_released_on_capability_selection_failure() -> None:
     events: list[str] = []
 
     class Broken(LocalExecutionEnvironment):
-        def bind_tools(self, tools):
-            raise ValueError("binding failed")
+        @property
+        def read_file(self):
+            raise ValueError("capability selection failed")
 
         @contextlib.asynccontextmanager
         async def acquire(self):
@@ -676,7 +676,7 @@ async def test_environment_use_released_on_binding_failure() -> None:
 
     agent = _make_agent()
     agent.framework.get_execution_environment.return_value = Broken()
-    with pytest.raises(ValueError, match="binding failed"):
+    with pytest.raises(ValueError, match="capability selection failed"):
         await agent.run_stream(session_id="lease", prompt="hello", state={})
     assert events == ["enter", "exit"]
 

@@ -196,10 +196,12 @@ RPC 由适配器实现，不需要独立的 Bub hook。图中展示模型工具�
 
 实现 `provide_execution_environment(session_id, state)`，返回 `bub.environment` 中的 `ExecutionEnvironment`。
 
-- **获取使用权：** 实现 `acquire()` 异步上下文管理器，产出一个 `ExecutionEnvironment`（可以是 `self`）。Bub 在绑定工具前进入，在 turn 和 Tape 收尾后退出，流关闭或异常也会释放。退出只结束本次使用，不终止后台任务或销毁环境。Provider 负责获取失败的清理、与回收的协调，以及拒绝已停用的句柄。本地环境的获取为空操作。
-- **绑定执行工具：** 每轮开始时，Bub 对本轮存在的 `bash`、`bash.output`、`bash.kill`、`fs.read`、`fs.write`、`fs.edit` 和 `run_code` 调用一次 `bind_tools(tools)`。返回名称和公开契约不变、handler 已适配的工具；不支持时应报错。其他工具保留宿主 handler，不修改共享 Agent。
-- **分发代码回调：** 在宿主侧的 `run_code` handler 中使用 `bub.builtin.codemode.code_tool_callbacks(context)`，获取本轮按名称组织的异步回调，保留上下文、结构化结果和工具 hooks。RPC 只暴露这些回调；序列化、并发和取消由适配器负责。
-- **映射资源：** `map_resource(source)` 为显式加载的 skill 和 code mode stub 返回执行侧路径。Provider 负责复制或挂载及资源生命周期；映射不代表同步或写回。Skill 使用映射后的 `$SKILL_DIR` 和可选的 `render_context["PYTHON"]`（默认 `python`）渲染内容。
+- **获取使用权：** 实现 `acquire()` 异步上下文管理器，产出一个 `ExecutionEnvironment`（可以是 `self`）。Bub 在选择可用工具前进入，在 turn 和 Tape 收尾后退出，流关闭或异常也会释放。退出只结束本次使用，不终止后台任务或销毁环境。Provider 负责获取失败的清理、与回收的协调，以及拒绝已停用的句柄。本地环境的获取为空操作。
+- **可选执行能力：** 内置工具共享 schema 和 handler。环境可提供 `read_file`、`write_file`、shell 操作（`start_shell`、`read_shell`、`wait_shell`、`terminate_shell`）和/或 `execute_code`。缺少能力的工具在该轮不暴露，直接调用也会报错，不回退到本地。文件分页、编辑和 shell 输出格式由共享 handler 负责。Shell 操作返回与传输无关的 `ShellResult` 快照。`execute_code(code, callbacks)` 可以在独立远端运行时执行；回调只包含已授权工具，并保留宿主拦截 hooks。插件专有工具继续通过常规工具注册提供。
+- **分发代码回调：** 共享的 `run_code` handler 向 `execute_code` 传入本轮按名称组织的异步回调，保留上下文、结构化结果和工具 hooks。RPC 只暴露这些回调；序列化、并发和取消由适配器负责。
+- **元数据留在宿主：** 资源映射和 prompt 渲染不是环境能力。Skill 是宿主侧知识，其路径和解释器替换值描述宿主，而非执行目标。远端脚本和资源的部署、目标解释器的选择需单独处理；加载 skill 不会复制或挂载资源。Code mode 签名直接放入 system prompt，仅代码执行环境无需文件系统或 stub 传输；代价是不再延迟加载 stub，prompt 会增大。
+
+环境必需接口仅为 `acquire()`、`has_active_processes()` 和 `stop()`。后两者涵盖环境所属的后台工作，不限于操作系统进程；无状态 provider 返回 `False`，停止为空操作。保留这两个必需方法，避免切换和取消时静默遗漏 provider 所属任务。
 
 ### 切换与生命周期
 
@@ -207,7 +209,7 @@ RPC 由适配器实现，不需要独立的 Bub hook。图中展示模型工具�
 
 Provider 负责保留实例、销毁资源和重启后的恢复。注册稳定的环境句柄，将物理资源分配推迟到 `acquire()`；混合环境可用 `AsyncExitStack` 获取依赖，部分失败时回滚。核心会缓存句柄：同名注册新对象不会替换已有缓存，需要显式停用旧句柄；更换环境身份时使用新引用。`,quit` 等待 `stop()` 完成；该方法应取消所属任务，但不销毁保留环境。消费或关闭 Agent stream 才会释放绑定；不支持嵌套执行同一会话。Tape 更新失败前已准备的资源可能仍被保留。
 
-本地执行是可信宿主执行，不提供隔离。自动展开到 prompt 的 skill 内容仍在宿主处理，需要资源映射时请显式加载 skill。执行工具集合是固定的，不是任意插件工具的路由注册表。
+本地执行是可信宿主执行，不提供隔离。内置工具的能力筛选不替代插件专有工具的常规注册机制。
 
 ## 下一步
 

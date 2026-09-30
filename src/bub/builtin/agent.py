@@ -165,9 +165,11 @@ class Agent:
                     state["_runtime_agent"] = self
                     selected = await self.framework.get_execution_environment(session_id, state)
                     state["_runtime_execution_environment"] = await stack.enter_async_context(selected.acquire())
-                    from bub.builtin.environment import bind_turn_tools
+                    from bub.builtin.environment import available_turn_tools
 
-                    state["_runtime_bound_tools"] = bind_turn_tools(self.tools, state["_runtime_execution_environment"])
+                    state["_runtime_available_tools"] = available_turn_tools(
+                        self.tools, state["_runtime_execution_environment"]
+                    )
                     if model is None:
                         model = state.get("model")
                     if reasoning_effort is not None:
@@ -244,11 +246,13 @@ class Agent:
         name, arg_tokens = _parse_internal_command(line)
         start = time.monotonic()
         context = ToolContext(tape=tape, run_id="run_command", state=tape.context.state, hooks=self.model_runner.hooks)
-        tools: dict[str, Tool] = tape.context.state.get("_runtime_bound_tools", self.tools)
+        tools: dict[str, Tool] = tape.context.state.get("_runtime_available_tools", self.tools)
         output = ""
         status = "ok"
         try:
             if name not in tools:
+                if name in self.tools:
+                    raise ValueError(f"Tool {name} is not available")  # noqa: TRY301
                 if "bash" not in tools:
                     raise ValueError("bash tool is not available")  # noqa: TRY301
                 bash_tool = tools["bash"]
@@ -446,7 +450,7 @@ class Agent:
             prompt_text = ""
         else:
             prompt_text = _extract_text_from_parts(prompt)
-        available_tools = tape.context.state.get("_runtime_bound_tools", self.tools)
+        available_tools = tape.context.state.get("_runtime_available_tools", self.tools)
         if allowed_tools is not None:
             from bub.builtin.tools import resolve_tool_names
 
@@ -477,12 +481,9 @@ class Agent:
         allowed_skills: set[str] | None,
         tools: list[Tool],
     ) -> AsyncStreamEvents:
-        tools, stub_path = self._prepare_code_mode(tools, state=tape.context.state)
-        environment = tape.context.state.get("_runtime_execution_environment")
-        if stub_path is not None and environment is not None:
-            stub_path = Path(await environment.map_resource(stub_path))
+        tools, tool_stub = self._prepare_code_mode(tools, state=tape.context.state)
         system_prompt = self._system_prompt(
-            prompt_text, state=tape.context.state, allowed_skills=allowed_skills, tools=tools, stub_path=stub_path
+            prompt_text, state=tape.context.state, allowed_skills=allowed_skills, tools=tools, tool_stub=tool_stub
         )
         resolved_model = model or self.settings.model
 
@@ -512,8 +513,8 @@ class Agent:
             steering_messages=steering_messages,
         )
 
-    def _prepare_code_mode(self, tools: list[Tool], *, state: TurnState) -> tuple[list[Tool], Path | None]:
-        """Split tools for code mode and return the model-facing tools plus the stub path.
+    def _prepare_code_mode(self, tools: list[Tool], *, state: TurnState) -> tuple[list[Tool], str | None]:
+        """Split tools for code mode and return the model-facing tools plus the inline tool stub.
 
         Code mode is a session setting (``state["code_mode"]``, switched by the ``code_mode``
         command) and applies only when ``run_code`` is among the allowed tools: the model then
@@ -523,7 +524,7 @@ class Agent:
             CODE_MODE_STATE_KEY,
             CODE_TOOLS_STATE_KEY,
             RUN_CODE_TOOL_NAME,
-            write_tool_stub,
+            render_tool_stub,
         )
 
         direct_tools = [tool for tool in tools if tool.name != RUN_CODE_TOOL_NAME]
@@ -533,10 +534,8 @@ class Agent:
 
         code_tools = [tool for tool in direct_tools if tool.code_use]
         state[CODE_TOOLS_STATE_KEY] = model_tools(code_tools)
-        stub_path = write_tool_stub(
-            code_tools, session_id=str(state.get("session_id", "")), workspace=workspace_from_state(state)
-        )
-        return [tool for tool in tools if tool.preserve], stub_path
+        tool_stub = render_tool_stub(code_tools)
+        return [tool for tool in tools if tool.preserve], tool_stub
 
     def _system_prompt(
         self,
@@ -544,7 +543,7 @@ class Agent:
         state: TurnState,
         allowed_skills: set[str] | None = None,
         tools: Iterable[Tool] | None = None,
-        stub_path: Path | None = None,
+        tool_stub: str | None = None,
     ) -> str:
         from bub.builtin.codemode import render_code_mode_prompt
         from bub.builtin.tools import render_tools_prompt
@@ -552,16 +551,17 @@ class Agent:
         blocks: list[str] = [
             f"Execution environment: {state.get('environment', 'default')}. "
             "Filesystem, shell and code tools use the pinned turn environment. "
-            "Skill discovery paths are host paths; scripts/assets must be explicitly projected "
-            "before use in a non-host environment. Do not assume host paths are accessible."
+            "Skills are host-side knowledge; their paths and interpreter values describe the host. "
+            "For a non-host environment, provision scripts/assets and choose its interpreter separately. "
+            "Do not assume host paths are accessible."
         ]
         if result := self.framework.get_system_prompt(prompt=prompt, state=state):
             blocks.append(result)
         tools_prompt = render_tools_prompt(tools if tools is not None else self.tools.values())
         if tools_prompt:
             blocks.append(tools_prompt)
-        if stub_path is not None:
-            blocks.append(render_code_mode_prompt(stub_path))
+        if tool_stub is not None:
+            blocks.append(render_code_mode_prompt(tool_stub))
         workspace = workspace_from_state(state)
         if skills_prompt := self._load_skills_prompt(prompt, workspace, allowed_skills):
             blocks.append(skills_prompt)

@@ -14,7 +14,6 @@ from bub.builtin.codemode import (
     render_tool_stub,
     run_code,
     set_code_mode,
-    write_tool_stub,
 )
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
@@ -86,24 +85,6 @@ def test_stub_documents_model_parameters_and_untyped_tools() -> None:
     assert '    """Find things.' in stub
     assert "    order_id: The order identifier." in stub
     assert "async def mcp_search_docs(**kwargs: Any) -> Any:" in stub
-
-
-def test_stub_path_is_stable_per_session_and_tool_set(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BUB_HOME", str(tmp_path / "home"))
-    order_tool = Tool.from_callable(get_order, name="orders.get", context=True)
-    other_tool = Tool.from_callable(lambda: None, name="other")
-
-    first = write_tool_stub([order_tool], session_id="user/1", workspace=tmp_path)
-    again = write_tool_stub([order_tool], session_id="user/1", workspace=tmp_path)
-    other_session = write_tool_stub([order_tool], session_id="user/2", workspace=tmp_path)
-    other_tools = write_tool_stub([order_tool, other_tool], session_id="user/1", workspace=tmp_path)
-
-    assert first == again
-    assert first.is_relative_to(tmp_path / "home" / "codemode")
-    assert first.read_text(encoding="utf-8") == render_tool_stub([order_tool])
-    assert other_session.parent != first.parent
-    assert other_tools.parent == first.parent
-    assert other_tools != first
 
 
 def test_run_code_is_a_preserved_tool() -> None:
@@ -240,24 +221,16 @@ async def test_run_code_without_await_executes_synchronously(tmp_path: Path) -> 
 @pytest.mark.asyncio
 async def test_code_callback_uses_same_environment_as_direct_tool(tmp_path: Path) -> None:
     from bub.builtin.environment import LocalExecutionEnvironment
+    from bub.builtin.tools import fs_read
 
     class Environment(LocalExecutionEnvironment):
-        def bind_tools(self, tools):
-            return {
-                **super().bind_tools(tools),
-                "read_resource": replace(tools["read_resource"], handler=lambda **kwargs: "environment resource"),
-            }
+        async def read_file(self, path: str) -> str:
+            return "environment resource"
 
-    def read_resource(*, context: ToolContext) -> str:
-        raise AssertionError("host handler must not run")
-
-    resource = Tool.from_callable(read_resource, name="read_resource", context=True)
-    bound = Environment(tmp_path).bind_tools({"read_resource": resource, "run_code": run_code})
-    resource = bound["read_resource"]
-    context = _context(tmp_path, [resource], _runtime_execution_environment=Environment(tmp_path))
-    assert resource.run(context=context) == "environment resource"
+    context = _context(tmp_path, [fs_read], _runtime_execution_environment=Environment(tmp_path))
+    assert await fs_read.run(path="remote", context=context) == "environment resource"
     assert (
-        await bound["run_code"].run(code="print(await tools.read_resource())", context=context)
+        await run_code.run(code="print(await tools.fs_read(path='remote'))", context=context)
         == "environment resource\n"
     )
 
@@ -305,3 +278,27 @@ def test_adapter_callbacks_require_enabled_code_mode(tmp_path: Path) -> None:
 
     with pytest.raises(BubError, match="Code mode is not enabled"):
         code_tool_callbacks(_context(tmp_path))
+
+
+@pytest.mark.asyncio
+async def test_code_only_environment_dispatches_without_local_execution(tmp_path: Path) -> None:
+    from bub.builtin.environment import available_turn_tools
+    from bub.builtin.tools import bash, fs_read
+
+    class RemoteCode:
+        async def execute_code(self, code, callbacks):
+            assert code == "opaque remote program"
+            assert set(callbacks) == {"host"}
+            return await callbacks["host"]()
+
+    async def host() -> str:
+        return "remote callback result"
+
+    environment = RemoteCode()
+    host_tool = Tool.from_callable(host)
+    registry = {t.name: t for t in (run_code, bash, fs_read, host_tool)}
+    available = available_turn_tools(registry, environment)
+    assert set(available) == {"run_code", "host"}
+    assert available["run_code"] is run_code
+    context = _context(tmp_path, [host_tool], _runtime_execution_environment=environment)
+    assert await run_code.run(code="opaque remote program", context=context) == "remote callback result"

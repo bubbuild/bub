@@ -464,7 +464,7 @@ class BubFramework:
         """
         if not reference.strip():
             raise ValueError("Environment reference must not be empty")
-        candidate_state = {**state, "environment": reference, "_runtime_environment_switch": True}
+        candidate_state = {**state, "environment": reference}
         environment: ExecutionEnvironment | None = await self._hook_runtime.call_first(
             "provide_execution_environment", session_id=session_id, state=candidate_state
         )

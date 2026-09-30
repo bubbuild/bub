@@ -57,12 +57,12 @@ Code mode lets the model call tools from Python instead of one tool call at a ti
 
 - The model sees only tools marked `preserve=True` (`bash`, `bash.output`, `bash.kill`, `fs.read`, `fs.write`, `fs.edit`) plus `run_code(code: str) -> str`. Preserved tools are called directly only; they are not available under `tools.*`.
 - Every other allowed tool is an async function inside `run_code`, named after its model-facing name (`tape.info` becomes `await tools.tape_info()`). Top-level `await` is allowed and `asyncio.gather` runs calls concurrently. Calls take keyword arguments, go through the usual `before_tool_call`/`after_tool_call` hooks, return structured results, and raise on failure.
-- Bub writes a Python stub with one function per non-preserved allowed tool — parameter and return types plus docstring — under `~/.bub/codemode/` and puts its path in the system prompt. The path stays the same for a session as long as its tool set does not change.
+- Bub includes Python signatures, result types and docstrings for non-preserved allowed tools directly in the system prompt. No stub file or filesystem access is required.
 - `run_code` returns what the code prints. An uncaught exception becomes a tool error whose details carry the printed output and the traceback.
 
 If `run_code` is not allowed (for example, a subagent restricted with `allowed_tools`), that turn falls back to direct tool calls. Declare `preserve=True` on your own tools to keep them directly callable. Nested calls run with `ToolContext.code_mode` (and `ToolCall.code_mode` for hooks) set to `True`; their results are not rendered or spilled.
 
-`run_code` runs the code on the Bub event loop with full Python access; it is not a sandbox, so enable code mode only where `bash` would be acceptable. Blocking code (for example `time.sleep`) stalls the loop, so prefer the async tools and `await asyncio.sleep`. The return annotation of a tool function (or `Tool.output_schema`, for tools built by hand) determines the result type shown in the stub.
+With the builtin local environment, `run_code` runs on the Bub event loop with full Python access; it is not a sandbox, so enable code mode only where `bash` would be acceptable. Blocking code (for example `time.sleep`) stalls the loop, so prefer the async tools and `await asyncio.sleep`. The return annotation of a tool function (or `Tool.output_schema`, for tools built by hand) determines the result type shown in the stub.
 
 ## How tools become available
 

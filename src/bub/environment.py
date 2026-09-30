@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-if TYPE_CHECKING:
-    from bub.tools import Tool
+
+@dataclass(frozen=True)
+class ShellResult:
+    """Transport-neutral process snapshot; output is the full buffered text."""
+
+    shell_id: str
+    output: str
+    returncode: int | None
+    status: str
+    timed_out: bool = False
 
 
 class ExecutionEnvironment(Protocol):
@@ -19,29 +26,12 @@ class ExecutionEnvironment(Protocol):
     def acquire(self) -> AbstractAsyncContextManager[ExecutionEnvironment]:
         """Acquire a turn-scoped execution view, possibly self.
 
-        Enter before tool binding or resource mapping. Exit releases this use,
+        Enter before capability selection. Exit releases this use,
         not background work or the retained environment. Providers must reject
         disabled handles and clean up partial acquisition on failure/cancellation.
         Returned views must not be reused after exit. Providers own coordination
         with reclamation, background work, and shared dependencies.
         """
-        ...
-
-    def bind_tools(self, tools: Mapping[str, Tool]) -> Mapping[str, Tool]:
-        """Bind required execution tools once per turn, or raise if unsupported.
-
-        Return the same names and public contracts with environment-specific
-        handlers. Host capabilities are not included in this collection.
-        """
-        ...
-
-    @property
-    def render_context(self) -> Mapping[str, str]:
-        """Execution-side template values; consumers decide which keys they need."""
-        ...
-
-    async def map_resource(self, source: Path) -> str:
-        """Map a host resource to an execution-side path; no implicit sync/write-back."""
         ...
 
     async def has_active_processes(self) -> bool:

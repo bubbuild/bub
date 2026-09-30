@@ -53,13 +53,13 @@ async def test_environment_sessions_keep_workspaces_separate(tmp_path) -> None:
     framework = BubFramework()
     first = await framework.get_execution_environment("session", {"_runtime_workspace": str(tmp_path / "first")})
     second = await framework.get_execution_environment("session", {"_runtime_workspace": str(tmp_path / "second")})
-    from bub.builtin.environment import bind_turn_tools
+    from bub.builtin.environment import available_turn_tools
     from bub.builtin.tools import fs_read, fs_write
     from bub.tools import ToolContext
 
     # Resource placement is observable; cache identity is not the contract.
-    first_tools = bind_turn_tools({"fs.write": fs_write}, first)
-    second_tools = bind_turn_tools({"fs.read": fs_read}, second)
+    first_tools = available_turn_tools({"fs.write": fs_write}, first)
+    second_tools = available_turn_tools({"fs.read": fs_read}, second)
     from unittest.mock import MagicMock
 
     context = ToolContext(tape=MagicMock(), run_id="test", state={"_runtime_execution_environment": first})

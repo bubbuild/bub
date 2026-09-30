@@ -57,12 +57,12 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 
 - 模型只直接看到标记为 `preserve=True` 的工具（`bash`、`bash.output`、`bash.kill`、`fs.read`、`fs.write`、`fs.edit`）以及 `run_code(code: str) -> str`。preserve 工具只能直接调用，不会出现在 `tools.*` 中。
 - 其他允许的工具在 `run_code` 中都是异步函数，名称使用面向模型的形式（`tape.info` 对应 `await tools.tape_info()`）。支持顶层 `await`，可以用 `asyncio.gather` 并发调用。调用只接受关键字参数，照常经过 `before_tool_call`/`after_tool_call` hook，返回结构化结果，失败时抛出异常。
-- Bub 会在 `~/.bub/codemode/` 下为允许的非 preserve 工具生成一个 Python stub 文件，每个工具对应一个函数，包含参数类型、返回类型和 docstring，并把文件路径写入 system prompt。只要工具集合不变，同一个 session 中这个路径保持不变。
+- Bub 将允许的非 preserve 工具的 Python 签名、结果类型和 docstring 直接放入 system prompt，不需要 stub 文件或文件系统访问。
 - `run_code` 返回代码打印的内容。未捕获的异常会变成工具错误，错误详情中包含已打印的输出和 traceback。
 
 如果 `run_code` 不在允许范围内（例如被 `allowed_tools` 限制的 subagent），该 turn 会退回直接调用工具的方式。给自己的工具声明 `preserve=True` 可以让它保持直接可调用。嵌套调用时 `ToolContext.code_mode`（hook 中为 `ToolCall.code_mode`）为 `True`，结果不会被渲染或 spill。
 
-`run_code` 在 Bub 的事件循环上执行代码，拥有完整的 Python 权限；它不是沙箱，因此只应在允许使用 `bash` 的场景下开启 code mode。阻塞代码（例如 `time.sleep`）会卡住事件循环，应优先使用异步工具和 `await asyncio.sleep`。stub 中的结果类型来自工具函数的返回注解（手动构造的工具则来自 `Tool.output_schema`）。
+使用内置本地环境时，`run_code` 在 Bub 的事件循环上执行代码，拥有完整的 Python 权限；它不是沙箱，因此只应在允许使用 `bash` 的场景下开启 code mode。阻塞代码（例如 `time.sleep`）会卡住事件循环，应优先使用异步工具和 `await asyncio.sleep`。stub 中的结果类型来自工具函数的返回注解（手动构造的工具则来自 `Tool.output_schema`）。
 
 ## 工具如何变得可用
 

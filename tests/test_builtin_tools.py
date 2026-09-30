@@ -533,9 +533,7 @@ async def test_environment_files_and_shell_share_workspace(tmp_path) -> None:
 
     environment = LocalExecutionEnvironment(tmp_path, "test")
     context = _tool_context(tmp_path, _runtime_execution_environment=environment)
-    bound = environment.bind_tools({
-        t.name: t for t in (builtin_tools.fs_write, builtin_tools.fs_edit, builtin_tools.fs_read, bash)
-    })
+    bound = {t.name: t for t in (builtin_tools.fs_write, builtin_tools.fs_edit, builtin_tools.fs_read, bash)}
     await bound["fs.write"].run(path="shared.txt", content="shared", context=context)
     assert await bound["bash"].run(command="cat shared.txt", context=context) == "shared"
     await bound["fs.edit"].run(path="shared.txt", old="shared", new="updated", context=context)
@@ -547,7 +545,7 @@ async def test_environment_rejects_foreign_process_handles(tmp_path) -> None:
     from bub.builtin.environment import LocalExecutionEnvironment
 
     context = _tool_context(tmp_path, _runtime_execution_environment=LocalExecutionEnvironment(tmp_path, "other"))
-    bound = context.state["_runtime_execution_environment"].bind_tools({t.name: t for t in (bash_output, kill_bash)})
+    bound = {t.name: t for t in (bash_output, kill_bash)}
     with pytest.raises(KeyError, match="does not belong"):
         await bound["bash.output"].run(shell_id="foreign", context=context)
     with pytest.raises(KeyError, match="does not belong"):
@@ -566,17 +564,13 @@ async def test_environment_switch_blocks_active_jobs(tmp_path) -> None:
 
 
 @pytest.fixture
-def projected_skill_context(tmp_path):
-    from unittest.mock import AsyncMock
-
+def host_skill_context(tmp_path):
     directory = tmp_path / "skills" / "demo"
     directory.mkdir(parents=True)
     (directory / "SKILL.md").write_text(
         "---\nname: demo\ndescription: Demo\n---\n$PYTHON $SKILL_DIR/scripts/run.py", encoding="utf-8"
     )
-    environment = SimpleNamespace(
-        map_resource=AsyncMock(return_value="/remote/demo"), render_context={"PYTHON": "/venv/bin/python"}
-    )
+    environment = SimpleNamespace()
     return _tool_context(
         tmp_path,
         _runtime_agent=SimpleNamespace(skill_dirs=[directory.parent]),
@@ -585,49 +579,39 @@ def projected_skill_context(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_skill_uses_projected_location_and_render_values(projected_skill_context) -> None:
-    context = projected_skill_context
+async def test_skill_is_host_knowledge_without_environment_resource_capabilities(host_skill_context) -> None:
+    import sys
+
+    context = host_skill_context
     result = await builtin_tools.skill_describe.run(name="demo", context=context)
+    directory = Path(context.state["_runtime_workspace"]) / "skills" / "demo"
     assert result == {
         "name": "demo",
-        "location": "/remote/demo/SKILL.md",
-        "content": "/venv/bin/python /remote/demo/scripts/run.py",
+        "location": str(directory / "SKILL.md"),
+        "content": f"{sys.executable} {directory}/scripts/run.py",
     }
-    directory = Path(context.state["_runtime_workspace"]) / "skills" / "demo"
     assert "$SKILL_DIR" in (directory / "SKILL.md").read_text()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", [None, "missing", "demo"])
-async def test_skill_listing_and_rejected_loads_do_not_project(projected_skill_context, name) -> None:
-    context = projected_skill_context
+async def test_skill_listing_and_rejected_loads_need_no_environment_capabilities(host_skill_context, name) -> None:
+    context = host_skill_context
     if name == "demo":
         context.state["allowed_skills"] = []
     result = await builtin_tools.skill_describe.run(name=name, context=context)
     assert ("skills" if name is None else "error") in result
-    context.state["_runtime_execution_environment"].map_resource.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_skill_projection_failure_does_not_return_host_path(projected_skill_context) -> None:
-    context = projected_skill_context
-    context.state["_runtime_execution_environment"].map_resource.side_effect = NotImplementedError(
-        "projection unsupported"
-    )
-    with pytest.raises(NotImplementedError, match="projection unsupported"):
-        await builtin_tools.skill_describe.run(name="demo", context=context)
 
 
 @pytest.mark.asyncio
 async def test_unsupported_environment_tool_does_not_write_on_host(tmp_path) -> None:
-    class Environment:
-        def bind_tools(self, tools):
-            raise NotImplementedError("unsupported execution tool")
+    from bub.builtin.environment import available_turn_tools
 
-    from bub.builtin.environment import bind_turn_tools
-
-    with pytest.raises(NotImplementedError, match="unsupported execution tool"):
-        bind_turn_tools({"fs.write": builtin_tools.fs_write}, Environment())
+    environment = SimpleNamespace()
+    assert available_turn_tools({"fs.write": builtin_tools.fs_write}, environment) == {}
+    context = _tool_context(tmp_path, _runtime_execution_environment=environment)
+    with pytest.raises(NotImplementedError, match="write_file"):
+        await builtin_tools.fs_write.run(path="must-not-exist", content="no", context=context)
     assert not (tmp_path / "must-not-exist").exists()
 
 
@@ -651,3 +635,45 @@ async def test_quit_stops_pinned_environment_before_reporting_success(tmp_path) 
     )
     assert await quit_tool.run(context=context) == "Session tasks stopped."
     assert events == ["stopped", "quit"]
+
+
+@pytest.mark.asyncio
+async def test_read_only_environment_keeps_shared_pagination_and_plugin_tools(tmp_path) -> None:
+    from bub.builtin.environment import available_turn_tools
+
+    class ReadOnly:
+        async def read_file(self, path: str) -> str:
+            return "zero\none\ntwo\n"
+
+    environment = ReadOnly()
+    registry = {t.name: t for t in (builtin_tools.fs_read, builtin_tools.fs_write, builtin_tools.fs_edit, bash)}
+    registry["plugin.custom"] = builtin_tools.fs_read
+    available = available_turn_tools(registry, environment)
+    assert set(available) == {"fs.read", "plugin.custom"}
+    assert available["fs.read"] is builtin_tools.fs_read
+    context = _tool_context(tmp_path, _runtime_execution_environment=environment)
+    assert await builtin_tools.fs_read.run(path="remote", offset=1, limit=1, context=context) == "one"
+    with pytest.raises(NotImplementedError, match="write_file"):
+        await builtin_tools.fs_edit.run(path="remote", old="one", new="changed", context=context)
+    with pytest.raises(NotImplementedError, match="start_shell"):
+        await bash.run(command="echo forbidden", context=context)
+
+
+@pytest.mark.asyncio
+async def test_remote_file_capabilities_share_edit_logic(tmp_path) -> None:
+    class RemoteFiles:
+        text = "keep\nold old"
+
+        async def read_file(self, path: str) -> str:
+            return self.text
+
+        async def write_file(self, path: str, content: str) -> str:
+            self.text = content
+            return f"remote://{path}"
+
+    environment = RemoteFiles()
+    context = _tool_context(tmp_path, _runtime_execution_environment=environment)
+    result = await builtin_tools.fs_edit.run(path="data", old="old", new="new", start=1, context=context)
+    assert result == "edited: remote://data"
+    assert environment.text == "keep\nnew new"
+    assert not (tmp_path / "data").exists()
