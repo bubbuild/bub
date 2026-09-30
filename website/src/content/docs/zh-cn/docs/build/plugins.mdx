@@ -171,47 +171,46 @@ run_model: builtin, echo
 - [`bub-schedule`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-schedule) —— 实例目标（`schedule = "bub_schedule.plugin:main"`）。
 - [`bub-wechat`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-wechat) 与 visual-base 的 [`bub-eye`](https://github.com/oilbeater/visual-base/tree/main/src/bub_eye) —— 持有框架引用的可调用类目标。
 
+## 执行环境
+
+### 适用场景
+
+需要把文件、Shell 或代码执行移出宿主，同时将 Tape、模型调用和工具调度留在宿主时，可以编写执行环境插件。适配器可以把三类操作都交给容器，也可以只把 `run_code` 放进 WASI 运行时，或组合容器中的文件和 Shell 与 WASI 中的代码执行。这些是适配方案，不是内置后端；只处理代码的适配器需要显式组合文件和 Shell 的提供方。
+
+### 执行路径
+
+工具 handler 仍在宿主运行，由适配器通过自己的通信机制委托沙箱执行。代码调用 `tools.*` 时，请求返回宿主，经工具执行器和原有拦截 hooks 调用工具。
+
+```mermaid
+flowchart LR
+    A[宿主 Agent] --> B[宿主 ToolExecutor 与 hooks]
+    B --> C[宿主工具 handler]
+    B --> D[宿主执行适配器]
+    D -->|RPC: bash, fs.*, run_code| E[沙箱执行]
+    E -->|tools.* 回调 RPC| B
+```
+
+RPC 由适配器实现，不需要独立的 Bub hook。图中展示模型工具调用和代码回调；显式逗号命令采用直接分发。代码只能回调 code mode 暴露的工具，不能访问整个宿主工具注册表。`preserve` 控制工具的可见性，不决定执行位置。
+
+### 接入契约
+
+实现 `provide_execution_environment(session_id, state)`，返回 `bub.environment` 中的 `ExecutionEnvironment`。
+
+- **绑定执行工具：** 每轮开始时，Bub 对本轮存在的 `bash`、`bash.output`、`bash.kill`、`fs.read`、`fs.write`、`fs.edit` 和 `run_code` 调用一次 `bind_tools(tools)`。返回名称和公开契约不变、handler 已适配的工具；不支持时应报错。其他工具保留宿主 handler，不修改共享 Agent。
+- **分发代码回调：** 在宿主侧的 `run_code` handler 中使用 `bub.builtin.codemode.code_tool_callbacks(context)`，获取本轮按名称组织的异步回调，保留上下文、结构化结果和工具 hooks。RPC 只暴露这些回调；序列化、并发和取消由适配器负责。
+- **映射资源：** `map_resource(source)` 为显式加载的 skill 和 code mode stub 返回执行侧路径。Provider 负责复制或挂载及资源生命周期；映射不代表同步或写回。Skill 使用映射后的 `$SKILL_DIR` 和可选的 `render_context["PYTHON"]`（默认 `python`）渲染内容。
+
+### 切换与生命周期
+
+每轮固定一个绑定。`,environment <reference>` 经 provider 授权后选择下一轮的环境，切回 `default` 也需要授权。有受管后台任务时拒绝切换；命名环境不可用时报错，不回退到宿主。Tape 保存选择，但不迁移文件和进程。
+
+Provider 负责保留实例、销毁资源和重启后的恢复。`,quit` 等待 `stop()` 完成；该方法应取消所属任务，但不销毁保留环境。消费或关闭 Agent stream 才会释放绑定；不支持嵌套执行同一会话。Tape 更新失败前已准备的资源可能仍被保留。
+
+本地执行是可信宿主执行，不提供隔离。自动展开到 prompt 的 skill 内容仍在宿主处理，需要资源映射时请显式加载 skill。执行工具集合是固定的，不是任意插件工具的路由注册表。
+
 ## 下一步
 
 - [钩子](/zh-cn/docs/build/hooks/) —— 各钩子签名的配方手册
 - [工具](/zh-cn/docs/build/tools/) —— 注册可被模型调用的工具
 - [钩子参考](/zh-cn/docs/reference/hooks/) —— 完整签名表
 - [发行版](/zh-cn/docs/build/distribution/) —— 把插件打包为产品
-
-## 执行环境
-
-实现 `provide_execution_environment(session_id, state)`，提供 `bub.environment`
-中的 `ExecutionEnvironment`。Tape、模型调用和工具拦截仍是宿主服务。
-
-每轮开始时，builtin 适配层选择文件、shell 和代码执行工具，一次调用
-`bind_tools(tools: Mapping[str, Tool])`。Provider 返回相同名称和公开契约的工具，
-替换其 handler；不支持时必须报错。缺少绑定会在执行前失败，不回退到宿主。
-宿主能力保留原 handler。
-
-绑定后的工具集合属于当前 turn，不修改共享 Agent。命令、模型调用、工具白名单过滤
-及代码 callbacks 使用同一集合，ToolExecutor 拦截保持不变。`preserve` 仅控制
-code mode 下的可见性，不决定执行位置；Tool 不再包含执行归属标记或逐次环境分流。
-
-环境协议不重复列举文件、shell 或 Python 工具接口，具体行为由 builtin 和适配实现承担。
-`map_resource(source: Path) -> str` 返回资源在执行侧的路径；Provider 自行选择复制、
-挂载或已有映射，并管理生命周期。映射不代表持续同步或写回。`render_context` 是通用
-模板变量映射。Skill 加载先检查权限，再映射资源，使用目标目录渲染 `$SKILL_DIR`，
-并读取可选的 `PYTHON` 值（默认使用执行环境中的 `python` 命令）；这只是 skill 的约定，
-不是环境必须提供的 Python 属性。Code mode 的 stub 文件也使用资源映射。
-
-每个 turn 固定使用一个环境。`,environment <reference>` 请求下轮切换，需重新获得
-Provider 授权，包括切回 `default`；有活动的受管后台任务时拒绝切换。选择通过现有
-Tape session settings 保存，不迁移文件或进程。命名环境不可用时不会回退到宿主。
-
-Provider 负责保留实例、关闭资源及重启连续性。Tape 发布失败后，已准备的资源可能仍被
-保留。本地执行是可信宿主执行，不是隔离；进程内 Python 使用宿主进程 cwd。
-自动展开到 prompt 的 skill 内容仍在宿主侧处理，需要资源映射时请显式加载 skill。
-消费或关闭 Agent stream 才会释放 turn binding；不支持嵌套执行同一个 session。
-
-### 当前限制
-
-Builtin 执行工具的选择目前是固定集合，不是任意插件工具的归属注册机制。新增 builtin
-执行能力需更新该集合。Session owner 统一管理保留实例和串行访问；调用方获取上下文
-管理的 binding，而不是独立的环境锁。`,quit` 等待当前环境的 `stop()` 成功后才报告完成。
-Provider 必须停止所属任务，但不销毁保留环境；失败直接传播。本地 stop 只终止该环境
-拥有的进程句柄。这是生命周期契约，不是沙箱保证。
