@@ -28,13 +28,13 @@ def add(a: int, b: int) -> int:
 
 工具名默认为函数名。可用 `@tool(name="math.add")` 覆写，也可传 `description=` 控制它在模型提示中的呈现。带点的 registry 名会保留给运行时查找和逗号命令使用，但面向模型的工具名会把点替换为下划线（`math.add` 会变成 `math_add`）。支持异步函数 —— 包装器会 await 它们。
 
-## 按需获取定义
+## 为请求提供工具
 
 内置工具和普通插件工具会立即向模型暴露完整定义。System prompt 不再重复它们的签名和描述。
 
-在 `@tool`、`Tool.from_callable` 或 `Tool` 实例上设置 `defer_loading=True`，初始只暴露名称和简短摘要。在普通工具模式下，模型调用 `tool_describe(names=["orders_get"])`，下一次请求便会包含完整原生定义，然后照常调用 `orders_get`。查找结果只确认名称，不再以文本重复 schema。
+插件可以把异步 `ToolProvider` 加入 `agent.tool_providers`。它接收当前允许的运行时工具和 tape，返回本次请求的 `(tools, prompt_fragment)`。Bub 对返回的工具照常进行名称转换、调用 hook 和结果渲染；提供方新增的工具会注册到当前 Agent。提供方在 code mode 准备之前运行，并应遵守传入的工具范围。
 
-已获取的定义记录在 tape 上，在当前 tape 上下文内跨轮次、跨重启复用。新 session、tape reset 或 handoff 后重新发现。只能获取和调用当前允许的工具。SDK 调用者可以用 `allowed_tools` 限定工具；允许的延迟工具需要发现时，定义获取入口仍然可用。Code mode 继续通过 Python stub 提供允许的工具，无需这一步发现。
+MCP 插件负责远程工具发现：初始提供摘要，调用 `mcp_describe` 后提供所选的完整原生定义。普通工具无需设置加载策略或额外的注册标记。
 
 ## 返回结构化结果
 

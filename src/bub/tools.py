@@ -149,8 +149,6 @@ class Tool:
     """Keep the tool directly callable by the model in code mode; others are reachable only from code."""
     output_schema: dict[str, Any] | None = None
     """JSON schema of the structured result, used to describe the tool to model-written code."""
-    defer_loading: bool = False
-    """Expose a summary until the model requests the complete native definition."""
 
     @property
     def code_use(self) -> bool:
@@ -191,7 +189,6 @@ class Tool:
         agent_use: bool = True,
         renderer: Callable[[Any], str] | None = None,
         preserve: bool = False,
-        defer_loading: bool = False,
     ) -> Tool:
         signature = inspect.signature(func)
         if context and "context" not in signature.parameters:
@@ -219,8 +216,11 @@ class Tool:
             renderer=renderer,
             preserve=preserve,
             output_schema=_output_schema(func),
-            defer_loading=defer_loading,
         )
+
+
+type ToolProvider = Callable[[list[Tool], Tape], Awaitable[tuple[list[Tool], str]]]
+"""Prepare a request's tools and optional prompt fragment within the supplied scope."""
 
 
 def model_tools(tools: Iterable[Tool]) -> list[Tool]:
@@ -562,7 +562,6 @@ def tool(
     agent_use: bool = ...,
     renderer: Callable[[Any], str] | None = ...,
     preserve: bool = ...,
-    defer_loading: bool = ...,
 ) -> Tool: ...
 
 
@@ -577,7 +576,6 @@ def tool(
     agent_use: bool = ...,
     renderer: Callable[[Any], str] | None = ...,
     preserve: bool = ...,
-    defer_loading: bool = ...,
 ) -> Callable[[Callable], Tool]: ...
 
 
@@ -591,7 +589,6 @@ def tool(
     agent_use: bool = True,
     renderer: Callable[[Any], str] | None = None,
     preserve: bool = False,
-    defer_loading: bool = False,
 ) -> Tool | Callable[[Callable], Tool]:
     """Decorator to convert a function into a Tool instance.
 
@@ -621,7 +618,6 @@ def tool(
                 renderer=renderer,
                 preserve=preserve,
                 output_schema=_output_schema(func),
-                defer_loading=defer_loading,
             )
         else:
             result = Tool.from_callable(
@@ -632,7 +628,6 @@ def tool(
                 agent_use=agent_use,
                 renderer=renderer,
                 preserve=preserve,
-                defer_loading=defer_loading,
             )
         tool_instance = _add_logging(result)
         REGISTRY[tool_instance.name] = tool_instance

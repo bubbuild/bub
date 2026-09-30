@@ -28,13 +28,13 @@ def add(a: int, b: int) -> int:
 
 The tool's name defaults to the function name. Override it with `@tool(name="math.add")` or pass `description=` to control how it appears in the model prompt. Dotted registry names are preserved for runtime lookup and comma commands, but model-facing tool names replace dots with underscores (`math.add` becomes `math_add`). Async functions are supported — the wrapper awaits them.
 
-## Load definitions on demand
+## Provide tools for a request
 
 Builtin tools and ordinary plugin tools are declared in full to the model immediately. Their signatures and descriptions are not repeated in the system prompt.
 
-Set `defer_loading=True` on `@tool`, `Tool.from_callable`, or a `Tool` instance to expose only its name and a short summary initially. In ordinary tool mode, the model calls `tool_describe(names=["orders_get"])` to make the complete native definition available on the next request, then calls `orders_get` normally. The lookup result acknowledges the names; it does not repeat the schema as text.
+Plugins can append an async `ToolProvider` to `agent.tool_providers`. It receives the current allowed runtime tools and the tape, then returns `(tools, prompt_fragment)` for that request. Bub passes the returned tools through normal aliasing, invocation hooks, and rendering. Additional tools supplied by the provider are registered on that Agent. Providers run before code-mode preparation and should respect the supplied scope.
 
-Requested definitions are recorded on the tape and reused across turns and restarts within the current tape context. A new session, tape reset, or handoff starts discovery again. Only currently allowed tools can be described or invoked. SDK callers can restrict tools with `allowed_tools`; the describe helper remains available when needed for an allowed deferred tool. Code mode continues to expose allowed tools through its Python stub without this discovery step.
+The MCP plugin owns remote-tool discovery: it provides summaries initially and exposes selected native definitions after `mcp_describe`. Ordinary tools need no loading policy or extra registration flag.
 
 ## Return structured results
 

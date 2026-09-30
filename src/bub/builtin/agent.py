@@ -29,7 +29,7 @@ from bub.skills import discover_skills, render_skills_prompt
 from bub.store import AsyncTapeStore, AsyncTapeStoreAdapter, InMemoryTapeStore, TapeStore, is_async_tape_store
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import Tape
-from bub.tools import REGISTRY, Tool, ToolContext, model_tools
+from bub.tools import REGISTRY, Tool, ToolContext, ToolProvider, model_tools
 from bub.tracing import Span, current_span
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
@@ -73,6 +73,7 @@ class Agent:
         )
         self.framework = framework
         self.tools = {tool.name: tool for tool in tools} if tools is not None else REGISTRY.copy()
+        self.tool_providers: list[ToolProvider] = []
         self.tape_store = tape_store
         self.skill_dirs = skill_dirs
         self.model_runner = ModelRunner(self.settings, hooks=framework.get_agent_hooks())
@@ -474,18 +475,19 @@ class Agent:
         allowed_skills: set[str] | None,
         tools: list[Tool],
     ) -> AsyncStreamEvents:
-        from bub.builtin.deferred_tools import DESCRIBE_TOOL
-
-        tools = [tool for tool in tools if tool is not DESCRIBE_TOOL]
+        tools_prompts: list[str] = []
+        for provider in self.tool_providers:
+            tools, tools_prompt = await provider(tools, tape)
+            if tools_prompt:
+                tools_prompts.append(tools_prompt)
+            for tool in tools:
+                self.tools.setdefault(tool.name, tool)
         tools, stub_path = self._prepare_code_mode(tools, state=tape.context.state)
-        deferred_tools: list[Tool] = []
-        if stub_path is None:
-            tools, deferred_tools = await self._prepare_deferred_tools(tools, tape=tape)
         system_prompt = self._system_prompt(
             prompt_text,
             state=tape.context.state,
             allowed_skills=allowed_skills,
-            tools=deferred_tools,
+            tools_prompt="\n\n".join(tools_prompts),
             stub_path=stub_path,
         )
         resolved_model = model or self.settings.model
@@ -515,23 +517,6 @@ class Agent:
             prompt=prompt,
             steering_messages=steering_messages,
         )
-
-    async def _prepare_deferred_tools(self, tools: list[Tool], *, tape: Tape) -> tuple[list[Tool], list[Tool]]:
-        from bub.builtin.deferred_tools import DEFERRED_TOOLS_STATE_KEY, DESCRIBE_TOOL, loaded_tool_names
-
-        deferred = {tool.name: tool for tool in tools if tool.agent_use and tool.defer_loading}
-        if not deferred:
-            tape.context.state.pop(DEFERRED_TOOLS_STATE_KEY, None)
-            return tools, []
-        if self.tools.get(DESCRIBE_TOOL.name, DESCRIBE_TOOL) is not DESCRIBE_TOOL:
-            raise ValueError(f"reserved tool name: {DESCRIBE_TOOL.name}")
-        self.tools[DESCRIBE_TOOL.name] = DESCRIBE_TOOL
-        # Refresh the current scope on every request; recorded names never grant access.
-        tape.context.state[DEFERRED_TOOLS_STATE_KEY] = deferred
-        loaded = await loaded_tool_names(tape)
-        pending = [tool for name, tool in deferred.items() if name not in loaded]
-        pending_names = {tool.name for tool in pending}
-        return [tool for tool in tools if tool.name not in pending_names] + [DESCRIBE_TOOL], pending
 
     def _prepare_code_mode(self, tools: list[Tool], *, state: TurnState) -> tuple[list[Tool], Path | None]:
         """Split tools for code mode and return the model-facing tools plus the stub path.
@@ -564,16 +549,14 @@ class Agent:
         prompt: str,
         state: TurnState,
         allowed_skills: set[str] | None = None,
-        tools: Iterable[Tool] | None = None,
+        tools_prompt: str = "",
         stub_path: Path | None = None,
     ) -> str:
         from bub.builtin.codemode import render_code_mode_prompt
-        from bub.builtin.deferred_tools import render_deferred_tools_prompt
 
         blocks: list[str] = []
         if result := self.framework.get_system_prompt(prompt=prompt, state=state):
             blocks.append(result)
-        tools_prompt = render_deferred_tools_prompt(tools if tools is not None else self.tools.values())
         if tools_prompt:
             blocks.append(tools_prompt)
         if stub_path is not None:
