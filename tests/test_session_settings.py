@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from bub.builtin.session_settings import load_session_settings, set_session_setting
+from bub.builtin.settings import load_session_settings, set_session_setting
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
 from bub.tools import ToolContext

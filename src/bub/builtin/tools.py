@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast, final
 
 from pydantic import BaseModel, Field
 
-from bub.builtin.session_settings import set_session_setting
+from bub.builtin.settings import set_session_setting
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
 from bub.tools import REGISTRY, Tool, ToolContext, tool

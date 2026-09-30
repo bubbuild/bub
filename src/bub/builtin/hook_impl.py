@@ -12,8 +12,7 @@ from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context
 from bub.builtin.onboarding import collect_model_config
-from bub.builtin.session_settings import load_session_settings
-from bub.builtin.settings import load_settings
+from bub.builtin.settings import load_session_settings, load_settings
 from bub.builtin.steering import InMemorySteeringInbox
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.base import Channel

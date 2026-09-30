@@ -18,7 +18,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from bub.builtin.session_settings import set_session_setting
+from bub.builtin.settings import set_session_setting
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import AgentHooks
 from bub.tools import Tool, ToolContext, ToolExecutor, model_tools, tool
