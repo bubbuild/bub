@@ -42,6 +42,7 @@ class BubHookSpecs:
     def provide_execution_environment(self, session_id: str, state: TurnState) -> ExecutionEnvironment | None:
         """Resolve filesystem, process and code execution. None declines; failures propagate.
 
+        Return a stable environment handle; defer resource allocation to acquire().
         Async implementations are supported. No new tape or loop ownership is implied.
         """
         raise NotImplementedError

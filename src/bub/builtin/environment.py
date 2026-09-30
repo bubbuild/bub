@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,11 @@ class LocalExecutionEnvironment:
         self.workspace = Path(workspace).resolve() if workspace else None
         self.session_id = session_id
         self._handles: set[str] = set()
+
+    @asynccontextmanager
+    async def acquire(self) -> AsyncIterator[LocalExecutionEnvironment]:
+        """Local resources need no allocation; background shells outlive turns."""
+        yield self
 
     @property
     def render_context(self) -> Mapping[str, str]:

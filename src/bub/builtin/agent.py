@@ -163,9 +163,8 @@ class Agent:
                         state = await self.framework.build_state({"_runtime_agent": self}, session_id)
                     state["_runtime_environment_binding"] = binding
                     state["_runtime_agent"] = self
-                    state["_runtime_execution_environment"] = await self.framework.get_execution_environment(
-                        session_id, state
-                    )
+                    selected = await self.framework.get_execution_environment(session_id, state)
+                    state["_runtime_execution_environment"] = await stack.enter_async_context(selected.acquire())
                     from bub.builtin.environment import bind_turn_tools
 
                     state["_runtime_bound_tools"] = bind_turn_tools(self.tools, state["_runtime_execution_environment"])

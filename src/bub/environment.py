@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Mapping
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -15,6 +15,17 @@ if TYPE_CHECKING:
 
 class ExecutionEnvironment(Protocol):
     """A pinned environment instance. Providers own lifetime across turns."""
+
+    def acquire(self) -> AbstractAsyncContextManager[ExecutionEnvironment]:
+        """Acquire a turn-scoped execution view, possibly self.
+
+        Enter before tool binding or resource mapping. Exit releases this use,
+        not background work or the retained environment. Providers must reject
+        disabled handles and clean up partial acquisition on failure/cancellation.
+        Returned views must not be reused after exit. Providers own coordination
+        with reclamation, background work, and shared dependencies.
+        """
+        ...
 
     def bind_tools(self, tools: Mapping[str, Tool]) -> Mapping[str, Tool]:
         """Bind required execution tools once per turn, or raise if unsupported.

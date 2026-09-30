@@ -626,3 +626,88 @@ async def test_environment_binding_released_when_provider_cancelled() -> None:
     async with asyncio.timeout(1):
         stream = await agent.run_stream(session_id="s", prompt="retry", state=state)
         await stream.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("consume", [True, False])
+async def test_environment_use_spans_stream_and_uses_acquired_view(consume: bool) -> None:
+    events: list[str] = []
+    view = LocalExecutionEnvironment()
+
+    class Environment:
+        @contextlib.asynccontextmanager
+        async def acquire(self):
+            events.append("enter")
+            try:
+                yield view
+            finally:
+                events.append("exit")
+
+    agent = _make_agent()
+    agent.framework.get_execution_environment.return_value = Environment()
+    agent.tape = _FakeTapeFactory(_ForkCapture())  # type: ignore[assignment]
+    state = {}
+    stream = await agent.run_stream(session_id="lease", prompt="hello", state=state)
+    assert state["_runtime_execution_environment"] is view
+    assert events == ["enter"]
+    if consume:
+        async for _ in stream:
+            pass
+    else:
+        await stream.aclose()
+    assert events == ["enter", "exit"]
+
+
+@pytest.mark.asyncio
+async def test_environment_use_released_on_binding_failure() -> None:
+    events: list[str] = []
+
+    class Broken(LocalExecutionEnvironment):
+        def bind_tools(self, tools):
+            raise ValueError("binding failed")
+
+        @contextlib.asynccontextmanager
+        async def acquire(self):
+            events.append("enter")
+            try:
+                yield self
+            finally:
+                events.append("exit")
+
+    agent = _make_agent()
+    agent.framework.get_execution_environment.return_value = Broken()
+    with pytest.raises(ValueError, match="binding failed"):
+        await agent.run_stream(session_id="lease", prompt="hello", state={})
+    assert events == ["enter", "exit"]
+
+
+@pytest.mark.asyncio
+async def test_environment_acquisition_cancellation_releases_session_for_retry() -> None:
+    import asyncio
+
+    entered = asyncio.Event()
+    cleaned = asyncio.Event()
+
+    class Waiting(LocalExecutionEnvironment):
+        @contextlib.asynccontextmanager
+        async def acquire(self):
+            try:
+                entered.set()
+                await asyncio.Event().wait()
+                yield self
+            finally:
+                cleaned.set()
+
+    agent = _make_agent()
+    agent.framework.get_execution_environment.return_value = Waiting()
+    task = asyncio.create_task(agent.run_stream(session_id="lease", prompt="hello", state={}))
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cleaned.is_set()
+    agent.framework.get_execution_environment.return_value = LocalExecutionEnvironment()
+    agent.tape = _FakeTapeFactory(_ForkCapture())  # type: ignore[assignment]
+    async with asyncio.timeout(1):
+        stream = await agent.run_stream(session_id="lease", prompt="retry", state={})
+        await stream.aclose()
