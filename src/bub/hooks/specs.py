@@ -11,7 +11,7 @@ import pluggy
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import MessageHandler
 from bub.envelope import Envelope
-from bub.execution import ExecutionEnvironment
+from bub.environment import ExecutionEnvironment
 from bub.hooks.interception import (
     LlmCallDecision,
     LlmCallRequest,

@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from bub.execution import ExecutionEnvironment
+from bub.environment import ExecutionEnvironment
 
 if TYPE_CHECKING:
     from bub.tools import Tool, ToolContext

@@ -181,7 +181,7 @@ The patterns above are visible in shipping plugins:
 ## Execution environments
 
 Implement `provide_execution_environment(session_id, state)` to supply an
-`ExecutionEnvironment` (`bub.execution`) for filesystem, shell, and Python
+`ExecutionEnvironment` (`bub.environment`) for filesystem, shell, and Python
 execution. Tape, model calls, and tool interception remain host services.
 
 At turn setup, the builtin adapter selects execution tools (filesystem, shell,

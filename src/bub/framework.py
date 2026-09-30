@@ -18,9 +18,8 @@ from bub import configure
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import ChannelRouter, MessageHandler
 from bub.envelope import Envelope, content_of, field_of, unpack_batch
-from bub.environment_binding import EnvironmentBinding, SessionEnvironments
+from bub.environment import EnvironmentBinding, ExecutionEnvironment, SessionEnvironments
 from bub.errors import BubError, ErrorKind
-from bub.execution import ExecutionEnvironment
 from bub.hooks.interception import AgentHooks
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs

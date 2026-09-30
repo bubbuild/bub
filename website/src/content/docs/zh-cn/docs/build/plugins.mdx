@@ -180,7 +180,7 @@ run_model: builtin, echo
 
 ## 执行环境
 
-实现 `provide_execution_environment(session_id, state)`，提供 `bub.execution`
+实现 `provide_execution_environment(session_id, state)`，提供 `bub.environment`
 中的 `ExecutionEnvironment`。Tape、模型调用和工具拦截仍是宿主服务。
 
 每轮开始时，builtin 适配层选择文件、shell 和代码执行工具，一次调用
