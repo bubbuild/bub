@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import inspect
 import os
 import shutil
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, TypedDict
 
 import pytest
@@ -21,7 +23,7 @@ from bub.builtin.codemode import (
     write_tool_stub,
 )
 from bub.builtin.environment import LocalEnvironment, LocalProcess
-from bub.environment import ENVIRONMENT_STATE_KEY
+from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, CodeFailed
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
@@ -345,3 +347,106 @@ async def test_run_code_raises_in_code_when_a_result_is_not_serializable(tmp_pat
     output = await run_code.run(code=code, context=_context(tmp_path, [opaque]))
 
     assert output == "BubError True\n"
+
+
+class _InProcessEnvironment(LocalEnvironment):
+    """Runs code on the event loop instead of spawning a process."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stopped = False
+
+    async def spawn(self, *args: Any, **kwargs: Any) -> LocalProcess:
+        raise AssertionError("run_code must not spawn a process")
+
+    async def run_code(
+        self, code: str, *, tools: Sequence[str], call_tool: CallTool, write: Callable[[str], None]
+    ) -> None:
+        def bind(name: str) -> Callable[..., Any]:
+            async def call(**kwargs: Any) -> Any:
+                return await call_tool(name, kwargs)
+
+            return call
+
+        namespace = {
+            "tools": SimpleNamespace(**{name: bind(name) for name in tools}),
+            "print": lambda *args: write(" ".join(map(str, args)) + "\n"),
+        }
+        try:
+            result = eval(compile(code, "<code>", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT), namespace)  # noqa: S307
+            if inspect.iscoroutine(result):
+                await result
+        except asyncio.CancelledError:
+            self.stopped = True
+            raise
+        except BubError:
+            raise
+        except Exception as exc:
+            raise CodeFailed(f"{type(exc).__name__}: {exc}") from exc
+
+
+@pytest.mark.asyncio
+async def test_run_code_delegates_to_the_environment_code_runtime(tmp_path: Path) -> None:
+    calls: list[tuple[str, bool]] = []
+
+    class Hooks:
+        async def before_tool_call(self, call: ToolCall, state: dict[str, Any]) -> tuple[ToolCall, ToolCallDecision]:
+            calls.append((call.tool, call.code_mode))
+            if call.tool == "blocked":
+                return call, ToolCallDecision.deny("not allowed")
+            return call, ToolCallDecision.proceed()
+
+        async def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict[str, Any]) -> None:
+            return None
+
+    agent = type("FakeAgent", (), {"model_runner": type("Runner", (), {"hooks": Hooks()})()})()
+    order_tool = Tool.from_callable(get_order, name="orders.get", context=True)
+    blocked = Tool.from_callable(lambda: "secret", name="blocked")
+    code = (
+        "order = await tools.orders_get(order_id='A1')\n"
+        "print(order['id'], order['total'])\n"
+        "try:\n    await tools.blocked()\nexcept Exception as exc:\n    print(exc)\n"
+    )
+    context = _context(
+        tmp_path, [order_tool, blocked], _runtime_agent=agent, **{ENVIRONMENT_STATE_KEY: _InProcessEnvironment()}
+    )
+
+    output = await run_code.run(code=code, context=context)
+
+    assert output == "A1 12.5\n[tool] not allowed\n"
+    assert calls == [("orders_get", True), ("blocked", True)]
+
+
+@pytest.mark.asyncio
+async def test_run_code_timeout_cancels_the_environment_code_runtime(tmp_path: Path) -> None:
+    environment = _InProcessEnvironment()
+    context = _context(tmp_path, [], **{ENVIRONMENT_STATE_KEY: environment})
+
+    with pytest.raises(BubError) as exc_info:
+        await run_code.run(
+            code="print('started')\nimport asyncio\nawait asyncio.sleep(30)", timeout_seconds=1, context=context
+        )
+
+    assert exc_info.value.message == "Code timed out after 1 seconds"
+    assert exc_info.value.details == {"output": "started\n"}
+    assert environment.stopped
+
+
+@pytest.mark.asyncio
+async def test_run_code_maps_code_and_runtime_failures_from_the_environment(tmp_path: Path) -> None:
+    class FailingRuntime(_InProcessEnvironment):
+        async def run_code(self, code: str, **kwargs: Any) -> None:
+            kwargs["write"]("partial\n")
+            raise BubError(ErrorKind.TOOL, "runtime crashed", details={"stderr": "boom"})
+
+    context = _context(tmp_path, [], **{ENVIRONMENT_STATE_KEY: _InProcessEnvironment()})
+    with pytest.raises(BubError) as code_error:
+        await run_code.run(code="print('before')\nraise ValueError('bad')", context=context)
+    assert code_error.value.message == "Code raised ValueError: bad"
+    assert code_error.value.details == {"output": "before\n", "traceback": ""}
+
+    context = _context(tmp_path, [], **{ENVIRONMENT_STATE_KEY: FailingRuntime()})
+    with pytest.raises(BubError) as runtime_error:
+        await run_code.run(code="print(1)", context=context)
+    assert runtime_error.value.message == "runtime crashed"
+    assert runtime_error.value.details == {"output": "partial\n", "stderr": "boom"}

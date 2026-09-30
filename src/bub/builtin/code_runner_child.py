@@ -1,7 +1,7 @@
-"""Run code for ``run_code`` in its own process and forward ``tools.*`` calls to Bub.
+"""Child side of ``run_code_in_subprocess``: run the code and forward ``tools.*`` calls to Bub.
 
-Bub runs this file with ``python -c`` inside the session's environment, so it must
-only use the standard library. Both directions exchange JSON lines:
+Bub runs this file with ``python -c`` inside the environment, so it must only use
+the standard library. Both directions exchange JSON lines:
 
 - Bub writes ``{"type": "run", "code", "filename", "tools"}`` to stdin first,
   then ``{"type": "result", "id", "value"}`` or ``{"type": "error", "id", "message"}``

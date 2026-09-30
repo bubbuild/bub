@@ -8,11 +8,12 @@ import os
 import shutil
 import signal
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from bub.environment import ENVIRONMENT_STATE_KEY, Environment, Process
+from bub.builtin.code_runner import run_code_in_subprocess
+from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, Environment, Process
 
 if TYPE_CHECKING:
     from bub.turn import TurnState
@@ -114,6 +115,11 @@ class LocalEnvironment(Environment):
             target.write_text(content, encoding="utf-8")
 
         await asyncio.to_thread(write)
+
+    async def run_code(
+        self, code: str, *, tools: Sequence[str], call_tool: CallTool, write: Callable[[str], None]
+    ) -> None:
+        await run_code_in_subprocess(self, code, tools=tools, call_tool=call_tool, write=write)
 
     def resolve_path(self, path: str) -> str:
         expanded = Path(path).expanduser()

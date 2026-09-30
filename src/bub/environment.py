@@ -1,8 +1,8 @@
 """Execution environments for tools that run processes or touch files.
 
 A :class:`Environment` provides a few low-level capabilities — spawn a process,
-read and write text files, resolve paths — and tools such as ``bash`` and
-``fs.*`` run on top of it. Tool semantics (background shells, timeouts,
+read and write text files, resolve paths, run Python code — and tools such as
+``bash``, ``fs.*`` and ``run_code`` run on top of it. Tool semantics (background shells, timeouts,
 rendering, hooks) stay on the host; only execution moves into the environment.
 Plugins provide one per session through the ``provide_environment`` hook; Bub's
 builtin hooks provide ``bub.builtin.environment.LocalEnvironment``, which runs
@@ -13,9 +13,24 @@ from __future__ import annotations
 
 import abc
 import asyncio
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import Any
 
 ENVIRONMENT_STATE_KEY = "_runtime_environment"
+
+CallTool = Callable[[str, dict[str, Any]], Awaitable[Any]]
+"""Call a Bub tool by its code-facing name with keyword arguments; returns its structured result or raises."""
+
+
+class CodeFailed(Exception):
+    """Code passed to ``Environment.run_code`` raised an exception."""
+
+    def __init__(self, error: str, traceback: str = "") -> None:
+        super().__init__(error)
+        self.error = error
+        """The exception as ``"<Type>: <message>"``."""
+        self.traceback = traceback
+        """The formatted traceback, limited to frames of the code itself."""
 
 
 class Process(abc.ABC):
@@ -102,6 +117,24 @@ class Environment(abc.ABC):
         if self.workspace is None:
             raise ValueError(f"relative path '{path}' is not allowed without a workspace")
         return posixpath.normpath(posixpath.join(self.workspace, path))
+
+    @abc.abstractmethod
+    async def run_code(
+        self, code: str, *, tools: Sequence[str], call_tool: CallTool, write: Callable[[str], None]
+    ) -> None:
+        """Run Python ``code`` and return when it finishes.
+
+        The code may use top-level ``await``. For each name in ``tools``, ``tools.<name>(**kwargs)``
+        must be an async function that returns ``await call_tool(name, kwargs)``; errors from
+        ``call_tool`` surface in the code as exceptions. Pass everything the code writes to stdout
+        to ``write`` as it happens, so output survives a timeout. Raise :class:`CodeFailed` when the
+        code raises; any other exception reports that the runtime itself failed. When cancelled
+        (for example on timeout), stop the code before returning.
+
+        How the code runs is up to the environment: a Python process, an embedded interpreter or a
+        remote code interpreter. ``bub.builtin.code_runner.run_code_in_subprocess`` implements it
+        on top of :meth:`spawn` for environments that have a Python interpreter.
+        """
 
     async def close(self) -> None:  # noqa: B027
         """Release the environment's resources. Called when the framework stops."""

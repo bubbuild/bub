@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -8,7 +8,7 @@ import pytest
 import bub.builtin.tools as builtin_tools
 from bub.builtin.environment import LocalEnvironment, LocalProcess, environment_from_state
 from bub.builtin.shell_manager import ShellManager
-from bub.environment import ENVIRONMENT_STATE_KEY, Environment, Process
+from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, Environment, Process
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
@@ -27,6 +27,11 @@ class MemoryEnvironment(Environment):
     async def spawn(
         self, command: str | Sequence[str], *, cwd: str | None = None, env: Mapping[str, str] | None = None
     ) -> Process:
+        raise NotImplementedError
+
+    async def run_code(
+        self, code: str, *, tools: Sequence[str], call_tool: CallTool, write: Callable[[str], None]
+    ) -> None:
         raise NotImplementedError
 
     async def read_text(self, path: str) -> str:
