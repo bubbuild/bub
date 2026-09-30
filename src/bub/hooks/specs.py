@@ -11,6 +11,7 @@ import pluggy
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import MessageHandler
 from bub.envelope import Envelope
+from bub.execution import ExecutionEnvironment
 from bub.hooks.interception import (
     LlmCallDecision,
     LlmCallRequest,
@@ -36,6 +37,14 @@ hookimpl = pluggy.HookimplMarker(BUB_HOOK_NAMESPACE)
 
 class BubHookSpecs:
     """Hook contract for Bub framework extensions."""
+
+    @hookspec(firstresult=True)
+    def provide_execution_environment(self, session_id: str, state: TurnState) -> ExecutionEnvironment | None:
+        """Resolve filesystem, process and code execution. None declines; failures propagate.
+
+        Async implementations are supported. No new tape or loop ownership is implied.
+        """
+        raise NotImplementedError
 
     @hookspec(firstresult=True)
     def resolve_session(self, message: Envelope) -> str:

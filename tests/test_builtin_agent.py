@@ -4,14 +4,13 @@ import contextlib
 from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from any_llm.types.completion import ChatCompletionChunk
 
-import bub.builtin.codemode
-import bub.builtin.tools  # noqa: F401  — registers builtin tools (incl. `model`)
 from bub.builtin.agent import Agent
+from bub.builtin.environment import LocalExecutionEnvironment
 from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
 from bub.builtin.steering import InMemorySteeringInbox
@@ -38,6 +37,10 @@ class _FakeModelRunner(ModelRunner):
 def _make_agent() -> Agent:
     """Build an Agent with a mocked framework, bypassing real LLM/tape init."""
     framework = MagicMock()
+    from bub.framework import BubFramework
+
+    framework.acquire_environment.side_effect = BubFramework().acquire_environment
+    framework.get_execution_environment = AsyncMock(return_value=LocalExecutionEnvironment())
     framework.get_tape_store.return_value = None
     framework.get_steering_inbox.return_value = None
     framework.get_system_prompt.return_value = ""
@@ -571,3 +574,55 @@ async def test_code_mode_command_switches_session_code_mode(command: str, expect
     deltas = [event.data.get("delta", "") for event in events if event.kind == "text"]
     status = "enabled" if expected else "disabled"
     assert f"Session code mode {status} (applies from the next turn)." in deltas
+
+
+@pytest.mark.asyncio
+async def test_nested_same_session_environment_binding_is_rejected() -> None:
+    agent = _make_agent()
+    agent.tape = _FakeTapeFactory(_ForkCapture())  # type: ignore[assignment]
+    state = {}
+    stream = await agent.run_stream(session_id="s", prompt="hello", state=state)
+    try:
+        with pytest.raises(ValueError, match="Nested same-session"):
+            await agent.run_stream(session_id="s", prompt="nested", state=dict(state))
+    finally:
+        await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_environment_binding_released_when_unconsumed_stream_closed() -> None:
+    agent = _make_agent()
+    agent.tape = _FakeTapeFactory(_ForkCapture())  # type: ignore[assignment]
+    state = {}
+    stream = await agent.run_stream(session_id="s", prompt="hello", state=state)
+    await stream.aclose()
+    import asyncio
+
+    async with asyncio.timeout(1):
+        next_stream = await agent.run_stream(session_id="s", prompt="next", state=state)
+        await next_stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_environment_binding_released_when_provider_cancelled() -> None:
+    import asyncio
+
+    agent = _make_agent()
+    entered = asyncio.Event()
+
+    async def blocked(*args, **kwargs):
+        entered.set()
+        await asyncio.Event().wait()
+
+    agent.framework.get_execution_environment.side_effect = blocked
+    state = {}
+    task = asyncio.create_task(agent.run_stream(session_id="s", prompt="hello", state=state))
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    agent.framework.get_execution_environment.side_effect = None
+    agent.tape = _FakeTapeFactory(_ForkCapture())  # type: ignore[assignment]
+    async with asyncio.timeout(1):
+        stream = await agent.run_stream(session_id="s", prompt="retry", state=state)
+        await stream.aclose()

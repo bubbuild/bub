@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import AsyncGenerator
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -17,7 +18,9 @@ from bub import configure
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import ChannelRouter, MessageHandler
 from bub.envelope import Envelope, content_of, field_of, unpack_batch
+from bub.environment_binding import EnvironmentBinding, SessionEnvironments
 from bub.errors import BubError, ErrorKind
+from bub.execution import ExecutionEnvironment
 from bub.hooks.interception import AgentHooks
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
@@ -52,6 +55,7 @@ class BubFramework:
         The workspace initially points to the current directory. Register plugins
         or load builtin hooks before executing turns; construction does not load them.
         """
+        self._session_environments: dict[tuple[str, str], SessionEnvironments] = {}
         self.workspace = Path.cwd().resolve()
         self.config_file = config_file.resolve()
         self._plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
@@ -431,6 +435,57 @@ class BubFramework:
     def get_steering_inbox(self) -> SteeringInbox | None:
         """Return the inbox acquired by ``running()``, or None when unavailable."""
         return self._steering_inbox
+
+    async def get_execution_environment(self, session_id: str, state: TurnState) -> ExecutionEnvironment:
+        """Select an environment without silently falling back after provider failure."""
+        from bub.builtin.environment import LocalExecutionEnvironment
+
+        reference = str(state.get("environment", "default"))
+        owner = self._session_environment(session_id, state)
+        if reference in owner.instances:
+            return owner.instances[reference]
+        environment: ExecutionEnvironment | None = await self._hook_runtime.call_first(
+            "provide_execution_environment", session_id=session_id, state=state
+        )
+        if environment is None:
+            if reference != "default":
+                raise ValueError(f"Environment unavailable or unauthorized: {reference}")
+            environment = LocalExecutionEnvironment(state.get("_runtime_workspace"), session_id)
+        owner.instances[reference] = environment
+        return environment
+
+    async def prepare_environment_switch(
+        self, session_id: str, state: TurnState, reference: str
+    ) -> ExecutionEnvironment:
+        """Authorize an explicit switch, including default and already cached targets.
+
+        Providers must explicitly accept by returning an environment. A decline
+        never authorizes host execution. This prepares only: the caller owns Tape
+        publication and must hold the session binding. Current state is not mutated.
+        """
+        if not reference.strip():
+            raise ValueError("Environment reference must not be empty")
+        candidate_state = {**state, "environment": reference, "_runtime_environment_switch": True}
+        environment: ExecutionEnvironment | None = await self._hook_runtime.call_first(
+            "provide_execution_environment", session_id=session_id, state=candidate_state
+        )
+        if environment is None:
+            raise ValueError(f"Environment unavailable or unauthorized: {reference}")
+        owner = self._session_environment(session_id, state)
+        # Authorization is always fresh, but an existing binding retains identity.
+        return owner.instances.setdefault(reference, environment)
+
+    def _session_environment(self, session_id: str, state: TurnState | None) -> SessionEnvironments:
+        workspace = (state or {}).get("_runtime_workspace") or self.workspace
+        scope = (str(Path(workspace).resolve()), session_id)
+        return self._session_environments.setdefault(scope, SessionEnvironments())
+
+    def acquire_environment(
+        self, session_id: str, state: TurnState | None
+    ) -> AbstractAsyncContextManager[EnvironmentBinding]:
+        """Bind the session owner through stream completion, before loading state."""
+        inherited = (state or {}).get("_runtime_environment_binding")
+        return self._session_environment(session_id, state).acquire(inherited)
 
     def get_agent_hooks(self) -> AgentHooks:
         """Return the model and tool interception adapter for this framework's hooks."""

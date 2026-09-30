@@ -135,7 +135,7 @@ def load_settings() -> AgentSettings:
 
 # Per-session settings persisted as switch events on the session tape.
 
-SESSION_SETTINGS = ("model", "reasoning_effort", "code_mode")
+SESSION_SETTINGS = ("model", "reasoning_effort", "code_mode", "environment")
 
 
 def _switch_event(key: str) -> str:

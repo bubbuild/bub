@@ -177,3 +177,55 @@ The patterns above are visible in shipping plugins:
 - [Tools](/docs/build/tools/) — register tools the model can call
 - [Hook reference](/docs/reference/hooks/) — full signature table
 - [Distribution](/docs/build/distribution/) — bundle plugins into a product
+
+## Execution environments
+
+Implement `provide_execution_environment(session_id, state)` to supply an
+`ExecutionEnvironment` (`bub.execution`) for filesystem, shell, and Python
+execution. Tape, model calls, and tool interception remain host services.
+
+At turn setup, the builtin adapter selects execution tools (filesystem, shell,
+and code execution) and calls `bind_tools(tools: Mapping[str, Tool])` once.
+Providers return the same names and public contracts with adapted handlers, or
+raise if unsupported. Missing bindings fail before execution, never falling back
+to the host. Host capabilities retain their original handlers.
+
+The resulting tool map belongs to the turn, not the shared Agent. Commands, model
+calls, allowed-tool filtering, and code callbacks all use this map. ToolExecutor
+interception remains unchanged. `preserve` only controls code-mode visibility;
+it does not determine execution location. There is no execution-ownership flag
+or per-call environment dispatch on Tool.
+
+The environment protocol does not enumerate filesystem, shell, or Python tools.
+Their behavior lives in builtin tools and concrete adapters. Providers also offer
+`map_resource(source: Path) -> str` and a generic `render_context` mapping.
+They choose copying, mounting, or existing mappings and own resource lifetime;
+mapping does not imply synchronization or write-back. Skill loading authorizes
+before mapping resources, then supplies `$SKILL_DIR` and consumes the optional
+`PYTHON` rendering value (default: `python` in the execution environment). This
+is a skill convention, not a required environment property. Code-mode stubs use
+the same resource mapping contract.
+
+A turn pins one environment. `,environment <reference>` requests a switch for the
+next turn, requires provider authorization (including switching to `default`),
+and rejects active managed background work. Selection uses existing Tape session
+settings; files and processes are not migrated. A missing named environment never
+falls back to host execution.
+
+Providers own retained instances, shutdown, and restart continuity. Prepared
+resources can remain retained after a failed Tape publication. Local execution
+is trusted host execution, not isolation; in-process Python uses the host process
+cwd. Automatic skill prompt expansion remains host-side; use explicit skill
+loading for resource mapping. Consume or close agent streams to release their
+turn bindings; nested same-session execution is rejected.
+
+### Current limitations
+
+Builtin execution-tool selection is currently a fixed set, not an ownership
+registry for arbitrary plugin tools. New builtin execution capabilities must
+update this set. A session owner holds retained instances and serialization;
+callers acquire a context-managed binding, not a separate environment lock.
+`,quit` awaits the pinned environment's `stop()` before reporting success. Providers
+must cancel owned work without disposing of the retained environment; stop errors
+propagate. Local stop only terminates handles owned by that environment. This
+lifecycle contract is not a sandbox guarantee.

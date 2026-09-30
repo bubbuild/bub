@@ -12,7 +12,7 @@ import linecache
 import re
 import traceback
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,7 +20,6 @@ from typing import Any
 
 from bub.builtin.settings import set_session_setting
 from bub.errors import BubError, ErrorKind
-from bub.hooks.interception import AgentHooks
 from bub.tools import Tool, ToolContext, ToolExecutor, model_tools, tool
 
 RUN_CODE_TOOL_NAME = "run_code"
@@ -287,14 +286,19 @@ async def run_code(code: str, *, context: ToolContext) -> str:
     (top-level `await` is allowed). See the tool stub file referenced in the system prompt for their
     signatures and result types.
     """
+    from bub.builtin.environment import local_environment
+
+    local_environment(context)
     code_tools = context.state.get(CODE_TOOLS_STATE_KEY)
     if code_tools is None:
         raise BubError(ErrorKind.INVALID_INPUT, "Code mode is not enabled for this run.")
-    agent = context.state.get("_runtime_agent")
-    hooks: AgentHooks | None = getattr(getattr(agent, "model_runner", None), "hooks", None)
-    # Code consumes structured results, so this executor does not render them to text.
-    executor = ToolExecutor(hooks=hooks, render=False)
+    executor = ToolExecutor(hooks=context.hooks, render=False)
     code_context = replace(context, code_mode=True)
+    callbacks = {_identifier(item.name): _tool_function(item, executor, code_context) for item in code_tools}
+    return await _execute_local(code, callbacks)
+
+
+async def _execute_local(code: str, tools: Mapping[str, Callable[..., Awaitable[Any]]]) -> str:
     output = io.StringIO()
 
     def print_to_output(*args: Any, **kwargs: Any) -> None:
@@ -306,9 +310,7 @@ async def run_code(code: str, *, context: ToolContext) -> str:
         "__name__": "__run_code__",
         "__builtins__": builtins,
         "print": print_to_output,
-        "tools": SimpleNamespace(**{
-            _identifier(item.name): _tool_function(item, executor, code_context) for item in code_tools
-        }),
+        "tools": SimpleNamespace(**tools),
     }
     filename = f"<run_code-{uuid.uuid4().hex[:8]}>"
     linecache.cache[filename] = (len(code), None, code.splitlines(keepends=True), filename)

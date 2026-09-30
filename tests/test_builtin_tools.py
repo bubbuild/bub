@@ -525,3 +525,129 @@ async def test_bash_cleanup_does_not_return_a_released_shell_id_or_mask_cancella
         await asyncio.gather(task, return_exceptions=True)
         for shell_id in list(manager._shells):
             await manager.terminate(shell_id)
+
+
+@pytest.mark.asyncio
+async def test_environment_files_and_shell_share_workspace(tmp_path) -> None:
+    from bub.builtin.environment import LocalExecutionEnvironment
+
+    environment = LocalExecutionEnvironment(tmp_path, "test")
+    context = _tool_context(tmp_path, _runtime_execution_environment=environment)
+    bound = environment.bind_tools({
+        t.name: t for t in (builtin_tools.fs_write, builtin_tools.fs_edit, builtin_tools.fs_read, bash)
+    })
+    await bound["fs.write"].run(path="shared.txt", content="shared", context=context)
+    assert await bound["bash"].run(command="cat shared.txt", context=context) == "shared"
+    await bound["fs.edit"].run(path="shared.txt", old="shared", new="updated", context=context)
+    assert await bound["fs.read"].run(path="shared.txt", context=context) == "updated"
+
+
+@pytest.mark.asyncio
+async def test_environment_rejects_foreign_process_handles(tmp_path) -> None:
+    from bub.builtin.environment import LocalExecutionEnvironment
+
+    context = _tool_context(tmp_path, _runtime_execution_environment=LocalExecutionEnvironment(tmp_path, "other"))
+    bound = context.state["_runtime_execution_environment"].bind_tools({t.name: t for t in (bash_output, kill_bash)})
+    with pytest.raises(KeyError, match="does not belong"):
+        await bound["bash.output"].run(shell_id="foreign", context=context)
+    with pytest.raises(KeyError, match="does not belong"):
+        await bound["bash.kill"].run(shell_id="foreign", context=context)
+
+
+@pytest.mark.asyncio
+async def test_environment_switch_blocks_active_jobs(tmp_path) -> None:
+    from unittest.mock import AsyncMock
+
+    environment = SimpleNamespace(has_active_processes=AsyncMock(return_value=True))
+    context = _tool_context(tmp_path, session_id="session", _runtime_execution_environment=environment)
+    with pytest.raises(ValueError, match="active background"):
+        await builtin_tools.set_environment.run(reference="remote", context=context)
+    assert "environment" not in context.state
+
+
+@pytest.fixture
+def projected_skill_context(tmp_path):
+    from unittest.mock import AsyncMock
+
+    directory = tmp_path / "skills" / "demo"
+    directory.mkdir(parents=True)
+    (directory / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Demo\n---\n$PYTHON $SKILL_DIR/scripts/run.py", encoding="utf-8"
+    )
+    environment = SimpleNamespace(
+        map_resource=AsyncMock(return_value="/remote/demo"), render_context={"PYTHON": "/venv/bin/python"}
+    )
+    return _tool_context(
+        tmp_path,
+        _runtime_agent=SimpleNamespace(skill_dirs=[directory.parent]),
+        _runtime_execution_environment=environment,
+    )
+
+
+@pytest.mark.asyncio
+async def test_skill_uses_projected_location_and_render_values(projected_skill_context) -> None:
+    context = projected_skill_context
+    result = await builtin_tools.skill_describe.run(name="demo", context=context)
+    assert result == {
+        "name": "demo",
+        "location": "/remote/demo/SKILL.md",
+        "content": "/venv/bin/python /remote/demo/scripts/run.py",
+    }
+    directory = Path(context.state["_runtime_workspace"]) / "skills" / "demo"
+    assert "$SKILL_DIR" in (directory / "SKILL.md").read_text()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", [None, "missing", "demo"])
+async def test_skill_listing_and_rejected_loads_do_not_project(projected_skill_context, name) -> None:
+    context = projected_skill_context
+    if name == "demo":
+        context.state["allowed_skills"] = []
+    result = await builtin_tools.skill_describe.run(name=name, context=context)
+    assert ("skills" if name is None else "error") in result
+    context.state["_runtime_execution_environment"].map_resource.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_skill_projection_failure_does_not_return_host_path(projected_skill_context) -> None:
+    context = projected_skill_context
+    context.state["_runtime_execution_environment"].map_resource.side_effect = NotImplementedError(
+        "projection unsupported"
+    )
+    with pytest.raises(NotImplementedError, match="projection unsupported"):
+        await builtin_tools.skill_describe.run(name="demo", context=context)
+
+
+@pytest.mark.asyncio
+async def test_unsupported_environment_tool_does_not_write_on_host(tmp_path) -> None:
+    class Environment:
+        def bind_tools(self, tools):
+            raise NotImplementedError("unsupported execution tool")
+
+    from bub.builtin.environment import bind_turn_tools
+
+    with pytest.raises(NotImplementedError, match="unsupported execution tool"):
+        bind_turn_tools({"fs.write": builtin_tools.fs_write}, Environment())
+    assert not (tmp_path / "must-not-exist").exists()
+
+
+@pytest.mark.asyncio
+async def test_quit_stops_pinned_environment_before_reporting_success(tmp_path) -> None:
+    events = []
+
+    class Environment:
+        async def stop(self):
+            events.append("stopped")
+
+    class Framework:
+        async def quit_via_channel_router(self, session_id):
+            events.append("quit")
+
+    context = _tool_context(
+        tmp_path,
+        session_id="session",
+        _runtime_execution_environment=Environment(),
+        _runtime_agent=SimpleNamespace(framework=Framework()),
+    )
+    assert await quit_tool.run(context=context) == "Session tasks stopped."
+    assert events == ["stopped", "quit"]

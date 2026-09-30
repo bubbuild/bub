@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast, final
 
 from pydantic import BaseModel, Field
 
+from bub.builtin.environment import local_environment
 from bub.builtin.settings import set_session_setting
 from bub.builtin.shell_manager import shell_manager
 from bub.skills import discover_skills
@@ -254,11 +255,14 @@ async def bash(
     and return a shell ID. Use bash.output to read output or bash.kill to stop them.
     Background commands do not use timeout_seconds.
     """
+    environment = local_environment(context)
     workspace = context.state.get("_runtime_workspace")
-    target_cwd = cwd or workspace
+    target_cwd = cwd or (str(environment.workspace) if environment and environment.workspace else workspace)
     raw_session_id = context.state.get("session_id")
     session_id = str(raw_session_id) if raw_session_id is not None else None
     shell = await shell_manager.start(cmd=command, cwd=target_cwd, session_id=session_id)
+    if environment is not None:
+        environment._handles.add(shell.shell_id)
     if background:
         return f"Shell started, shell_id: {shell.shell_id}\nRetrieve the output with bash_output or terminate it with bash_kill."
     try:
@@ -277,9 +281,13 @@ async def bash(
     return shell.output.strip() or "(no output)"
 
 
-@tool(name="bash.output", preserve=True)
-async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) -> str:
+@tool(name="bash.output", preserve=True, context=True)
+async def bash_output(
+    shell_id: str, offset: int = 0, limit: int | None = None, *, context: ToolContext | None = None
+) -> str:
     """Read buffered output from a background shell, with optional offset/limit for incremental polling."""
+    if context is not None and (environment := local_environment(context)) is not None:
+        environment._check_handle(shell_id)
     shell = shell_manager.get(shell_id)
     if shell.returncode is not None:
         await shell_manager.wait_closed(shell_id)
@@ -292,18 +300,22 @@ async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) 
     return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {exit_code}\nnext_offset: {end}\noutput:\n{body}"
 
 
-@tool(name="bash.kill", preserve=True)
-async def kill_bash(shell_id: str) -> str:
+@tool(name="bash.kill", preserve=True, context=True)
+async def kill_bash(shell_id: str, *, context: ToolContext | None = None) -> str:
     """Terminate a background shell process."""
+    if context is not None and (environment := local_environment(context)) is not None:
+        environment._check_handle(shell_id)
     shell = await shell_manager.terminate(shell_id)
     return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {shell.returncode}"
 
 
 @tool(context=True, name="fs.read", preserve=True)
-def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> str:
+async def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> str:
     """Read a text file and return its content. Supports optional pagination with offset and limit."""
-    resolved_path = _resolve_path(context, path)
-    text = resolved_path.read_text(encoding="utf-8")
+    from bub.builtin.environment import LocalExecutionEnvironment
+
+    environment = local_environment(context) or LocalExecutionEnvironment(context.state.get("_runtime_workspace"))
+    text = await environment._read_file(path)
     lines = text.splitlines()
     start = max(0, min(offset, len(lines)))
     end = len(lines) if limit is None else min(len(lines), start + max(0, limit))
@@ -311,32 +323,35 @@ def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: To
 
 
 @tool(context=True, name="fs.write", preserve=True)
-def fs_write(path: str, content: str, *, context: ToolContext) -> str:
+async def fs_write(path: str, content: str, *, context: ToolContext) -> str:
     """Write content to a text file."""
-    resolved_path = _resolve_path(context, path)
-    resolved_path.parent.mkdir(parents=True, exist_ok=True)
-    resolved_path.write_text(content, encoding="utf-8")
+    from bub.builtin.environment import LocalExecutionEnvironment
+
+    environment = local_environment(context) or LocalExecutionEnvironment(context.state.get("_runtime_workspace"))
+    resolved_path = await environment._write_file(path, content)
     return f"wrote: {resolved_path}"
 
 
 @tool(context=True, name="fs.edit", preserve=True)
-def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> str:
+async def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> str:
     """Edit a text file by replacing old text with new text. You can specify the line number to start searching for the old text."""
-    resolved_path = _resolve_path(context, path)
-    text = resolved_path.read_text(encoding="utf-8")
+    from bub.builtin.environment import LocalExecutionEnvironment
+
+    environment = local_environment(context) or LocalExecutionEnvironment(context.state.get("_runtime_workspace"))
+    text = await environment._read_file(path)
     lines = text.splitlines()
     prev, to_replace = "\n".join(lines[:start]), "\n".join(lines[start:])
     if old not in to_replace:
-        raise ValueError(f"'{old}' not found in {resolved_path} from line {start}")
+        raise ValueError(f"'{old}' not found in {path} from line {start}")
     replaced = to_replace.replace(old, new)
     if prev:
         replaced = prev + "\n" + replaced
-    resolved_path.write_text(replaced, encoding="utf-8")
+    resolved_path = await environment._write_file(path, replaced)
     return f"edited: {resolved_path}"
 
 
 @tool(context=True, name="skill", renderer=_render_skill)
-def skill_describe(name: str | None = None, *, context: ToolContext) -> SkillList | SkillContent | ToolFailure:
+async def skill_describe(name: str | None = None, *, context: ToolContext) -> SkillList | SkillContent | ToolFailure:
     """Load the skill content by name. Return the location and skill content.
     If name is not provided, list all available skills in the current workspace.
     """
@@ -353,8 +368,16 @@ def skill_describe(name: str | None = None, *, context: ToolContext) -> SkillLis
         return {"skills": list(skill_index)}
     if name.casefold() not in skill_index:
         return {"error": "no such skill"}
+    from bub.builtin.environment import environment_for
+
     skill = skill_index[name.casefold()]
-    return {"name": skill.name, "location": str(skill.location), "content": skill.body() or ""}
+    environment = environment_for(context)
+    directory = await environment.map_resource(skill.location.parent)
+    return {
+        "name": skill.name,
+        "location": str(Path(directory) / skill.location.name),
+        "content": skill.body(skill_dir=directory, python=environment.render_context.get("PYTHON", "python")),
+    }
 
 
 @tool(context=True, name="tape.info", renderer=_render_tape_info)
@@ -482,7 +505,11 @@ async def quit_tool(*, context: ToolContext) -> str:
     """Abort the tasks of the current session. DO NOT use it in a normal workflow."""
     agent = _get_agent(context)
     session_id = str(context.state.get("session_id", "temp/unknown"))
-    await shell_manager.terminate_session(session_id)
+    environment = context.state.get("_runtime_execution_environment")
+    if environment is not None:
+        await environment.stop()
+    else:
+        await shell_manager.terminate_session(session_id)
     await agent.framework.quit_via_channel_router(session_id)
     return "Session tasks stopped."
 
@@ -510,14 +537,18 @@ async def set_reasoning_effort(reasoning_effort: str, *, context: ToolContext) -
     return f"Session reasoning effort set to {reasoning_effort} (applies from the next turn)."
 
 
-def _resolve_path(context: ToolContext, raw_path: str) -> Path:
-    workspace = context.state.get("_runtime_workspace")
-    path = Path(raw_path).expanduser()
-    if path.is_absolute():
-        return path
-    if workspace is None:
-        raise ValueError(f"relative path '{raw_path}' is not allowed without a workspace")
-    if not isinstance(workspace, str | Path):
-        raise TypeError("runtime workspace must be a filesystem path")
-    workspace_path = Path(workspace)
-    return (workspace_path / path).resolve()
+@tool(name="environment", context=True, agent_use=False)
+async def set_environment(reference: str, *, context: ToolContext) -> str:
+    """Select an authorized environment for the NEXT turn; no state or files are migrated."""
+    session_id = str(context.state.get("session_id", ""))
+    if session_id.startswith("temp/"):
+        raise ValueError("Temporary sessions cannot publish environment switches")
+    current = context.state.get("_runtime_execution_environment")
+    if current is None:
+        raise ValueError("No pinned environment")
+    if await current.has_active_processes():
+        raise ValueError("Stop active background processes before switching environments")
+    await _get_agent(context).framework.prepare_environment_switch(session_id, context.state, reference)
+    # The runtime binding stays pinned; only the Tape-backed next-turn selection changes.
+    await set_session_setting(context, "environment", reference)
+    return f"Environment {reference!r} selected for the next turn; files and processes are not migrated."

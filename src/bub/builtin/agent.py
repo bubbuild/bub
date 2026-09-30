@@ -137,7 +137,8 @@ class Agent:
         A ``final`` event ends a model step, not necessarily the whole turn.
         The returned object exposes ``error`` and ``usage``; execution can also
         raise exceptions. This method does not render or dispatch outbound messages,
-        call save-state hooks, or serialize concurrent turns in the same session.
+        or call save-state hooks. Same-session turns hold an environment binding until
+        the returned stream closes; nested same-session execution is rejected.
         """
         span = Span(
             "invoke_agent bub",
@@ -157,9 +158,17 @@ class Agent:
                         StreamEvent("final", {"text": "error: empty prompt", "ok": False}),
                     ])
                 else:
+                    binding = await stack.enter_async_context(self.framework.acquire_environment(session_id, state))
                     if state is None:
                         state = await self.framework.build_state({"_runtime_agent": self}, session_id)
+                    state["_runtime_environment_binding"] = binding
                     state["_runtime_agent"] = self
+                    state["_runtime_execution_environment"] = await self.framework.get_execution_environment(
+                        session_id, state
+                    )
+                    from bub.builtin.environment import bind_turn_tools
+
+                    state["_runtime_bound_tools"] = bind_turn_tools(self.tools, state["_runtime_execution_environment"])
                     if model is None:
                         model = state.get("model")
                     if reasoning_effort is not None:
@@ -235,17 +244,18 @@ class Agent:
 
         name, arg_tokens = _parse_internal_command(line)
         start = time.monotonic()
-        context = ToolContext(tape=tape, run_id="run_command", state=tape.context.state)
+        context = ToolContext(tape=tape, run_id="run_command", state=tape.context.state, hooks=self.model_runner.hooks)
+        tools: dict[str, Tool] = tape.context.state.get("_runtime_bound_tools", self.tools)
         output = ""
         status = "ok"
         try:
-            if name not in self.tools:
-                if "bash" not in self.tools:
+            if name not in tools:
+                if "bash" not in tools:
                     raise ValueError("bash tool is not available")  # noqa: TRY301
-                bash_tool = self.tools["bash"]
+                bash_tool = tools["bash"]
                 output = bash_tool.render(await bash_tool.run(context=context, command=line))
             else:
-                command_tool = self.tools[name]
+                command_tool = tools[name]
                 args = _parse_args(arg_tokens)
                 if command_tool.context:
                     args.kwargs["context"] = context
@@ -437,17 +447,18 @@ class Agent:
             prompt_text = ""
         else:
             prompt_text = _extract_text_from_parts(prompt)
+        available_tools = tape.context.state.get("_runtime_bound_tools", self.tools)
         if allowed_tools is not None:
             from bub.builtin.tools import resolve_tool_names
 
-            allowed_tools = resolve_tool_names(allowed_tools, all_names=self.tools)
+            allowed_tools = resolve_tool_names(allowed_tools, all_names=available_tools)
         if allowed_skills is not None:
             allowed_skills = {name.casefold() for name in allowed_skills}
             tape.context.state["allowed_skills"] = list(allowed_skills)
         if allowed_tools is not None:
-            tools = [tool for tool in self.tools.values() if tool.name in allowed_tools]
+            tools = [tool for tool in available_tools.values() if tool.name in allowed_tools]
         else:
-            tools = list(self.tools.values())
+            tools = list(available_tools.values())
         return await self._run_once_stream(
             tape=tape,
             prompt=prompt,
@@ -468,6 +479,9 @@ class Agent:
         tools: list[Tool],
     ) -> AsyncStreamEvents:
         tools, stub_path = self._prepare_code_mode(tools, state=tape.context.state)
+        environment = tape.context.state.get("_runtime_execution_environment")
+        if stub_path is not None and environment is not None:
+            stub_path = Path(await environment.map_resource(stub_path))
         system_prompt = self._system_prompt(
             prompt_text, state=tape.context.state, allowed_skills=allowed_skills, tools=tools, stub_path=stub_path
         )
@@ -536,7 +550,12 @@ class Agent:
         from bub.builtin.codemode import render_code_mode_prompt
         from bub.builtin.tools import render_tools_prompt
 
-        blocks: list[str] = []
+        blocks: list[str] = [
+            f"Execution environment: {state.get('environment', 'default')}. "
+            "Filesystem, shell and code tools use the pinned turn environment. "
+            "Skill discovery paths are host paths; scripts/assets must be explicitly projected "
+            "before use in a non-host environment. Do not assume host paths are accessible."
+        ]
         if result := self.framework.get_system_prompt(prompt=prompt, state=state):
             blocks.append(result)
         tools_prompt = render_tools_prompt(tools if tools is not None else self.tools.values())

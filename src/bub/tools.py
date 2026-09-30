@@ -35,6 +35,7 @@ class ToolContext:
     run_id: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
     code_mode: bool = False
+    hooks: AgentHooks | None = None
 
 
 def render_result(result: Any) -> str:
@@ -200,7 +201,9 @@ class Tool:
             validate_args = _validate_without_context(func, signature)
 
             def validated(*args: Any, **kwargs: Any) -> Any:
-                tool_context = kwargs.pop("context")
+                tool_context = kwargs.pop("context", signature.parameters["context"].default)
+                if tool_context is inspect.Parameter.empty:
+                    raise TypeError("Missing required tool context")
                 validated_args, validated_kwargs = validate_args(*args, **kwargs)
                 return func(*validated_args, context=tool_context, **validated_kwargs)
 

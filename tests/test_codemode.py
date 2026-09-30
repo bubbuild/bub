@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -150,12 +151,11 @@ async def test_run_code_routes_tool_calls_through_hooks(tmp_path: Path) -> None:
         async def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict[str, Any]) -> None:
             return None
 
-    agent = type("FakeAgent", (), {"model_runner": type("Runner", (), {"hooks": Hooks()})()})()
     order_tool = Tool.from_callable(get_order, name="orders.get", context=True)
     blocked = Tool.from_callable(lambda: "secret", name="blocked")
     code = "try:\n    await tools.blocked()\nexcept Exception as exc:\n    print(type(exc).__name__, exc)\n"
 
-    output = await run_code.run(code=code, context=_context(tmp_path, [order_tool, blocked], _runtime_agent=agent))
+    output = await run_code.run(code=code, context=replace(_context(tmp_path, [order_tool, blocked]), hooks=Hooks()))
 
     assert output == "BubError [tool] not allowed\n"
     assert calls == [("blocked", True)]
@@ -235,3 +235,28 @@ async def test_run_code_without_await_executes_synchronously(tmp_path: Path) -> 
     output = await run_code.run(code="print(sum(range(4)))", context=_context(tmp_path, []))
 
     assert output == "6\n"
+
+
+@pytest.mark.asyncio
+async def test_code_callback_uses_same_environment_as_direct_tool(tmp_path: Path) -> None:
+    from bub.builtin.environment import LocalExecutionEnvironment
+
+    class Environment(LocalExecutionEnvironment):
+        def bind_tools(self, tools):
+            return {
+                **super().bind_tools(tools),
+                "read_resource": replace(tools["read_resource"], handler=lambda **kwargs: "environment resource"),
+            }
+
+    def read_resource(*, context: ToolContext) -> str:
+        raise AssertionError("host handler must not run")
+
+    resource = Tool.from_callable(read_resource, name="read_resource", context=True)
+    bound = Environment(tmp_path).bind_tools({"read_resource": resource, "run_code": run_code})
+    resource = bound["read_resource"]
+    context = _context(tmp_path, [resource], _runtime_execution_environment=Environment(tmp_path))
+    assert resource.run(context=context) == "environment resource"
+    assert (
+        await bound["run_code"].run(code="print(await tools.read_resource())", context=context)
+        == "environment resource\n"
+    )
