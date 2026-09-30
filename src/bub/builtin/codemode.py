@@ -289,13 +289,23 @@ async def run_code(code: str, *, context: ToolContext) -> str:
     from bub.builtin.environment import local_environment
 
     local_environment(context)
+    return await _execute_local(code, code_tool_callbacks(context))
+
+
+def code_tool_callbacks(context: ToolContext) -> Mapping[str, Callable[..., Awaitable[Any]]]:
+    """Build host callbacks for the current turn's authorized code-mode tools.
+
+    Execution adapters may expose these callbacks over RPC. Dispatch remains on
+    the host through ToolExecutor, including interception hooks and structured
+    results. Never resolve arbitrary worker-supplied names from the global registry.
+    The adapter owns transport, serialization, concurrency and cancellation.
+    """
     code_tools = context.state.get(CODE_TOOLS_STATE_KEY)
     if code_tools is None:
         raise BubError(ErrorKind.INVALID_INPUT, "Code mode is not enabled for this run.")
     executor = ToolExecutor(hooks=context.hooks, render=False)
     code_context = replace(context, code_mode=True)
-    callbacks = {_identifier(item.name): _tool_function(item, executor, code_context) for item in code_tools}
-    return await _execute_local(code, callbacks)
+    return {_identifier(item.name): _tool_function(item, executor, code_context) for item in code_tools}
 
 
 async def _execute_local(code: str, tools: Mapping[str, Callable[..., Awaitable[Any]]]) -> str:

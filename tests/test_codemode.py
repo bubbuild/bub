@@ -260,3 +260,48 @@ async def test_code_callback_uses_same_environment_as_direct_tool(tmp_path: Path
         await bound["run_code"].run(code="print(await tools.read_resource())", context=context)
         == "environment resource\n"
     )
+
+
+@pytest.mark.asyncio
+async def test_adapter_callbacks_keep_host_context_hooks_and_allowed_tools(tmp_path: Path) -> None:
+    from bub.builtin.codemode import code_tool_callbacks
+
+    seen: list[tuple[str, bool]] = []
+    binding = object()
+
+    async def host(*, context: ToolContext) -> dict[str, bool]:
+        return {"pinned": context.state["_runtime_execution_environment"] is binding, "code": context.code_mode}
+
+    class Hooks:
+        async def before_tool_call(self, call: ToolCall, state: dict[str, Any]) -> tuple[ToolCall, ToolCallDecision]:
+            seen.append((call.tool, call.code_mode))
+            if call.tool == "blocked":
+                return call, ToolCallDecision.deny("host policy")
+            return call, ToolCallDecision.proceed()
+
+        async def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict[str, Any]) -> None:
+            seen.append(("after:" + call.tool, call.code_mode))
+
+    context = replace(
+        _context(
+            tmp_path,
+            [Tool.from_callable(host, name="host", context=True), Tool("blocked", lambda: "secret")],
+            _runtime_execution_environment=binding,
+        ),
+        hooks=Hooks(),
+    )
+    callbacks = code_tool_callbacks(context)
+    assert await callbacks["host"]() == {"pinned": True, "code": True}
+    with pytest.raises(BubError, match="host policy"):
+        await callbacks["blocked"]()
+    with pytest.raises(KeyError):
+        callbacks["bash"]
+    assert seen == [("host", True), ("after:host", True), ("blocked", True), ("after:blocked", True)]
+    assert context.code_mode is False
+
+
+def test_adapter_callbacks_require_enabled_code_mode(tmp_path: Path) -> None:
+    from bub.builtin.codemode import code_tool_callbacks
+
+    with pytest.raises(BubError, match="Code mode is not enabled"):
+        code_tool_callbacks(_context(tmp_path))
