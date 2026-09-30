@@ -99,5 +99,6 @@ async def test_subagent_uses_parent_instance_tools(framework: BubFramework, allo
         state={"_runtime_agent": agent, "session_id": "parent", "_runtime_workspace": str(framework.workspace)},
     )
     result = await run_subagent.run(prompt="lookup", allowed_tools=allowed_tools, context=context)
-    assert result == "done"
+    assert result["output"] == "done"
+    assert run_subagent.render(result) == "done"
     assert [tool.name for tool in runner.call_args.kwargs["tools"]] == ["sdk_lookup"]

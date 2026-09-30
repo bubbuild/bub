@@ -58,7 +58,8 @@ async def test_tape_search_reports_shown_matches_and_filtered_count(monkeypatch)
 
     output = await tape_search.run(query="x", context=ToolContext(tape=_FakeTapes(entries), run_id="run", state={}))
 
-    assert output.splitlines()[0] == "[tape.search]: 1 matches (1 filtered)"
+    assert output == {"matches": [{"date": "2026-01-01T00:00:00Z", "content": {"content": "ok"}}], "filtered": 1}
+    assert tape_search.render(output).splitlines()[0] == "[tape.search]: 1 matches (1 filtered)"
 
 
 @pytest.mark.asyncio
@@ -71,4 +72,4 @@ async def test_tape_search_reports_zero_filtered_explicitly(monkeypatch) -> None
 
     output = await tape_search.run(query="x", context=ToolContext(tape=_FakeTapes(entries), run_id="run", state={}))
 
-    assert output.splitlines()[0] == "[tape.search]: 2 matches (0 filtered)"
+    assert tape_search.render(output).splitlines()[0] == "[tape.search]: 2 matches (0 filtered)"

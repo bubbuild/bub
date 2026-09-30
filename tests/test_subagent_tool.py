@@ -37,7 +37,7 @@ async def test_subagent_inherit_session() -> None:
 
     result = await run_subagent.run(prompt="do something", session="inherit", context=ctx)
 
-    assert result == "agent result"
+    assert result == {"session_id": "user/abc", "output": "agent result", "errors": []}
     agent.run_stream.assert_called_once()
     call_kwargs = agent.run_stream.call_args.kwargs
     assert call_kwargs["session_id"] == "user/abc"

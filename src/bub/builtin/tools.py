@@ -6,12 +6,13 @@ import json
 import uuid
 from collections.abc import Iterable
 from contextlib import aclosing
+from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast, final
 
 from pydantic import BaseModel, Field
 
-from bub.builtin.shell_manager import shell_manager
+from bub.builtin.shell_manager import ManagedShell, shell_manager
 from bub.skills import discover_skills
 from bub.tools import REGISTRY, Tool, ToolContext, tool
 
@@ -146,7 +147,154 @@ class SubAgentInput(BaseModel):
     )
 
 
-@tool(context=True)
+class BashResult(TypedDict):
+    shell_id: str
+    status: str
+    exit_code: int | None
+    output: str
+    background: bool
+    """Whether the command is still running in the background."""
+    timed_out_after: int | None
+    """Seconds after which a foreground command timed out and moved to the background."""
+
+
+class ShellStatus(TypedDict):
+    shell_id: str
+    status: str
+    exit_code: int | None
+
+
+class BashOutputResult(ShellStatus):
+    next_offset: int
+    output: str
+
+
+class FileReadResult(TypedDict):
+    path: str
+    content: str
+    offset: int
+    next_offset: int
+    total_lines: int
+
+
+class FileWriteResult(TypedDict):
+    path: str
+
+
+class FileEditResult(TypedDict):
+    path: str
+    replacements: int
+
+
+@final
+class SkillList(TypedDict):
+    skills: list[str]
+
+
+@final
+class SkillContent(TypedDict):
+    name: str
+    location: str
+    content: str
+
+
+@final
+class ToolFailure(TypedDict):
+    """A recoverable failure reported to the caller instead of raising."""
+
+    error: str
+
+
+class TapeSearchMatch(TypedDict):
+    date: str
+    content: dict[str, Any]
+
+
+class TapeSearchResult(TypedDict):
+    matches: list[TapeSearchMatch]
+    filtered: int
+
+
+class WebFetchResult(TypedDict):
+    url: str
+    status: int
+    content_type: str
+    content: str
+
+
+class SubAgentResult(TypedDict):
+    session_id: str
+    output: str
+    errors: list[str]
+
+
+def _render_bash(result: BashResult) -> str:
+    if result["timed_out_after"] is not None:
+        return (
+            f"command timed out after {result['timed_out_after']} seconds; continuing in background\n"
+            f"shell_id: {result['shell_id']}"
+        )
+    if result["background"]:
+        return (
+            f"Shell started, shell_id: {result['shell_id']}\n"
+            "Retrieve the output with bash_output or terminate it with bash_kill."
+        )
+    return result["output"].strip() or "(no output)"
+
+
+def _render_shell_status(result: ShellStatus) -> str:
+    return f"id: {result['shell_id']}\nstatus: {result['status']}\nexit_code: {result['exit_code']}"
+
+
+def _render_bash_output(result: BashOutputResult) -> str:
+    exit_code = "null" if result["exit_code"] is None else str(result["exit_code"])
+    body = result["output"].rstrip() or "(no output)"
+    return (
+        f"id: {result['shell_id']}\nstatus: {result['status']}\nexit_code: {exit_code}\n"
+        f"next_offset: {result['next_offset']}\noutput:\n{body}"
+    )
+
+
+def _render_skill(result: SkillList | SkillContent | ToolFailure) -> str:
+    if "error" in result:
+        return f"({result['error']})"
+    if "skills" in result:
+        return "Available skills:\n" + "\n".join(f"- {name}" for name in result["skills"])
+    return f"Location: {result['location']}\n---\n{result['content'] or '(no content)'}"
+
+
+def _render_tape_info(result: dict[str, Any]) -> str:
+    hit_rate = result["last_token_cache_hit_rate"]
+    cache_hit_rate = f"{hit_rate:.2%}" if hit_rate is not None else "None"
+    return (
+        f"name: {result['name']}\n"
+        f"entries: {result['entries']}\n"
+        f"anchors: {result['anchors']}\n"
+        f"last_anchor: {result['last_anchor']}\n"
+        f"entries_since_last_anchor: {result['entries_since_last_anchor']}\n"
+        f"last_token_usage: {result['last_token_usage']}\n"
+        f"last_token_cache_hit_rate: {cache_hit_rate}"
+    )
+
+
+def _render_tape_search(result: TapeSearchResult) -> str:
+    matches = result["matches"]
+    return f"[tape.search]: {len(matches)} matches ({result['filtered']} filtered)" + "".join(
+        f"\n{json.dumps(match)}" for match in matches
+    )
+
+
+def _render_anchors(result: dict[str, list[str]]) -> str:
+    if not result["anchors"]:
+        return "(no anchors)"
+    return "\n".join(f"- {name}" for name in result["anchors"])
+
+
+def _render_subagent(result: SubAgentResult) -> str:
+    return result["output"] + "".join(f"[Error: {message}]" for message in result["errors"])
+
+
+@tool(context=True, renderer=_render_bash)
 async def bash(
     command: str,
     cwd: str | None = None,
@@ -154,7 +302,7 @@ async def bash(
     background: bool = False,
     *,
     context: ToolContext,
-) -> str:
+) -> BashResult:
     """Run a shell command. Use background=true to keep it running and fetch output later via bash_output.
 
     Foreground commands that exceed timeout_seconds continue in the background
@@ -167,7 +315,7 @@ async def bash(
     session_id = str(raw_session_id) if raw_session_id is not None else None
     shell = await shell_manager.start(cmd=command, cwd=target_cwd, session_id=session_id)
     if background:
-        return f"Shell started, shell_id: {shell.shell_id}\nRetrieve the output with bash_output or terminate it with bash_kill."
+        return _bash_result(shell, background=True)
     try:
         async with asyncio.timeout(timeout_seconds):
             shell = await shell_manager.wait_closed(shell.shell_id)
@@ -179,13 +327,24 @@ async def bash(
         # Cancellation during descendant cleanup waits for termination to finish.
         # A released shell must not be advertised as a running background command.
         if shell.termination_task is None or not shell.termination_task.done():
-            return f"command timed out after {timeout_seconds} seconds; continuing in background\nshell_id: {shell.shell_id}"
+            return _bash_result(shell, background=True, timed_out_after=timeout_seconds)
     _raise_for_failed_shell(shell.returncode, shell.output)
-    return shell.output.strip() or "(no output)"
+    return _bash_result(shell)
 
 
-@tool(name="bash.output")
-async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) -> str:
+def _bash_result(shell: ManagedShell, *, background: bool = False, timed_out_after: int | None = None) -> BashResult:
+    return {
+        "shell_id": shell.shell_id,
+        "status": shell.status,
+        "exit_code": shell.returncode,
+        "output": shell.output,
+        "background": background,
+        "timed_out_after": timed_out_after,
+    }
+
+
+@tool(name="bash.output", renderer=_render_bash_output)
+async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) -> BashOutputResult:
     """Read buffered output from a background shell, with optional offset/limit for incremental polling."""
     shell = shell_manager.get(shell_id)
     if shell.returncode is not None:
@@ -193,41 +352,50 @@ async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) 
     output = shell.output
     start = max(0, min(offset, len(output)))
     end = len(output) if limit is None else min(len(output), start + max(0, limit))
-    chunk = output[start:end].rstrip()
-    exit_code = "null" if shell.returncode is None else str(shell.returncode)
-    body = chunk or "(no output)"
-    return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {exit_code}\nnext_offset: {end}\noutput:\n{body}"
+    return {
+        "shell_id": shell.shell_id,
+        "status": shell.status,
+        "exit_code": shell.returncode,
+        "next_offset": end,
+        "output": output[start:end],
+    }
 
 
-@tool(name="bash.kill")
-async def kill_bash(shell_id: str) -> str:
+@tool(name="bash.kill", renderer=_render_shell_status)
+async def kill_bash(shell_id: str) -> ShellStatus:
     """Terminate a background shell process."""
     shell = await shell_manager.terminate(shell_id)
-    return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {shell.returncode}"
+    return {"shell_id": shell.shell_id, "status": shell.status, "exit_code": shell.returncode}
 
 
-@tool(context=True, name="fs.read")
-def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> str:
+@tool(context=True, name="fs.read", renderer=lambda result: result["content"])
+def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> FileReadResult:
     """Read a text file and return its content. Supports optional pagination with offset and limit."""
     resolved_path = _resolve_path(context, path)
     text = resolved_path.read_text(encoding="utf-8")
     lines = text.splitlines()
     start = max(0, min(offset, len(lines)))
     end = len(lines) if limit is None else min(len(lines), start + max(0, limit))
-    return "\n".join(lines[start:end])
+    return {
+        "path": str(resolved_path),
+        "content": "\n".join(lines[start:end]),
+        "offset": start,
+        "next_offset": end,
+        "total_lines": len(lines),
+    }
 
 
-@tool(context=True, name="fs.write")
-def fs_write(path: str, content: str, *, context: ToolContext) -> str:
+@tool(context=True, name="fs.write", renderer=lambda result: f"wrote: {result['path']}")
+def fs_write(path: str, content: str, *, context: ToolContext) -> FileWriteResult:
     """Write content to a text file."""
     resolved_path = _resolve_path(context, path)
     resolved_path.parent.mkdir(parents=True, exist_ok=True)
     resolved_path.write_text(content, encoding="utf-8")
-    return f"wrote: {resolved_path}"
+    return {"path": str(resolved_path)}
 
 
-@tool(context=True, name="fs.edit")
-def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> str:
+@tool(context=True, name="fs.edit", renderer=lambda result: f"edited: {result['path']}")
+def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> FileEditResult:
     """Edit a text file by replacing old text with new text. You can specify the line number to start searching for the old text."""
     resolved_path = _resolve_path(context, path)
     text = resolved_path.read_text(encoding="utf-8")
@@ -235,15 +403,16 @@ def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolConte
     prev, to_replace = "\n".join(lines[:start]), "\n".join(lines[start:])
     if old not in to_replace:
         raise ValueError(f"'{old}' not found in {resolved_path} from line {start}")
+    replacements = to_replace.count(old)
     replaced = to_replace.replace(old, new)
     if prev:
         replaced = prev + "\n" + replaced
     resolved_path.write_text(replaced, encoding="utf-8")
-    return f"edited: {resolved_path}"
+    return {"path": str(resolved_path), "replacements": replacements}
 
 
-@tool(context=True, name="skill")
-def skill_describe(name: str | None = None, *, context: ToolContext) -> str:
+@tool(context=True, name="skill", renderer=_render_skill)
+def skill_describe(name: str | None = None, *, context: ToolContext) -> SkillList | SkillContent | ToolFailure:
     """Load the skill content by name. Return the location and skill content.
     If name is not provided, list all available skills in the current workspace.
     """
@@ -252,77 +421,63 @@ def skill_describe(name: str | None = None, *, context: ToolContext) -> str:
     agent = _get_agent(context)
     allowed_skills = context.state.get("allowed_skills")
     if allowed_skills is not None and name and name.casefold() not in allowed_skills:
-        return f"(skill '{name}' is not allowed in this context)"
+        return {"error": f"skill '{name}' is not allowed in this context"}
 
     workspace = workspace_from_state(context.state)
     skill_index = {skill.name: skill for skill in discover_skills(workspace, skill_dirs=agent.skill_dirs)}
     if name is None:
-        return "Available skills:\n" + "\n".join(f"- {skill.name}" for skill in skill_index.values())
+        return {"skills": list(skill_index)}
     if name.casefold() not in skill_index:
-        return "(no such skill)"
+        return {"error": "no such skill"}
     skill = skill_index[name.casefold()]
-    return f"Location: {skill.location}\n---\n{skill.body() or '(no content)'}"
+    return {"name": skill.name, "location": str(skill.location), "content": skill.body() or ""}
 
 
-@tool(context=True, name="tape.info")
-async def tape_info(context: ToolContext) -> str:
+@tool(context=True, name="tape.info", renderer=_render_tape_info)
+async def tape_info(context: ToolContext) -> dict[str, Any]:
     """Get information about the current tape, such as number of entries and anchors."""
-    info = await context.tape.info()
-    cache_hit_rate = f"{info.last_token_cache_hit_rate:.2%}" if info.last_token_cache_hit_rate is not None else "None"
-    return (
-        f"name: {info.name}\n"
-        f"entries: {info.entries}\n"
-        f"anchors: {info.anchors}\n"
-        f"last_anchor: {info.last_anchor}\n"
-        f"entries_since_last_anchor: {info.entries_since_last_anchor}\n"
-        f"last_token_usage: {info.last_token_usage}\n"
-        f"last_token_cache_hit_rate: {cache_hit_rate}"
-    )
+    return asdict(await context.tape.info())
 
 
-@tool(context=True, name="tape.search", model=SearchInput)
-async def tape_search(param: SearchInput, *, context: ToolContext) -> str:
+@tool(context=True, name="tape.search", model=SearchInput, renderer=_render_tape_search)
+async def tape_search(param: SearchInput, *, context: ToolContext) -> TapeSearchResult:
     """Search for entries in the current tape that match the query. Returns a list of matching entries."""
     query = context.tape.query().query(param.query).kinds(*param.kinds).limit(param.limit)
     if param.start or param.end:
         query = query.between_dates(param.start or "", param.end or "")
 
     entries = await context.tape.search(query)
-    lines: list[str] = []
+    matches: list[TapeSearchMatch] = []
     for entry in entries:
-        entry_str = json.dumps({"date": entry.date, "content": entry.payload})
-        if "[tape.search]" in entry_str:
+        match: TapeSearchMatch = {"date": entry.date, "content": entry.payload}
+        if "[tape.search]" in json.dumps(match):
             continue
-        lines.append(entry_str)
-    return f"[tape.search]: {len(lines)} matches ({len(entries) - len(lines)} filtered)" + "".join(
-        f"\n{line}" for line in lines
-    )
+        matches.append(match)
+    return {"matches": matches, "filtered": len(entries) - len(matches)}
 
 
-@tool(context=True, name="tape.reset")
-async def tape_reset(archive: bool = False, *, context: ToolContext) -> str:
+@tool(context=True, name="tape.reset", renderer=lambda result: result["message"])
+async def tape_reset(archive: bool = False, *, context: ToolContext) -> dict[str, str]:
     """Reset the current tape, optionally archiving it."""
-    return cast(str, await context.tape.reset(archive=archive))
+    return {"message": await context.tape.reset(archive=archive)}
 
 
-@tool(context=True, name="tape.handoff")
-async def tape_handoff(name: str = "handoff", summary: str = "", *, context: ToolContext) -> str:
+@tool(context=True, name="tape.handoff", renderer=lambda result: f"anchor added: {result['anchor']}")
+async def tape_handoff(name: str = "handoff", summary: str = "", *, context: ToolContext) -> dict[str, str]:
     """Add a handoff anchor to the current tape."""
     await context.tape.handoff(name=name, state={"summary": summary})
-    return f"anchor added: {name}"
+    return {"anchor": name}
 
 
-@tool(context=True, name="tape.anchors")
-async def tape_anchors(*, context: ToolContext) -> str:
+@tool(context=True, name="tape.anchors", renderer=_render_anchors)
+async def tape_anchors(*, context: ToolContext) -> dict[str, list[str]]:
     """List anchors in the current tape."""
     anchors = await context.tape.anchors()
-    if not anchors:
-        return "(no anchors)"
-    return "\n".join(f"- {anchor.name}" for anchor in anchors)
+    return {"anchors": [anchor.name for anchor in anchors]}
 
 
-@tool(name="web.fetch")
-async def web_fetch(url: str, headers: dict | None = None, timeout: int | None = None) -> str:
+@tool(name="web.fetch", renderer=lambda result: result["content"])
+async def web_fetch(url: str, headers: dict | None = None, timeout: int | None = None) -> WebFetchResult:
     """Fetch(GET) the content of a web page, returning markdown if possible."""
     import aiohttp
 
@@ -334,11 +489,16 @@ async def web_fetch(url: str, headers: dict | None = None, timeout: int | None =
         session.get(url) as response,
     ):
         response.raise_for_status()
-        return await response.text()
+        return {
+            "url": str(response.url),
+            "status": response.status,
+            "content_type": response.content_type,
+            "content": await response.text(),
+        }
 
 
-@tool(name="subagent", context=True, model=SubAgentInput)
-async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
+@tool(name="subagent", context=True, model=SubAgentInput, renderer=_render_subagent)
+async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> SubAgentResult:
     """Run a task with sub-agent using specific model and session."""
     agent = _get_agent(context)
     session_id = context.state.get("session_id", "temp/unknown")
@@ -351,6 +511,7 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
     state = {**context.state, "session_id": subagent_session}
     allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"}, all_names=agent.tools)
     output = ""
+    errors: list[str] = []
     stream = await agent.run_stream(
         session_id=subagent_session,
         prompt=param.prompt,
@@ -362,10 +523,10 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> str:
     async with aclosing(stream):
         async for event in stream:
             if event.kind == "error":
-                output += f"[Error: {event.data.get('message', 'unknown error')}]"
+                errors.append(str(event.data.get("message", "unknown error")))
             elif event.kind == "text":
                 output += str(event.data.get("delta", ""))
-    return output
+    return {"session_id": subagent_session, "output": output, "errors": errors}
 
 
 @tool(name="help", agent_use=False)
@@ -391,18 +552,23 @@ def show_help() -> str:
     )
 
 
-@tool(name="quit", context=True, agent_use=False)
-async def quit_tool(*, context: ToolContext) -> str:
+@tool(name="quit", context=True, agent_use=False, renderer=lambda _: "Session tasks stopped.")
+async def quit_tool(*, context: ToolContext) -> dict[str, str]:
     """Abort the tasks of the current session. DO NOT use it in a normal workflow."""
     agent = _get_agent(context)
     session_id = str(context.state.get("session_id", "temp/unknown"))
     await shell_manager.terminate_session(session_id)
     await agent.framework.quit_via_channel_router(session_id)
-    return "Session tasks stopped."
+    return {"session_id": session_id}
 
 
-@tool(name="model", context=True, agent_use=False)
-async def set_model(model_id: str, *, context: ToolContext) -> str:
+@tool(
+    name="model",
+    context=True,
+    agent_use=False,
+    renderer=lambda result: f"Session model set to {result['model']} (applies from the next turn).",
+)
+async def set_model(model_id: str, *, context: ToolContext) -> dict[str, str]:
     """Switch the model for THIS session. Invoke as the `,model <model_id>` command.
 
     Takes effect on the NEXT turn and persists across restarts. Pass any
@@ -414,18 +580,25 @@ async def set_model(model_id: str, *, context: ToolContext) -> str:
     # Persist on the session tape (merged back at end of turn); load_state
     # recovers the latest `model_switch` event next turn / after restart.
     await context.tape.append_event("model_switch", {"model": model_id})
-    return f"Session model set to {model_id} (applies from the next turn)."
+    return {"model": model_id}
 
 
-@tool(name="reasoning_effort", context=True, agent_use=False)
-async def set_reasoning_effort(reasoning_effort: str, *, context: ToolContext) -> str:
+@tool(
+    name="reasoning_effort",
+    context=True,
+    agent_use=False,
+    renderer=lambda result: (
+        f"Session reasoning effort set to {result['reasoning_effort']} (applies from the next turn)."
+    ),
+)
+async def set_reasoning_effort(reasoning_effort: str, *, context: ToolContext) -> dict[str, str]:
     """Set the reasoning effort for this session starting from the next turn."""
     reasoning_effort = reasoning_effort.strip()
     if not reasoning_effort:
         raise ValueError("reasoning_effort must not be empty")
     context.state["reasoning_effort"] = reasoning_effort
     await context.tape.append_event("reasoning_effort_switch", {"reasoning_effort": reasoning_effort})
-    return f"Session reasoning effort set to {reasoning_effort} (applies from the next turn)."
+    return {"reasoning_effort": reasoning_effort}
 
 
 def _resolve_path(context: ToolContext, raw_path: str) -> Path:

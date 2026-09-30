@@ -28,6 +28,33 @@ def add(a: int, b: int) -> int:
 
 The tool's name defaults to the function name. Override it with `@tool(name="math.add")` or pass `description=` to control how it appears in the model prompt. Dotted registry names are preserved for runtime lookup and comma commands, but model-facing tool names replace dots with underscores (`math.add` becomes `math_add`). Async functions are supported — the wrapper awaits them.
 
+## Return structured results
+
+Tools should return structured data — a `dict`, `TypedDict`, list, or Pydantic model — rather than pre-formatted prose. Pass `renderer=` to control how that result is turned into the plain text the model reads:
+
+```python
+from typing import TypedDict
+
+from bub import tool
+
+
+class Order(TypedDict):
+    id: str
+    status: str
+
+
+@tool(name="orders.get", renderer=lambda order: f"order {order['id']}: {order['status']}")
+def get_order(order_id: str) -> Order:
+    """Look up an order by id."""
+    return {"id": order_id, "status": "shipped"}
+```
+
+`Tool.render(result)` applies the renderer; without one, strings pass through and other values are serialized as JSON. When the model calls a tool directly, the executor renders the result before `after_tool_call` hooks and tape recording, so hooks see the same text the model will.
+
+### Code mode
+
+In code mode the model writes code that calls tools as functions, so results must stay machine-readable. A runtime that executes such code invokes tools with `ToolContext(..., code_mode=True)`; the executor then returns the structured result as-is and skips rendering and spill. Tools that need to adapt can read `context.code_mode`, and hooks can read `ToolCall.code_mode`.
+
 ## How tools become available
 
 The `REGISTRY` lives in [`bub.tools`](https://github.com/bubbuild/bub/blob/main/src/bub/tools.py):

@@ -10,7 +10,7 @@ from loguru import logger
 
 from bub import inquirer as bub_inquirer
 from bub.builtin.agent import Agent
-from bub.builtin.context import default_tape_context, render_tool_result
+from bub.builtin.context import default_tape_context
 from bub.builtin.onboarding import collect_model_config
 from bub.builtin.settings import load_settings
 from bub.builtin.steering import InMemorySteeringInbox
@@ -28,6 +28,7 @@ from bub.sidecars import TapeSidecar
 from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents
 from bub.tape import TapeContext
+from bub.tools import render_result
 from bub.turn import TurnState
 
 AGENTS_FILE_NAME = "AGENTS.md"
@@ -402,7 +403,7 @@ class BuiltinImpl:
         from bub.builtin.spill import SPILL_SIDECAR_NAME, SpillStore
 
         tape = state.get("_runtime_tape")
-        if tape is None:
+        if tape is None or call.code_mode:
             return
         spill = tape.get_sidecar(SPILL_SIDECAR_NAME)
         if not isinstance(spill, SpillStore):
@@ -415,7 +416,7 @@ class BuiltinImpl:
         else:
             return
 
-        rendered_result = render_tool_result(tool_result)
+        rendered_result = render_result(tool_result)
         bounded_result = await spill.spill_tool_result(
             tape,
             rendered_result,

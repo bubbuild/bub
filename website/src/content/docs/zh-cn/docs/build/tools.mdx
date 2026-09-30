@@ -28,6 +28,33 @@ def add(a: int, b: int) -> int:
 
 工具名默认为函数名。可用 `@tool(name="math.add")` 覆写，也可传 `description=` 控制它在模型提示中的呈现。带点的 registry 名会保留给运行时查找和逗号命令使用，但面向模型的工具名会把点替换为下划线（`math.add` 会变成 `math_add`）。支持异步函数 —— 包装器会 await 它们。
 
+## 返回结构化结果
+
+工具应返回结构化数据 —— `dict`、`TypedDict`、列表或 Pydantic 模型 —— 而不是预先排版好的文本。通过 `renderer=` 控制如何把结果转换成模型读取的纯文本：
+
+```python
+from typing import TypedDict
+
+from bub import tool
+
+
+class Order(TypedDict):
+    id: str
+    status: str
+
+
+@tool(name="orders.get", renderer=lambda order: f"order {order['id']}: {order['status']}")
+def get_order(order_id: str) -> Order:
+    """Look up an order by id."""
+    return {"id": order_id, "status": "shipped"}
+```
+
+`Tool.render(result)` 会调用 renderer；未提供时，字符串原样返回，其他值序列化为 JSON。模型直接调用工具时，执行器会在 `after_tool_call` hook 和写入 tape 之前完成渲染，因此 hook 看到的就是模型将读到的文本。
+
+### Code mode
+
+在 code mode 下，模型编写代码并以函数形式调用工具，因此结果必须保持机器可读。执行这类代码的运行时应以 `ToolContext(..., code_mode=True)` 调用工具；此时执行器原样返回结构化结果，跳过渲染和 spill。需要区别处理的工具可以读取 `context.code_mode`，hook 可以读取 `ToolCall.code_mode`。
+
 ## 工具如何变得可用
 
 `REGISTRY` 位于 [`bub.tools`](https://github.com/bubbuild/bub/blob/main/src/bub/tools.py)：

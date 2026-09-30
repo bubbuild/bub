@@ -242,30 +242,32 @@ class Agent:
             if name not in self.tools:
                 if "bash" not in self.tools:
                     raise ValueError("bash tool is not available")  # noqa: TRY301
-                output = await self.tools["bash"].run(context=context, command=line)
+                bash_tool = self.tools["bash"]
+                output = bash_tool.render(await bash_tool.run(context=context, command=line))
             else:
+                command_tool = self.tools[name]
                 args = _parse_args(arg_tokens)
-                if self.tools[name].context:
+                if command_tool.context:
                     args.kwargs["context"] = context
-                output = self.tools[name].run(*args.positional, **args.kwargs)
-                if inspect.isawaitable(output):
-                    output = await output
+                result = command_tool.run(*args.positional, **args.kwargs)
+                if inspect.isawaitable(result):
+                    result = await result
+                output = command_tool.render(result)
         except Exception as exc:
             status = "error"
             output = f"{exc!s}"
             raise
         else:
-            return output if isinstance(output, str) else str(output)
+            return output
         finally:
             elapsed_ms = int((time.monotonic() - start) * 1000)
-            output_text = output if isinstance(output, str) else str(output)
 
             event_payload = {
                 "raw": line,
                 "name": name,
                 "status": status,
                 "elapsed_ms": elapsed_ms,
-                "output": output_text,
+                "output": output,
                 "date": datetime.now(UTC).isoformat(),
             }
             await tape.append_event("command", event_payload)

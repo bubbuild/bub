@@ -138,7 +138,7 @@ async def test_spill_configuration_preserves_results_that_should_not_be_spilled(
             context=context,
         )
 
-        assert small.tool_results == small_results
+        assert small.tool_results == ["tiny", '{"value": "tiny"}', '["tiny"]']
 
         def fail() -> None:
             raise RuntimeError("small failure")
@@ -289,9 +289,11 @@ async def test_unknown_handle_and_invalid_read_bounds_are_friendly(tmp_path: Pat
     root = _root_tape(tmp_path, InMemoryTapeStore())
     context = ToolContext(tape=root)
 
-    assert "no spilled tool result" in await spill_read.run(handle="missing", context=context)
-    assert await spill_read.run(handle="missing", cursor=-1, context=context) == "`cursor` must be >= 0."
-    assert await spill_read.run(handle="missing", count=0, context=context) == "`count` must be >= 1."
+    assert await spill_read.run(handle="missing", context=context) == {
+        "error": "[no spilled tool result for handle 'missing']"
+    }
+    assert await _read_page(context, "missing", cursor=-1) == "`cursor` must be >= 0."
+    assert await _read_page(context, "missing", count=0) == "`count` must be >= 1."
 
 
 def test_spill_read_uses_the_builtin_tool_naming_convention() -> None:
@@ -333,3 +335,17 @@ async def test_tape_archive_preserves_spilled_results_and_clears_the_session(tmp
     assert handle in main_archive.read_text(encoding="utf-8")
     assert handle in spill_archives[0].read_text(encoding="utf-8")
     assert "no spilled tool result" in await _read_page(ToolContext(tape=root), handle)
+
+
+@pytest.mark.asyncio
+async def test_code_mode_results_stay_structured_and_are_not_spilled(tmp_path: Path) -> None:
+    root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
+    output = {"value": "x" * 20_000}
+
+    async with root.fork_tape() as tape:
+        context = ToolContext(tape=tape, run_id="run-1", code_mode=True)
+        execution = await _spill_executor().execute_async(
+            [(Tool(name="structured", handler=lambda: output), {})], context=context
+        )
+
+    assert execution.tool_results == [output]

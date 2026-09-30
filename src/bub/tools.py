@@ -24,11 +24,29 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ToolContext:
-    """Runtime context passed to tools that opt into context."""
+    """Runtime context passed to tools that opt into context.
+
+    ``code_mode`` is true when the tool is invoked from model-written code rather than
+    as a direct model tool call. In code mode the executor returns the tool's structured
+    result as-is; otherwise the result is rendered to plain text with ``Tool.render``.
+    """
 
     tape: Tape
     run_id: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
+    code_mode: bool = False
+
+
+def render_result(result: Any) -> str:
+    """Render a structured tool result as plain text (the default tool renderer)."""
+    if isinstance(result, str):
+        return result
+    if isinstance(result, BaseModel):
+        return result.model_dump_json()
+    try:
+        return json.dumps(result, ensure_ascii=False)
+    except TypeError:
+        return str(result)
 
 
 def _to_snake_case(name: str) -> str:
@@ -80,9 +98,14 @@ def _validate_without_context(func: Callable[..., Any], signature: inspect.Signa
 
     validate_target.__name__ = _callable_name(func)
     validate_target.__qualname__ = getattr(func, "__qualname__", validate_target.__name__)
+    # Only arguments are validated; dropping the return annotation also avoids resolving
+    # forward references to types that live in the tool's module, not this one.
     validate_target.__annotations__ = dict(getattr(func, "__annotations__", {}))
     validate_target.__annotations__.pop("context", None)
-    validate_target.__signature__ = _signature_without_context(signature)  # type: ignore[attr-defined]
+    validate_target.__annotations__.pop("return", None)
+    validate_target.__signature__ = _signature_without_context(signature).replace(  # type: ignore[attr-defined]
+        return_annotation=inspect.Signature.empty
+    )
     return validate_call(validate_target)
 
 
@@ -96,9 +119,16 @@ class Tool:
     parameters: dict[str, Any] = field(default_factory=dict)
     context: bool = False
     agent_use: bool = True
+    renderer: Callable[[Any], str] | None = None
 
     def run(self, *args: Any, **kwargs: Any) -> Any:
         return self.handler(*args, **kwargs)
+
+    def render(self, result: Any) -> str:
+        """Render a structured result of this tool as plain text for the model."""
+        if self.renderer is None:
+            return render_result(result)
+        return self.renderer(result)
 
     def to_schema(self) -> dict[str, Any]:
         """Build an any-llm completion tool payload."""
@@ -120,6 +150,7 @@ class Tool:
         description: str | None = None,
         context: bool = False,
         agent_use: bool = True,
+        renderer: Callable[[Any], str] | None = None,
     ) -> Tool:
         signature = inspect.signature(func)
         if context and "context" not in signature.parameters:
@@ -144,6 +175,7 @@ class Tool:
             handler=validated,
             context=context,
             agent_use=agent_use,
+            renderer=renderer,
         )
 
 
@@ -292,6 +324,7 @@ class ToolExecutor:
             run_id=(context.run_id if context is not None else None) or "",
             tool=tool_name,
             arguments=dict(tool_args),
+            code_mode=context is not None and context.code_mode,
         )
         hook_state = context.state if context is not None else {}
         if self._hooks is not None and context is not None:
@@ -313,7 +346,7 @@ class ToolExecutor:
             return outcome.result
 
     async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:
-        """Run the tool with errors normalized to BubError."""
+        """Run the tool with errors normalized to BubError; render the result unless in code mode."""
 
         tool_name = tool_obj.name
         try:
@@ -325,6 +358,8 @@ class ToolExecutor:
             )
             if inspect.isawaitable(value):
                 value = await value
+            if not call.code_mode:
+                value = tool_obj.render(value)
         except BubError:
             raise
         except ValidationError as exc:
@@ -475,6 +510,7 @@ def tool(
     description: str | None = ...,
     context: bool = ...,
     agent_use: bool = ...,
+    renderer: Callable[[Any], str] | None = ...,
 ) -> Tool: ...
 
 
@@ -487,6 +523,7 @@ def tool(
     description: str | None = ...,
     context: bool = ...,
     agent_use: bool = ...,
+    renderer: Callable[[Any], str] | None = ...,
 ) -> Callable[[Callable], Tool]: ...
 
 
@@ -498,8 +535,13 @@ def tool(
     description: str | None = None,
     context: bool = False,
     agent_use: bool = True,
+    renderer: Callable[[Any], str] | None = None,
 ) -> Tool | Callable[[Callable], Tool]:
-    """Decorator to convert a function into a Tool instance."""
+    """Decorator to convert a function into a Tool instance.
+
+    Tools should return structured results; ``renderer`` turns such a result into the
+    plain text shown to the model outside code mode (defaults to JSON for non-strings).
+    """
 
     def decorator(func: Callable) -> Tool:
         if model is not None:
@@ -520,6 +562,7 @@ def tool(
                 handler=handler,
                 context=context,
                 agent_use=agent_use,
+                renderer=renderer,
             )
         else:
             result = Tool.from_callable(
@@ -528,6 +571,7 @@ def tool(
                 description=description,
                 context=context,
                 agent_use=agent_use,
+                renderer=renderer,
             )
         tool_instance = _add_logging(result)
         REGISTRY[tool_instance.name] = tool_instance

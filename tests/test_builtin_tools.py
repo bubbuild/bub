@@ -41,10 +41,6 @@ def _python_shell(code: str) -> str:
     return f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
 
 
-def _shell_id(result: str) -> str:
-    return result.split("shell_id: ", 1)[1].splitlines()[0].strip()
-
-
 @pytest.mark.asyncio
 async def test_tape_info_formats_token_cache_hit_rate(tmp_path) -> None:
     context = _tool_context(tmp_path)
@@ -63,7 +59,8 @@ async def test_tape_info_formats_token_cache_hit_rate(tmp_path) -> None:
 
     result = await tape_info.run(context=context)
 
-    assert "last_token_cache_hit_rate: 37.50%" in result
+    assert result["last_token_cache_hit_rate"] == 0.375
+    assert "last_token_cache_hit_rate: 37.50%" in tape_info.render(result)
 
 
 def test_render_tools_prompt_renders_available_tools_block() -> None:
@@ -166,8 +163,8 @@ async def test_set_model_writes_model_into_state_and_records_on_tape(tmp_path) -
     result = await set_model.run(model_id="openai:gpt-4o", context=context)
 
     assert context.state["model"] == "openai:gpt-4o"
-    assert "openai:gpt-4o" in result
-    assert "next turn" in result.lower()
+    assert result == {"model": "openai:gpt-4o"}
+    assert set_model.render(result) == "Session model set to openai:gpt-4o (applies from the next turn)."
     # The switch is also persisted as a `model_switch` event on the session
     # tape, which load_state recovers on the next turn / after restart.
     entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
@@ -203,7 +200,8 @@ async def test_set_reasoning_effort_writes_state_and_records_on_tape(tmp_path) -
     result = await set_reasoning_effort.run(reasoning_effort=" high ", context=context)
 
     assert context.state["reasoning_effort"] == "high"
-    assert result == "Session reasoning effort set to high (applies from the next turn)."
+    assert result == {"reasoning_effort": "high"}
+    assert set_reasoning_effort.render(result) == "Session reasoning effort set to high (applies from the next turn)."
     entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
     switches = [
         entry for entry in entries if entry.kind == "event" and entry.payload.get("name") == "reasoning_effort_switch"
@@ -228,7 +226,11 @@ def test_bash_schema_exposes_command_parameter() -> None:
 async def test_bash_returns_stdout_for_foreground_command(tmp_path) -> None:
     result = await bash.run(command=_python_shell("print('hello')"), context=_tool_context(tmp_path))
 
-    assert result == "hello"
+    assert result["status"] == "exited"
+    assert result["exit_code"] == 0
+    assert result["output"].strip() == "hello"
+    assert result["background"] is False
+    assert bash.render(result) == "hello"
 
 
 @pytest.mark.asyncio
@@ -238,7 +240,7 @@ async def test_foreground_bash_releases_shell_from_shell_manager(tmp_path, monke
 
     result = await bash.run(command=_python_shell("print('hello')"), context=_tool_context(tmp_path))
 
-    assert result == "hello"
+    assert bash.render(result) == "hello"
     assert manager._shells == {}
 
 
@@ -291,8 +293,9 @@ async def test_timed_out_bash_keeps_descendants_until_killed(tmp_path, monkeypat
     try:
         async with asyncio.timeout(5):
             result = await bash.run(command=command, timeout_seconds=1, context=_tool_context(tmp_path))
-        assert "continuing in background" in result
-        shell_id = _shell_id(result)
+        assert result["timed_out_after"] == 1
+        assert bash.render(result).startswith("command timed out after 1 seconds; continuing in background\n")
+        shell_id = result["shell_id"]
         shell = manager.get(shell_id)
         assert all(not task.cancelled() for task in shell.read_tasks)
         pid = int(pid_file.read_text())
@@ -331,20 +334,21 @@ async def test_timed_out_bash_preserves_output_and_completes_in_background(
         result = await bash.run(
             command=command, timeout_seconds=1, context=_tool_context(tmp_path, session_id="session:target")
         )
-        assert "continuing in background" in result
-        shell_id = _shell_id(result)
+        assert result["timed_out_after"] == 1
+        assert result["status"] == "running"
+        shell_id = result["shell_id"]
         shell = manager.get(shell_id)
         assert shell.returncode is None
         assert shell.session_id == "session:target"
         output = await bash_output.run(shell_id=shell_id)
-        assert "status: running" in output
-        assert "before timeout" in output
+        assert output["status"] == "running"
+        assert "before timeout" in output["output"]
 
         gate.touch()
         async with asyncio.timeout(5):
             await shell.process.wait()
             await asyncio.gather(*shell.read_tasks)
-        output = await bash_output.run(shell_id=shell_id)
+        output = bash_output.render(await bash_output.run(shell_id=shell_id))
         assert "status: exited" in output
         assert "exit_code: 0" in output
         assert "before timeout" in output
@@ -398,10 +402,12 @@ async def test_background_bash_exposes_output_via_bash_output(tmp_path) -> None:
     )
 
     started = await bash.run(command=command, background=True, context=_tool_context(tmp_path))
-    shell_id = _shell_id(started)
+    assert started["background"] is True
+    assert started["shell_id"] in bash.render(started)
+    shell_id = started["shell_id"]
 
     await asyncio.sleep(0.35)
-    output = await bash_output.run(shell_id=shell_id)
+    output = bash_output.render(await bash_output.run(shell_id=shell_id))
 
     assert output.startswith(f"id: {shell_id}\nstatus: exited\n")
     assert "exit_code: 0" in output
@@ -416,12 +422,13 @@ async def test_kill_bash_terminates_background_process_and_releases_shell(tmp_pa
         background=True,
         context=_tool_context(tmp_path),
     )
-    shell_id = _shell_id(started)
+    shell_id = started["shell_id"]
 
     killed = await kill_bash.run(shell_id=shell_id)
 
-    assert killed.startswith(f"id: {shell_id}\nstatus: exited\nexit_code: ")
-    assert "exit_code: null" not in killed
+    assert killed["shell_id"] == shell_id
+    assert killed["status"] == "exited"
+    assert killed["exit_code"] is not None
     with pytest.raises(KeyError, match="unknown shell id"):
         await bash_output.run(shell_id=shell_id)
 
@@ -433,12 +440,13 @@ async def test_kill_bash_returns_status_when_process_already_finished(tmp_path) 
         background=True,
         context=_tool_context(tmp_path),
     )
-    shell_id = _shell_id(started)
+    shell_id = started["shell_id"]
 
     await asyncio.sleep(0.1)
     result = await kill_bash.run(shell_id=shell_id)
 
-    assert result == f"id: {shell_id}\nstatus: exited\nexit_code: 0"
+    assert result == {"shell_id": shell_id, "status": "exited", "exit_code": 0}
+    assert kill_bash.render(result) == f"id: {shell_id}\nstatus: exited\nexit_code: 0"
 
 
 @pytest.mark.asyncio
@@ -453,13 +461,13 @@ async def test_quit_tool_terminates_background_shells_for_current_session(tmp_pa
         timeout_seconds=0,
         context=_tool_context(tmp_path, session_id="session:target"),
     )
-    target_shell_id = _shell_id(target_started)
+    target_shell_id = target_started["shell_id"]
     other_started = await bash.run(
         command=_python_shell("import time; time.sleep(10)"),
         background=True,
         context=_tool_context(tmp_path, session_id="session:other"),
     )
-    other_shell_id = _shell_id(other_started)
+    other_shell_id = other_started["shell_id"]
 
     class FakeFramework:
         def __init__(self) -> None:
@@ -477,7 +485,8 @@ async def test_quit_tool_terminates_background_shells_for_current_session(tmp_pa
 
     result = await quit_tool.run(context=context)
 
-    assert result == "Session tasks stopped."
+    assert result == {"session_id": "session:target"}
+    assert quit_tool.render(result) == "Session tasks stopped."
     assert framework.quit_sessions == ["session:target"]
     with pytest.raises(KeyError, match="unknown shell id"):
         await bash_output.run(shell_id=target_shell_id)
@@ -516,7 +525,7 @@ async def test_bash_cleanup_does_not_return_a_released_shell_id_or_mask_cancella
             with pytest.raises(asyncio.CancelledError):
                 await task
         else:
-            assert await task == "(no output)"
+            assert bash.render(await task) == "(no output)"
         assert manager._shells == {}
     finally:
         if pid_file.exists():
