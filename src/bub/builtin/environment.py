@@ -12,7 +12,6 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from bub.builtin.code_runner import run_code_in_subprocess
 from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, Environment, Process
 
 if TYPE_CHECKING:
@@ -119,6 +118,8 @@ class LocalEnvironment(Environment):
     async def run_code(
         self, code: str, *, tools: Sequence[str], call_tool: CallTool, write: Callable[[str], None]
     ) -> None:
+        from bub.builtin.codemode.code_runner import run_code_in_subprocess
+
         await run_code_in_subprocess(self, code, tools=tools, call_tool=call_tool, write=write)
 
     def resolve_path(self, path: str) -> str:

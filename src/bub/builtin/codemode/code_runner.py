@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic_core import to_jsonable_python
 
-from bub.builtin import code_runner_child
+from bub.builtin.codemode import code_runner_child
 from bub.environment import CodeFailed
 from bub.errors import BubError, ErrorKind
 

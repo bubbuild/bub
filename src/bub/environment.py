@@ -132,7 +132,7 @@ class Environment(abc.ABC):
         (for example on timeout), stop the code before returning.
 
         How the code runs is up to the environment: a Python process, an embedded interpreter or a
-        remote code interpreter. ``bub.builtin.code_runner.run_code_in_subprocess`` implements it
+        remote code interpreter. ``bub.builtin.codemode.code_runner.run_code_in_subprocess`` implements it
         on top of :meth:`spawn` for environments that have a Python interpreter.
         """
 
