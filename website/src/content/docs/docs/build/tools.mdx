@@ -64,6 +64,17 @@ If `run_code` is not allowed (for example, a subagent restricted with `allowed_t
 
 `run_code` runs the code on the Bub event loop with full Python access; it is not a sandbox, so enable code mode only where `bash` would be acceptable. Blocking code (for example `time.sleep`) stalls the loop, so prefer the async tools and `await asyncio.sleep`. The return annotation of a tool function (or `Tool.output_schema`, for tools built by hand) determines the result type shown in the stub.
 
+## Run tools in a sandbox
+
+`bash`, `bash.output`, `bash.kill` and `fs.*` do not touch the host directly: they run on the session's `Sandbox` (from [`bub.sandbox`](https://github.com/bubbuild/bub/blob/main/src/bub/sandbox.py)), which spawns processes and reads and writes text files. Bub keeps the tool behavior — background shells, timeouts, rendering, hooks — on the host, so a sandbox only needs to implement a few operations:
+
+- `spawn(command, *, cwd=None, env=None)` returns a `SandboxProcess`: a string runs through the shell, a sequence runs as an argument vector. The process exposes `stdout`/`stderr` streams, `write_stdin`, `wait`, and `signal(kill=...)`, which must reach the whole process tree.
+- `read_text(path)` and `write_text(path, content)` access files inside the sandbox.
+- `workspace` is the working directory inside the sandbox; `resolve_path` resolves relative paths against it.
+- `aclose()` releases the sandbox.
+
+Provide one per session with the `provide_sandbox(session_id, workspace)` hook. Bub calls it on the session's first turn, puts the result in `state["_runtime_sandbox"]`, and closes it when `framework.running()` exits. Without a provider, tools run on the host through `LocalSandbox`. Your own tools can use the same environment through `sandbox_from_state(context.state)`.
+
 ## How tools become available
 
 The `REGISTRY` lives in [`bub.tools`](https://github.com/bubbuild/bub/blob/main/src/bub/tools.py):

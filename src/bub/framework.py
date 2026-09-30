@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ from bub.hooks.interception import AgentHooks
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.model_selection import ModelOptions
+from bub.sandbox import SANDBOX_STATE_KEY, LocalSandbox, Sandbox
 from bub.sidecars import TapeSidecar
 from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import StreamState
@@ -62,6 +64,7 @@ class BubFramework:
         self._channel_router: ChannelRouter | None = None
         self._tape_store: TapeStore | AsyncTapeStore | None = None
         self._steering_inbox: SteeringInbox | None = None
+        self._sandboxes: dict[str, Sandbox] = {}
         configure.load(self.config_file)
 
     @property
@@ -153,7 +156,11 @@ class BubFramework:
         supply their Agent in the message's ``_runtime_agent`` field so builtin
         session recovery reads that agent's store.
         """
-        state = {"_runtime_workspace": str(self.workspace), "_runtime_steering_inbox": self.get_steering_inbox()}
+        state = {
+            "_runtime_workspace": str(self.workspace),
+            "_runtime_steering_inbox": self.get_steering_inbox(),
+            SANDBOX_STATE_KEY: await self.get_sandbox(session_id),
+        }
         for hook_state in reversed(
             await self._hook_runtime.call_many("load_state", message=message, session_id=session_id)
         ):
@@ -416,6 +423,36 @@ class BubFramework:
             finally:
                 self._tape_store = None
                 self._steering_inbox = None
+                await self._close_sandboxes()
+
+    async def get_sandbox(self, session_id: str) -> Sandbox:
+        """Return the session's sandbox, creating it through ``provide_sandbox`` on first use.
+
+        Without a provider, tools run on the host in this framework's workspace.
+        ``running()`` closes all sandboxes when it exits.
+        """
+        if (sandbox := self._sandboxes.get(session_id)) is not None:
+            return sandbox
+        provided = await self._hook_runtime.call_first(
+            "provide_sandbox", session_id=session_id, workspace=self.workspace
+        )
+        if provided is not None and not isinstance(provided, Sandbox):
+            raise TypeError("hook.provide_sandbox must return Sandbox or None")
+        sandbox = provided or LocalSandbox(self.workspace)
+        if (existing := self._sandboxes.setdefault(session_id, sandbox)) is not sandbox:
+            # Another turn of this session created one while the provider was running.
+            await sandbox.aclose()
+        return existing
+
+    async def _close_sandboxes(self) -> None:
+        sandboxes, self._sandboxes = list(self._sandboxes.values()), {}
+        for sandbox, result in zip(
+            sandboxes,
+            await asyncio.gather(*(sandbox.aclose() for sandbox in sandboxes), return_exceptions=True),
+            strict=True,
+        ):
+            if isinstance(result, Exception):
+                logger.opt(exception=result).warning("Failed to close sandbox {!r}", sandbox)
 
     def get_tape_store(self) -> TapeStore | AsyncTapeStore | None:
         """Return the store acquired by ``running()``, or None when unavailable."""

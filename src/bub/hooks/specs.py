@@ -20,6 +20,7 @@ from bub.hooks.interception import (
     ToolCallResult,
 )
 from bub.model_selection import ModelOptions
+from bub.sandbox import Sandbox
 from bub.sidecars import TapeSidecar
 from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import AsyncStreamEvents, StreamState
@@ -123,6 +124,15 @@ class BubHookSpecs:
         workspace: Path | None,
     ) -> ModelOptions | None:
         """Provide model choices for a session."""
+
+    @hookspec(firstresult=True)
+    def provide_sandbox(self, session_id: str, workspace: Path) -> Sandbox | None:
+        """Provide the sandbox where tools run processes and access files for one session.
+
+        Called once per session and cached until ``framework.running()`` exits,
+        which closes it with ``Sandbox.aclose()``. ``workspace`` is the host
+        workspace. Without a provider, tools run on the host (``LocalSandbox``).
+        """
 
     @hookspec
     def on_error(self, stage: str, error: Exception, message: Envelope | None) -> None:

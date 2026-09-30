@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
-import shutil
-import signal
 import uuid
 from collections.abc import AsyncIterator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+
+from bub.sandbox import LocalSandbox, Sandbox, SandboxProcess
 
 
 @dataclass(eq=False)
@@ -22,7 +21,7 @@ class ManagedShell:
     cmd: str
     cwd: str | None
     session_id: str | None
-    process: asyncio.subprocess.Process
+    process: SandboxProcess
     output_chunks: list[str] = field(default_factory=list)
     read_tasks: list[asyncio.Task[None]] = field(default_factory=list)
     scope: _ShellScope | None = None
@@ -42,7 +41,6 @@ class ManagedShell:
 
 
 class ShellManager:
-    SHELL = shutil.which("bash") or shutil.which("sh") if os.name != "nt" else None
     TERMINATE_TIMEOUT = 3.0
     DRAIN_TIMEOUT = 1.0
 
@@ -71,11 +69,16 @@ class ShellManager:
         )
         await self._terminate_shells([shell for shell in self._shells.values() if shell.scope is scope])
 
-    async def start(self, *, cmd: str, cwd: str | None, session_id: str | None = None) -> ManagedShell:
+    async def start(
+        self, *, cmd: str, cwd: str | None, session_id: str | None = None, sandbox: Sandbox | None = None
+    ) -> ManagedShell:
+        """Start ``cmd`` in ``sandbox``, which defaults to the host."""
         scope = self._scope.get()
         if scope is not None and scope.closed:
             raise RuntimeError("shell runtime is closed")
-        task = asyncio.create_task(self._start(cmd=cmd, cwd=cwd, session_id=session_id, scope=scope))
+        task = asyncio.create_task(
+            self._start(cmd=cmd, cwd=cwd, session_id=session_id, scope=scope, sandbox=sandbox or LocalSandbox())
+        )
         self._starting[task] = scope
         try:
             try:
@@ -96,16 +99,11 @@ class ShellManager:
             self._starting.pop(task, None)
 
     async def _start(
-        self, *, cmd: str, cwd: str | None, session_id: str | None, scope: _ShellScope | None
+        self, *, cmd: str, cwd: str | None, session_id: str | None, scope: _ShellScope | None, sandbox: Sandbox
     ) -> ManagedShell:
-        process = await asyncio.create_subprocess_shell(
-            cmd,
-            cwd=cwd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            executable=self.SHELL,
-            start_new_session=os.name != "nt",
-        )
+        process = await sandbox.spawn(cmd, cwd=cwd)
+        # Commands get EOF on stdin instead of waiting for input nobody will send.
+        process.close_stdin()
         shell = ManagedShell(
             shell_id=f"bash-{uuid.uuid4().hex[:8]}",
             cmd=cmd,
@@ -188,28 +186,11 @@ class ShellManager:
 
     @staticmethod
     def _signal_shell(shell: ManagedShell, *, kill: bool) -> None:
-        with contextlib.suppress(ProcessLookupError):
-            if os.name != "nt":
-                os.killpg(shell.process.pid, signal.SIGKILL if kill else signal.SIGTERM)
-            elif shell.returncode is None:
-                if kill:
-                    shell.process.kill()
-                else:
-                    shell.process.terminate()
+        shell.process.signal(kill=kill)
 
     @staticmethod
     def _is_running(shell: ManagedShell) -> bool:
-        if os.name == "nt":
-            return shell.returncode is None
-        try:
-            os.killpg(shell.process.pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            # EPERM does not establish that the group is gone (in particular
-            # while its leader is exiting on macOS).
-            return True
-        return True
+        return shell.process.is_running()
 
     async def terminate_session(self, session_id: str) -> int:
         shells = [
@@ -242,10 +223,8 @@ class ShellManager:
     async def _drain_stream(
         self,
         shell: ManagedShell,
-        stream: asyncio.StreamReader | None,
+        stream: asyncio.StreamReader,
     ) -> None:
-        if stream is None:
-            return
         while chunk := await stream.read(4096):
             shell.output_chunks.append(chunk.decode("utf-8", errors="replace"))
 

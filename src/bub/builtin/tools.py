@@ -7,13 +7,13 @@ import uuid
 from collections.abc import Iterable
 from contextlib import aclosing
 from dataclasses import asdict
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict, cast, final
 
 from pydantic import BaseModel, Field
 
 from bub.builtin.settings import set_session_setting
 from bub.builtin.shell_manager import shell_manager
+from bub.sandbox import sandbox_from_state
 from bub.skills import discover_skills
 from bub.tools import REGISTRY, Tool, ToolContext, tool
 
@@ -254,11 +254,11 @@ async def bash(
     and return a shell ID. Use bash.output to read output or bash.kill to stop them.
     Background commands do not use timeout_seconds.
     """
-    workspace = context.state.get("_runtime_workspace")
-    target_cwd = cwd or workspace
+    sandbox = sandbox_from_state(context.state)
+    target_cwd = sandbox.resolve_path(cwd) if cwd else None
     raw_session_id = context.state.get("session_id")
     session_id = str(raw_session_id) if raw_session_id is not None else None
-    shell = await shell_manager.start(cmd=command, cwd=target_cwd, session_id=session_id)
+    shell = await shell_manager.start(cmd=command, cwd=target_cwd, session_id=session_id, sandbox=sandbox)
     if background:
         return f"Shell started, shell_id: {shell.shell_id}\nRetrieve the output with bash_output or terminate it with bash_kill."
     try:
@@ -300,10 +300,10 @@ async def kill_bash(shell_id: str) -> str:
 
 
 @tool(context=True, name="fs.read", preserve=True)
-def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> str:
+async def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> str:
     """Read a text file and return its content. Supports optional pagination with offset and limit."""
-    resolved_path = _resolve_path(context, path)
-    text = resolved_path.read_text(encoding="utf-8")
+    sandbox = sandbox_from_state(context.state)
+    text = await sandbox.read_text(sandbox.resolve_path(path))
     lines = text.splitlines()
     start = max(0, min(offset, len(lines)))
     end = len(lines) if limit is None else min(len(lines), start + max(0, limit))
@@ -311,19 +311,20 @@ def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: To
 
 
 @tool(context=True, name="fs.write", preserve=True)
-def fs_write(path: str, content: str, *, context: ToolContext) -> str:
+async def fs_write(path: str, content: str, *, context: ToolContext) -> str:
     """Write content to a text file."""
-    resolved_path = _resolve_path(context, path)
-    resolved_path.parent.mkdir(parents=True, exist_ok=True)
-    resolved_path.write_text(content, encoding="utf-8")
+    sandbox = sandbox_from_state(context.state)
+    resolved_path = sandbox.resolve_path(path)
+    await sandbox.write_text(resolved_path, content)
     return f"wrote: {resolved_path}"
 
 
 @tool(context=True, name="fs.edit", preserve=True)
-def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> str:
+async def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> str:
     """Edit a text file by replacing old text with new text. You can specify the line number to start searching for the old text."""
-    resolved_path = _resolve_path(context, path)
-    text = resolved_path.read_text(encoding="utf-8")
+    sandbox = sandbox_from_state(context.state)
+    resolved_path = sandbox.resolve_path(path)
+    text = await sandbox.read_text(resolved_path)
     lines = text.splitlines()
     prev, to_replace = "\n".join(lines[:start]), "\n".join(lines[start:])
     if old not in to_replace:
@@ -331,7 +332,7 @@ def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolConte
     replaced = to_replace.replace(old, new)
     if prev:
         replaced = prev + "\n" + replaced
-    resolved_path.write_text(replaced, encoding="utf-8")
+    await sandbox.write_text(resolved_path, replaced)
     return f"edited: {resolved_path}"
 
 
@@ -508,16 +509,3 @@ async def set_reasoning_effort(reasoning_effort: str, *, context: ToolContext) -
         raise ValueError("reasoning_effort must not be empty")
     await set_session_setting(context, "reasoning_effort", reasoning_effort)
     return f"Session reasoning effort set to {reasoning_effort} (applies from the next turn)."
-
-
-def _resolve_path(context: ToolContext, raw_path: str) -> Path:
-    workspace = context.state.get("_runtime_workspace")
-    path = Path(raw_path).expanduser()
-    if path.is_absolute():
-        return path
-    if workspace is None:
-        raise ValueError(f"relative path '{raw_path}' is not allowed without a workspace")
-    if not isinstance(workspace, str | Path):
-        raise TypeError("runtime workspace must be a filesystem path")
-    workspace_path = Path(workspace)
-    return (workspace_path / path).resolve()
