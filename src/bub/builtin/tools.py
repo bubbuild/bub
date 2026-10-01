@@ -434,7 +434,7 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> SubAgen
     else:
         subagent_session = param.session
     state = {**context.state, "session_id": subagent_session}
-    allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"}, all_names=agent.tools)
+    allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"}, all_names=agent.known_tools)
     output = ""
     errors: list[str] = []
     stream = await agent.run_stream(

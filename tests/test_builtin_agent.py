@@ -12,6 +12,7 @@ from any_llm.types.completion import ChatCompletionChunk
 import bub.builtin.codemode
 import bub.builtin.tools  # noqa: F401  — registers builtin tools (incl. `model`)
 from bub.builtin.agent import Agent
+from bub.builtin.catalogs import BuiltinToolCatalog, CodeModeCatalog
 from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
 from bub.builtin.steering import InMemorySteeringInbox
@@ -55,7 +56,7 @@ def _make_agent() -> Agent:
     agent.command_prefix = agent.settings.command_prefix
     agent.framework = framework
     agent.tools = REGISTRY.copy()
-    agent.tool_providers = []
+    agent.catalogs = [BuiltinToolCatalog(agent.tools), CodeModeCatalog(agent.tools)]
     agent.tape_store = None
     agent.skill_dirs = None
     agent.model_runner = _FakeModelRunner(agent.settings)

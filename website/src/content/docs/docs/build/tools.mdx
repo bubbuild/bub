@@ -64,11 +64,11 @@ If `run_code` is not allowed (for example, a subagent restricted with `allowed_t
 
 `run_code` hands the code to the session [environment](#run-tools-in-an-environment)'s `run_code`, together with a `call_tool` callback. Tool calls always run on the host through that callback, so hooks still see every call. `timeout_seconds` cancels the environment call. The builtin `LocalEnvironment` starts a fresh Python process for every call (`sys.executable`, working directory is the workspace) and forwards tool calls as JSON lines over its stdin and stdout, so arguments and results must be JSON-serializable. When the code finishes, fails or times out, it kills the process and everything it started. That process runs on the host with the same permissions as `bash`, so enable code mode only where `bash` would be acceptable. The return annotation of a tool function (or `Tool.output_schema`, for tools built by hand) determines the result type shown in the stub.
 
-### Per-request tool presentation
+### Tool catalogs
 
-`Agent.tool_providers` accepts async callbacks `(tools, tape) -> (tools, tool_prompt)`. Bub applies the current tool scope and prepares code mode first, then runs these callbacks in registration order. They receive runtime names; model aliases are applied afterward. The returned tools and prompt fragment are used for that request.
+`Agent.catalogs` contains a builtin catalog and a final code-mode catalog. Insert plugin catalogs before code mode with `agent.catalogs.insert(-1, source)` to make their tools available for discovery without immediately registering them in `Agent.tools`. The `ToolCatalog` protocol has two members: a `tools` mapping of runtime names to `Tool` instances, and async `prepare(tools, tape) -> (tools, tool_prompt)`.
 
-Providers prepare already registered tools; they do not register tools or change connection lifecycles. A plugin binds its discovery helper alongside its tools and keeps discovery within the supplied scope. Full native definitions are sent through the tool schema instead of repeated in the system prompt.
+`Agent.known_tools` combines current catalog entries for commands and `allowed_tools`. Bub applies that scope before calling each catalog's `prepare` in order, then converts model aliases. Builtins remain directly available; code mode presents the final selected tools through its full stub. A plugin catalog registers selected tools in `Agent.tools` before returning them; direct comma commands register the named tool when called. Plugins own catalog removal and connection cleanup. Full native definitions are sent through tool schemas instead of repeated in the system prompt.
 
 ## Run tools in an environment
 

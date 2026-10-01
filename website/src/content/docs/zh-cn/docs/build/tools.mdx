@@ -65,11 +65,11 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 `run_code` 会把代码和一个 `call_tool` 回调一起交给当前 session [执行环境](#在执行环境中运行工具)的 `run_code` 执行。工具调用始终经这个回调在宿主上执行，所以 hook 仍能看到每一次调用。超过 `timeout_seconds` 时会取消执行环境里的执行。builtin 的 `LocalEnvironment` 每次调用都会启动一个新的 Python 进程（使用 `sys.executable`，工作目录为 workspace），工具调用以 JSON 行的形式经进程的 stdin/stdout 转发，因此参数和结果都必须能 JSON 序列化。代码执行完、出错或超时后，它会杀掉该进程及其启动的所有子进程。这个进程直接跑在宿主上，权限与 `bash` 相同，因此只应在允许使用 `bash` 的场景下开启 code mode。stub 中的结果类型来自工具函数的返回注解（手动构造的工具则来自 `Tool.output_schema`）。
 
 
-### 每次请求的工具呈现
+### 工具目录
 
-`Agent.tool_providers` 接受异步回调 `(tools, tape) -> (tools, tool_prompt)`。Bub 先应用当前工具范围、准备 code mode，再按注册顺序执行这些回调。输入使用运行时名称，之后才转换模型别名；返回的工具及提示片段用于本次请求。
+`Agent.catalogs` 默认包含 builtin catalog 和末尾的 code-mode catalog。通过 `agent.catalogs.insert(-1, source)` 将插件目录插入 code mode 之前，就能让工具参与发现，而无需立即注册到 `Agent.tools`。`ToolCatalog` 协议包含两个成员：以运行时名称映射到 `Tool` 的 `tools`，以及异步方法 `prepare(tools, tape) -> (tools, tool_prompt)`。
 
-provider 准备已注册的工具，工具注册与连接生命周期仍由插件管理。插件绑定自己的发现 helper，并将查询限制在传入范围内。完整原生定义通过工具 schema 发送，系统提示词不再重复列出。
+`Agent.known_tools` 合并当前目录条目，供命令查找及 `allowed_tools` 使用。Bub 先应用工具范围，再依次调用各目录的 `prepare`，最后转换模型别名。内置工具直接可用；code mode 通过完整 stub 呈现最终选中的工具。插件目录在返回选中的工具前将其注册到 `Agent.tools`；直接执行逗号命令时才注册点名的工具。目录移除与连接清理由插件管理。完整原生定义通过工具 schema 发送，系统提示词不再重复列出。
 
 
 ## 在执行环境中运行工具

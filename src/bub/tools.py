@@ -219,8 +219,13 @@ class Tool:
         )
 
 
-type ToolProvider = Callable[[list[Tool], Tape], Awaitable[tuple[list[Tool], str]]]
-"""Prepare registered tools and a prompt fragment for one model request."""
+class ToolCatalog(Protocol):
+    """Known tools and their per-request preparation, owned by one source."""
+
+    @property
+    def tools(self) -> dict[str, Tool]: ...
+
+    async def prepare(self, tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]: ...
 
 
 def model_tools(tools: Iterable[Tool]) -> list[Tool]:
