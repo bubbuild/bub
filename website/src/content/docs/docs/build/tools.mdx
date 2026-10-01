@@ -66,9 +66,11 @@ If `run_code` is not allowed (for example, a subagent restricted with `allowed_t
 
 ### Tool catalogs
 
-`Agent.catalogs` contains a builtin catalog and a final code-mode catalog. Insert plugin catalogs before code mode with `agent.catalogs.insert(-1, source)` to make their tools available for discovery without immediately registering them in `Agent.tools`. The `ToolCatalog` protocol has two members: a `tools` mapping of runtime names to `Tool` instances, and async `prepare(tools, tape) -> (tools, tool_prompt)`.
+`Tool` defines one callable capability. `ToolCatalog` declares known tools and prepares the tools and guidance available for each request. Both contracts live in `bub.tools`; `DirectToolCatalog(tools)` provides immediate availability for a collection of tools.
 
-`Agent.known_tools` combines current catalog entries for commands and `allowed_tools`. Bub applies that scope before calling each catalog's `prepare` in order, then converts model aliases. Builtins remain directly available; code mode presents the final selected tools through its full stub. A plugin catalog registers selected tools in `Agent.tools` before returning them; direct comma commands register the named tool when called. Plugins own catalog removal and connection cleanup. Full native definitions are sent through tool schemas instead of repeated in the system prompt.
+Use `agent.add_catalog(source)` to register a source once, after existing sources and before the final code-mode catalog. Its `tools` mapping uses runtime names and existing `Tool` instances; `prepare(tools, tape) -> (tools, tool_prompt)` receives the whole scoped toolset. A source preserves tools it does not own while selecting its own definitions and optional discovery helpers. Presentation catalogs such as code mode can transform the selected toolset. Deferred exposure is a catalog policy, not the default.
+
+`Agent.known_tools` combines catalog entries for commands and `allowed_tools`. The Agent applies scope, prepares each catalog, and registers its returned declared tool instances in `Agent.tools` before continuing. Catalog implementations do not need to mutate the execution registry. Builtins remain directly available; code mode uses the final selected tools in its full stub. Direct comma commands register the named tool when called. Plugins own discovery state, catalog removal and connection cleanup. Full native definitions are sent through tool schemas instead of repeated in the system prompt.
 
 ## Run tools in an environment
 
@@ -91,7 +93,7 @@ The `REGISTRY` lives in [`bub.tools`](https://github.com/bubbuild/bub/blob/main/
 REGISTRY: dict[str, Tool] = {}
 ```
 
-Every `@tool` call mutates this dict at **import time**. Bub's builtin agent reads from `REGISTRY` when assembling the tool list for the model. There is no separate registration step.
+Every `@tool` call mutates this dict at **import time**. `Agent(tools=None)` snapshots it when created; later imports do not update existing agents. Add tools to an instance's `Agent.tools`, or use `agent.add_catalog(source)` for a tool collection with its own preparation policy.
 
 ## Import the tools module from your plugin
 

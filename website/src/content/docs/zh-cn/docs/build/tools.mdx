@@ -67,9 +67,11 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 
 ### 工具目录
 
-`Agent.catalogs` 默认包含 builtin catalog 和末尾的 code-mode catalog。通过 `agent.catalogs.insert(-1, source)` 将插件目录插入 code mode 之前，就能让工具参与发现，而无需立即注册到 `Agent.tools`。`ToolCatalog` 协议包含两个成员：以运行时名称映射到 `Tool` 的 `tools`，以及异步方法 `prepare(tools, tape) -> (tools, tool_prompt)`。
+`Tool` 定义一项可调用能力，`ToolCatalog` 声明已知工具并准备每次请求可用的工具与使用提示。两个契约都位于 `bub.tools`；`DirectToolCatalog(tools)` 让一组工具立即可用。
 
-`Agent.known_tools` 合并当前目录条目，供命令查找及 `allowed_tools` 使用。Bub 先应用工具范围，再依次调用各目录的 `prepare`，最后转换模型别名。内置工具直接可用；code mode 通过完整 stub 呈现最终选中的工具。插件目录在返回选中的工具前将其注册到 `Agent.tools`；直接执行逗号命令时才注册点名的工具。目录移除与连接清理由插件管理。完整原生定义通过工具 schema 发送，系统提示词不再重复列出。
+通过 `agent.add_catalog(source)` 注册工具来源。同一个实例只注册一次，顺序位于已有来源之后、末尾的 code-mode catalog 之前。`tools` 使用运行时名称和已有的 `Tool` 实例；`prepare(tools, tape) -> (tools, tool_prompt)` 接收整个经过 scope 过滤的工具集合。工具来源保留其他来源的工具，选择自己的完整定义，并可添加发现工具。Code mode 等呈现目录可以转换最终工具集合。按需暴露由目录自身决定，并非默认行为。
+
+`Agent.known_tools` 合并目录条目，供命令查找及 `allowed_tools` 使用。Agent 应用 scope、准备各目录，并在继续处理前将返回的已声明工具实例注册到 `Agent.tools`，目录实现无需修改执行 registry。内置工具直接可用；code mode 的完整 stub 使用最终选中的工具。直接执行逗号命令时才注册点名的工具。发现状态、目录移除与连接清理由插件管理。完整原生定义通过工具 schema 发送，系统提示词不再重复列出。
 
 
 ## 在执行环境中运行工具
@@ -93,7 +95,7 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 REGISTRY: dict[str, Tool] = {}
 ```
 
-每一次 `@tool` 调用都会在**导入时**修改这个字典。Bub 内置代理在为模型组装工具列表时从 `REGISTRY` 读取。没有独立的注册步骤。
+每一次 `@tool` 调用都会在**导入时**修改这个字典。`Agent(tools=None)` 在创建时取得其快照，之后导入的工具不会自动更新已有 Agent。可直接向实例的 `Agent.tools` 添加工具，或通过 `agent.add_catalog(source)` 接入具有独立准备策略的工具集合。
 
 ## 在插件里导入工具模块
 

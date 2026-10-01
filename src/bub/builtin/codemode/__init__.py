@@ -17,7 +17,9 @@ from bub.builtin.settings import set_session_setting
 from bub.environment import CodeFailed
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import AgentHooks
+from bub.tape import Tape
 from bub.tools import Tool, ToolContext, ToolExecutor, model_tools, tool
+from bub.utils import workspace_from_state
 
 RUN_CODE_TOOL_NAME = "run_code"
 CODE_MODE_STATE_KEY = "code_mode"
@@ -308,3 +310,25 @@ async def set_code_mode(enable: bool, *, context: ToolContext) -> str:
     """
     await set_session_setting(context, CODE_MODE_STATE_KEY, enable)
     return f"Session code mode {'enabled' if enable else 'disabled'} (applies from the next turn)."
+
+
+class CodeModeCatalog:
+    """Adapt the final scoped toolset to code mode; contribute no tool definitions."""
+
+    @property
+    def tools(self) -> dict[str, Tool]:
+        return {}
+
+    async def prepare(self, tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
+        state = tape.context.state
+        direct_tools = [item for item in tools if item.name != RUN_CODE_TOOL_NAME]
+        if not state.get(CODE_MODE_STATE_KEY) or len(direct_tools) == len(tools):
+            state.pop(CODE_TOOLS_STATE_KEY, None)
+            return direct_tools, ""
+
+        code_tools = [item for item in direct_tools if item.code_use]
+        state[CODE_TOOLS_STATE_KEY] = model_tools(code_tools)
+        stub_path = write_tool_stub(
+            code_tools, session_id=str(state.get("session_id", "")), workspace=workspace_from_state(state)
+        )
+        return [item for item in tools if item.preserve], render_code_mode_prompt(stub_path)

@@ -17,7 +17,7 @@ from typing import Any
 
 from loguru import logger
 
-from bub.builtin.catalogs import BuiltinToolCatalog, CodeModeCatalog
+from bub.builtin.codemode import CodeModeCatalog
 from bub.builtin.commands import strip_command_prefix, validate_command_prefix
 from bub.builtin.model_runner import (
     ModelRunner,
@@ -30,7 +30,7 @@ from bub.skills import discover_skills, render_skills_prompt
 from bub.store import AsyncTapeStore, AsyncTapeStoreAdapter, InMemoryTapeStore, TapeStore, is_async_tape_store
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import Tape
-from bub.tools import REGISTRY, Tool, ToolCatalog, ToolContext, model_tools
+from bub.tools import REGISTRY, DirectToolCatalog, Tool, ToolCatalog, ToolContext, model_tools
 from bub.tracing import Span, current_span
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
@@ -74,7 +74,7 @@ class Agent:
         )
         self.framework = framework
         self.tools = {tool.name: tool for tool in tools} if tools is not None else REGISTRY.copy()
-        self.catalogs: list[ToolCatalog] = [BuiltinToolCatalog(self.tools), CodeModeCatalog(self.tools)]
+        self.catalogs: list[ToolCatalog] = [DirectToolCatalog(self.tools), CodeModeCatalog()]
         self.tape_store = tape_store
         self.skill_dirs = skill_dirs
         self.model_runner = ModelRunner(self.settings, hooks=framework.get_agent_hooks())
@@ -83,6 +83,11 @@ class Agent:
     def known_tools(self) -> dict[str, Tool]:
         """Current execution tools plus catalog entries, with later sources taking precedence."""
         return {name: item for catalog in self.catalogs for name, item in catalog.tools.items()}
+
+    def add_catalog(self, catalog: ToolCatalog) -> None:
+        """Register a source once, after existing sources and before code-mode presentation."""
+        if all(item is not catalog for item in self.catalogs):
+            self.catalogs.insert(-1, catalog)
 
     @cached_property
     def tape(self) -> Tape:
@@ -487,7 +492,9 @@ class Agent:
     ) -> AsyncStreamEvents:
         tools_prompts: list[str] = []
         for catalog in self.catalogs:
+            owned = catalog.tools
             tools, tools_prompt = await catalog.prepare(tools, tape)
+            self.tools.update({item.name: item for item in tools if owned.get(item.name) is item})
             if tools_prompt:
                 tools_prompts.append(tools_prompt)
         system_prompt = self._system_prompt(
