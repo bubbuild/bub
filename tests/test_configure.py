@@ -131,3 +131,15 @@ custom:
 
 def test_get_value_returns_default_for_missing_path() -> None:
     assert configure.get_value("missing.value", default="fallback") == "fallback"
+
+
+def test_get_config_data_returns_independent_loaded_values(write_config, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BUB_MODEL", "openai:environment-model")
+    original = configure.load(write_config("model: openai:saved-model\nplugin:\n  values: [one, two]\n"))
+
+    copied = configure.get_config_data()
+    assert copied == {"model": "openai:saved-model", "plugin": {"values": ["one", "two"]}}
+    copied["model"] = "openai:changed-model"
+    copied["plugin"]["values"].append("three")
+
+    assert original == {"model": "openai:saved-model", "plugin": {"values": ["one", "two"]}}

@@ -243,8 +243,10 @@ class BuiltinImpl:
 
     @hookimpl
     def system_prompt(self, prompt: str | list[dict], state: TurnState) -> str:
-        # Read the content of AGENTS.md under workspace
-        return DEFAULT_SYSTEM_PROMPT + "\n\n" + self._read_agents_file(state)
+        # Append the content of AGENTS.md under workspace, if any
+        if not (instructions := self._read_agents_file(state)):
+            return DEFAULT_SYSTEM_PROMPT
+        return f"{DEFAULT_SYSTEM_PROMPT}\n\n<workspace_instruction>\n{instructions}\n</workspace_instruction>"
 
     @hookimpl
     def provide_channels(self, message_handler: MessageHandler) -> list[Channel]:
@@ -379,10 +381,13 @@ class BuiltinImpl:
         result: ToolCallResult,
         state: TurnState,
     ) -> None:
-        from bub.builtin.spill import SPILL_SIDECAR_NAME, SpillStore
+        from bub.builtin.spill import SPILL_READ_MODEL_NAME, SPILL_SIDECAR_NAME, SpillStore
 
         tape = state.get("_runtime_tape")
-        if tape is None or call.code_mode:
+        # Results of calls from run_code are structured values for the code, not model-facing text.
+        if tape is None or (call.context is not None and call.context.code_mode):
+            return
+        if SPILL_READ_MODEL_NAME not in state.get("_runtime_tool_names", ()):
             return
         spill = tape.get_sidecar(SPILL_SIDECAR_NAME)
         if not isinstance(spill, SpillStore):

@@ -322,7 +322,7 @@ def test_system_prompt_appends_workspace_agents_file(tmp_path: Path) -> None:
 
     result = impl.system_prompt(prompt="hello", state={"_runtime_workspace": str(tmp_path)})
 
-    assert result == DEFAULT_SYSTEM_PROMPT + "\n\nlocal rules"
+    assert result == DEFAULT_SYSTEM_PROMPT + "\n\n<workspace_instruction>\nlocal rules\n</workspace_instruction>"
 
 
 def test_system_prompt_ignores_missing_agents_file(tmp_path: Path) -> None:
@@ -330,7 +330,7 @@ def test_system_prompt_ignores_missing_agents_file(tmp_path: Path) -> None:
 
     result = impl.system_prompt(prompt="hello", state={"_runtime_workspace": str(tmp_path)})
 
-    assert result == DEFAULT_SYSTEM_PROMPT + "\n\n"
+    assert result == DEFAULT_SYSTEM_PROMPT
 
 
 def test_provide_channels_returns_cli_and_telegram(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

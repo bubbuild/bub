@@ -220,7 +220,7 @@ class Tool:
 
 
 type ToolProvider = Callable[[list[Tool], Tape], Awaitable[tuple[list[Tool], str]]]
-"""Prepare a request's tools and optional prompt fragment within the supplied scope."""
+"""Prepare registered tools and a prompt fragment for one model request."""
 
 
 def model_tools(tools: Iterable[Tool]) -> list[Tool]:
@@ -374,7 +374,7 @@ class ToolExecutor:
             run_id=(context.run_id if context is not None else None) or "",
             tool=tool_name,
             arguments=dict(tool_args),
-            code_mode=context is not None and context.code_mode,
+            context=context,
         )
         hook_state = context.state if context is not None else {}
         if self._hooks is not None and context is not None:

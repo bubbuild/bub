@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import TypedDict, final
 
 from loguru import logger
 from pydantic import Field
@@ -263,37 +262,7 @@ class SpillStore:
         return SpillPage(manifest, "".join(chunks), start, stop, next_cursor, complete)
 
 
-@final
-class SpillReadResult(TypedDict):
-    handle: str
-    bytes: int
-    chunks: int
-    start: int
-    stop: int
-    next_cursor: int
-    complete: bool
-    content: str
-
-
-@final
-class SpillReadFailure(TypedDict):
-    error: str
-
-
-def _render_spill_read(result: SpillReadResult | SpillReadFailure) -> str:
-    if "error" in result:
-        return result["error"]
-    shown = f"{result['start']}-{result['stop'] - 1}" if result["stop"] > result["start"] else "none"
-    return (
-        f"[spilled tool result: {result['bytes']:,} bytes, {result['chunks']:,} chunks]\n"
-        f"chunks: {shown}\n"
-        f"next_cursor: {result['next_cursor']}\n"
-        f"complete: {str(result['complete']).lower()}\n"
-        f"content:\n{result['content']}"
-    )
-
-
-@tool(context=True, name=SPILL_READ_TOOL_NAME, renderer=_render_spill_read)
+@tool(context=True, name=SPILL_READ_TOOL_NAME, preserve=True)
 async def spill_read(
     handle: str,
     cursor: int = 0,
@@ -301,16 +270,16 @@ async def spill_read(
     from_end: bool = False,
     *,
     context: ToolContext,
-) -> SpillReadResult | SpillReadFailure:
+) -> str:
     """Read bounded chunks from an oversized tool result stored in the current session's spill tape."""
     if cursor < 0:
-        return {"error": "`cursor` must be >= 0."}
+        return "`cursor` must be >= 0."
     if count < 1:
-        return {"error": "`count` must be >= 1."}
+        return "`count` must be >= 1."
 
     spill = context.tape.get_sidecar(SPILL_SIDECAR_NAME)
     if not isinstance(spill, SpillStore):
-        return {"error": "spill sidecar unavailable in this context."}
+        return "spill sidecar unavailable in this context."
     try:
         page = await spill.read(
             context.tape,
@@ -320,17 +289,15 @@ async def spill_read(
             from_end=from_end,
         )
     except IncompleteSpillError as exc:
-        return {"error": f"[incomplete spilled tool result: {exc}]"}
+        return f"[incomplete spilled tool result: {exc}]"
     if page is None:
-        return {"error": f"[no spilled tool result for handle {handle!r}]"}
+        return f"[no spilled tool result for handle {handle!r}]"
 
-    return {
-        "handle": handle,
-        "bytes": page.manifest.bytes,
-        "chunks": page.manifest.chunks,
-        "start": page.start,
-        "stop": page.stop,
-        "next_cursor": page.next_cursor,
-        "complete": page.complete,
-        "content": page.content,
-    }
+    shown = f"{page.start}-{page.stop - 1}" if page.stop > page.start else "none"
+    return (
+        f"[spilled tool result: {page.manifest.bytes:,} bytes, {page.manifest.chunks:,} chunks]\n"
+        f"chunks: {shown}\n"
+        f"next_cursor: {page.next_cursor}\n"
+        f"complete: {str(page.complete).lower()}\n"
+        f"content:\n{page.content}"
+    )

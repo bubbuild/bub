@@ -34,7 +34,7 @@ async def test_provider_tools_and_prompt_reach_the_model_and_use_normal_invocati
 
     async def provide(tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
         scopes.append({tool.name for tool in tools})
-        return [*tools, supplied], "Use provider_lookup to greet the requested person."
+        return tools, "Use provider_lookup to greet the requested person."
 
     requests: list[dict[str, Any]] = []
 
@@ -70,17 +70,17 @@ async def test_provider_tools_and_prompt_reach_the_model_and_use_normal_invocati
             })
 
     monkeypatch.setattr("bub.builtin.model_runner.AnyLLM.create", lambda *args, **kwargs: Provider())
-    agent = Agent(framework, tools=[direct, denied], skill_dirs=[])
+    agent = Agent(framework, tools=[direct, denied, supplied], skill_dirs=[])
     agent.tool_providers.append(provide)
     stream = await agent.run_stream(
         session_id="provider",
         prompt="Greet Ada.",
         model="openrouter:test-model",
-        allowed_tools=["direct"],
+        allowed_tools=["direct", "provider_lookup"],
     )
     events = [event async for event in stream]
     assert any(event.data.get("text") == "Hello Ada" for event in events if event.kind == "final")
-    assert scopes == [{"direct"}, {"direct"}]
+    assert scopes == [{"direct", "provider.lookup"}, {"direct", "provider.lookup"}]
     assert calls == ["Ada"]
     definitions = {item["function"]["name"]: item["function"] for item in requests[0]["tools"]}
     assert definitions.keys() == {"direct", "provider_lookup"}

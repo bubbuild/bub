@@ -28,14 +28,6 @@ def add(a: int, b: int) -> int:
 
 工具名默认为函数名。可用 `@tool(name="math.add")` 覆写，也可传 `description=` 控制它在模型提示中的呈现。带点的 registry 名会保留给运行时查找和逗号命令使用，但面向模型的工具名会把点替换为下划线（`math.add` 会变成 `math_add`）。支持异步函数 —— 包装器会 await 它们。
 
-## 为请求提供工具
-
-内置工具和普通插件工具会立即向模型暴露完整定义。System prompt 不再重复它们的签名和描述。
-
-插件可以把异步 `ToolProvider` 加入 `agent.tool_providers`。它接收当前允许的运行时工具和 tape，返回本次请求的 `(tools, prompt_fragment)`。Bub 对返回的工具照常进行名称转换、调用 hook 和结果渲染；提供方新增的工具会注册到当前 Agent。提供方在 code mode 准备之前运行，并应遵守传入的工具范围。
-
-MCP 插件负责远程工具发现：初始提供摘要，调用 `mcp_describe` 后提供所选的完整原生定义。普通工具无需设置加载策略或额外的注册标记。
-
 ## 返回结构化结果
 
 工具应返回结构化数据 —— `dict`、`TypedDict`、列表或 Pydantic 模型 —— 而不是预先排版好的文本。例外是标记为 `preserve=True` 的工具（见 [Code mode](#code-mode)）和只作为逗号命令的工具（`agent_use=False`）：代码永远不会调用它们，因此返回纯文本。通过 `renderer=` 控制如何把结果转换成模型读取的纯文本：
@@ -63,14 +55,22 @@ def get_order(order_id: str) -> Order:
 
 Code mode 让模型在 Python 中调用工具，而不必一次只发起一个工具调用。它是按 session 生效的开关：发送逗号命令 `,code_mode enable=true`（或 `,code_mode enable=false`）来开启或关闭，从下一个 turn 起生效，并在重启后保留。SDK 调用方也可以直接设置 `state["code_mode"] = True`。在开启 code mode 的 turn 中，只要 `run_code` 在允许的工具之内：
 
-- 模型只直接看到标记为 `preserve=True` 的工具（`bash`、`bash.output`、`bash.kill`、`fs.read`、`fs.write`、`fs.edit`）以及 `run_code(code: str) -> str`。preserve 工具只能直接调用，不会出现在 `tools.*` 中。
+- 模型只直接看到标记为 `preserve=True` 的工具（`bash`、`bash.output`、`bash.kill`、`fs.read`、`fs.write`、`fs.edit`、`spill.read`）以及 `run_code(code: str) -> str`。preserve 工具只能直接调用，不会出现在 `tools.*` 中。
 - 其他允许的工具在 `run_code` 中都是异步函数，名称使用面向模型的形式（`tape.info` 对应 `await tools.tape_info()`）。支持顶层 `await`，可以用 `asyncio.gather` 并发调用。调用只接受关键字参数，照常经过 `before_tool_call`/`after_tool_call` hook，返回结构化结果，失败时抛出异常。
 - Bub 会在 `~/.bub/codemode/` 下为允许的非 preserve 工具生成一个 Python stub 文件，每个工具对应一个函数，包含参数类型、返回类型和 docstring，并把文件路径写入 system prompt。只要工具集合不变，同一个 session 中这个路径保持不变。
 - `run_code(code, timeout_seconds=120)` 返回代码写到 stdout 的内容。未捕获的异常会变成工具错误，错误详情中包含已打印的输出和 traceback。
 
-如果 `run_code` 不在允许范围内（例如被 `allowed_tools` 限制的 subagent），该 turn 会退回直接调用工具的方式。给自己的工具声明 `preserve=True` 可以让它保持直接可调用。嵌套调用时 `ToolContext.code_mode`（hook 中为 `ToolCall.code_mode`）为 `True`，结果不会被渲染或 spill。
+如果 `run_code` 不在允许范围内（例如被 `allowed_tools` 限制的 subagent），该 turn 会退回直接调用工具的方式。给自己的工具声明 `preserve=True` 可以让它保持直接可调用。嵌套调用时 `ToolContext.code_mode`（hook 中通过 `call.context.code_mode` 读取）为 `True`，结果不会被渲染或 spill。
 
 `run_code` 会把代码和一个 `call_tool` 回调一起交给当前 session [执行环境](#在执行环境中运行工具)的 `run_code` 执行。工具调用始终经这个回调在宿主上执行，所以 hook 仍能看到每一次调用。超过 `timeout_seconds` 时会取消执行环境里的执行。builtin 的 `LocalEnvironment` 每次调用都会启动一个新的 Python 进程（使用 `sys.executable`，工作目录为 workspace），工具调用以 JSON 行的形式经进程的 stdin/stdout 转发，因此参数和结果都必须能 JSON 序列化。代码执行完、出错或超时后，它会杀掉该进程及其启动的所有子进程。这个进程直接跑在宿主上，权限与 `bash` 相同，因此只应在允许使用 `bash` 的场景下开启 code mode。stub 中的结果类型来自工具函数的返回注解（手动构造的工具则来自 `Tool.output_schema`）。
+
+
+### 每次请求的工具呈现
+
+`Agent.tool_providers` 接受异步回调 `(tools, tape) -> (tools, tool_prompt)`。Bub 先应用当前工具范围、准备 code mode，再按注册顺序执行这些回调。输入使用运行时名称，之后才转换模型别名；返回的工具及提示片段用于本次请求。
+
+provider 准备已注册的工具，工具注册与连接生命周期仍由插件管理。插件绑定自己的发现 helper，并将查询限制在传入范围内。完整原生定义通过工具 schema 发送，系统提示词不再重复列出。
+
 
 ## 在执行环境中运行工具
 

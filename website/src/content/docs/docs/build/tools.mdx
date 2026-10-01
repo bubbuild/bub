@@ -28,14 +28,6 @@ def add(a: int, b: int) -> int:
 
 The tool's name defaults to the function name. Override it with `@tool(name="math.add")` or pass `description=` to control how it appears in the model prompt. Dotted registry names are preserved for runtime lookup and comma commands, but model-facing tool names replace dots with underscores (`math.add` becomes `math_add`). Async functions are supported — the wrapper awaits them.
 
-## Provide tools for a request
-
-Builtin tools and ordinary plugin tools are declared in full to the model immediately. Their signatures and descriptions are not repeated in the system prompt.
-
-Plugins can append an async `ToolProvider` to `agent.tool_providers`. It receives the current allowed runtime tools and the tape, then returns `(tools, prompt_fragment)` for that request. Bub passes the returned tools through normal aliasing, invocation hooks, and rendering. Additional tools supplied by the provider are registered on that Agent. Providers run before code-mode preparation and should respect the supplied scope.
-
-The MCP plugin owns remote-tool discovery: it provides summaries initially and exposes selected native definitions after `mcp_describe`. Ordinary tools need no loading policy or extra registration flag.
-
 ## Return structured results
 
 Tools should return structured data — a `dict`, `TypedDict`, list, or Pydantic model — rather than pre-formatted prose. The exceptions are tools marked `preserve=True` (see [Code mode](#code-mode)) and comma-command-only tools (`agent_use=False`): code never calls them, so they return plain text. Pass `renderer=` to control how that result is turned into the plain text the model reads:
@@ -63,14 +55,20 @@ def get_order(order_id: str) -> Order:
 
 Code mode lets the model call tools from Python instead of one tool call at a time. It is a per-session switch: send the comma command `,code_mode enable=true` (or `,code_mode enable=false`) to turn it on or off. The change applies from the next turn and persists across restarts. SDK callers can set `state["code_mode"] = True` instead. In a code-mode turn where `run_code` is among the allowed tools:
 
-- The model sees only tools marked `preserve=True` (`bash`, `bash.output`, `bash.kill`, `fs.read`, `fs.write`, `fs.edit`) plus `run_code(code: str) -> str`. Preserved tools are called directly only; they are not available under `tools.*`.
+- The model sees only tools marked `preserve=True` (`bash`, `bash.output`, `bash.kill`, `fs.read`, `fs.write`, `fs.edit`, `spill.read`) plus `run_code(code: str) -> str`. Preserved tools are called directly only; they are not available under `tools.*`.
 - Every other allowed tool is an async function inside `run_code`, named after its model-facing name (`tape.info` becomes `await tools.tape_info()`). Top-level `await` is allowed and `asyncio.gather` runs calls concurrently. Calls take keyword arguments, go through the usual `before_tool_call`/`after_tool_call` hooks, return structured results, and raise on failure.
 - Bub writes a Python stub with one function per non-preserved allowed tool — parameter and return types plus docstring — under `~/.bub/codemode/` and puts its path in the system prompt. The path stays the same for a session as long as its tool set does not change.
 - `run_code(code, timeout_seconds=120)` returns what the code writes to stdout. An uncaught exception becomes a tool error whose details carry the printed output and the traceback.
 
-If `run_code` is not allowed (for example, a subagent restricted with `allowed_tools`), that turn falls back to direct tool calls. Declare `preserve=True` on your own tools to keep them directly callable. Nested calls run with `ToolContext.code_mode` (and `ToolCall.code_mode` for hooks) set to `True`; their results are not rendered or spilled.
+If `run_code` is not allowed (for example, a subagent restricted with `allowed_tools`), that turn falls back to direct tool calls. Declare `preserve=True` on your own tools to keep them directly callable. Nested calls run with `ToolContext.code_mode` set to `True` (hooks see it as `call.context.code_mode`); their results are not rendered or spilled.
 
 `run_code` hands the code to the session [environment](#run-tools-in-an-environment)'s `run_code`, together with a `call_tool` callback. Tool calls always run on the host through that callback, so hooks still see every call. `timeout_seconds` cancels the environment call. The builtin `LocalEnvironment` starts a fresh Python process for every call (`sys.executable`, working directory is the workspace) and forwards tool calls as JSON lines over its stdin and stdout, so arguments and results must be JSON-serializable. When the code finishes, fails or times out, it kills the process and everything it started. That process runs on the host with the same permissions as `bash`, so enable code mode only where `bash` would be acceptable. The return annotation of a tool function (or `Tool.output_schema`, for tools built by hand) determines the result type shown in the stub.
+
+### Per-request tool presentation
+
+`Agent.tool_providers` accepts async callbacks `(tools, tape) -> (tools, tool_prompt)`. Bub applies the current tool scope and prepares code mode first, then runs these callbacks in registration order. They receive runtime names; model aliases are applied afterward. The returned tools and prompt fragment are used for that request.
+
+Providers prepare already registered tools; they do not register tools or change connection lifecycles. A plugin binds its discovery helper alongside its tools and keeps discovery within the supplied scope. Full native definitions are sent through the tool schema instead of repeated in the system prompt.
 
 ## Run tools in an environment
 

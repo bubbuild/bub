@@ -6,9 +6,12 @@ from typing import Any
 
 import pluggy
 import pytest
+from any_llm.types.completion import ChatCompletion
 
 from bub.builtin.context import default_tape_context
 from bub.builtin.hook_impl import BuiltinImpl
+from bub.builtin.model_runner import ModelRunner
+from bub.builtin.settings import AgentSettings
 from bub.builtin.spill import (
     SPILL_READ_MODEL_NAME,
     SPILL_READ_TOOL_NAME,
@@ -36,6 +39,15 @@ class _SpillHooks:
 
 def _spill_executor() -> ToolExecutor:
     return ToolExecutor(hooks=_SpillHooks())  # type: ignore[arg-type]
+
+
+def _spill_context(*, tape: Tape, run_id: str | None = None, code_mode: bool = False) -> ToolContext:
+    return ToolContext(
+        tape=tape,
+        run_id=run_id,
+        code_mode=code_mode,
+        state={"_runtime_tool_names": (SPILL_READ_MODEL_NAME,)},
+    )
 
 
 def _handle_from_ref(ref: str) -> str:
@@ -80,7 +92,7 @@ async def test_oversized_result_is_bounded_and_readable_across_merge(tmp_path: P
     output = ("alpha🙂beta\n" * 5000) + "the-end"
 
     async with root.fork_tape() as tape:
-        context = ToolContext(tape=tape, run_id="run-1")
+        context = _spill_context(tape=tape, run_id="run-1")
         tool = Tool(name="large", handler=lambda: output)
         execution = await _spill_executor().execute_async([(tool, {})], context=context)
 
@@ -117,7 +129,7 @@ async def test_oversized_result_is_bounded_and_readable_across_merge(tmp_path: P
         assert handle in request_body
         assert output not in request_body
 
-    persisted_context = ToolContext(tape=root, run_id="run-2")
+    persisted_context = _spill_context(tape=root, run_id="run-2")
     persisted = await _read_page(persisted_context, handle)
     assert _page_content(persisted) == restored[0][: len(_page_content(persisted))]
 
@@ -128,7 +140,7 @@ async def test_spill_configuration_preserves_results_that_should_not_be_spilled(
     root = _root_tape(tmp_path, parent, threshold=100)
 
     async with root.fork_tape() as tape:
-        context = ToolContext(tape=tape, run_id="run-1")
+        context = _spill_context(tape=tape, run_id="run-1")
         small_results = ["tiny", {"value": "tiny"}, ["tiny"]]
         small = await _spill_executor().execute_async(
             [
@@ -151,7 +163,7 @@ async def test_spill_configuration_preserves_results_that_should_not_be_spilled(
     async with disabled.fork_tape() as tape:
         execution = await _spill_executor().execute_async(
             [(Tool(name="large", handler=lambda: "x" * 20_000), {})],
-            context=ToolContext(tape=tape, run_id="run-2"),
+            context=_spill_context(tape=tape, run_id="run-2"),
         )
     assert execution.tool_results == ["x" * 20_000]
 
@@ -162,7 +174,7 @@ async def test_oversized_structured_result_is_spilled_as_json(tmp_path: Path, ou
     root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
 
     async with root.fork_tape() as tape:
-        context = ToolContext(tape=tape, run_id="run-1")
+        context = _spill_context(tape=tape, run_id="run-1")
         execution = await _spill_executor().execute_async(
             [(Tool(name="structured", handler=lambda: output), {})], context=context
         )
@@ -193,7 +205,7 @@ async def test_spill_runs_after_other_result_hooks(tmp_path: Path) -> None:
     async with root.fork_tape() as tape:
         execution = await executor.execute_async(
             [(Tool(name="expanded", handler=lambda: "small"), {})],
-            context=ToolContext(tape=tape, run_id="run-1"),
+            context=_spill_context(tape=tape, run_id="run-1"),
         )
 
     assert "tool output spilled" in execution.tool_results[0]
@@ -230,7 +242,7 @@ async def test_failure_replacement_is_used_for_spill_check(
         raise RuntimeError(error_message)
 
     async with root.fork_tape() as tape:
-        context = ToolContext(tape=tape, run_id="run-1")
+        context = _spill_context(tape=tape, run_id="run-1")
         execution = await executor.execute_async([(Tool(name="bash", handler=fail), {})], context=context)
 
         assert execution.error is not None
@@ -253,7 +265,7 @@ async def test_oversized_tool_error_is_spilled_and_remains_a_failure(tmp_path: P
         raise RuntimeError(error_message)
 
     async with root.fork_tape() as tape:
-        context = ToolContext(tape=tape, run_id="run-1")
+        context = _spill_context(tape=tape, run_id="run-1")
         execution = await _spill_executor().execute_async([(Tool(name="failing", handler=fail), {})], context=context)
 
         assert execution.error is not None
@@ -273,31 +285,30 @@ async def test_temporary_fork_discards_spilled_content(tmp_path: Path) -> None:
     root = _root_tape(tmp_path, parent)
 
     async with root.fork_tape(merge_back=False) as tape:
-        context = ToolContext(tape=tape, run_id="run-1")
+        context = _spill_context(tape=tape, run_id="run-1")
         execution = await _spill_executor().execute_async(
             [(Tool(name="large", handler=lambda: "x" * 20_000), {})], context=context
         )
         handle = _handle_from_ref(execution.tool_results[0])
         assert "content:" in await _read_page(context, handle)
 
-    missing = await _read_page(ToolContext(tape=root), handle)
+    missing = await _read_page(_spill_context(tape=root), handle)
     assert "no spilled tool result" in missing
 
 
 @pytest.mark.asyncio
 async def test_unknown_handle_and_invalid_read_bounds_are_friendly(tmp_path: Path) -> None:
     root = _root_tape(tmp_path, InMemoryTapeStore())
-    context = ToolContext(tape=root)
+    context = _spill_context(tape=root)
 
-    assert await spill_read.run(handle="missing", context=context) == {
-        "error": "[no spilled tool result for handle 'missing']"
-    }
+    assert await spill_read.run(handle="missing", context=context) == "[no spilled tool result for handle 'missing']"
     assert await _read_page(context, "missing", cursor=-1) == "`cursor` must be >= 0."
     assert await _read_page(context, "missing", count=0) == "`count` must be >= 1."
 
 
 def test_spill_read_uses_the_builtin_tool_naming_convention() -> None:
     assert spill_read.name == SPILL_READ_TOOL_NAME == "spill.read"
+    assert spill_read.preserve is True
     assert model_tools([spill_read])[0].name == SPILL_READ_MODEL_NAME == "spill_read"
     assert "spill_read(handle, cursor?, count?, from_end?)" in render_tools_prompt([spill_read])
 
@@ -312,7 +323,7 @@ async def test_tape_archive_preserves_spilled_results_and_clears_the_session(tmp
     async with root.fork_tape() as tape:
         execution = await _spill_executor().execute_async(
             [(Tool(name="large", handler=lambda: "archived output\n" * 5000), {})],
-            context=ToolContext(tape=tape, run_id="run-1"),
+            context=_spill_context(tape=tape, run_id="run-1"),
         )
         ref = execution.tool_results[0]
         assert isinstance(ref, str)
@@ -334,7 +345,7 @@ async def test_tape_archive_preserves_spilled_results_and_clears_the_session(tmp
     assert len(spill_archives) == 1
     assert handle in main_archive.read_text(encoding="utf-8")
     assert handle in spill_archives[0].read_text(encoding="utf-8")
-    assert "no spilled tool result" in await _read_page(ToolContext(tape=root), handle)
+    assert "no spilled tool result" in await _read_page(_spill_context(tape=root), handle)
 
 
 @pytest.mark.asyncio
@@ -343,10 +354,96 @@ async def test_code_mode_results_stay_structured_and_are_not_spilled(tmp_path: P
     output = {"value": "x" * 20_000}
 
     async with root.fork_tape() as tape:
-        context = ToolContext(tape=tape, run_id="run-1", code_mode=True)
+        context = _spill_context(tape=tape, run_id="run-1", code_mode=True)
         executor = ToolExecutor(hooks=_SpillHooks(), render=False)  # type: ignore[arg-type]
         execution = await executor.execute_async(
             [(Tool(name="structured", handler=lambda: output), {})], context=context
         )
 
     assert execution.tool_results == [output]
+
+
+@pytest.mark.parametrize("fails", [False, True])
+@pytest.mark.asyncio
+async def test_result_spill_requires_reader_in_current_model_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fails: bool
+) -> None:
+    class SpillPlugin:
+        @hookimpl(trylast=True)
+        async def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict[str, Any]) -> None:
+            await BuiltinImpl.after_tool_call(self, call, result, state)  # type: ignore[arg-type]
+
+    plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
+    plugin_manager.add_hookspecs(BubHookSpecs)
+    plugin_manager.register(SpillPlugin())
+    runner = ModelRunner(
+        AgentSettings.model_construct(model="test-model", model_timeout_seconds=None),
+        hooks=AgentHooks(HookRuntime(plugin_manager)),
+    )
+    output = "large output " * 2000
+
+    def large() -> str:
+        if fails:
+            raise RuntimeError(output)
+        return output
+
+    async def complete(**kwargs: Any) -> ChatCompletion:
+        return ChatCompletion.model_validate({
+            "id": "completion-1",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "test-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call-large",
+                                "type": "function",
+                                "function": {"name": "large", "arguments": "{}"},
+                            }
+                        ],
+                    },
+                }
+            ],
+        })
+
+    monkeypatch.setattr(runner, "completion_response", complete)
+    root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
+    async with root.fork_tape() as tape:
+        for reader_available in (False, True, False):
+            tools = [Tool(name="large", handler=large)]
+            if reader_available:
+                tools.append(spill_read)
+            events = [
+                event
+                async for event in runner.run(
+                    tape=tape, model="test-model", tools=model_tools(tools), system_prompt=None, prompt="Run large."
+                )
+            ]
+            result = next(event.data["tool_results"][0] for event in events if event.kind == "tool_result")
+            if reader_available:
+                assert "tool output spilled" in result
+                page = await _read_page(_spill_context(tape=tape), _handle_from_ref(result), count=4)
+                assert output in _page_content(page)
+            elif fails:
+                assert result["kind"] == "tool"
+                assert output in result["details"]["error"]
+            else:
+                assert result == output
+
+
+@pytest.mark.asyncio
+async def test_result_spill_without_tool_availability_keeps_full_output(tmp_path: Path) -> None:
+    root = _root_tape(tmp_path, InMemoryTapeStore())
+    output = "x" * 20_000
+    execution = await _spill_executor().execute_async(
+        [(Tool(name="large", handler=lambda: output), {})], context=ToolContext(tape=root)
+    )
+
+    assert execution.tool_results == [output]
+    assert list(await root.store.fetch_all(root.scoped(root.sidecar_tape_name(SPILL_SIDECAR_NAME)).query())) == []

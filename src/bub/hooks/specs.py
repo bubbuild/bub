@@ -115,7 +115,7 @@ class BubHookSpecs:
 
     @hookspec
     def onboard_config(self, current_config: dict[str, Any]) -> dict[str, Any] | None:
-        """Collect a plugin config fragment for the interactive onboarding command."""
+        """Collect a config fragment, receiving the loaded configuration plus earlier hook updates."""
 
     @hookspec
     def provide_model_options(

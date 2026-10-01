@@ -144,7 +144,10 @@ def chat(
     asyncio.run(manager.listen_and_run())
 
 
-def onboard(ctx: typer.Context) -> None:
+def onboard(
+    ctx: typer.Context,
+    plugin_name: str | None = typer.Argument(None, help="Only configure this registered plugin"),
+) -> None:
     """Interactively collect plugin configuration and write it to Bub's config file."""
 
     framework = ctx.ensure_object(BubFramework)
@@ -152,7 +155,7 @@ def onboard(ctx: typer.Context) -> None:
     typer.echo("\nWelcome to Bub! Let's get you set up.\n")
 
     try:
-        config_data = framework.collect_onboard_config()
+        config_data = framework.collect_onboard_config(plugin_name)
         configure.save(framework.config_file, config_data)
     except (typer.Abort, typer.Exit):
         raise
@@ -161,6 +164,8 @@ def onboard(ctx: typer.Context) -> None:
         raise typer.Exit(1) from exc
 
     typer.echo(f"Saved config to {framework.config_file}")
+    if plugin_name not in (None, "builtin"):
+        return
 
     from bub import inquirer as bub_inquirer
     from bub.gateway_installer import GatewayServiceError, install_gateway, is_gateway_service_supported

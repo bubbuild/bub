@@ -315,9 +315,10 @@ def test_collect_onboard_config_passes_accumulated_updates_to_later_hooks(write_
 
         result = framework.collect_onboard_config()
 
-    assert observed_configs[0][1] == {}
-    assert observed_configs[1][1] == {observed_configs[0][0]: {"enabled": True}}
+    assert observed_configs[0][1] == {"model": "openai:gpt-5"}
+    assert observed_configs[1][1] == {"model": "openai:gpt-5", observed_configs[0][0]: {"enabled": True}}
     assert result == {
+        "model": "openai:gpt-5",
         "first": {"enabled": True},
         "second": {"enabled": True},
     }
@@ -499,3 +500,55 @@ async def test_process_inbound_streams_when_requested() -> None:  # noqa: C901
     assert stream_calls == ["prompt"]
     assert wrapped_events == ["text", "text", "final"]
     assert result.model_output == "streamed"
+
+
+def test_onboard_config_preserves_existing_sections_without_mutating_loaded_config(write_config) -> None:
+    config_file = write_config("model: openai:gpt-5\nplugin:\n  keep: original\n  replace: old\n")
+    framework = BubFramework(config_file=config_file)
+
+    class Plugin:
+        @hookimpl
+        def onboard_config(self, current_config):
+            assert current_config["plugin"] == {"keep": "original", "replace": "old"}
+            current_config["plugin"]["mutated"] = True
+            return {"plugin": {"replace": "new"}}
+
+    framework.plugin_manager.register(Plugin(), name="plugin")
+    result = framework.collect_onboard_config()
+
+    assert result["plugin"] == {"keep": "original", "replace": "new", "mutated": True}
+    assert configure.get_config_data()["plugin"] == {"keep": "original", "replace": "old"}
+    assert "new" not in config_file.read_text()
+
+
+@pytest.mark.parametrize("plugin_name", ["first", "second", "builtin"])
+def test_collect_onboard_config_only_runs_selected_plugin(write_config, plugin_name: str) -> None:
+    framework = BubFramework(config_file=write_config("model: openai:gpt-5\nkeep: original\n"))
+    called: list[str] = []
+
+    class Plugin:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        @hookimpl
+        def onboard_config(self, current_config):
+            assert current_config["keep"] == "original"
+            called.append(self.name)
+            return {self.name: {"configured": True}}
+
+    for name in ("first", "second", "builtin"):
+        framework.plugin_manager.register(Plugin(name), name=name)
+
+    result = framework.collect_onboard_config(plugin_name)
+
+    assert called == [plugin_name]
+    assert result == {"model": "openai:gpt-5", "keep": "original", plugin_name: {"configured": True}}
+
+
+@pytest.mark.parametrize("plugin_name", ["missing", "no-onboarding"])
+def test_collect_onboard_config_rejects_plugin_without_onboarding_hook(write_config, plugin_name: str) -> None:
+    framework = BubFramework(config_file=write_config())
+    framework.plugin_manager.register(object(), name="no-onboarding")
+
+    with pytest.raises(ValueError, match=f"No onboard_config hook found for plugin '{plugin_name}'"):
+        framework.collect_onboard_config(plugin_name)

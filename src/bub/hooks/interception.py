@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from loguru import logger
 
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.turn import TurnState
+
+if TYPE_CHECKING:
+    from bub.tools import ToolContext
 
 
 @dataclass(frozen=True)
@@ -63,14 +66,14 @@ class LlmCallDecision:
 class ToolCall:
     """One tool invocation exposed to interception hooks.
 
-    ``code_mode`` marks calls made from model-written code (``run_code``); their
-    results are structured values for that code, not model-facing text.
+    ``context`` is the ``ToolContext`` the call runs with, when one is available; for
+    example, ``context.code_mode`` marks calls made from model-written code (``run_code``).
     """
 
     run_id: str
     tool: str
     arguments: dict[str, Any]
-    code_mode: bool = False
+    context: ToolContext | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)

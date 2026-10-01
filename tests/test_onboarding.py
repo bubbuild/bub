@@ -384,7 +384,12 @@ def test_editing_endpoint_clears_key_before_blank_key_is_reused(prompts, monkeyp
     assert config["api_base"] == "https://second.test/v1"
 
 
-def test_onboarding_hooks_only_receive_current_run_contributions(prompts, tmp_path: Path, monkeypatch):
+@pytest.mark.parametrize("new_key", ["test-key", ""])
+def test_onboarding_hooks_receive_existing_config_and_current_run_updates(
+    prompts, tmp_path: Path, monkeypatch, new_key: str
+):
+    answers, calls = prompts
+    answers["key"] = new_key
     monkeypatch.setenv("BUB_HOME", str(tmp_path / "home"))
     config_file = tmp_path / "config.yml"
     original = {
@@ -410,7 +415,8 @@ def test_onboarding_hooks_only_receive_current_run_contributions(prompts, tmp_pa
     result = CliRunner().invoke(framework.create_cli_app(), ["onboard"])
 
     assert result.exit_code == 0, result.output
-    builtin_config = {"model": "openai:model-b", "api_key": "test-key", "enabled_channels": "", "stream_output": False}
+    builtin_config = {**original, "api_key": new_key or "keep-key", "stream_output": False}
+    assert "API key (Enter to keep current key)" in dict(calls)
     assert received == [builtin_config]
     assert configure.load(config_file) == {**builtin_config, "plugin": {"configured": True}}
     assert "keep-key" not in result.output

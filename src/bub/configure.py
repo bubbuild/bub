@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from copy import deepcopy
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,11 @@ def load(config_file: Path) -> dict[str, Any]:
         with config_file.open() as f:
             _config_data.update(yaml.safe_load(f) or {})
     return _config_data
+
+
+def get_config_data() -> dict[str, Any]:
+    """Return an independent copy of the loaded configuration, without settings defaults or environment overrides."""
+    return deepcopy(_config_data)
 
 
 def merge(base: dict[str, Any], *updates: dict[str, Any]) -> dict[str, Any]:
