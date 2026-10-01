@@ -37,6 +37,7 @@ AGENTS_FILE_NAME = "AGENTS.md"
 DEFAULT_SYSTEM_PROMPT = """\
 <general_instruct>
 Call tools or skills to finish the task.
+Issue independent read calls together in the same model step.
 </general_instruct>
 <response_instruct>
 Before ending this run, you MUST determine whether a response needs to be sent via channel, checking the following conditions:

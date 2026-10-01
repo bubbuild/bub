@@ -245,7 +245,8 @@ def render_code_mode_prompt(stub_path: Path) -> str:
         "<code_mode>\n"
         f"More tools are available as async Python functions `tools.<name>(...)` inside `{RUN_CODE_TOOL_NAME}`. "
         f"Their signatures, result types and documentation are in the stub file: {stub_path}\n"
-        "Read the stub before calling a tool you have not used yet. Always `await` tool calls (top-level `await` "
+        "Locate and read only the relevant declarations in the stub before calling an unfamiliar tool. "
+        "Always `await` tool calls (top-level `await` "
         "is allowed) and pass keyword arguments; they return structured values and raise on failure. "
         f"`{RUN_CODE_TOOL_NAME}` returns only what the code prints, so print the results you need, and combine "
         "several tool calls in one run when possible.\n"
@@ -257,6 +258,7 @@ def render_code_mode_prompt(stub_path: Path) -> str:
 async def run_code(code: str, timeout_seconds: int = DEFAULT_RUN_CODE_TIMEOUT_SECONDS, *, context: ToolContext) -> str:
     """Run Python code in the environment and return everything it prints.
 
+    By default, each call starts a fresh Python process; keep operations that share variables in the same call.
     Tools are async functions available as `tools.<name>(...)`: await them with keyword arguments
     (top-level `await` is allowed). See the tool stub file referenced in the system prompt for their
     signatures and result types. The code is stopped after timeout_seconds.

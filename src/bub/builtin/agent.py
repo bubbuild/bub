@@ -446,8 +446,7 @@ class Agent:
             for skill in discover_skills(workspace, skill_dirs=self.skill_dirs)
             if allowed_skills is None or skill.name.casefold() in allowed_skills
         }
-        expanded_skills = set(HINT_RE.findall(prompt)) & set(skill_index.keys())
-        return render_skills_prompt(list(skill_index.values()), expanded_skills=expanded_skills)
+        return render_skills_prompt(list(skill_index.values()))
 
     async def _run_once(
         self,
@@ -472,6 +471,23 @@ class Agent:
         if allowed_skills is not None:
             allowed_skills = {name.casefold() for name in allowed_skills}
             tape.context.state["allowed_skills"] = list(allowed_skills)
+        if prompt is not None:
+            hinted = {name.casefold() for name in HINT_RE.findall(prompt_text)}
+            selected = [
+                skill
+                for skill in discover_skills(workspace_from_state(tape.context.state), skill_dirs=self.skill_dirs)
+                if skill.name.casefold() in hinted
+                and (allowed_skills is None or skill.name.casefold() in allowed_skills)
+            ]
+            if selected:
+                bodies = "\n\n".join(
+                    f'<skill name="{skill.name}" location="{skill.location}">\n{skill.body()}\n</skill>'
+                    for skill in selected
+                )
+                if isinstance(prompt, str):
+                    prompt = f"{prompt}\n\n{bodies}"
+                else:
+                    prompt = [*prompt, {"type": "text", "text": bodies}]
         if allowed_tools is not None:
             tools = [tool for tool in known_tools.values() if tool.name in allowed_tools]
         else:
@@ -545,12 +561,12 @@ class Agent:
     ) -> str:
         blocks: list[str] = []
         if result := self.framework.get_system_prompt(prompt=prompt, state=state):
-            blocks.append(result)
+            blocks.append(f"<instructions>\n{result}\n</instructions>")
         workspace = workspace_from_state(state)
         if skills_prompt := self._load_skills_prompt(prompt, workspace, allowed_skills):
             blocks.append(skills_prompt)
         if tools_prompt:
-            blocks.append(tools_prompt)
+            blocks.append(f"<tool_catalogs>\n{tools_prompt}\n</tool_catalogs>")
         return "\n\n".join(blocks)
 
     def _has_steering_messages(self, state: TurnState) -> bool:

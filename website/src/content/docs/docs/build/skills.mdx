@@ -9,6 +9,8 @@ This guide shows how to author a **skill** — a discoverable directory centered
 
 A skill is a unit of model-facing instruction Bub exposes via the `,skill` comma command and through prompt rendering. Bub's loader implements the [Agent Skills](https://agentskills.io/) format; this page focuses on the contract Bub enforces and the packaging patterns that put skills on the discovery path.
 
+The system prompt lists skill summaries. An explicit `$my-skill` hint appends the rendered body to the current user message, so it stays in tape history after tool calls. `allowed_skills` limits both summaries and explicit expansion; the `,skill` command is unchanged.
+
 ## Before you begin
 
 - A plugin or distribution package built with a backend that supports custom file inclusion (Hatch, uv-build, PDM all work).
