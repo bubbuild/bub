@@ -7,16 +7,18 @@ description: GitHub CLI skill for interacting with GitHub via the gh command lin
 
 Interact with GitHub using the gh command line tool.
 
+Run commands with Bub's `bash` tool, setting `cwd` to the target checkout when using local repository context. If it returns a running shell ID, collect the result with `bash.output` before retrying the command.
+
 ## Prerequisites
 
-The GitHub PAT is available via `GITHUB_TOKEN` environment variable or `gh` CLI authentication.
+Use the authentication source specified by the user or workspace. For github.com, `GH_TOKEN` takes precedence over `GITHUB_TOKEN`, and both override stored `gh` credentials.
 
 Check authentication:
 ```bash
 gh auth status
 ```
 
-If not authenticated:
+If not authenticated, report the blocker; do not silently switch credentials. Run interactive login only when the user requests authentication setup:
 ```bash
 gh auth login
 ```
@@ -84,3 +86,6 @@ gh gist view <id>
 - Use --web to open in browser
 - Use -R owner/repo to specify repository
 - Use --json with --jq for scripting
+- Use `GH_PROMPT_DISABLED=1` and supply required flags for unattended execution.
+- Pass issue, PR, and comment bodies with `--body-file` or `--body-file -` using a quoted heredoc to preserve newlines and shell-sensitive text.
+- Use an explicit `--head` with `gh pr create` to avoid implicit pushes or forks; the head branch must already exist remotely.
