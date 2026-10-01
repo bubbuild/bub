@@ -255,26 +255,28 @@ async def test_executor_render_option_decides_result_format(
 
 
 @pytest.mark.asyncio
-async def test_executor_exposes_code_mode_to_context_tools_and_hooks(tmp_path) -> None:
+async def test_executor_passes_tool_context_to_context_tools_and_hooks(tmp_path) -> None:
     seen: dict[str, Any] = {}
 
     class RecordingHooks:
         async def before_tool_call(self, call: ToolCall, state: dict[str, Any]) -> tuple[ToolCall, ToolCallDecision]:
-            seen["before"] = call.code_mode
+            seen["before"] = call.context
             return call, ToolCallDecision.proceed()
 
         async def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict[str, Any]) -> None:
-            seen["after"] = (call.code_mode, result.result)
+            seen["after"] = (call.context, result.result)
 
     def mode(*, context: ToolContext) -> dict[str, bool]:
         return {"code_mode": context.code_mode}
 
+    context = _context(tmp_path, code_mode=True)
     execution = await ToolExecutor(hooks=RecordingHooks(), render=False).execute_async(  # type: ignore[arg-type]
-        [(Tool.from_callable(mode, context=True), {})], context=_context(tmp_path, code_mode=True)
+        [(Tool.from_callable(mode, context=True), {})], context=context
     )
 
     assert execution.tool_results == [{"code_mode": True}]
-    assert seen == {"before": True, "after": (True, {"code_mode": True})}
+    assert seen["before"] is context
+    assert seen["after"] == (context, {"code_mode": True})
 
 
 @pytest.mark.asyncio

@@ -60,7 +60,7 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 - Bub 会在 `~/.bub/codemode/` 下为允许的非 preserve 工具生成一个 Python stub 文件，每个工具对应一个函数，包含参数类型、返回类型和 docstring，并把文件路径写入 system prompt。只要工具集合不变，同一个 session 中这个路径保持不变。
 - `run_code(code, timeout_seconds=120)` 返回代码写到 stdout 的内容。未捕获的异常会变成工具错误，错误详情中包含已打印的输出和 traceback。
 
-如果 `run_code` 不在允许范围内（例如被 `allowed_tools` 限制的 subagent），该 turn 会退回直接调用工具的方式。给自己的工具声明 `preserve=True` 可以让它保持直接可调用。嵌套调用时 `ToolContext.code_mode`（hook 中为 `ToolCall.code_mode`）为 `True`，结果不会被渲染或 spill。
+如果 `run_code` 不在允许范围内（例如被 `allowed_tools` 限制的 subagent），该 turn 会退回直接调用工具的方式。给自己的工具声明 `preserve=True` 可以让它保持直接可调用。嵌套调用时 `ToolContext.code_mode`（hook 中通过 `call.context.code_mode` 读取）为 `True`，结果不会被渲染或 spill。
 
 `run_code` 会把代码和一个 `call_tool` 回调一起交给当前 session [执行环境](#在执行环境中运行工具)的 `run_code` 执行。工具调用始终经这个回调在宿主上执行，所以 hook 仍能看到每一次调用。超过 `timeout_seconds` 时会取消执行环境里的执行。builtin 的 `LocalEnvironment` 每次调用都会启动一个新的 Python 进程（使用 `sys.executable`，工作目录为 workspace），工具调用以 JSON 行的形式经进程的 stdin/stdout 转发，因此参数和结果都必须能 JSON 序列化。代码执行完、出错或超时后，它会杀掉该进程及其启动的所有子进程。这个进程直接跑在宿主上，权限与 `bash` 相同，因此只应在允许使用 `bash` 的场景下开启 code mode。stub 中的结果类型来自工具函数的返回注解（手动构造的工具则来自 `Tool.output_schema`）。
 

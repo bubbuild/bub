@@ -370,7 +370,7 @@ class ToolExecutor:
             run_id=(context.run_id if context is not None else None) or "",
             tool=tool_name,
             arguments=dict(tool_args),
-            code_mode=context is not None and context.code_mode,
+            context=context,
         )
         hook_state = context.state if context is not None else {}
         if self._hooks is not None and context is not None:

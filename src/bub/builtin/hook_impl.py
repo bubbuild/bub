@@ -384,7 +384,8 @@ class BuiltinImpl:
         from bub.builtin.spill import SPILL_SIDECAR_NAME, SpillStore
 
         tape = state.get("_runtime_tape")
-        if tape is None or call.code_mode:
+        # Results of calls from run_code are structured values for the code, not model-facing text.
+        if tape is None or (call.context is not None and call.context.code_mode):
             return
         spill = tape.get_sidecar(SPILL_SIDECAR_NAME)
         if not isinstance(spill, SpillStore):

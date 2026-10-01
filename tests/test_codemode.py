@@ -151,7 +151,7 @@ async def test_run_code_routes_tool_calls_through_hooks(tmp_path: Path) -> None:
 
     class Hooks:
         async def before_tool_call(self, call: ToolCall, state: dict[str, Any]) -> tuple[ToolCall, ToolCallDecision]:
-            calls.append((call.tool, call.code_mode))
+            calls.append((call.tool, call.context is not None and call.context.code_mode))
             if call.tool == "blocked":
                 return call, ToolCallDecision.deny("not allowed")
             return call, ToolCallDecision.proceed()
@@ -391,7 +391,7 @@ async def test_run_code_delegates_to_the_environment_code_runtime(tmp_path: Path
 
     class Hooks:
         async def before_tool_call(self, call: ToolCall, state: dict[str, Any]) -> tuple[ToolCall, ToolCallDecision]:
-            calls.append((call.tool, call.code_mode))
+            calls.append((call.tool, call.context is not None and call.context.code_mode))
             if call.tool == "blocked":
                 return call, ToolCallDecision.deny("not allowed")
             return call, ToolCallDecision.proceed()
