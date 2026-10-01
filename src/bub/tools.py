@@ -224,6 +224,7 @@ class ToolCatalog(Protocol):
 
     Tools use runtime names. Returned declared tool instances are registered by
     the agent; discovery state and resource cleanup remain owned by the catalog.
+    Mapping order determines discovery order independently of execution registration.
     """
 
     @property

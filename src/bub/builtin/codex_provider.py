@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -128,10 +129,28 @@ class OpenaiCodexProvider(BaseOpenAIProvider):
         if params.reasoning_effort not in {None, "auto"}:
             reasoning = {"effort": params.reasoning_effort}
 
+        messages = params.messages
+        tools = cast("Sequence[Any] | None", params.tools)
+        resets = [
+            index
+            for index, message in enumerate(messages)
+            if message.get("type") == "tool_definitions" and message.get("reset")
+        ]
+        if not supports_codex_tool_loading(params.model_id) or params.tool_choice not in (None, "auto", "none"):
+            messages = [message for message in messages if message.get("type") != "tool_definitions"]
+            resets = []
+        if resets:
+            start = resets[-1]
+            tools = messages[start]["tools"]
+            messages = [
+                message
+                for index, message in enumerate(messages)
+                if message.get("type") != "tool_definitions" or index > start
+            ]
         return ResponsesParams(
             model=params.model_id,
-            input=cast("Any", _completion_messages_to_responses_input(params.messages)),
-            tools=self._completion_tools_to_response_tools(cast("Sequence[Any] | None", params.tools)),
+            input=cast("Any", _completion_messages_to_responses_input(messages)),
+            tools=self._completion_tools_to_response_tools(tools),
             tool_choice=self._completion_tool_choice_to_response_tool_choice(params.tool_choice),
             response_format=params.response_format,
             stream=params.stream,
@@ -405,6 +424,14 @@ def _completion_messages_to_responses_input(messages: Sequence[Any]) -> list[dic
         if not payload:
             continue
 
+        if payload.get("type") == "tool_definitions":
+            response_input.append({
+                "type": "additional_tools",
+                "role": "developer",
+                "tools": OpenaiCodexProvider._completion_tools_to_response_tools(payload["tools"]),
+            })
+            continue
+
         role = payload.get("role")
         if role == "tool":
             tool_result = _completion_tool_result_to_response_item(payload)
@@ -465,6 +492,12 @@ def _mapping_from_value(value: Any) -> Mapping[str, Any]:
         if isinstance(dumped, Mapping):
             return dumped
     return {}
+
+
+def supports_codex_tool_loading(model_id: str) -> bool:
+    """Keep older models on the existing top-level tool definition path."""
+    version = re.match(r"^gpt-(\d+)(?:\.(\d+))?(?:-|$)", model_id)
+    return bool(version and (int(version[1]), int(version[2] or 0)) >= (5, 4))
 
 
 def should_use_openai_codex_provider(

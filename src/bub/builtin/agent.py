@@ -82,7 +82,12 @@ class Agent:
     @property
     def known_tools(self) -> dict[str, Tool]:
         """Current execution tools plus catalog entries, with later sources taking precedence."""
-        return {name: item for catalog in self.catalogs for name, item in catalog.tools.items()}
+        tools: dict[str, Tool] = {}
+        for catalog in self.catalogs:
+            for name, item in catalog.tools.items():
+                tools.pop(name, None)
+                tools[name] = item
+        return tools
 
     def add_catalog(self, catalog: ToolCatalog) -> None:
         """Register a source once, after existing sources and before code-mode presentation."""
@@ -541,11 +546,11 @@ class Agent:
         blocks: list[str] = []
         if result := self.framework.get_system_prompt(prompt=prompt, state=state):
             blocks.append(result)
-        if tools_prompt:
-            blocks.append(tools_prompt)
         workspace = workspace_from_state(state)
         if skills_prompt := self._load_skills_prompt(prompt, workspace, allowed_skills):
             blocks.append(skills_prompt)
+        if tools_prompt:
+            blocks.append(tools_prompt)
         return "\n\n".join(blocks)
 
     def _has_steering_messages(self, state: TurnState) -> bool:

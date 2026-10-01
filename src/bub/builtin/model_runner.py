@@ -29,8 +29,13 @@ from any_llm.types.completion import (
 from loguru import logger
 from pydantic import TypeAdapter, ValidationError
 
-from bub.builtin.codex_provider import OpenaiCodexProvider, should_use_openai_codex_provider
+from bub.builtin.codex_provider import (
+    OpenaiCodexProvider,
+    should_use_openai_codex_provider,
+    supports_codex_tool_loading,
+)
 from bub.builtin.settings import AgentSettings, ModelCandidate
+from bub.builtin.tool_loading import tool_definition_update
 from bub.channels.message import audio_mime_type_from_format
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import (
@@ -149,7 +154,10 @@ class ModelRunner:
                         "gen_ai.request.model": candidate.model_id,
                     })
                 streaming = llm.SUPPORTS_COMPLETION_STREAMING
-                completion_messages = _adapt_messages_for_provider(messages, candidate.provider)
+                native_messages = messages
+                if not isinstance(llm, OpenaiCodexProvider):
+                    native_messages = [item for item in messages if item.get("type") != "tool_definitions"]
+                completion_messages = _adapt_messages_for_provider(native_messages, candidate.provider)
                 completion_kwargs = {
                     **self.settings.completion_args,
                     **_extra_options(llm, stream=streaming),
@@ -194,6 +202,20 @@ class ModelRunner:
                 model=model,
                 steering_messages=steering_messages,
             )
+            client_kwargs = self.settings.model_client_kwargs("openai")
+            if (
+                model.startswith("openai:")
+                and supports_codex_tool_loading(model.partition(":")[2])
+                and should_use_openai_codex_provider(
+                    "openai",
+                    model.partition(":")[2],
+                    api_key=client_kwargs.get("api_key"),
+                    api_base=client_kwargs.get("api_base"),
+                )
+                and (definitions := tool_definition_update(messages, tools))
+            ):
+                messages.insert(len(messages) - len(new_messages), definitions)
+                new_messages.insert(0, definitions)
             output = ModelOutputAccumulator()
             request = LlmCallRequest(
                 run_id=run_id,
