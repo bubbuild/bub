@@ -381,11 +381,13 @@ class BuiltinImpl:
         result: ToolCallResult,
         state: TurnState,
     ) -> None:
-        from bub.builtin.spill import SPILL_SIDECAR_NAME, SpillStore
+        from bub.builtin.spill import SPILL_READ_MODEL_NAME, SPILL_SIDECAR_NAME, SpillStore
 
         tape = state.get("_runtime_tape")
         # Results of calls from run_code are structured values for the code, not model-facing text.
         if tape is None or (call.context is not None and call.context.code_mode):
+            return
+        if SPILL_READ_MODEL_NAME not in state.get("_runtime_tool_names", ()):
             return
         spill = tape.get_sidecar(SPILL_SIDECAR_NAME)
         if not isinstance(spill, SpillStore):

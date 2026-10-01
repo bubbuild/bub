@@ -92,6 +92,8 @@ class SpillSettings(Settings):
 
 Loaded under the YAML `spill:` section.
 
+New results are spilled only when `spill.read` is available in the current model tool set. Otherwise, the full result is returned.
+
 | Env var | Default | YAML key (`spill.*`) | Description |
 | --- | --- | --- | --- |
 | `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | Estimated tokens (4 chars each) above which rendered tool results, including failures, are stored in the spill sidecar. Set to `0` to stop creating new spills while keeping the sidecar mounted for existing handles and lifecycle operations. |
