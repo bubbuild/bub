@@ -155,9 +155,7 @@ def onboard(
     typer.echo("\nWelcome to Bub! Let's get you set up.\n")
 
     try:
-        config_data = (
-            framework.collect_onboard_config() if plugin_name is None else framework.collect_onboard_config(plugin_name)
-        )
+        config_data = framework.collect_onboard_config(plugin_name)
         configure.save(framework.config_file, config_data)
     except (typer.Abort, typer.Exit):
         raise
@@ -166,7 +164,7 @@ def onboard(
         raise typer.Exit(1) from exc
 
     typer.echo(f"Saved config to {framework.config_file}")
-    if plugin_name is not None:
+    if plugin_name not in (None, "builtin"):
         return
 
     from bub import inquirer as bub_inquirer

@@ -225,7 +225,7 @@ def test_onboard_can_install_gateway_after_saving_config(tmp_path: Path, monkeyp
     monkeypatch.setattr(
         framework,
         "collect_onboard_config",
-        lambda: {"enabled_channels": "telegram", "telegram": {"token": "token"}},
+        lambda *_: {"enabled_channels": "telegram", "telegram": {"token": "token"}},
     )
     monkeypatch.setattr("bub.gateway_installer.is_gateway_service_supported", lambda: True)
 
@@ -259,7 +259,7 @@ def test_onboard_keeps_saved_config_when_gateway_installation_fails(tmp_path: Pa
     framework = BubFramework(config_file=config_file)
     framework.load_hooks()
     app = framework.create_cli_app()
-    monkeypatch.setattr(framework, "collect_onboard_config", lambda: {"enabled_channels": "telegram"})
+    monkeypatch.setattr(framework, "collect_onboard_config", lambda *_: {"enabled_channels": "telegram"})
     monkeypatch.setattr("bub.gateway_installer.is_gateway_service_supported", lambda: True)
     monkeypatch.setattr(bub_inquirer, "ask_confirm", lambda message, default=False: True)
 
