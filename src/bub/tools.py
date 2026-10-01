@@ -219,8 +219,28 @@ class Tool:
         )
 
 
-type ToolProvider = Callable[[list[Tool], Tape], Awaitable[tuple[list[Tool], str]]]
-"""Prepare registered tools and a prompt fragment for one model request."""
+class ToolCatalog(Protocol):
+    """Declare known tools and prepare the scoped toolset and guidance for a request.
+
+    Tools use runtime names. Returned declared tool instances are registered by
+    the agent; discovery state and resource cleanup remain owned by the catalog.
+    Mapping order determines discovery order independently of execution registration.
+    """
+
+    @property
+    def tools(self) -> dict[str, Tool]: ...
+
+    async def prepare(self, tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]: ...
+
+
+@dataclass
+class DirectToolCatalog:
+    """Make a collection of tools directly available within the current scope."""
+
+    tools: dict[str, Tool]
+
+    async def prepare(self, tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
+        return tools, ""
 
 
 def model_tools(tools: Iterable[Tool]) -> list[Tool]:

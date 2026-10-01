@@ -17,6 +17,7 @@ from typing import Any
 
 from loguru import logger
 
+from bub.builtin.codemode import CodeModeCatalog
 from bub.builtin.commands import strip_command_prefix, validate_command_prefix
 from bub.builtin.model_runner import (
     ModelRunner,
@@ -29,7 +30,7 @@ from bub.skills import discover_skills, render_skills_prompt
 from bub.store import AsyncTapeStore, AsyncTapeStoreAdapter, InMemoryTapeStore, TapeStore, is_async_tape_store
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import Tape
-from bub.tools import REGISTRY, Tool, ToolContext, ToolProvider, model_tools
+from bub.tools import REGISTRY, DirectToolCatalog, Tool, ToolCatalog, ToolContext, model_tools
 from bub.tracing import Span, current_span
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
@@ -73,10 +74,25 @@ class Agent:
         )
         self.framework = framework
         self.tools = {tool.name: tool for tool in tools} if tools is not None else REGISTRY.copy()
-        self.tool_providers: list[ToolProvider] = []
+        self.catalogs: list[ToolCatalog] = [DirectToolCatalog(self.tools), CodeModeCatalog()]
         self.tape_store = tape_store
         self.skill_dirs = skill_dirs
         self.model_runner = ModelRunner(self.settings, hooks=framework.get_agent_hooks())
+
+    @property
+    def known_tools(self) -> dict[str, Tool]:
+        """Current execution tools plus catalog entries, with later sources taking precedence."""
+        tools: dict[str, Tool] = {}
+        for catalog in self.catalogs:
+            for name, item in catalog.tools.items():
+                tools.pop(name, None)
+                tools[name] = item
+        return tools
+
+    def add_catalog(self, catalog: ToolCatalog) -> None:
+        """Register a source once, after existing sources and before code-mode presentation."""
+        if all(item is not catalog for item in self.catalogs):
+            self.catalogs.insert(-1, catalog)
 
     @cached_property
     def tape(self) -> Tape:
@@ -247,6 +263,9 @@ class Agent:
         output = ""
         status = "ok"
         try:
+            known_tools = self.known_tools
+            if name in known_tools:
+                self.tools[name] = known_tools[name]
             if name not in self.tools:
                 if "bash" not in self.tools:
                     raise ValueError("bash tool is not available")  # noqa: TRY301
@@ -427,8 +446,7 @@ class Agent:
             for skill in discover_skills(workspace, skill_dirs=self.skill_dirs)
             if allowed_skills is None or skill.name.casefold() in allowed_skills
         }
-        expanded_skills = set(HINT_RE.findall(prompt)) & set(skill_index.keys())
-        return render_skills_prompt(list(skill_index.values()), expanded_skills=expanded_skills)
+        return render_skills_prompt(list(skill_index.values()))
 
     async def _run_once(
         self,
@@ -445,17 +463,35 @@ class Agent:
             prompt_text = ""
         else:
             prompt_text = _extract_text_from_parts(prompt)
+        known_tools = self.known_tools
         if allowed_tools is not None:
             from bub.builtin.tools import resolve_tool_names
 
-            allowed_tools = resolve_tool_names(allowed_tools, all_names=self.tools)
+            allowed_tools = resolve_tool_names(allowed_tools, all_names=known_tools)
         if allowed_skills is not None:
             allowed_skills = {name.casefold() for name in allowed_skills}
             tape.context.state["allowed_skills"] = list(allowed_skills)
+        if prompt is not None:
+            hinted = {name.casefold() for name in HINT_RE.findall(prompt_text)}
+            selected = [
+                skill
+                for skill in discover_skills(workspace_from_state(tape.context.state), skill_dirs=self.skill_dirs)
+                if skill.name.casefold() in hinted
+                and (allowed_skills is None or skill.name.casefold() in allowed_skills)
+            ]
+            if selected:
+                bodies = "\n\n".join(
+                    f'<skill name="{skill.name}" location="{skill.location}">\n{skill.body()}\n</skill>'
+                    for skill in selected
+                )
+                if isinstance(prompt, str):
+                    prompt = f"{prompt}\n\n{bodies}"
+                else:
+                    prompt = [*prompt, {"type": "text", "text": bodies}]
         if allowed_tools is not None:
-            tools = [tool for tool in self.tools.values() if tool.name in allowed_tools]
+            tools = [tool for tool in known_tools.values() if tool.name in allowed_tools]
         else:
-            tools = list(self.tools.values())
+            tools = list(known_tools.values())
         return await self._run_once_stream(
             tape=tape,
             prompt=prompt,
@@ -476,8 +512,10 @@ class Agent:
         tools: list[Tool],
     ) -> AsyncStreamEvents:
         tools_prompts: list[str] = []
-        for provider in (self._prepare_code_mode, *self.tool_providers):
-            tools, tools_prompt = await provider(tools, tape)
+        for catalog in self.catalogs:
+            owned = catalog.tools
+            tools, tools_prompt = await catalog.prepare(tools, tape)
+            self.tools.update({item.name: item for item in tools if owned.get(item.name) is item})
             if tools_prompt:
                 tools_prompts.append(tools_prompt)
         system_prompt = self._system_prompt(
@@ -514,34 +552,6 @@ class Agent:
             steering_messages=steering_messages,
         )
 
-    async def _prepare_code_mode(self, tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
-        """Split tools for code mode and return model-facing tools and the stub prompt.
-
-        Code mode is a session setting (``state["code_mode"]``, switched by the ``code_mode``
-        command) and applies only when ``run_code`` is among the allowed tools: the model then
-        sees preserved tools directly, and every other tool is callable only from code.
-        """
-        from bub.builtin.codemode import (
-            CODE_MODE_STATE_KEY,
-            CODE_TOOLS_STATE_KEY,
-            RUN_CODE_TOOL_NAME,
-            render_code_mode_prompt,
-            write_tool_stub,
-        )
-
-        state = tape.context.state
-        direct_tools = [tool for tool in tools if tool.name != RUN_CODE_TOOL_NAME]
-        if not state.get(CODE_MODE_STATE_KEY) or len(direct_tools) == len(tools):
-            state.pop(CODE_TOOLS_STATE_KEY, None)
-            return direct_tools, ""
-
-        code_tools = [tool for tool in direct_tools if tool.code_use]
-        state[CODE_TOOLS_STATE_KEY] = model_tools(code_tools)
-        stub_path = write_tool_stub(
-            code_tools, session_id=str(state.get("session_id", "")), workspace=workspace_from_state(state)
-        )
-        return [tool for tool in tools if tool.preserve], render_code_mode_prompt(stub_path)
-
     def _system_prompt(
         self,
         prompt: str,
@@ -551,12 +561,12 @@ class Agent:
     ) -> str:
         blocks: list[str] = []
         if result := self.framework.get_system_prompt(prompt=prompt, state=state):
-            blocks.append(result)
-        if tools_prompt:
-            blocks.append(tools_prompt)
+            blocks.append(f"<instructions>\n{result}\n</instructions>")
         workspace = workspace_from_state(state)
         if skills_prompt := self._load_skills_prompt(prompt, workspace, allowed_skills):
             blocks.append(skills_prompt)
+        if tools_prompt:
+            blocks.append(f"<tool_catalogs>\n{tools_prompt}\n</tool_catalogs>")
         return "\n\n".join(blocks)
 
     def _has_steering_messages(self, state: TurnState) -> bool:
