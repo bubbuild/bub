@@ -494,15 +494,25 @@ class BubFramework:
             return context
         raise TypeError("hook.build_tape_context must return TapeContext")
 
-    def collect_onboard_config(self) -> dict[str, Any]:
+    def collect_onboard_config(self, plugin_name: str | None = None) -> dict[str, Any]:
         """Merge onboarding hook contributions and validate the resulting configuration.
 
-        Each hook receives the accumulated config; higher-priority hooks run last.
+        Each hook receives the loaded config plus accumulated updates; higher-priority hooks run last.
+        When plugin_name is provided, only that registered plugin's onboarding hooks run.
         This method collects settings but does not write the configuration file.
         """
-        current_config: dict[str, Any] = {}
+        current_config = configure.get_config_data()
+        implementations = list(self._hook_runtime._iter_hookimpls("onboard_config"))
+        if plugin_name is not None:
+            selected = [impl for impl in implementations if impl.plugin_name == plugin_name]
+            if not selected:
+                available = ", ".join(sorted({impl.plugin_name for impl in implementations})) or "(none)"
+                raise ValueError(
+                    f"No onboard_config hook found for plugin '{plugin_name}'. Available plugins: {available}"
+                )
+            implementations = selected
 
-        for impl in reversed(list(self._hook_runtime._iter_hookimpls("onboard_config"))):
+        for impl in reversed(implementations):
             result = self._hook_runtime._invoke_impl_sync(
                 hook_name="onboard_config",
                 impl=impl,

@@ -678,3 +678,62 @@ def test_chat_accepts_optional_initial_prompt(initial_prompt: str | None, monkey
     if initial_prompt is not None:
         expected["initial_prompt"] = initial_prompt
     assert observed == expected
+
+
+def test_onboard_selected_plugin_preserves_other_config_and_skips_gateway(tmp_path: Path, monkeypatch) -> None:
+    config_file = tmp_path / "config.yml"
+    original = {
+        "model": "openai:gpt-5",
+        "enabled_channels": "telegram",
+        "target": {"keep": "original", "value": "old"},
+        "other": {"keep": "original"},
+    }
+    configure.save(config_file, original)
+    framework = BubFramework(config_file=config_file)
+    framework.load_hooks()
+
+    class TargetPlugin:
+        @hookimpl
+        def onboard_config(self, current_config):
+            assert current_config == original
+            return {"target": {"value": "new"}}
+
+    class OtherPlugin:
+        @hookimpl
+        def onboard_config(self, current_config):
+            raise AssertionError("Unselected plugin must not run")
+
+    framework.plugin_manager.register(TargetPlugin(), name="target-plugin")
+    framework.plugin_manager.register(OtherPlugin(), name="other-plugin")
+
+    def unexpected_prompt(*args, **kwargs):
+        raise AssertionError("Only the selected plugin should prompt")
+
+    monkeypatch.setattr(bub_inquirer, "ask_fuzzy", unexpected_prompt)
+    monkeypatch.setattr(bub_inquirer, "ask_confirm", unexpected_prompt)
+    monkeypatch.setattr("bub.gateway_installer.is_gateway_service_supported", lambda: True)
+
+    result = CliRunner().invoke(framework.create_cli_app(), ["onboard", "target-plugin"])
+
+    assert result.exit_code == 0, result.output
+    assert configure.load(config_file) == {
+        **original,
+        "target": {"keep": "original", "value": "new"},
+    }
+
+
+@pytest.mark.parametrize("plugin_name", ["missing", "no-onboarding"])
+def test_onboard_invalid_plugin_does_not_write_config(tmp_path: Path, plugin_name: str) -> None:
+    config_file = tmp_path / "config.yml"
+    configure.save(config_file, {"model": "openai:gpt-5"})
+    original = config_file.read_text()
+    framework = BubFramework(config_file=config_file)
+    framework.load_hooks()
+    framework.plugin_manager.register(object(), name="no-onboarding")
+
+    result = CliRunner().invoke(framework.create_cli_app(), ["onboard", plugin_name])
+
+    assert result.exit_code == 1
+    assert f"No onboard_config hook found for plugin '{plugin_name}'" in result.output
+    assert "Available plugins: builtin" in result.output
+    assert config_file.read_text() == original
