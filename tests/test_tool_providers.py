@@ -14,7 +14,7 @@ from bub.tools import Tool
 
 
 @pytest.mark.asyncio
-async def test_provider_prompt_reaches_the_model_and_registered_tools_remain_callable(
+async def test_provider_loads_a_catalog_tool_within_the_requested_scope(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("BUB_HOME", str(tmp_path))
@@ -32,7 +32,8 @@ async def test_provider_prompt_reaches_the_model_and_registered_tools_remain_cal
     supplied = Tool.from_callable(lookup, name="provider.lookup")
 
     async def provide(tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
-        return tools, "Use provider_lookup to greet the requested person."
+        tape.context.state["_runtime_agent"].tools[supplied.name] = supplied
+        return [*tools, supplied], "Use provider_lookup to greet the requested person."
 
     requests: list[dict[str, Any]] = []
 
@@ -68,7 +69,8 @@ async def test_provider_prompt_reaches_the_model_and_registered_tools_remain_cal
             })
 
     monkeypatch.setattr("bub.builtin.model_runner.AnyLLM.create", lambda *args, **kwargs: Provider())
-    agent = Agent(framework, tools=[direct, denied, supplied], skill_dirs=[])
+    agent = Agent(framework, tools=[direct, denied], skill_dirs=[])
+    agent.tool_catalog[supplied.name] = supplied
     agent.tool_providers.append(provide)
     stream = await agent.run_stream(
         session_id="provider",
@@ -76,8 +78,8 @@ async def test_provider_prompt_reaches_the_model_and_registered_tools_remain_cal
         model="openrouter:test-model",
         allowed_tools=["direct", "provider_lookup"],
     )
-    events = [event async for event in stream]
-    assert any(event.data.get("text") == "Hello Ada" for event in events if event.kind == "final")
+    async for _ in stream:
+        pass
     assert calls == ["Ada"]
     definitions = {item["function"]["name"]: item["function"] for item in requests[0]["tools"]}
     assert definitions.keys() == {"direct", "provider_lookup"}

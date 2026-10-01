@@ -67,9 +67,9 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 
 ### 每次请求的工具呈现
 
-`Agent.tool_providers` 接受异步回调 `(tools, tape) -> (tools, tool_prompt)`。Bub 先应用当前工具范围、准备 code mode，再按注册顺序执行这些回调。输入使用运行时名称，之后才转换模型别名；返回的工具及提示片段用于本次请求。
+`Agent.tool_providers` 接受异步回调 `(tools, tape) -> (tools, tool_prompt)`。Bub 先应用当前工具范围，再按注册顺序执行这些回调，最后准备 code mode。输入使用运行时名称，之后才转换模型别名；返回的工具及提示片段用于本次请求。
 
-provider 准备已注册的工具，工具注册与连接生命周期仍由插件管理。插件绑定自己的发现 helper，并将查询限制在传入范围内。完整原生定义通过工具 schema 发送，系统提示词不再重复列出。
+`Agent.tool_catalog` 保存可按需注册的已知工具，其名称可用于 `allowed_tools`。provider 从 `tape.context.state["_runtime_allowed_tools"]` 读取解析后的范围（`None` 表示不限制），在返回选中的工具前将其注册到 `Agent.tools`。用户直接执行逗号命令时才注册点名的 catalog 工具。连接与 catalog 清理由插件管理。完整原生定义通过工具 schema 发送，系统提示词不再重复列出。
 
 
 ## 在执行环境中运行工具

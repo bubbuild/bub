@@ -66,9 +66,9 @@ If `run_code` is not allowed (for example, a subagent restricted with `allowed_t
 
 ### Per-request tool presentation
 
-`Agent.tool_providers` accepts async callbacks `(tools, tape) -> (tools, tool_prompt)`. Bub applies the current tool scope and prepares code mode first, then runs these callbacks in registration order. They receive runtime names; model aliases are applied afterward. The returned tools and prompt fragment are used for that request.
+`Agent.tool_providers` accepts async callbacks `(tools, tape) -> (tools, tool_prompt)`. Bub applies the current tool scope, runs these callbacks in registration order, then prepares code mode. They receive runtime names; model aliases are applied afterward. The returned tools and prompt fragment are used for that request.
 
-Providers prepare already registered tools; they do not register tools or change connection lifecycles. A plugin binds its discovery helper alongside its tools and keeps discovery within the supplied scope. Full native definitions are sent through the tool schema instead of repeated in the system prompt.
+`Agent.tool_catalog` holds known tools available for deferred registration. Its names can be used in `allowed_tools`; providers can read the resolved scope from `tape.context.state["_runtime_allowed_tools"]` (`None` means unrestricted). A plugin registers selected catalog tools in `Agent.tools` before returning them. Direct comma commands register a catalog tool when explicitly called. Connections and catalog cleanup remain owned by the plugin. Full native definitions are sent through the tool schema instead of repeated in the system prompt.
 
 ## Run tools in an environment
 

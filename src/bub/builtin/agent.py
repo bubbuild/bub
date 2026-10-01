@@ -73,6 +73,7 @@ class Agent:
         )
         self.framework = framework
         self.tools = {tool.name: tool for tool in tools} if tools is not None else REGISTRY.copy()
+        self.tool_catalog: dict[str, Tool] = {}
         self.tool_providers: list[ToolProvider] = []
         self.tape_store = tape_store
         self.skill_dirs = skill_dirs
@@ -247,6 +248,8 @@ class Agent:
         output = ""
         status = "ok"
         try:
+            if name in self.tool_catalog:
+                self.tools[name] = self.tool_catalog[name]
             if name not in self.tools:
                 if "bash" not in self.tools:
                     raise ValueError("bash tool is not available")  # noqa: TRY301
@@ -448,7 +451,8 @@ class Agent:
         if allowed_tools is not None:
             from bub.builtin.tools import resolve_tool_names
 
-            allowed_tools = resolve_tool_names(allowed_tools, all_names=self.tools)
+            allowed_tools = resolve_tool_names(allowed_tools, all_names=self.tools | self.tool_catalog)
+        tape.context.state["_runtime_allowed_tools"] = allowed_tools
         if allowed_skills is not None:
             allowed_skills = {name.casefold() for name in allowed_skills}
             tape.context.state["allowed_skills"] = list(allowed_skills)
@@ -476,7 +480,7 @@ class Agent:
         tools: list[Tool],
     ) -> AsyncStreamEvents:
         tools_prompts: list[str] = []
-        for provider in (self._prepare_code_mode, *self.tool_providers):
+        for provider in (*self.tool_providers, self._prepare_code_mode):
             tools, tools_prompt = await provider(tools, tape)
             if tools_prompt:
                 tools_prompts.append(tools_prompt)
