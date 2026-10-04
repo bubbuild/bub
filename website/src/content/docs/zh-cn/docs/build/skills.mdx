@@ -9,8 +9,6 @@ sidebar:
 
 技能是 Bub 通过 `,skill` 逗号命令以及提示渲染暴露给模型的指令单元。Bub 的加载器实现了 [Agent Skills](https://agentskills.io/) 格式；本页聚焦 Bub 强制的契约以及把技能放上发现路径的打包模式。
 
-系统提示词列出技能摘要。显式 `$my-skill` 提示会把渲染后的正文追加到当前用户消息中，因此工具调用后正文仍保留在 tape 历史中。`allowed_skills` 同时限制摘要和显式展开，`,skill` 命令保持不变。
-
 ## 开始之前
 
 - 一个使用支持自定义文件包含的构建后端的插件或发行版包（Hatch、uv-build、PDM 都可）。

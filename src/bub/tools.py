@@ -220,7 +220,7 @@ class Tool:
 
 
 type ToolProvider = Callable[[list[Tool], Tape], Awaitable[tuple[list[Tool], str]]]
-"""Prepare scoped tools and a prompt fragment for one model request."""
+"""Prepare registered tools and a prompt fragment for one model request."""
 
 
 def model_tools(tools: Iterable[Tool]) -> list[Tool]:
