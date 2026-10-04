@@ -12,14 +12,13 @@ from any_llm.types.completion import ChatCompletionChunk
 import bub.builtin.codemode
 import bub.builtin.tools  # noqa: F401  — registers builtin tools (incl. `model`)
 from bub.builtin.agent import Agent
-from bub.builtin.codemode import CodeModeCatalog
 from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
 from bub.builtin.steering import InMemorySteeringInbox
 from bub.errors import BubError
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import TapeContext
-from bub.tools import REGISTRY, DirectToolCatalog, tool
+from bub.tools import REGISTRY, tool
 
 # ---------------------------------------------------------------------------
 # Agent.run() tests: merge_back logic and model passthrough
@@ -56,7 +55,8 @@ def _make_agent() -> Agent:
     agent.command_prefix = agent.settings.command_prefix
     agent.framework = framework
     agent.tools = REGISTRY.copy()
-    agent.catalogs = [DirectToolCatalog(agent.tools), CodeModeCatalog()]
+    agent.tool_sources = {}
+    agent.tool_providers = []
     agent.tape_store = None
     agent.skill_dirs = None
     agent.model_runner = _FakeModelRunner(agent.settings)

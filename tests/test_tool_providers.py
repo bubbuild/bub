@@ -11,13 +11,14 @@ from bub.builtin.agent import Agent
 from bub.builtin.codemode import run_code
 from bub.framework import BubFramework
 from bub.tape import Tape
-from bub.tools import DirectToolCatalog, Tool
+from bub.tools import Tool
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("code_mode", [False, True])
-async def test_catalog_selection_registers_scoped_tools_for_native_and_code_calls(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code_mode: bool
+@pytest.mark.parametrize("reverse_providers", [False, True])
+async def test_discovery_precedence_is_independent_of_provider_order_for_native_and_code_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code_mode: bool, reverse_providers: bool
 ) -> None:
     monkeypatch.setenv("BUB_HOME", str(tmp_path))
     framework = BubFramework(config_file=tmp_path / "config.yml")
@@ -34,9 +35,11 @@ async def test_catalog_selection_registers_scoped_tools_for_native_and_code_call
 
     supplied = Tool.from_callable(lookup, name="catalog.lookup")
 
-    class Catalog(DirectToolCatalog):
-        async def prepare(self, tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
-            return [item for item in tools if item is not pending], "Use catalog_lookup to greet the requested person."
+    async def select(tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
+        return [item for item in tools if item is not pending], "Use catalog_lookup to greet the requested person."
+
+    async def guide(tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
+        return tools, "Keep the greeting brief."
 
     requests: list[dict[str, Any]] = []
 
@@ -75,8 +78,9 @@ async def test_catalog_selection_registers_scoped_tools_for_native_and_code_call
 
     monkeypatch.setattr("bub.builtin.model_runner.AnyLLM.create", lambda *args, **kwargs: Provider())
     agent = Agent(framework, tools=[direct, run_code], skill_dirs=[])
-    agent.add_catalog(Catalog({supplied.name: supplied, denied.name: denied, pending.name: pending}))
-    assert supplied.name not in agent.tools
+    agent.tool_sources["earlier"] = {supplied.name: Tool.from_callable(lambda: "wrong", name=supplied.name)}
+    agent.tool_sources["later"] = {supplied.name: supplied, denied.name: denied, pending.name: pending}
+    agent.tool_providers = [guide, select] if reverse_providers else [select, guide]
     stream = await agent.run_stream(
         session_id="catalog",
         prompt="Greet Ada.",
@@ -87,17 +91,18 @@ async def test_catalog_selection_registers_scoped_tools_for_native_and_code_call
     async for _ in stream:
         pass
     assert calls == ["Ada"]
-    assert supplied.name in agent.tools
-    assert denied.name not in agent.tools
-    assert pending.name not in agent.tools
     definitions = {item["function"]["name"]: item["function"] for item in requests[0]["tools"]}
     assert definitions.keys() == ({"run_code"} if code_mode else {"direct", "catalog_lookup"})
     if code_mode:
         stub = next((tmp_path / "codemode").rglob("*.pyi")).read_text()
         assert "catalog_pending" not in stub
-    assert any(
-        "Use catalog_lookup" in message["content"] for message in requests[0]["messages"] if message["role"] == "system"
+    system = "\n".join(message["content"] for message in requests[0]["messages"] if message["role"] == "system")
+    guidance = (
+        ["Keep the greeting brief.", "Use catalog_lookup"]
+        if reverse_providers
+        else ["Use catalog_lookup", "Keep the greeting brief."]
     )
+    assert system.index(guidance[0]) < system.index(guidance[1])
     assert any(
         "Hello Ada" in message.get("content", "") for message in requests[1]["messages"] if message["role"] == "tool"
     )

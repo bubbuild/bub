@@ -64,15 +64,13 @@ If `run_code` is not allowed (for example, a subagent restricted with `allowed_t
 
 `run_code` hands the code to the session [environment](#run-tools-in-an-environment)'s `run_code`, together with a `call_tool` callback. Tool calls always run on the host through that callback, so hooks still see every call. `timeout_seconds` cancels the environment call. The builtin `LocalEnvironment` starts a fresh Python process for every call (`sys.executable`, working directory is the workspace) and forwards tool calls as JSON lines over its stdin and stdout, so arguments and results must be JSON-serializable. When the code finishes, fails or times out, it kills the process and everything it started. That process runs on the host with the same permissions as `bash`, so enable code mode only where `bash` would be acceptable. The return annotation of a tool function (or `Tool.output_schema`, for tools built by hand) determines the result type shown in the stub.
 
-### Tool catalogs
+### Tool discovery and request preparation
 
-`Tool` defines one callable capability. `ToolCatalog` declares known tools and prepares the tools and guidance available for each request. Both contracts live in `bub.tools`; `DirectToolCatalog(tools)` provides immediate availability for a collection of tools.
+Register directly available tools in `Agent.tools`. For a separate discovery inventory, set `agent.tool_sources[source]` to a mapping of runtime names to `Tool` instances. `source` is a plugin-owned key used to update or remove that inventory. `Agent.known_tools` combines direct tools and source inventories for commands and `allowed_tools`; later registered sources win duplicate names, independently of provider order. Updating an existing source preserves its priority.
 
-Use `agent.add_catalog(source)` to register a source once, after existing sources and before the final code-mode catalog. Its `tools` mapping uses runtime names and existing `Tool` instances; `prepare(tools, tape) -> (tools, tool_prompt)` receives the whole scoped toolset. A source preserves tools it does not own while selecting its own definitions and optional discovery helpers. Presentation catalogs such as code mode can transform the selected toolset. Deferred exposure is a catalog policy, not the default.
+Append request-time preparation callables to `agent.tool_providers`. The `ToolProvider` contract in `bub.tools` is `async (tools, tape) -> (tools, prompt_fragment)`. Providers receive the filtered toolset, run in their supplied order, and pass their result to the next provider. They may select definitions and contribute discovery guidance, but must not reintroduce tools excluded by the scope. Builtin preparation runs last, so code mode uses the final selected toolset.
 
-`Agent.known_tools` combines catalog entries for commands and `allowed_tools`. The Agent applies scope, prepares each catalog, and registers its returned declared tool instances in `Agent.tools` before continuing. Catalog implementations do not need to mutate the execution registry. Builtins remain directly available; code mode uses the final selected tools in its full stub. Direct comma commands register the named tool when called. Plugins own discovery state, catalog removal and connection cleanup. Full native definitions are sent through tool schemas instead of repeated in the system prompt.
-
-Catalog mappings determine discovery order independently of the execution registry. Keep discovery summaries stable as definitions load, and append selected tools in the current conversation's discovery order. Put catalog guidance after stable instructions and skills. This preserves existing content and tool order without model-version checks or provider-specific loading messages. Native additions still grow the tool list; the provider's request format determines how much of the earlier prefix remains cacheable. Code mode adds stub content to history when the model reads it.
+The Agent registers selected declared tool instances in `Agent.tools` before builtin preparation. Discovery inventories alone do not expose definitions to the model. Plugins own discovery state, source removal and connection cleanup. Full native definitions are sent through tool schemas instead of repeated in system. Keep discovery summaries stable and append native definitions in the conversation's first-discovery order; request serialization determines how much of the prefix remains cacheable.
 
 ## Run tools in an environment
 
@@ -95,7 +93,7 @@ The `REGISTRY` lives in [`bub.tools`](https://github.com/bubbuild/bub/blob/main/
 REGISTRY: dict[str, Tool] = {}
 ```
 
-Every `@tool` call mutates this dict at **import time**. `Agent(tools=None)` snapshots it when created; later imports do not update existing agents. Add tools to an instance's `Agent.tools`, or use `agent.add_catalog(source)` for a tool collection with its own preparation policy.
+Every `@tool` call mutates this dict at **import time**. `Agent(tools=None)` snapshots it when created; later imports do not update existing agents. Add tools to an instance's `Agent.tools`, or register a discovery inventory in `agent.tool_sources` and a preparation callable in `agent.tool_providers`.
 
 ## Import the tools module from your plugin
 
