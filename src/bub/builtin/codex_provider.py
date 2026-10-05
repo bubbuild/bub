@@ -412,17 +412,41 @@ def _completion_messages_to_responses_input(messages: Sequence[Any]) -> list[dic
                 response_input.append(tool_result)
             continue
 
+        content = _completion_content_to_responses_content(payload.get("content"), role=role)
         tool_calls = payload.get("tool_calls")
         if isinstance(tool_calls, Sequence) and not isinstance(tool_calls, str):
-            content = payload.get("content")
             if content:
                 response_input.append({"role": "assistant", "content": content})
             response_input.extend(_completion_tool_calls_to_response_items(tool_calls))
             continue
 
         if isinstance(role, str):
-            response_input.append({"role": role, "content": payload.get("content") or ""})
+            response_input.append({"role": role, "content": content or ""})
     return response_input
+
+
+def _completion_content_to_responses_content(content: Any, *, role: str | None) -> Any:
+    """Translate Chat Completions parts without changing strings or Responses parts."""
+    if not isinstance(content, list):
+        return content
+    parts: list[Any] = []
+    for value in content:
+        part = _mapping_from_value(value)
+        match part.get("type"):
+            case "text":
+                parts.append({**part, "type": "output_text" if role == "assistant" else "input_text"})
+            case "image_url":
+                image = _mapping_from_value(part.get("image_url"))
+                parts.append({
+                    "type": "input_image",
+                    "image_url": image.get("url"),
+                    "detail": image.get("detail", "auto"),
+                })
+            case "file":
+                parts.append({"type": "input_file", **_mapping_from_value(part.get("file"))})
+            case _:
+                parts.append(value)
+    return parts
 
 
 def _completion_tool_calls_to_response_items(tool_calls: Sequence[Any]) -> list[dict[str, Any]]:

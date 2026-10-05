@@ -9,10 +9,14 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 from any_llm.constants import LLMProvider
 from any_llm.types.completion import CompletionParams
 from any_llm.types.responses import ResponsesParams
+from openai.types.responses.response_input_param import ResponseInputParam
+from openai.types.responses.response_output_text import ResponseOutputText
+from pydantic import TypeAdapter, ValidationError
 
 from bub.builtin.auth import (
     CodexOAuthRefreshError,
@@ -33,6 +37,8 @@ from bub.builtin.codex_provider import (
 )
 from bub.builtin.model_runner import ModelOutputAccumulator, ModelRunner
 from bub.builtin.settings import ModelCandidate
+from bub.channels.message import ChannelMessage, MediaItem
+from bub.framework import BubFramework
 
 TEST_REFRESH_TOKEN = "refresh"  # noqa: S105
 TEST_REFRESH_TOKEN_OLD = "refresh_old"  # noqa: S105
@@ -335,6 +341,75 @@ def test_codex_provider_resolves_codex_api_base_and_headers() -> None:
         "OpenAI-Beta": "responses=experimental",
         "originator": "bub",
     }
+
+
+def _validate_codex_input(items: list[dict[str, Any]]) -> None:
+    for item in items:
+        if item.get("role") == "assistant":
+            # Assistant history requires output_text, as the real endpoint does.
+            for part in item["content"]:
+                ResponseOutputText.model_validate({"annotations": [], **part})
+        else:
+            TypeAdapter(ResponseInputParam).validate_python([item])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content_kind", ["string", "text", "image", "file", "assistant-history"])
+async def test_codex_completion_accepts_chat_content_without_bad_request(content_kind: str, tmp_path: Path) -> None:
+    framework = BubFramework(config_file=tmp_path / "config.yml")
+    framework.load_builtin_hooks()
+    message = ChannelMessage(session_id="content-test", channel="cli", content="Reply exactly BUB_READY.")
+    if content_kind == "image":
+        message.media = [MediaItem(type="image", mime_type="image/png", url="https://example.test/image.png")]
+    content = await framework.build_prompt(message, message.session_id, {})
+    if content_kind == "text":
+        content = [{"type": "text", "text": message.content}]
+    elif content_kind == "file":
+        content = [{"type": "text", "text": message.content}, {"type": "file", "file": {"file_id": "file-test"}}]
+    messages = [{"role": "user", "content": content}]
+    if content_kind == "assistant-history":
+        messages = [
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Checking the previous request."}],
+                "tool_calls": [
+                    {"id": "call_test", "type": "function", "function": {"name": "check", "arguments": "{}"}}
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_test", "content": "Ready"},
+            *messages,
+        ]
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        try:
+            _validate_codex_input(payload["input"])
+        except ValidationError:
+            # Reproduce the endpoint's rejection of Chat Completions content parts.
+            return httpx.Response(
+                400, json={"error": {"message": "Invalid Responses content", "type": "invalid_request_error"}}
+            )
+        received = payload["input"][0]["content"]
+        if content_kind == "image":
+            assert any(part.get("image_url") == message.media[0].url for part in received)
+        elif content_kind == "file":
+            assert any(part.get("file_id") == "file-test" for part in received)
+        events = [
+            {"type": "response.output_text.delta", "delta": "BUB_READY"},
+            {"type": "response.completed", "response": {"id": "resp_test", "model": "gpt-5.5"}},
+        ]
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            text="".join(f"data: {json.dumps(event)}\n\n" for event in events),
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+        provider = OpenaiCodexProvider(api_key=_jwt_with_account("acct_123"), http_client=http_client)
+        stream = await provider.acompletion(model="gpt-5.5", messages=messages, stream=True)
+        answer = "".join([chunk.choices[0].delta.content or "" async for chunk in stream if chunk.choices])
+
+    assert answer == "BUB_READY"
 
 
 async def _codex_response_events():
