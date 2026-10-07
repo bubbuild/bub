@@ -64,13 +64,15 @@ If `run_code` is not allowed (for example, a subagent restricted with `allowed_t
 
 `run_code` hands the code to the session [environment](#run-tools-in-an-environment)'s `run_code`, together with a `call_tool` callback. Tool calls always run on the host through that callback, so hooks still see every call. `timeout_seconds` cancels the environment call. The builtin `LocalEnvironment` starts a fresh Python process for every call (`sys.executable`, working directory is the workspace) and forwards tool calls as JSON lines over its stdin and stdout, so arguments and results must be JSON-serializable. When the code finishes, fails or times out, it kills the process and everything it started. That process runs on the host with the same permissions as `bash`, so enable code mode only where `bash` would be acceptable. The return annotation of a tool function (or `Tool.output_schema`, for tools built by hand) determines the result type shown in the stub.
 
-### Tool discovery and request preparation
+### Load tools on demand
 
-Register directly available tools in `Agent.tools`. For a separate discovery inventory, set `agent.tool_sources[source]` to a mapping of runtime names to `Tool` instances. `source` is a plugin-owned key used to update or remove that inventory. `Agent.known_tools` combines direct tools and source inventories for commands and `allowed_tools`; later registered sources win duplicate names, independently of provider order. Updating an existing source preserves its priority.
+Mark a tool `deferred=True` (on `@tool`, `Tool.from_callable`, or with `dataclasses.replace(tool, deferred=True)`) to keep its definition out of model requests until it is needed. Tools without the flag are loaded directly.
 
-Append request-time preparation callables to `agent.tool_providers`. The `ToolProvider` contract in `bub.tools` is `async (tools, tape) -> (tools, prompt_fragment)`. Providers receive the filtered toolset, run in their supplied order, and pass their result to the next provider. They may select definitions and contribute discovery guidance, but must not reintroduce tools excluded by the scope. Builtin preparation runs last, so code mode uses the final selected toolset.
-
-Request preparation does not change `Agent.tools`. Known tools that pass the scope reach the providers, so a provider that defers discovered tools must remove them from the request itself. The tools left after the providers form the request toolset: only those calls run, and calls to other names receive a guidance result. Plugins own discovery state, source removal and connection cleanup. Full native definitions are sent through tool schemas instead of repeated in system. Keep discovery summaries stable and append native definitions in the conversation's first-discovery order; request serialization determines how much of the prefix remains cacheable.
+- The system prompt lists the model-facing names of all allowed deferred tools in a `<deferred_tools>` block, and the model gets `tool_describe(names)`. It is exposed only when at least one allowed deferred tool exists.
+- `tool_describe` returns the name, description, and parameters of each requested tool and appends a `tool.loaded` tape event with the runtime names of newly loaded deferred tools. Unknown or disallowed names are returned under `unknown`.
+- On every model request Bub reads all `tool.loaded` events from the tape and appends those tools, in load order, after the direct tools. Loaded tools stay available for later steps and turns of the session until the tape is reset.
+- `allowed_tools` filters direct and deferred tools alike: a deferred tool outside the scope is neither listed nor loadable.
+- Calling a deferred tool before loading it returns guidance to call `tool_describe` first. Code mode sees every allowed tool: deferred tools that are not preserved appear in the stub without loading, and deferral applies only to the remaining model-facing tools.
 
 ## Run tools in an environment
 
@@ -93,7 +95,7 @@ The `REGISTRY` lives in [`bub.tools`](https://github.com/bubbuild/bub/blob/main/
 REGISTRY: dict[str, Tool] = {}
 ```
 
-Every `@tool` call mutates this dict at **import time**. `Agent(tools=None)` snapshots it when created; later imports do not update existing agents. Add tools to an instance's `Agent.tools`, or register a discovery inventory in `agent.tool_sources` and a preparation callable in `agent.tool_providers`.
+Every `@tool` call mutates this dict at **import time**. `Agent(tools=None)` snapshots it when created; later imports do not update existing agents. Add tools to an instance's `Agent.tools`, and mark them `deferred=True` to [load them on demand](#load-tools-on-demand).
 
 ## Import the tools module from your plugin
 

@@ -41,7 +41,6 @@ class FakeAgent:
         self.command_prefix = ","
         self.settings = SimpleNamespace(home=home)
         self.tools = REGISTRY.copy()
-        self.known_tools = self.tools
         # A real in-memory async tape so load_state's recovery path runs against
         # the same store the tests write `model_switch` events to.
         self.tape = tape if tape is not None else _fake_tape(home)
@@ -500,10 +499,9 @@ def test_before_tool_call_recovers_tool_outside_current_request(tmp_path: Path) 
     _, impl, _ = _build_impl(tmp_path)
     import asyncio
 
-    from bub.builtin.agent import REQUEST_TOOLS_STATE_KEY
     from bub.hooks.interception import ToolCall
 
-    state = {REQUEST_TOOLS_STATE_KEY: ["bash"]}
+    state = {"_runtime_tool_names": ("bash",)}
 
     async def _do(name: str):
         return await impl.before_tool_call(ToolCall(run_id="r", tool=name, arguments={}), state=state)
