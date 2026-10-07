@@ -149,6 +149,8 @@ class Tool:
     """Keep the tool directly callable by the model in code mode; others are reachable only from code."""
     output_schema: dict[str, Any] | None = None
     """JSON schema of the structured result, used to describe the tool to model-written code."""
+    deferred: bool = False
+    """Load the tool on demand: only its name is listed until ``tool.describe`` loads its definition."""
 
     @property
     def code_use(self) -> bool:
@@ -189,6 +191,7 @@ class Tool:
         agent_use: bool = True,
         renderer: Callable[[Any], str] | None = None,
         preserve: bool = False,
+        deferred: bool = False,
     ) -> Tool:
         signature = inspect.signature(func)
         if context and "context" not in signature.parameters:
@@ -216,11 +219,8 @@ class Tool:
             renderer=renderer,
             preserve=preserve,
             output_schema=_output_schema(func),
+            deferred=deferred,
         )
-
-
-type ToolProvider = Callable[[list[Tool], Tape], Awaitable[tuple[list[Tool], str]]]
-"""Prepare registered tools and a prompt fragment for one model request."""
 
 
 def model_tools(tools: Iterable[Tool]) -> list[Tool]:
@@ -562,6 +562,7 @@ def tool(
     agent_use: bool = ...,
     renderer: Callable[[Any], str] | None = ...,
     preserve: bool = ...,
+    deferred: bool = ...,
 ) -> Tool: ...
 
 
@@ -576,6 +577,7 @@ def tool(
     agent_use: bool = ...,
     renderer: Callable[[Any], str] | None = ...,
     preserve: bool = ...,
+    deferred: bool = ...,
 ) -> Callable[[Callable], Tool]: ...
 
 
@@ -589,11 +591,13 @@ def tool(
     agent_use: bool = True,
     renderer: Callable[[Any], str] | None = None,
     preserve: bool = False,
+    deferred: bool = False,
 ) -> Tool | Callable[[Callable], Tool]:
     """Decorator to convert a function into a Tool instance.
 
     Tools should return structured results; ``renderer`` turns such a result into the
     plain text shown to the model outside code mode (defaults to JSON for non-strings).
+    ``deferred`` tools are loaded on demand through ``tool.describe``.
     """
 
     def decorator(func: Callable) -> Tool:
@@ -618,6 +622,7 @@ def tool(
                 renderer=renderer,
                 preserve=preserve,
                 output_schema=_output_schema(func),
+                deferred=deferred,
             )
         else:
             result = Tool.from_callable(
@@ -628,6 +633,7 @@ def tool(
                 agent_use=agent_use,
                 renderer=renderer,
                 preserve=preserve,
+                deferred=deferred,
             )
         tool_instance = _add_logging(result)
         REGISTRY[tool_instance.name] = tool_instance

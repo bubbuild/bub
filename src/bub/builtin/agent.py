@@ -7,7 +7,7 @@ import inspect
 import re
 import shlex
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Collection, Iterable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Collection, Iterable
 from contextlib import AsyncExitStack, aclosing
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -29,15 +29,13 @@ from bub.skills import discover_skills, render_skills_prompt
 from bub.store import AsyncTapeStore, AsyncTapeStoreAdapter, InMemoryTapeStore, TapeStore, is_async_tape_store
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import Tape
-from bub.tools import REGISTRY, Tool, ToolContext, ToolProvider, model_tools
+from bub.tools import REGISTRY, Tool, ToolContext, model_tools
 from bub.tracing import Span, current_span
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
 
 HINT_RE = re.compile(r"\$([A-Za-z0-9_.-]+)")
 MAX_AUTO_HANDOFF_RETRIES = 1
-# Model aliases of the tools prepared for the current request, used to recover unknown tool calls.
-REQUEST_TOOLS_STATE_KEY = "_runtime_request_tools"
 
 
 class Agent:
@@ -75,21 +73,9 @@ class Agent:
         )
         self.framework = framework
         self.tools = {tool.name: tool for tool in tools} if tools is not None else REGISTRY.copy()
-        self.tool_sources: dict[object, Mapping[str, Tool]] = {}
-        self.tool_providers: list[ToolProvider] = []
         self.tape_store = tape_store
         self.skill_dirs = skill_dirs
         self.model_runner = ModelRunner(self.settings, hooks=framework.get_agent_hooks())
-
-    @property
-    def known_tools(self) -> dict[str, Tool]:
-        """Known runtime tools; later registered sources take precedence."""
-        tools = self.tools.copy()
-        for source in self.tool_sources.values():
-            for name, item in source.items():
-                tools.pop(name, None)
-                tools[name] = item
-        return tools
 
     @cached_property
     def tape(self) -> Tape:
@@ -260,14 +246,13 @@ class Agent:
         output = ""
         status = "ok"
         try:
-            known_tools = self.known_tools
-            if name not in known_tools:
-                if "bash" not in known_tools:
+            if name not in self.tools:
+                if "bash" not in self.tools:
                     raise ValueError("bash tool is not available")  # noqa: TRY301
-                bash_tool = known_tools["bash"]
+                bash_tool = self.tools["bash"]
                 output = bash_tool.render(await bash_tool.run(context=context, command=line))
             else:
-                command_tool = known_tools[name]
+                command_tool = self.tools[name]
                 args = _parse_args(arg_tokens)
                 if command_tool.context:
                     args.kwargs["context"] = context
@@ -459,26 +444,49 @@ class Agent:
             prompt_text = ""
         else:
             prompt_text = _extract_text_from_parts(prompt)
-        known_tools = self.known_tools
-        if allowed_tools is not None:
-            from bub.builtin.tools import resolve_tool_names
-
-            allowed_tools = resolve_tool_names(allowed_tools, all_names=known_tools)
         if allowed_skills is not None:
             allowed_skills = {name.casefold() for name in allowed_skills}
             tape.context.state["allowed_skills"] = list(allowed_skills)
-        if allowed_tools is not None:
-            tools = [tool for tool in known_tools.values() if tool.name in allowed_tools]
-        else:
-            tools = list(known_tools.values())
         return await self._run_once_stream(
             tape=tape,
             prompt=prompt,
             prompt_text=prompt_text,
             model=model,
             allowed_skills=allowed_skills,
-            tools=tools,
+            tools=self._allowed_tools(tape, allowed_tools),
         )
+
+    def _allowed_tools(self, tape: Tape, allowed_tools: Collection[str] | None) -> list[Tool]:
+        """Filter direct and deferred tools alike by ``allowed_tools`` and record the scope in state."""
+        from bub.builtin.tools import ALLOWED_TOOLS_STATE_KEY, resolve_tool_names
+
+        state = tape.context.state
+        if allowed_tools is None:
+            state.pop(ALLOWED_TOOLS_STATE_KEY, None)
+            return list(self.tools.values())
+        allowed = resolve_tool_names(allowed_tools, all_names=self.tools)
+        state[ALLOWED_TOOLS_STATE_KEY] = sorted(allowed)
+        return [tool for name, tool in self.tools.items() if name in allowed]
+
+    async def _prepare_deferred_tools(self, tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
+        """Return direct tools followed by deferred tools loaded on the tape, plus the deferred tools prompt.
+
+        ``tool.describe`` is exposed exactly when a deferred tool remains, since it is the only way to load one.
+        """
+        from bub.builtin.tools import (
+            TOOL_DESCRIBE_TOOL_NAME,
+            loaded_tool_names,
+            render_deferred_tools_prompt,
+            tool_describe,
+        )
+
+        direct = [tool for tool in tools if not tool.deferred and tool.name != TOOL_DESCRIBE_TOOL_NAME]
+        deferred = {tool.name: tool for tool in tools if tool.deferred and tool.agent_use}
+        if not deferred:
+            return direct, ""
+        direct.append(self.tools.get(TOOL_DESCRIBE_TOOL_NAME, tool_describe))
+        loaded = [deferred[name] for name in await loaded_tool_names(tape) if name in deferred]
+        return [*direct, *loaded], render_deferred_tools_prompt(deferred.values())
 
     async def _run_once_stream(
         self,
@@ -490,20 +498,14 @@ class Agent:
         allowed_skills: set[str] | None,
         tools: list[Tool],
     ) -> AsyncStreamEvents:
-        tools_prompts: list[str] = []
-        for provider in self.tool_providers:
-            tools, tools_prompt = await provider(tools, tape)
-            if tools_prompt:
-                tools_prompts.append(tools_prompt)
-        tape.context.state[REQUEST_TOOLS_STATE_KEY] = [item.name for item in model_tools(tools)]
-        tools, tools_prompt = await self._prepare_code_mode(tools, tape)
-        if tools_prompt:
-            tools_prompts.append(tools_prompt)
+        # Code mode sees every allowed tool, deferred ones included; deferral applies to model-facing tools.
+        tools, code_mode_prompt = await self._prepare_code_mode(tools, tape)
+        tools, deferred_prompt = await self._prepare_deferred_tools(tools, tape)
         system_prompt = self._system_prompt(
             prompt_text,
             state=tape.context.state,
             allowed_skills=allowed_skills,
-            tools_prompt="\n\n".join(tools_prompts),
+            tools_prompt="\n\n".join(block for block in (code_mode_prompt, deferred_prompt) if block),
         )
         resolved_model = model or self.settings.model
 

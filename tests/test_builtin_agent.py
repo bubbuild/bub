@@ -55,8 +55,6 @@ def _make_agent() -> Agent:
     agent.command_prefix = agent.settings.command_prefix
     agent.framework = framework
     agent.tools = REGISTRY.copy()
-    agent.tool_sources = {}
-    agent.tool_providers = []
     agent.tape_store = None
     agent.skill_dirs = None
     agent.model_runner = _FakeModelRunner(agent.settings)

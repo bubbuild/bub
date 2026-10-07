@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import json
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from contextlib import aclosing
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, TypedDict, cast, final
@@ -19,10 +19,14 @@ from bub.tools import REGISTRY, Tool, ToolContext, tool
 
 if TYPE_CHECKING:
     from bub.builtin.agent import Agent
+    from bub.tape import Tape
 
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 30
 DEFAULT_HEADERS = {"accept": "text/markdown"}
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 10
+TOOL_DESCRIBE_TOOL_NAME = "tool.describe"
+TOOL_LOADED_EVENT = "tool.loaded"
+ALLOWED_TOOLS_STATE_KEY = "_runtime_allowed_tools"
 
 
 def _to_model_name(name: str) -> str:
@@ -104,6 +108,31 @@ def render_tools_prompt(tools: Iterable[Tool]) -> str:
     return f"<available_tools>\n{'\n'.join(lines)}\n</available_tools>"
 
 
+def render_deferred_tools_prompt(tools: Iterable[Tool]) -> str:
+    """List deferred tools by model-facing name so the model knows what it can load."""
+    names = "\n".join(f"- {_to_model_name(tool_item.name)}" for tool_item in tools)
+    if not names:
+        return ""
+    return (
+        "<deferred_tools>\n"
+        f"These tools are not loaded yet. Call {_to_model_name(TOOL_DESCRIBE_TOOL_NAME)} with their names to load "
+        "their definitions; loaded tools become callable from the next step.\n"
+        f"{names}\n</deferred_tools>"
+    )
+
+
+async def loaded_tool_names(tape: Tape) -> list[str]:
+    """Return runtime names of tools loaded on this tape, in load order."""
+    names: dict[str, None] = {}
+    for entry in await tape.search(tape.query().kinds("event")):
+        if entry.payload.get("name") != TOOL_LOADED_EVENT:
+            continue
+        data = entry.payload.get("data")
+        if isinstance(data, Mapping):
+            names.update(dict.fromkeys(str(name) for name in data.get("names") or ()))
+    return list(names)
+
+
 def _raise_for_failed_shell(returncode: int | None, output: str) -> None:
     if returncode in (None, 0):
         return
@@ -165,6 +194,17 @@ class ToolFailure(TypedDict):
     """A recoverable failure reported to the caller instead of raising."""
 
     error: str
+
+
+class ToolDefinition(TypedDict):
+    name: str
+    description: str
+    parameters: dict[str, Any]
+
+
+class ToolDescriptions(TypedDict):
+    tools: list[ToolDefinition]
+    unknown: list[str]
 
 
 class TapeInfoResult(TypedDict):
@@ -358,6 +398,40 @@ def skill_describe(name: str | None = None, *, context: ToolContext) -> SkillLis
     return {"name": skill.name, "location": str(skill.location), "content": skill.body() or ""}
 
 
+@tool(context=True, name=TOOL_DESCRIBE_TOOL_NAME, preserve=True)
+async def tool_describe(names: list[str], *, context: ToolContext) -> ToolDescriptions:
+    """Load tools by name and return their definitions. Deferred tools become callable from the next step."""
+    agent = _get_agent(context)
+    allowed_tools = context.state.get(ALLOWED_TOOLS_STATE_KEY)
+    available = {
+        name: tool_item
+        for name, tool_item in agent.tools.items()
+        if tool_item.agent_use and (allowed_tools is None or name in allowed_tools)
+    }
+    index = _tool_name_index(available)
+    loaded = set(await loaded_tool_names(context.tape))
+    definitions: list[ToolDefinition] = []
+    unknown: list[str] = []
+    newly_loaded: list[str] = []
+    for name in names:
+        resolved = index.get(name.strip().casefold())
+        if resolved is None:
+            unknown.append(name)
+            continue
+        tool_item = available[resolved]
+        definitions.append({
+            "name": _to_model_name(resolved),
+            "description": tool_item.description,
+            "parameters": tool_item.parameters,
+        })
+        if tool_item.deferred and resolved not in loaded:
+            loaded.add(resolved)
+            newly_loaded.append(resolved)
+    if newly_loaded:
+        await context.tape.append_event(TOOL_LOADED_EVENT, {"names": newly_loaded})
+    return {"tools": definitions, "unknown": unknown}
+
+
 @tool(context=True, name="tape.info", renderer=_render_tape_info)
 async def tape_info(context: ToolContext) -> TapeInfoResult:
     """Get information about the current tape, such as number of entries and anchors."""
@@ -434,7 +508,7 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> SubAgen
     else:
         subagent_session = param.session
     state = {**context.state, "session_id": subagent_session}
-    allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"}, all_names=agent.known_tools)
+    allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"}, all_names=agent.tools)
     output = ""
     errors: list[str] = []
     stream = await agent.run_stream(

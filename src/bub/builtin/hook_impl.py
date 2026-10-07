@@ -9,7 +9,7 @@ import typer
 from loguru import logger
 
 from bub import inquirer as bub_inquirer
-from bub.builtin.agent import REQUEST_TOOLS_STATE_KEY, Agent
+from bub.builtin.agent import Agent
 from bub.builtin.commands import strip_command_prefix
 from bub.builtin.context import default_tape_context
 from bub.builtin.onboarding import collect_model_config
@@ -356,15 +356,28 @@ class BuiltinImpl:
         replace it with a guidance ``tool_result`` so the model can re-issue a
         valid call on the next step.
         """
+        from bub.builtin.codemode import CODE_TOOLS_STATE_KEY
+        from bub.builtin.tools import TOOL_DESCRIBE_TOOL_NAME
         from bub.tools import model_tools
 
-        if (request_tools := state.get(REQUEST_TOOLS_STATE_KEY)) is not None:
-            available_tools = tuple(request_tools)
+        agent = self._get_agent(state)
+
+        agent_tools = model_tools(agent.tools.values())
+        if "_runtime_tool_names" in state:
+            code_tools = state.get(CODE_TOOLS_STATE_KEY) or ()
+            available_tools = (*state["_runtime_tool_names"], *(tool_item.name for tool_item in code_tools))
         else:
-            agent = self._get_agent(state)
-            available_tools = tuple(tool_item.name for tool_item in model_tools(agent.known_tools.values()))
+            available_tools = tuple(tool_item.name for tool_item in agent_tools)
         if call.tool in available_tools:
             return None
+
+        describe_name = TOOL_DESCRIBE_TOOL_NAME.replace(".", "_")
+        if describe_name in available_tools and any(
+            tool_item.deferred and tool_item.name == call.tool for tool_item in agent_tools
+        ):
+            return ToolCallDecision.replace(
+                f"Tool `{call.tool}` is not loaded. Call `{describe_name}` with its name first."
+            )
 
         matches = get_close_matches(call.tool, available_tools, n=3, cutoff=0.6)
         if matches:

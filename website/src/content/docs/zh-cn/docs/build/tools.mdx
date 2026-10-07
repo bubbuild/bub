@@ -65,13 +65,15 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 `run_code` 会把代码和一个 `call_tool` 回调一起交给当前 session [执行环境](#在执行环境中运行工具)的 `run_code` 执行。工具调用始终经这个回调在宿主上执行，所以 hook 仍能看到每一次调用。超过 `timeout_seconds` 时会取消执行环境里的执行。builtin 的 `LocalEnvironment` 每次调用都会启动一个新的 Python 进程（使用 `sys.executable`，工作目录为 workspace），工具调用以 JSON 行的形式经进程的 stdin/stdout 转发，因此参数和结果都必须能 JSON 序列化。代码执行完、出错或超时后，它会杀掉该进程及其启动的所有子进程。这个进程直接跑在宿主上，权限与 `bash` 相同，因此只应在允许使用 `bash` 的场景下开启 code mode。stub 中的结果类型来自工具函数的返回注解（手动构造的工具则来自 `Tool.output_schema`）。
 
 
-### 工具发现与请求准备
+### 按需加载工具
 
-直接可用的工具注册在 `Agent.tools`。独立的发现清单通过 `agent.tool_sources[source]` 登记，值为运行时名称到 `Tool` 实例的映射。`source` 是插件管理的键，用于更新或移除自己的清单。`Agent.known_tools` 合并直接工具和各来源清单，供命令查找及 `allowed_tools` 使用；后注册的来源优先处理重名，与 provider 顺序无关。更新已有来源不改变优先级。
+给工具标记 `deferred=True`（可用于 `@tool`、`Tool.from_callable`，或 `dataclasses.replace(tool, deferred=True)`），它的定义就不会进入模型请求，直到被加载。未标记的工具直接加载。
 
-向 `agent.tool_providers` 追加请求准备函数。`bub.tools` 中的 `ToolProvider` 契约是 `async (tools, tape) -> (tools, prompt_fragment)`。Provider 接收过滤后的工具集合，按提供的顺序执行，并将结果交给下一项。它们可以选择完整定义并贡献发现提示，但不得重新加入被 scope 排除的工具。Builtin preparation 最后执行，因此 code mode 使用最终选中的工具集合。
-
-请求准备不会修改 `Agent.tools`。通过 scope 的已知工具都会交给 provider，因此需要延迟暴露的发现工具必须由 provider 自己从本次请求中移除。provider 处理后剩下的工具构成本次请求的工具集合：只有这些调用会执行，调用其他名称会收到引导结果。发现状态、来源移除和连接清理由插件管理。完整原生定义通过工具 schema 发送，系统提示词不再重复列出。保持发现摘要稳定，并按当前会话的首次发现顺序追加原生定义；此前前缀有多少可以命中缓存，取决于请求序列化方式。
+- 系统提示词的 `<deferred_tools>` 块列出所有允许范围内按需加载工具的模型名称，模型可调用 `tool_describe(names)` 加载它们。只有存在至少一个允许的按需加载工具时才会暴露该工具。
+- `tool_describe` 返回所请求工具的名称、描述和参数，并把新加载的按需工具的运行时名称作为 `tool.loaded` 事件写入 tape。未知或不允许的名称放在 `unknown` 中返回。
+- 每次请求模型时，Bub 从 tape 读取所有 `tool.loaded` 事件，按加载顺序把这些工具追加到直接加载的工具之后。已加载的工具在该 session 后续的步骤和轮次中持续可用，直到 tape 被重置。
+- `allowed_tools` 同时过滤直接加载和按需加载的工具：范围外的按需工具既不会被列出，也无法加载。
+- 未加载就调用按需工具时，会返回提示，要求先调用 `tool_describe`。code mode 能看到所有允许的工具：非 preserve 的按需工具无需加载即出现在 stub 中，按需加载只作用于剩下的模型可见工具。
 
 ## 在执行环境中运行工具
 
@@ -94,7 +96,7 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 REGISTRY: dict[str, Tool] = {}
 ```
 
-每一次 `@tool` 调用都会在**导入时**修改这个字典。`Agent(tools=None)` 在创建时取得其快照，之后导入的工具不会自动更新已有 Agent。可直接向实例的 `Agent.tools` 添加工具，或分别通过 `agent.tool_sources` 登记发现清单、通过 `agent.tool_providers` 登记请求准备函数。
+每一次 `@tool` 调用都会在**导入时**修改这个字典。`Agent(tools=None)` 在创建时取得其快照，之后导入的工具不会自动更新已有 Agent。可直接向实例的 `Agent.tools` 添加工具，标记 `deferred=True` 即可[按需加载](#按需加载工具)。
 
 ## 在插件里导入工具模块
 
