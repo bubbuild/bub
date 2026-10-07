@@ -57,6 +57,8 @@ telegram:
 |---|---|
 | `BUB_MODEL` | 模型标识，如 `openrouter:openrouter/free` 或 `openai:<codex-model>`。 |
 | `BUB_API_KEY` | 当前提供商的 API key。使用 `bub login openai` 时保持未设置。 |
+
+如果某个端点说的是已支持的协议，但需要单独起名（公司代理、中转站、第二个账号），就在 `providers` 下声明它，再用这个名字当模型前缀，见[自定义 provider](/zh-cn/docs/reference/settings/#自定义-provider)。
 | `BUB_API_BASE` | 覆盖提供商的基础 URL。使用 Codex OAuth 时保持未设置，以便 Bub 路由到 Codex backend。 |
 | `BUB_HOME` | Bub 的运行时数据目录（history、tapes、托管插件项目）。默认 `~/.bub`；不会移动默认配置文件。 |
 | `BUB_<PROVIDER>_API_KEY` | 单个提供商的 key，如 `BUB_OPENROUTER_API_KEY`。 |

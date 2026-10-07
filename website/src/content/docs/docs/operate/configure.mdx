@@ -64,6 +64,8 @@ Every YAML key has a matching environment variable. The pattern is `BUB_<UPPERCA
 
 When you use `bub login openai`, Bub reads Codex OAuth credentials from `CODEX_HOME` or `~/.codex` and refreshes them automatically. Use a model id under the `openai:` provider and keep both `BUB_API_KEY` and `BUB_API_BASE` unset for that path.
 
+To reach an endpoint that speaks a supported API under a name of its own (a company proxy, a relay, a second account), declare it under `providers` and use that name as the model prefix; see [Custom providers](/docs/reference/settings/#custom-providers).
+
 For the full table, including channel debounce knobs and advanced model-client settings, see [Settings reference](/docs/reference/settings/).
 
 ## 4. Configure channel credentials
