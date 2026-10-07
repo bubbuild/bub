@@ -36,6 +36,8 @@ from bub.utils import workspace_from_state
 
 HINT_RE = re.compile(r"\$([A-Za-z0-9_.-]+)")
 MAX_AUTO_HANDOFF_RETRIES = 1
+# Model aliases of the tools prepared for the current request, used to recover unknown tool calls.
+REQUEST_TOOLS_STATE_KEY = "_runtime_request_tools"
 
 
 class Agent:
@@ -259,15 +261,13 @@ class Agent:
         status = "ok"
         try:
             known_tools = self.known_tools
-            if name in known_tools:
-                self.tools[name] = known_tools[name]
-            if name not in self.tools:
-                if "bash" not in self.tools:
+            if name not in known_tools:
+                if "bash" not in known_tools:
                     raise ValueError("bash tool is not available")  # noqa: TRY301
-                bash_tool = self.tools["bash"]
+                bash_tool = known_tools["bash"]
                 output = bash_tool.render(await bash_tool.run(context=context, command=line))
             else:
-                command_tool = self.tools[name]
+                command_tool = known_tools[name]
                 args = _parse_args(arg_tokens)
                 if command_tool.context:
                     args.kwargs["context"] = context
@@ -491,12 +491,11 @@ class Agent:
         tools: list[Tool],
     ) -> AsyncStreamEvents:
         tools_prompts: list[str] = []
-        scoped = {item.name: item for item in tools}
         for provider in self.tool_providers:
             tools, tools_prompt = await provider(tools, tape)
             if tools_prompt:
                 tools_prompts.append(tools_prompt)
-        self.tools.update({item.name: scoped[item.name] for item in tools if item.name in scoped})
+        tape.context.state[REQUEST_TOOLS_STATE_KEY] = [item.name for item in model_tools(tools)]
         tools, tools_prompt = await self._prepare_code_mode(tools, tape)
         if tools_prompt:
             tools_prompts.append(tools_prompt)

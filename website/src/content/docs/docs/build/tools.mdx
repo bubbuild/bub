@@ -70,7 +70,7 @@ Register directly available tools in `Agent.tools`. For a separate discovery inv
 
 Append request-time preparation callables to `agent.tool_providers`. The `ToolProvider` contract in `bub.tools` is `async (tools, tape) -> (tools, prompt_fragment)`. Providers receive the filtered toolset, run in their supplied order, and pass their result to the next provider. They may select definitions and contribute discovery guidance, but must not reintroduce tools excluded by the scope. Builtin preparation runs last, so code mode uses the final selected toolset.
 
-The Agent registers selected declared tool instances in `Agent.tools` before builtin preparation. Discovery inventories alone do not expose definitions to the model. Plugins own discovery state, source removal and connection cleanup. Full native definitions are sent through tool schemas instead of repeated in system. Keep discovery summaries stable and append native definitions in the conversation's first-discovery order; request serialization determines how much of the prefix remains cacheable.
+Request preparation does not change `Agent.tools`. Known tools that pass the scope reach the providers, so a provider that defers discovered tools must remove them from the request itself. The tools left after the providers form the request toolset: only those calls run, and calls to other names receive a guidance result. Plugins own discovery state, source removal and connection cleanup. Full native definitions are sent through tool schemas instead of repeated in system. Keep discovery summaries stable and append native definitions in the conversation's first-discovery order; request serialization determines how much of the prefix remains cacheable.
 
 ## Run tools in an environment
 

@@ -94,6 +94,8 @@ async def test_discovery_precedence_is_independent_of_provider_order_for_native_
     events = [event async for event in stream]
     assert any(event.data.get("text") == "Hello Ada" for event in events if event.kind == "final")
     assert calls == ["Ada"]
+    # Request preparation does not register discovered tools on the agent.
+    assert agent.tools.keys() == {"direct", "run_code"}
     definitions = {item["function"]["name"]: item["function"] for item in requests[0]["tools"]}
     assert definitions.keys() == ({"run_code"} if code_mode else {"direct", "provider_lookup"})
     if code_mode:

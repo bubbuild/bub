@@ -41,6 +41,7 @@ class FakeAgent:
         self.command_prefix = ","
         self.settings = SimpleNamespace(home=home)
         self.tools = REGISTRY.copy()
+        self.known_tools = self.tools
         # A real in-memory async tape so load_state's recovery path runs against
         # the same store the tests write `model_switch` events to.
         self.tape = tape if tape is not None else _fake_tape(home)
@@ -493,3 +494,21 @@ def test_before_tool_call_suggests_close_model_tool_name(tmp_path: Path) -> None
     assert decision is not None
     assert "fs_reed" in decision.result
     assert "fs_read" in decision.result
+
+
+def test_before_tool_call_recovers_tool_outside_current_request(tmp_path: Path) -> None:
+    _, impl, _ = _build_impl(tmp_path)
+    import asyncio
+
+    from bub.builtin.agent import REQUEST_TOOLS_STATE_KEY
+    from bub.hooks.interception import ToolCall
+
+    state = {REQUEST_TOOLS_STATE_KEY: ["bash"]}
+
+    async def _do(name: str):
+        return await impl.before_tool_call(ToolCall(run_id="r", tool=name, arguments={}), state=state)
+
+    assert asyncio.run(_do("bash")) is None
+    decision = asyncio.run(_do("bash_output"))
+    assert decision is not None and decision.action == "replace"
+    assert "bash_output" in decision.result
