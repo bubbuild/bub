@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -8,14 +9,17 @@ import pytest
 from any_llm.types.completion import ChatCompletion
 
 from bub.builtin.agent import Agent
+from bub.builtin.codemode import run_code
 from bub.framework import BubFramework
 from bub.tape import Tape
 from bub.tools import Tool
 
 
 @pytest.mark.asyncio
-async def test_provider_prompt_reaches_the_model_and_registered_tools_remain_callable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("code_mode", [False, True])
+@pytest.mark.parametrize("reverse_providers", [False, True])
+async def test_discovery_precedence_is_independent_of_provider_order_for_native_and_code_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code_mode: bool, reverse_providers: bool
 ) -> None:
     monkeypatch.setenv("BUB_HOME", str(tmp_path))
     framework = BubFramework(config_file=tmp_path / "config.yml")
@@ -23,6 +27,7 @@ async def test_provider_prompt_reaches_the_model_and_registered_tools_remain_cal
     framework.load_builtin_hooks()
     direct = Tool.from_callable(lambda: "direct", name="direct")
     denied = Tool.from_callable(lambda: "denied", name="denied")
+    pending = Tool.from_callable(lambda: "pending", name="provider.pending")
     calls: list[str] = []
 
     def lookup(name: str) -> str:
@@ -31,8 +36,13 @@ async def test_provider_prompt_reaches_the_model_and_registered_tools_remain_cal
 
     supplied = Tool.from_callable(lookup, name="provider.lookup")
 
-    async def provide(tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
-        return tools, "Use provider_lookup to greet the requested person."
+    async def select(tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
+        return [item for item in tools if item is not pending], "Use provider_lookup to greet the requested person."
+
+    async def guide(tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
+        return [
+            replace(item, renderer=str.upper) if item.name == supplied.name else item for item in tools
+        ], "Keep the greeting brief."
 
     requests: list[dict[str, Any]] = []
 
@@ -43,13 +53,15 @@ async def test_provider_prompt_reaches_the_model_and_registered_tools_remain_cal
             requests.append(kwargs)
             message: dict[str, Any] = {"role": "assistant", "content": "Hello Ada"}
             if len(requests) == 1:
+                name = "run_code" if code_mode else "provider_lookup"
+                arguments = {"code": "print(await tools.provider_lookup(name='Ada'))"} if code_mode else {"name": "Ada"}
                 message = {
                     "role": "assistant",
                     "tool_calls": [
                         {
                             "id": "lookup",
                             "type": "function",
-                            "function": {"name": "provider_lookup", "arguments": json.dumps({"name": "Ada"})},
+                            "function": {"name": name, "arguments": json.dumps(arguments)},
                         }
                     ],
                 }
@@ -68,24 +80,35 @@ async def test_provider_prompt_reaches_the_model_and_registered_tools_remain_cal
             })
 
     monkeypatch.setattr("bub.builtin.model_runner.AnyLLM.create", lambda *args, **kwargs: Provider())
-    agent = Agent(framework, tools=[direct, denied, supplied], skill_dirs=[])
-    agent.tool_providers.append(provide)
+    agent = Agent(framework, tools=[direct, run_code], skill_dirs=[])
+    agent.tool_sources["earlier"] = {supplied.name: Tool.from_callable(lambda: "wrong", name=supplied.name)}
+    agent.tool_sources["later"] = {supplied.name: supplied, denied.name: denied, pending.name: pending}
+    agent.tool_providers = [guide, select] if reverse_providers else [select, guide]
     stream = await agent.run_stream(
         session_id="provider",
         prompt="Greet Ada.",
         model="openrouter:test-model",
-        allowed_tools=["direct", "provider_lookup"],
+        allowed_tools=["direct", "provider_lookup", "provider_pending", "run_code"],
+        state={"code_mode": code_mode},
     )
     events = [event async for event in stream]
     assert any(event.data.get("text") == "Hello Ada" for event in events if event.kind == "final")
     assert calls == ["Ada"]
+    # Request preparation does not register discovered tools on the agent.
+    assert agent.tools.keys() == {"direct", "run_code"}
     definitions = {item["function"]["name"]: item["function"] for item in requests[0]["tools"]}
-    assert definitions.keys() == {"direct", "provider_lookup"}
-    assert any(
-        "Use provider_lookup" in message["content"]
-        for message in requests[0]["messages"]
-        if message["role"] == "system"
+    assert definitions.keys() == ({"run_code"} if code_mode else {"direct", "provider_lookup"})
+    if code_mode:
+        stub = next((tmp_path / "codemode").rglob("*.pyi")).read_text()
+        assert "provider_pending" not in stub
+    system = "\n".join(message["content"] for message in requests[0]["messages"] if message["role"] == "system")
+    guidance = (
+        ["Keep the greeting brief.", "Use provider_lookup"]
+        if reverse_providers
+        else ["Use provider_lookup", "Keep the greeting brief."]
     )
+    assert system.index(guidance[0]) < system.index(guidance[1])
+    expected = "Hello Ada" if code_mode else "HELLO ADA"
     assert any(
-        message.get("content") == "Hello Ada" for message in requests[1]["messages"] if message["role"] == "tool"
+        expected in message.get("content", "") for message in requests[1]["messages"] if message["role"] == "tool"
     )

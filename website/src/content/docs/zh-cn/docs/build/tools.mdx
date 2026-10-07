@@ -65,12 +65,13 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 `run_code` 会把代码和一个 `call_tool` 回调一起交给当前 session [执行环境](#在执行环境中运行工具)的 `run_code` 执行。工具调用始终经这个回调在宿主上执行，所以 hook 仍能看到每一次调用。超过 `timeout_seconds` 时会取消执行环境里的执行。builtin 的 `LocalEnvironment` 每次调用都会启动一个新的 Python 进程（使用 `sys.executable`，工作目录为 workspace），工具调用以 JSON 行的形式经进程的 stdin/stdout 转发，因此参数和结果都必须能 JSON 序列化。代码执行完、出错或超时后，它会杀掉该进程及其启动的所有子进程。这个进程直接跑在宿主上，权限与 `bash` 相同，因此只应在允许使用 `bash` 的场景下开启 code mode。stub 中的结果类型来自工具函数的返回注解（手动构造的工具则来自 `Tool.output_schema`）。
 
 
-### 每次请求的工具呈现
+### 工具发现与请求准备
 
-`Agent.tool_providers` 接受异步回调 `(tools, tape) -> (tools, tool_prompt)`。Bub 先应用当前工具范围、准备 code mode，再按注册顺序执行这些回调。输入使用运行时名称，之后才转换模型别名；返回的工具及提示片段用于本次请求。
+直接可用的工具注册在 `Agent.tools`。独立的发现清单通过 `agent.tool_sources[source]` 登记，值为运行时名称到 `Tool` 实例的映射。`source` 是插件管理的键，用于更新或移除自己的清单。`Agent.known_tools` 合并直接工具和各来源清单，供命令查找及 `allowed_tools` 使用；后注册的来源优先处理重名，与 provider 顺序无关。更新已有来源不改变优先级。
 
-provider 准备已注册的工具，工具注册与连接生命周期仍由插件管理。插件绑定自己的发现 helper，并将查询限制在传入范围内。完整原生定义通过工具 schema 发送，系统提示词不再重复列出。
+向 `agent.tool_providers` 追加请求准备函数。`bub.tools` 中的 `ToolProvider` 契约是 `async (tools, tape) -> (tools, prompt_fragment)`。Provider 接收过滤后的工具集合，按提供的顺序执行，并将结果交给下一项。它们可以选择完整定义并贡献发现提示，但不得重新加入被 scope 排除的工具。Builtin preparation 最后执行，因此 code mode 使用最终选中的工具集合。
 
+请求准备不会修改 `Agent.tools`。通过 scope 的已知工具都会交给 provider，因此需要延迟暴露的发现工具必须由 provider 自己从本次请求中移除。provider 处理后剩下的工具构成本次请求的工具集合：只有这些调用会执行，调用其他名称会收到引导结果。发现状态、来源移除和连接清理由插件管理。完整原生定义通过工具 schema 发送，系统提示词不再重复列出。保持发现摘要稳定，并按当前会话的首次发现顺序追加原生定义；此前前缀有多少可以命中缓存，取决于请求序列化方式。
 
 ## 在执行环境中运行工具
 
@@ -93,7 +94,7 @@ provider 准备已注册的工具，工具注册与连接生命周期仍由插�
 REGISTRY: dict[str, Tool] = {}
 ```
 
-每一次 `@tool` 调用都会在**导入时**修改这个字典。Bub 内置代理在为模型组装工具列表时从 `REGISTRY` 读取。没有独立的注册步骤。
+每一次 `@tool` 调用都会在**导入时**修改这个字典。`Agent(tools=None)` 在创建时取得其快照，之后导入的工具不会自动更新已有 Agent。可直接向实例的 `Agent.tools` 添加工具，或分别通过 `agent.tool_sources` 登记发现清单、通过 `agent.tool_providers` 登记请求准备函数。
 
 ## 在插件里导入工具模块
 

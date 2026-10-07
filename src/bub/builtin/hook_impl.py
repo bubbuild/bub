@@ -9,7 +9,7 @@ import typer
 from loguru import logger
 
 from bub import inquirer as bub_inquirer
-from bub.builtin.agent import Agent
+from bub.builtin.agent import REQUEST_TOOLS_STATE_KEY, Agent
 from bub.builtin.commands import strip_command_prefix
 from bub.builtin.context import default_tape_context
 from bub.builtin.onboarding import collect_model_config
@@ -358,9 +358,11 @@ class BuiltinImpl:
         """
         from bub.tools import model_tools
 
-        agent = self._get_agent(state)
-
-        available_tools = tuple(tool_item.name for tool_item in model_tools(agent.tools.values()))
+        if (request_tools := state.get(REQUEST_TOOLS_STATE_KEY)) is not None:
+            available_tools = tuple(request_tools)
+        else:
+            agent = self._get_agent(state)
+            available_tools = tuple(tool_item.name for tool_item in model_tools(agent.known_tools.values()))
         if call.tool in available_tools:
             return None
 

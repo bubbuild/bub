@@ -7,7 +7,7 @@ import inspect
 import re
 import shlex
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Collection, Iterable
+from collections.abc import AsyncGenerator, AsyncIterator, Collection, Iterable, Mapping
 from contextlib import AsyncExitStack, aclosing
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -36,6 +36,8 @@ from bub.utils import workspace_from_state
 
 HINT_RE = re.compile(r"\$([A-Za-z0-9_.-]+)")
 MAX_AUTO_HANDOFF_RETRIES = 1
+# Model aliases of the tools prepared for the current request, used to recover unknown tool calls.
+REQUEST_TOOLS_STATE_KEY = "_runtime_request_tools"
 
 
 class Agent:
@@ -73,10 +75,21 @@ class Agent:
         )
         self.framework = framework
         self.tools = {tool.name: tool for tool in tools} if tools is not None else REGISTRY.copy()
+        self.tool_sources: dict[object, Mapping[str, Tool]] = {}
         self.tool_providers: list[ToolProvider] = []
         self.tape_store = tape_store
         self.skill_dirs = skill_dirs
         self.model_runner = ModelRunner(self.settings, hooks=framework.get_agent_hooks())
+
+    @property
+    def known_tools(self) -> dict[str, Tool]:
+        """Known runtime tools; later registered sources take precedence."""
+        tools = self.tools.copy()
+        for source in self.tool_sources.values():
+            for name, item in source.items():
+                tools.pop(name, None)
+                tools[name] = item
+        return tools
 
     @cached_property
     def tape(self) -> Tape:
@@ -247,13 +260,14 @@ class Agent:
         output = ""
         status = "ok"
         try:
-            if name not in self.tools:
-                if "bash" not in self.tools:
+            known_tools = self.known_tools
+            if name not in known_tools:
+                if "bash" not in known_tools:
                     raise ValueError("bash tool is not available")  # noqa: TRY301
-                bash_tool = self.tools["bash"]
+                bash_tool = known_tools["bash"]
                 output = bash_tool.render(await bash_tool.run(context=context, command=line))
             else:
-                command_tool = self.tools[name]
+                command_tool = known_tools[name]
                 args = _parse_args(arg_tokens)
                 if command_tool.context:
                     args.kwargs["context"] = context
@@ -445,17 +459,18 @@ class Agent:
             prompt_text = ""
         else:
             prompt_text = _extract_text_from_parts(prompt)
+        known_tools = self.known_tools
         if allowed_tools is not None:
             from bub.builtin.tools import resolve_tool_names
 
-            allowed_tools = resolve_tool_names(allowed_tools, all_names=self.tools)
+            allowed_tools = resolve_tool_names(allowed_tools, all_names=known_tools)
         if allowed_skills is not None:
             allowed_skills = {name.casefold() for name in allowed_skills}
             tape.context.state["allowed_skills"] = list(allowed_skills)
         if allowed_tools is not None:
-            tools = [tool for tool in self.tools.values() if tool.name in allowed_tools]
+            tools = [tool for tool in known_tools.values() if tool.name in allowed_tools]
         else:
-            tools = list(self.tools.values())
+            tools = list(known_tools.values())
         return await self._run_once_stream(
             tape=tape,
             prompt=prompt,
@@ -476,10 +491,14 @@ class Agent:
         tools: list[Tool],
     ) -> AsyncStreamEvents:
         tools_prompts: list[str] = []
-        for provider in (self._prepare_code_mode, *self.tool_providers):
+        for provider in self.tool_providers:
             tools, tools_prompt = await provider(tools, tape)
             if tools_prompt:
                 tools_prompts.append(tools_prompt)
+        tape.context.state[REQUEST_TOOLS_STATE_KEY] = [item.name for item in model_tools(tools)]
+        tools, tools_prompt = await self._prepare_code_mode(tools, tape)
+        if tools_prompt:
+            tools_prompts.append(tools_prompt)
         system_prompt = self._system_prompt(
             prompt_text,
             state=tape.context.state,
