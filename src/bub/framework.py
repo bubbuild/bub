@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import sys
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,7 @@ from bub.hooks.interception import AgentHooks
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.model_selection import ModelOptions
+from bub.program_status import model_failed, model_finished, program_status
 from bub.sidecars import TapeSidecar
 from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import StreamState
@@ -124,6 +126,7 @@ class BubFramework:
             ctx: typer.Context,
             workspace: str | None = typer.Option(None, "--workspace", "-w", help="Path to the workspace"),
         ) -> None:
+            ctx.with_resource(program_status(sys.stdout))
             if workspace:
                 self.workspace = Path(workspace).resolve()
             ctx.obj = self
@@ -227,6 +230,7 @@ class BubFramework:
         if not stream_output:
             output = await self._hook_runtime.run_model(prompt=prompt, session_id=session_id, state=state)
             if output is None:
+                model_failed()
                 await self._hook_runtime.notify_error(
                     stage="run_model",
                     error=RuntimeError("no model skill returned output"),
@@ -236,6 +240,7 @@ class BubFramework:
             return output
         stream = await self._hook_runtime.run_model_stream(prompt=prompt, session_id=session_id, state=state)
         if stream is None:
+            model_failed()
             await self._hook_runtime.notify_error(
                 stage="run_model",
                 error=RuntimeError("no model skill returned output"),
@@ -258,6 +263,7 @@ class BubFramework:
                         await self._hook_runtime.notify_error(
                             stage="run_model", error=BubError(**data), message=inbound
                         )
+            model_finished(stream)
             return "".join(parts)
 
     def hook_report(self) -> dict[str, list[str]]:

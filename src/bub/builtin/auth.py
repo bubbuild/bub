@@ -24,6 +24,8 @@ import typer
 from authlib.integrations.httpx_client import OAuth2Client
 from loguru import logger
 
+from bub.program_status import waiting
+
 CODEX_PROVIDER = "openai"
 DEFAULT_CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback"
 
@@ -212,21 +214,22 @@ def login_openai_codex_oauth(
         originator=originator,
     )
 
-    if open_browser:
-        opener = browser_opener or webbrowser.open
-        opener(oauth_url)
+    with waiting("auth"):
+        if open_browser:
+            opener = browser_opener or webbrowser.open
+            opener(oauth_url)
 
-    if prompt_for_redirect is None:
-        callback_values = _wait_for_local_oauth_callback(redirect_uri=redirect_uri, timeout_seconds=timeout_seconds)
-        if callback_values is None:
-            raise CodexOAuthLoginError(
-                "Did not receive OAuth callback. "
-                f"redirect_uri={redirect_uri!r}, timeout_seconds={timeout_seconds}. "
-                "Try increasing --timeout or use --manual."
-            )
-        code, returned_state = callback_values
-    else:
-        code, returned_state = _extract_code_and_state(prompt_for_redirect(oauth_url))
+        if prompt_for_redirect is None:
+            callback_values = _wait_for_local_oauth_callback(redirect_uri=redirect_uri, timeout_seconds=timeout_seconds)
+            if callback_values is None:
+                raise CodexOAuthLoginError(
+                    "Did not receive OAuth callback. "
+                    f"redirect_uri={redirect_uri!r}, timeout_seconds={timeout_seconds}. "
+                    "Try increasing --timeout or use --manual."
+                )
+            code, returned_state = callback_values
+        else:
+            code, returned_state = _extract_code_and_state(prompt_for_redirect(oauth_url))
 
     if returned_state and returned_state != state:
         raise CodexOAuthStateMismatchError

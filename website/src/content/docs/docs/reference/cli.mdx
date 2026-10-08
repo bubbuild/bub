@@ -18,6 +18,13 @@ bub [OPTIONS] COMMAND [ARGS]...
 
 The framework is created in `bub/__main__.py`, which calls `BubFramework().load_hooks()` and then `create_cli_app()`. The active framework is stored on `ctx.obj`.
 
+When stdout is a terminal, commands report
+[OSC 7501 program status](https://www.superlogical.com/rex/docs/build/program-status): `working`, then `done` or `error`;
+cancellation reports `idle`. Prompts report `blocked` with `question`, `permission`, or `auth`.
+`chat` and `gateway` remain `idle` while listening, with separate records for concurrent messages.
+Unsupported terminals ignore the reports; redirected output and direct SDK calls contain no status sequences.
+Text output and exit codes retain their existing behavior.
+
 ## `bub run`
 
 Run one inbound `ChannelMessage` through `BubFramework.process_inbound` and print every outbound to stdout.
