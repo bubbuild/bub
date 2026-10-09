@@ -172,6 +172,50 @@ bub mcp remove time
 
 `--env` 仅在 `--transport stdio` 下可用；`--header` 仅在 `--transport http` 或 `--transport sse` 下可用。
 
+## 使用 Parallel 搜索网页
+
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) 提供免费的网页搜索和页面抓取，
+无需 Parallel 账号或 API key。匿名搜索使用 Fast 模式，速率限制比已认证请求更低。
+
+按上文安装 `bub-mcp` 后，添加 HTTP 服务器：
+
+```bash
+bub mcp add --transport http --header "User-Agent: bub/parallel-search-example" \
+    parallel https://search.parallel.ai/mcp
+bub mcp list
+```
+
+在 `mcp.json` 的 `mcpServers` 下，等价配置为：
+
+```json
+{
+  "parallel": {
+    "url": "https://search.parallel.ai/mcp",
+    "transport": "http",
+    "headers": { "User-Agent": "bub/parallel-search-example" }
+  }
+}
+```
+
+保留 `time` 等已有条目。应能看到 `Status: Connected`，以及工具
+`mcp.parallel_web_search` 和 `mcp.parallel_web_fetch`。
+
+启用 MCP 生命周期并启动会话：
+
+```bash
+bub gateway --enable-channel cli --enable-channel mcp.lifecycle
+```
+
+配置好模型提供商后，向 Bub 提问：
+
+```text
+使用 mcp.parallel_web_search 查找 Bub 的 MCP 教程，然后通过 mcp.parallel_web_fetch
+抓取 https://bub.build/docs/tutorials/mcp/，总结如何连接 HTTP 服务器。
+```
+
+检查工具调用输出，确认两个工具都已执行。本例需要使用 `bub chat` 或 gateway；
+`bub run` 不会启动 MCP 生命周期。如果服务返回速率限制，请等待提示的重试时间后再试。
+
 ## 故障排除
 
 | 症状 | 检查项 |

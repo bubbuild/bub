@@ -172,6 +172,52 @@ bub mcp remove time
 
 `--env` is only allowed with `--transport stdio`; `--header` is only allowed with `--transport http` or `--transport sse`.
 
+## Search the web with Parallel
+
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) provides free web search
+and page fetching without a Parallel account or API key. Anonymous searches use Fast mode and have
+lower rate limits than authenticated requests.
+
+After installing `bub-mcp` above, add the HTTP server:
+
+```bash
+bub mcp add --transport http --header "User-Agent: bub/parallel-search-example" \
+    parallel https://search.parallel.ai/mcp
+bub mcp list
+```
+
+The equivalent entry under `mcpServers` in your `mcp.json` is:
+
+```json
+{
+  "parallel": {
+    "url": "https://search.parallel.ai/mcp",
+    "transport": "http",
+    "headers": { "User-Agent": "bub/parallel-search-example" }
+  }
+}
+```
+
+Keep your existing entries, including `time`. You should see `Status: Connected` and the tools
+`mcp.parallel_web_search` and `mcp.parallel_web_fetch`.
+
+Start a session with the MCP lifecycle enabled:
+
+```bash
+bub gateway --enable-channel cli --enable-channel mcp.lifecycle
+```
+
+With a working model provider, ask:
+
+```text
+Use mcp.parallel_web_search to find Bub's MCP tutorial, then use mcp.parallel_web_fetch
+on https://bub.build/docs/tutorials/mcp/ and summarize how to connect an HTTP server.
+```
+
+Check the tool-call output to confirm both tools ran. Use `bub chat` or the gateway for this example;
+`bub run` does not start the MCP lifecycle. If the service rate-limits a request, wait for the indicated
+retry period before trying again.
+
 ## Troubleshooting
 
 | Symptom | Check |
