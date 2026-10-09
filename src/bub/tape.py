@@ -12,8 +12,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
-
 from bub import tracing
 from bub.errors import BubError
 from bub.sidecars import TapeSidecar, sidecar_tape_name
@@ -111,10 +109,8 @@ class TapeEntry:
         return cls(id=0, kind="anchor", payload=payload, meta=dict(meta))
 
     @classmethod
-    def tool_call(cls, calls: list[dict[str, Any]], *, content: str | None = None, **meta: Any) -> TapeEntry:
-        payload: dict[str, Any] = {"calls": calls}
-        if content is not None:
-            payload["content"] = content
+    def tool_call(cls, calls: list[dict[str, Any]], *, content: str = "", **meta: Any) -> TapeEntry:
+        payload: dict[str, Any] = {"calls": calls, "content": content}
         return cls(id=0, kind="tool_call", payload=payload, meta=dict(meta))
 
     @classmethod
@@ -258,17 +254,16 @@ class Tape:
                 if not isinstance(token_usage, int) or isinstance(token_usage, bool):
                     continue
                 last_token_usage = token_usage
-                prompt_tokens = usage.get("prompt_tokens")
-                prompt_details = usage.get("prompt_tokens_details")
-                cached_tokens = prompt_details.get("cached_tokens") if isinstance(prompt_details, Mapping) else None
+                input_tokens = usage.get("input_tokens")
+                cached_tokens = usage.get("cached_tokens")
                 if (
-                    isinstance(prompt_tokens, int)
-                    and not isinstance(prompt_tokens, bool)
-                    and prompt_tokens > 0
+                    isinstance(input_tokens, int)
+                    and not isinstance(input_tokens, bool)
+                    and input_tokens > 0
                     and isinstance(cached_tokens, int)
                     and not isinstance(cached_tokens, bool)
                 ):
-                    last_token_cache_hit_rate = cached_tokens / prompt_tokens
+                    last_token_cache_hit_rate = cached_tokens / input_tokens
                 break
         return TapeInfo(
             name=self.name,
@@ -338,10 +333,10 @@ class Tape:
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,
         error: BubError | None = None,
-        response: Any | None = None,
         provider: str | None = None,
         model: str | None = None,
         usage: dict[str, Any] | None = None,
+        assistant_fields: dict[str, Any] | None = None,
     ) -> None:
         tape_name = self.name
         meta = {"run_id": run_id, **tracing.correlation()}
@@ -352,37 +347,27 @@ class Tape:
         for message in new_messages:
             await self.store.append(tape_name, TapeEntry.message(message, **meta))
         if tool_calls:
-            await self.store.append(tape_name, TapeEntry.tool_call(tool_calls, content=response_text, **meta))
+            call_entry = TapeEntry.tool_call(tool_calls, content=response_text or "", **meta)
+            call_entry.payload.update(assistant_fields or {})
+            await self.store.append(tape_name, call_entry)
         if tool_results is not None:
             await self.store.append(tape_name, TapeEntry.tool_result(tool_results, **meta))
         if error is not None and error is not context_error:
             await self.store.append(tape_name, TapeEntry.error(error, **meta))
         if response_text is not None and not tool_calls:
             await self.store.append(
-                tape_name, TapeEntry.message({"role": "assistant", "content": response_text}, **meta)
+                tape_name,
+                TapeEntry.message({"role": "assistant", "content": response_text, **(assistant_fields or {})}, **meta),
             )
 
         data: dict[str, Any] = {"status": "error" if error is not None else "ok"}
-        resolved_usage = usage or self._extract_usage(response)
-        if resolved_usage is not None:
-            data["usage"] = resolved_usage
+        if usage is not None:
+            data["usage"] = usage
         if provider:
             data["provider"] = provider
         if model:
             data["model"] = model
         await self.store.append(tape_name, TapeEntry.event("run", data, **meta))
-
-    @staticmethod
-    def _extract_usage(response: object) -> dict[str, Any] | None:
-        usage = getattr(response, "usage", None)
-        if usage is None:
-            return None
-        if isinstance(usage, dict):
-            return usage
-        if isinstance(usage, BaseModel):
-            payload = usage.model_dump(exclude_none=True)
-            return payload if isinstance(payload, dict) else None
-        return None
 
     async def _archive_tape(self, tape_name: str, stamp: str) -> Path:
         from bub.store import TapeQuery

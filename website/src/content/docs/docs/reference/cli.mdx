@@ -109,13 +109,13 @@ Omit the name to run all onboarding hooks.
 Behavior notes:
 
 - All providers follow the same flow: select a provider, enter connection details, check the connection, choose a model, then configure channels and streaming.
-- Provider labels distinguish **OpenAI (official API)** from **OpenAI-compatible (custom URL / local server)**. Compatible services are saved as `openai:<model>` with your API base URL.
-- Hosted providers use their default endpoint and normally ask only for an API key. Compatible services, Azure, Ollama, other providers, and custom endpoints supplied by preceding hooks also prompt for a URL. Blank API keys retain a key supplied in this run for the same endpoint or use environment credentials, including `OPENAI_API_KEY`, `BUB_API_KEY`, and `BUB_OPENAI_API_KEY`. Environment keys are not copied into the saved configuration. A compatible server gets the SDK's placeholder key only when no key is supplied or available from the environment.
-- Bub fetches the provider's model list with a 10-second asynchronous timeout, then offers searchable model selection and manual entry. Blocking SDK calls may take longer. This checks access to the models endpoint; it does not test a model completion. If discovery fails, edit the URL/key, retry, or enter a model ID manually. Providers that do not support model discovery, including Azure in the current SDK, explain the limitation and proceed directly to manual entry without offering retries.
-- When the effective connection uses OpenAI OAuth, model discovery is skipped and you enter a model ID manually. Displayed default URLs are not written to the configuration. Leave the URL blank to preserve the default and OAuth routing; entering a URL explicitly saves it, even if it matches the displayed default.
+- Provider labels distinguish **OpenAI (official API)** from **OpenAI-compatible (custom URL / local server)**. Compatible services are saved as `openai:<model>` with your API base URL and `client_args.api_format: chat`.
+- Hosted providers use their default endpoint and normally ask only for an API key. Compatible services, Azure OpenAI, Ollama, other providers, and custom endpoints supplied by preceding hooks also prompt for a URL. Blank API keys retain a key supplied in this run for the same endpoint or use environment credentials, including `OPENAI_API_KEY`, `BUB_API_KEY`, and `BUB_OPENAI_API_KEY`. Environment keys are not copied into the saved configuration.
+- Bub fetches the provider's model list with a 10-second asynchronous timeout, then offers searchable model selection and manual entry. This checks access to the models endpoint; it does not test a model completion. If discovery fails, edit the URL/key, retry, or enter a model ID manually. Providers that do not support model discovery, including Codex, explain the limitation and proceed directly to manual entry without offering retries.
+- When you select the Codex provider, model discovery is skipped and you enter a model ID manually. Displayed default URLs are not written to the configuration. Leave the URL blank to preserve the default endpoint; entering a URL explicitly saves it, even if it matches the displayed default.
 - Each plugin's `onboard_config` hook receives a copy of the loaded configuration plus updates from earlier hooks. Existing fields are preserved unless a hook overrides them; non-dict returns abort with `TypeError`.
 - The merged dict is validated through `configure.validate` before being written.
-- `onboard` is interactive. The provider labels and prompt order have changed, and connection results determine subsequent prompts. Scripts that supply a fixed sequence of answers must be updated; for unattended setup, write the configuration file directly. The bundled installers launch `onboard` only in interactive mode.
+- `onboard` is interactive, and connection results determine subsequent prompts. For unattended setup, write the configuration file directly. The bundled installers launch `onboard` only in interactive mode.
 - After saving a configuration with at least one channel on Linux or Windows, onboarding asks whether to install the gateway as a per-user background service. The default is no. Installation failure leaves the saved configuration intact and exits with code `1`.
 
 Exit codes:
@@ -189,25 +189,25 @@ bub login [OPTIONS] COMMAND [ARGS]...
 | --- | --- | --- | --- |
 | `--help` | flag | — | Show help and exit. |
 
-### `bub login openai`
+### `bub login codex`
 
-Run the Codex OAuth flow to obtain OpenAI credentials, then save them under the resolved Codex home.
+Run the installed Codex CLI with file credential storage.
 
 ```text
-bub login openai [OPTIONS]
+bub login codex [OPTIONS]
 ```
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--codex-home` | PATH | `$CODEX_HOME` or `~/.codex` | Directory to store the resulting `auth.json`. |
-| `--browser` / `--no-browser` | flag | `--browser` | Open the OAuth authorize URL in the default browser. |
-| `--manual` | flag | off | Skip the local callback server and prompt for the callback URL or code. |
-| `--timeout` | FLOAT | `300.0` | OAuth wait timeout in seconds. |
+| `--executable` | TEXT | `codex` | Codex CLI executable. |
+| `--device-auth` | flag | off | Use device authorization for a terminal without a browser. |
+| `--codex-home` | PATH | `$CODEX_HOME` or `~/.codex` | Credential directory for the login subprocess. |
 
 Behavior notes:
 
-- On success prints `login: ok`, the account id, the auth file path, and a usage hint to set `BUB_MODEL=openai:<codex-model>` and omit `BUB_API_KEY`.
-- On `CodexOAuthLoginError` exits with code `1`.
+- On success prints `login: ok`, the account id, and a usage hint to set `BUB_MODEL=codex:<model>` and omit `BUB_API_KEY`.
+- Authentication failure exits with code `1`. Missing executables produce an installation hint.
+- Credentials are stored in `$CODEX_HOME/auth.json` or `~/.codex/auth.json`. Use `--codex-home` to select a directory and `--device-auth` for headless login.
 
 ## `bub hooks`
 

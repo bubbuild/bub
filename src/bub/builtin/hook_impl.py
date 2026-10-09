@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 from difflib import get_close_matches
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import typer
 from loguru import logger
@@ -18,7 +18,7 @@ from bub.builtin.steering import InMemorySteeringInbox
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
-from bub.channels.message import ChannelMessage, MediaItem, audio_format_from_mime_type
+from bub.channels.message import ChannelMessage, MediaItem
 from bub.envelope import Envelope, content_of, field_of
 from bub.environment import Environment
 from bub.errors import BubError
@@ -55,16 +55,6 @@ When responding to a channel message, you MUST:
 Excessively long context may cause model call failures. In this case, you MAY use tape.info to retrieve the token usage and you SHOULD use tape.handoff tool to shorten the retrieved history.
 </context_contract>
 """
-
-
-def _input_audio_part(data_url: str, mime_type: str) -> dict[str, Any] | None:
-    prefix, separator, data = data_url.partition("base64,")
-    if not separator or not prefix.startswith("data:audio/") or not data:
-        return None
-    return {
-        "type": "input_audio",
-        "input_audio": {"data": data, "format": audio_format_from_mime_type(mime_type)},
-    }
 
 
 class BuiltinImpl:
@@ -160,19 +150,8 @@ class BuiltinImpl:
 
         media_parts: list[dict] = []
         for item in cast("list[MediaItem]", media):
-            match item.type:
-                case "image" | "video":
-                    data_url = await item.get_url()
-                    if not data_url:
-                        continue
-                    part_type = f"{item.type}_url"
-                    media_parts.append({"type": part_type, part_type: {"url": data_url}})
-                case "audio":
-                    data_url = await item.get_url()
-                    if data_url and (audio_part := _input_audio_part(data_url, item.mime_type)):
-                        media_parts.append(audio_part)
-                case _:
-                    pass
+            if item.type in {"image", "audio", "video"} and (url := await item.get_url()):
+                media_parts.append({"type": item.type, "media_type": item.mime_type, "url": url})
         if media_parts:
             return [{"type": "text", "text": text}, *media_parts]
         return text

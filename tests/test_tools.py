@@ -30,12 +30,9 @@ def test_tool_builds_completion_payload() -> None:
     )
 
     assert sample_tool.to_schema() == {
-        "type": "function",
-        "function": {
-            "name": "tests_sample_tool",
-            "description": "Sample tool",
-            "parameters": parameters,
-        },
+        "name": "tests_sample_tool",
+        "description": "Sample tool",
+        "parameters": parameters,
     }
 
 

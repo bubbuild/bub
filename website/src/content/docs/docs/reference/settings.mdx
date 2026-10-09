@@ -65,9 +65,9 @@ Loaded under the YAML root section.
 | `BUB_API_BASE` | unset | `api_base` | Default API base URL or per-provider mapping. |
 | `BUB_<PROVIDER>_API_KEY` | unset | — | Provider-scoped API key, e.g. `BUB_OPENAI_API_KEY`. |
 | `BUB_<PROVIDER>_API_BASE` | unset | — | Provider-scoped API base URL, e.g. `BUB_OPENROUTER_API_BASE`. |
-| `BUB_PROVIDERS` | `{}` | `providers` | Named endpoints, each speaking one any-llm provider's API (`type`) with its own `api_base` and `api_key`. See [Custom providers](#custom-providers). |
+| `BUB_PROVIDERS` | `{}` | `providers` | Named endpoints, each speaking one Republic provider's API (`type`) with its own `api_base` and `api_key`. See [Custom providers](#custom-providers). |
 | `BUB_MAX_STEPS` | unlimited | `max_steps` | Maximum agent loop iterations per turn. Must be a positive integer when set. |
-| `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Maximum tokens per model call. |
+| `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Maximum tokens per model call; omitted for Codex. |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | Per-call timeout in seconds. |
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | Extra kwargs passed to the underlying model client (JSON / dict). |
 | `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | Extra kwargs passed to each completion call, e.g. `{"reasoning_effort":"high"}`. Bub-managed arguments take precedence. |
@@ -77,11 +77,19 @@ For example, `command_prefix: "!"` enables `!help` in builtin channels; `,help` 
 CLI controls (`quit`, `exit`, `thinking`), completion, and shell mode use the same prefix.
 Telegram keeps its existing native slash-command filtering; with `/` as the prefix, use `/bub /help`.
 
-Provider-specific defaults are gathered at startup by scanning `os.environ` for `^BUB_(.+)_(API_KEY|API_BASE)$` and lowercasing the captured provider name.
+Provider-specific defaults are gathered at startup by scanning `os.environ` for `^BUB_(.+)_(API_KEY|API_BASE)$` and resolving the captured environment prefix to the Republic provider name (for example, `AZURE_OPENAI` → `azure-openai`).
+
+Bub uses Republic for model requests. Use `codex:<model>` for ChatGPT plan access and `openai:<model>` for OpenAI API access. A stored Codex login never changes the `openai:` route. Provider identifiers follow Republic, including `google:` and `azure-openai:`.
+
+`client_args` accepts Republic provider options such as `headers`, `api_format`, `timeout`, and `max_retries`. Protocol defaults follow Republic. Set `api_format: chat` explicitly for a Chat Completions endpoint. An injected HTTP client must be an `httpx2.AsyncClient` and stays caller-owned.
+
+`completion_args` accepts Republic chat options; provider-specific fields must be supplied in `extra_body`. Bub owns the model, messages, tools, streaming, and token limit. Session reasoning settings take precedence over configured reasoning fields. `max_tokens` is omitted for Codex because that endpoint does not support it. Republic handles wire-format conversion and Anthropic requests enable prompt caching.
+
+Provider names and available protocols follow [Republic's provider directory](https://github.com/bubbuild/republic/blob/main/docs/providers/index.md). Custom provider implementations must be registered with Republic.
 
 ### Custom providers
 
-The model prefix normally names an any-llm provider, and `api_key` / `api_base` hold one value per provider. Use `providers` when an endpoint speaks an API any-llm already supports but needs a name of its own: a company proxy, a relay or local gateway, a self-hosted server, or a second account with the same vendor. Each name becomes a model prefix, and `type` is the any-llm provider whose API it speaks:
+The model prefix normally names a Republic provider, and `api_key` / `api_base` hold one value per provider. Use `providers` when an endpoint speaks an API Republic already supports but needs a name of its own: a company proxy, a relay or local gateway, a self-hosted server, or a second account with the same vendor. Each name becomes a model prefix, and `type` is the Republic provider whose API it speaks:
 
 ```yaml
 model: proxy:gpt-5.5
@@ -99,9 +107,7 @@ providers:
     api_key: sk-relay-...
 ```
 
-Here `proxy:gpt-5.5` and `openai:gpt-5.5` both use the OpenAI API but go to different endpoints with different keys; `openai:` keeps its own `api_key` / `api_base`, or Codex OAuth. A field left out of an entry falls back to `api_key` / `api_base` and `BUB_<NAME>_API_KEY` / `BUB_<NAME>_API_BASE`. An unknown `type` is rejected when settings load.
-
-OpenAI Codex OAuth does not need a separate request-format setting. After `bub login openai`, Bub detects the stored Codex OAuth token when the selected model uses the `openai:` provider and no custom API base is set.
+Here `proxy:gpt-5.5` and `openai:gpt-5.5` both use the OpenAI API but go to different endpoints with different keys; `openai:` keeps its own `api_key` / `api_base`. A field left out of an entry falls back to `api_key` / `api_base` and `BUB_<NAME>_API_KEY` / `BUB_<NAME>_API_BASE`. An unknown `type` is rejected when settings load.
 
 ## Spill sidecar — `SpillSettings`
 
@@ -173,11 +179,11 @@ See [Operate › Channels › Telegram](/docs/operate/channels/telegram/) for de
 
 ## Login — third-party env vars
 
-`bub login openai` reads one non-`BUB_*` env var:
+`bub login codex` reads one non-`BUB_*` env var:
 
 | Env var | Default | Read by | Description |
 | --- | --- | --- | --- |
-| `CODEX_HOME` | `~/.codex` | `bub login openai` (`src/bub/builtin/auth.py`) | Directory to store Codex OAuth `auth.json`. Overridden by `--codex-home`. |
+| `CODEX_HOME` | `~/.codex` | `bub login codex` (`src/bub/builtin/auth.py`) | Directory to store Codex OAuth `auth.json`. Overridden by `--codex-home`. |
 
 ## Plugin-specific settings
 

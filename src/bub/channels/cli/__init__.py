@@ -404,7 +404,7 @@ class CliChannel(Interface):
 
     def _update_token_speed(self, data: dict[str, Any]) -> None:
         usage = data.get("usage")
-        tokens = usage.get("completion_tokens", usage.get("output_tokens")) if isinstance(usage, dict) else None
+        tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
         elapsed = data.get("elapsed_seconds")
         self._last_token_speed = None
         if (

@@ -33,7 +33,7 @@ async def test_legacy_tool_call_without_content_replays_with_its_result(tmp_path
     store = InMemoryTapeStore()
     tape = Tape(tmp_path, AsyncTapeStoreAdapter(store), default_tape_context()).scoped("test-tape")
     await tape.ensure_bootstrap_anchor()
-    calls = [{"id": "call-1", "type": "function", "function": {"name": "inspect", "arguments": "{}"}}]
+    calls = [{"id": "call-1", "name": "inspect", "arguments": "{}"}]
     store.append("test-tape", TapeEntry(id=0, kind="tool_call", payload={"calls": calls}))
     store.append("test-tape", TapeEntry.tool_result(["files found"]))
 
@@ -87,10 +87,10 @@ async def test_tape_info_reports_last_token_cache_hit_rate(tmp_path: Path) -> No
         new_messages=[],
         response_text=None,
         usage={
-            "prompt_tokens": 80,
-            "completion_tokens": 20,
+            "input_tokens": 80,
+            "output_tokens": 20,
             "total_tokens": 100,
-            "prompt_tokens_details": {"cached_tokens": 60},
+            "cached_tokens": 60,
         },
     )
 
@@ -108,7 +108,7 @@ async def test_tape_info_omits_cache_hit_rate_when_usage_has_no_cache_details(tm
         system_prompt=None,
         new_messages=[],
         response_text=None,
-        usage={"prompt_tokens": 80, "completion_tokens": 20, "total_tokens": 100},
+        usage={"input_tokens": 80, "output_tokens": 20, "total_tokens": 100},
     )
 
     info = await tape.info()

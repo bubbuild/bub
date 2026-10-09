@@ -328,9 +328,9 @@ async def test_build_prompt_returns_multimodal_parts_with_image_media(tmp_path: 
     assert "describe this" in text_part["text"]
 
     image_part = result[1]
-    assert image_part["type"] == "image_url"
+    assert image_part["type"] == "image"
     expected = base64.b64encode(b"\xff\xd8").decode("utf-8")
-    assert image_part["image_url"]["url"] == f"data:image/jpeg;base64,{expected}"
+    assert image_part["url"] == f"data:image/jpeg;base64,{expected}"
 
 
 @pytest.mark.asyncio
@@ -350,12 +350,12 @@ async def test_build_prompt_with_multiple_images(tmp_path: Path) -> None:
 
     assert isinstance(result, list)
     assert len(result) == 3
-    assert result[1]["type"] == "image_url"
-    assert result[2]["type"] == "image_url"
+    assert result[1]["type"] == "image"
+    assert result[2]["type"] == "image"
 
 
 @pytest.mark.asyncio
-async def test_build_prompt_returns_video_url_part_with_video_media(tmp_path: Path) -> None:
+async def test_build_prompt_returns_video_part_with_media(tmp_path: Path) -> None:
     _, impl = _build_impl(tmp_path)
     message = ChannelMessage(
         session_id="s",
@@ -372,8 +372,9 @@ async def test_build_prompt_returns_video_url_part_with_video_media(tmp_path: Pa
     assert "describe this video" in result[0]["text"]
     expected = base64.b64encode(b"video").decode("utf-8")
     assert result[1] == {
-        "type": "video_url",
-        "video_url": {"url": f"data:video/mp4;base64,{expected}"},
+        "type": "video",
+        "media_type": "video/mp4",
+        "url": f"data:video/mp4;base64,{expected}",
     }
 
 
@@ -395,10 +396,10 @@ async def test_build_prompt_skips_video_when_download_is_too_large(tmp_path: Pat
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("mime_type", "expected_format"),
-    [("audio/mpeg", "mp3"), ("audio/ogg", "ogg"), ("audio/x-wav", "wav")],
+    "mime_type",
+    ["audio/mpeg", "audio/ogg", "audio/x-wav"],
 )
-async def test_build_prompt_returns_input_audio_part(tmp_path: Path, mime_type: str, expected_format: str) -> None:
+async def test_build_prompt_returns_audio_part(tmp_path: Path, mime_type: str) -> None:
     _, impl = _build_impl(tmp_path)
     message = ChannelMessage(
         session_id="s",
@@ -413,16 +414,14 @@ async def test_build_prompt_returns_input_audio_part(tmp_path: Path, mime_type: 
     assert result[0]["type"] == "text"
     assert "listen to this" in result[0]["text"]
     assert result[1] == {
-        "type": "input_audio",
-        "input_audio": {
-            "data": base64.b64encode(b"audio").decode("utf-8"),
-            "format": expected_format,
-        },
+        "type": "audio",
+        "media_type": mime_type,
+        "url": f"data:{mime_type};base64,{base64.b64encode(b'audio').decode('utf-8')}",
     }
 
 
 @pytest.mark.asyncio
-async def test_build_prompt_skips_remote_audio_url(tmp_path: Path) -> None:
+async def test_build_prompt_preserves_remote_audio_url(tmp_path: Path) -> None:
     _, impl = _build_impl(tmp_path)
     message = ChannelMessage(
         session_id="s",
@@ -433,8 +432,8 @@ async def test_build_prompt_skips_remote_audio_url(tmp_path: Path) -> None:
 
     result = await impl.build_prompt(message, session_id="s", state={})
 
-    assert isinstance(result, str)
-    assert "listen to this" in result
+    assert isinstance(result, list)
+    assert result[1] == {"type": "audio", "media_type": "audio/ogg", "url": "https://example.com/audio.ogg"}
 
 
 @pytest.mark.asyncio
@@ -464,7 +463,7 @@ def test_extract_text_from_parts() -> None:
 
     parts = [
         {"type": "text", "text": "hello"},
-        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,X"}},
+        {"type": "image", "media_type": "image/jpeg", "url": "data:image/jpeg;base64,X"},
         {"type": "text", "text": "world"},
     ]
     assert _extract_text_from_parts(parts) == "hello\nworld"
@@ -479,5 +478,5 @@ def test_extract_text_from_parts_empty() -> None:
 def test_extract_text_from_parts_no_text_parts() -> None:
     from bub.builtin.agent import _extract_text_from_parts
 
-    parts = [{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,X"}}]
+    parts = [{"type": "image", "media_type": "image/jpeg", "url": "data:image/jpeg;base64,X"}]
     assert _extract_text_from_parts(parts) == ""

@@ -64,9 +64,9 @@ Spill writes are recorded as `spill.write`. Framework-managed lifecycle outcomes
 
 Before the first turn on a tape, `TapeService.ensure_bootstrap_anchor` checks for an anchor entry. If none exists, it writes a `session/start` handoff with `state={"owner": "human"}`. This guarantees that context reconstruction has a starting anchor on every tape.
 
-### default_tape_context: entries → OpenAI messages
+### default_tape_context: entries → model messages
 
-`default_tape_context()` builds a `TapeContext` whose `select` function (`_select_messages`) walks tape entries and emits OpenAI-compatible messages. The mapping is:
+`default_tape_context()` builds a `TapeContext` whose `select` function (`_select_messages`) walks tape entries and emits Bub message dictionaries for conversion to Republic messages. The mapping is:
 
 - `anchor` → an `assistant` message of the form `[Anchor created: <name>]: <state-as-json>`.
 - `message` → the entry payload, used as a chat message dict.

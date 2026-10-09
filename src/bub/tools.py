@@ -175,15 +175,8 @@ class Tool:
         return self.renderer(result)
 
     def to_schema(self) -> dict[str, Any]:
-        """Build an any-llm completion tool payload."""
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters,
-            },
-        }
+        """Build a function tool schema for hooks and diagnostics."""
+        return {"name": self.name, "description": self.description, "parameters": self.parameters}
 
     @classmethod
     def from_callable(

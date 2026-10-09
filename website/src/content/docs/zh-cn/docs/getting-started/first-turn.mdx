@@ -12,7 +12,7 @@ sidebar:
 你需要准备：
 
 - 已 [安装 Bub](/zh-cn/docs/getting-started/install/) 且 `bub hooks` 报告 `builtin` 插件
-- 一种模型访问方式：通过 `BUB_API_KEY` 或提供商专用 `BUB_<PROVIDER>_API_KEY` 导出的 API key；也可以通过 `bub login openai` 完成 OpenAI Codex OAuth，并设置 `BUB_MODEL=openai:<codex-model>`
+- 一种模型访问方式：通过 `BUB_API_KEY` 或提供商专用 `BUB_<PROVIDER>_API_KEY` 导出的 API key；也可以通过 `bub login codex` 完成 OpenAI Codex OAuth，并设置 `BUB_MODEL=codex:<model>`
 
 ## 1. 创建 workspace
 
@@ -80,15 +80,15 @@ Bub 会解析 session、加载 state、构建用户 prompt，并用包含 `AGENT
 bub chat
 ```
 
-## 5. 可选：使用 OpenAI OAuth 登录
+## 5. 可选：使用 ChatGPT 套餐
 
-如果想使用 OpenAI Codex OAuth 路径而不是 API key，使用 OAuth 登录：
+安装 Codex CLI，然后登录以使用 ChatGPT 套餐：
 
 ```bash
-bub login openai
+bub login codex
 ```
 
-Bub 会在本地保存凭据。使用该路径时，选择你的 Codex 账号可用的模型并设置 `BUB_MODEL=openai:<codex-model>`，同时保持 `BUB_API_KEY` 未设置，也不要设置自定义 `BUB_API_BASE`。
+Codex CLI 将凭据保存到本地文件，Republic 负责读取和刷新。使用该路径时，选择你的 Codex 账号可用的模型并设置 `BUB_MODEL=codex:<model>`，同时保持 `BUB_API_KEY` 未设置，也不要设置自定义 `BUB_API_BASE`。
 
 ## 下一步
 

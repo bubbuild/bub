@@ -49,7 +49,17 @@ def _append_message_entry(messages: list[dict[str, Any]], entry: TapeEntry) -> N
 def _append_tool_call_entry(messages: list[dict[str, Any]], entry: TapeEntry) -> list[dict[str, Any]]:
     calls = _normalize_tool_calls(entry.payload.get("calls"))
     if calls:
-        messages.append({"role": "assistant", "content": entry.payload.get("content") or "", "tool_calls": calls})
+        fields = {
+            key: entry.payload[key]
+            for key in ("reasoning", "provider_data", "source_provider", "source_model")
+            if key in entry.payload
+        }
+        messages.append({
+            "role": "assistant",
+            "content": entry.payload.get("content") or "",
+            "tool_calls": calls,
+            **fields,
+        })
     return calls
 
 
@@ -79,11 +89,9 @@ def _build_tool_result_message(
     if isinstance(call_id, str) and call_id:
         message["tool_call_id"] = call_id
 
-    function = call.get("function")
-    if isinstance(function, dict):
-        name = function.get("name")
-        if isinstance(name, str) and name:
-            message["name"] = name
+    name = call.get("name")
+    if isinstance(name, str) and name:
+        message["name"] = name
     return message
 
 
