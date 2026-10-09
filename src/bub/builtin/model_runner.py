@@ -5,15 +5,15 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import aclosing, asynccontextmanager
-from dataclasses import asdict, dataclass, field, replace
+from contextlib import AsyncExitStack, aclosing, asynccontextmanager
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
+from json import JSONDecodeError
 from time import monotonic
 from typing import Any, cast
 
 import republic
 from loguru import logger
-from pydantic import TypeAdapter, ValidationError
 from republic import ChatOptions
 from republic.events import Completed, ReasoningDelta, RefusalDelta, TextDelta, ToolCallReady
 
@@ -34,7 +34,6 @@ CONTEXT_LENGTH_PATTERNS = re.compile(
     r"context.{0,20}(?:length|window)|maximum.{0,20}context|token.{0,10}limit|prompt.{0,10}too long|tokens? > \d+ maximum",
     re.IGNORECASE,
 )
-TOOL_ARGUMENTS_ADAPTER = TypeAdapter(dict[str, Any])
 
 
 class ModelRunner:
@@ -138,7 +137,6 @@ class ModelRunner:
                 model=model,
                 steering_messages=steering_messages,
             )
-            output = ModelOutput()
             request = LlmCallRequest(
                 run_id=run_id,
                 model=model,
@@ -160,22 +158,18 @@ class ModelRunner:
                 yield StreamEvent("text", {"delta": decision.text})
                 yield StreamEvent("final", {"ok": True, "text": decision.text})
                 return
-            output.provider, _, output.model = request.model.partition(":")
-            llm_started = datetime.now(UTC)
-            try:
-                completion_started = monotonic()
-                async with aclosing(self._traced_completion(request, tools, tape, state, output)) as events:
-                    async for event in events:
-                        yield event
+            completion_started = monotonic()
+            async with self._traced_completion(request, tools, tape, state) as (candidate, completion, events):
+                async for event in events:
+                    yield event
+                response = completion.response
                 completion_elapsed = monotonic() - completion_started
-            except Exception as exc:
-                await self._fire_after_llm_call(request, output, state, llm_started, tape, error=exc)
-                raise
-            await self._fire_after_llm_call(request, output, state, llm_started, tape)
+            text = response.text or response.refusal or ""
+            provider = candidate.provider_name or candidate.provider
 
             yield StreamEvent("usage", {"usage": state.usage, "elapsed_seconds": completion_elapsed})
 
-            tool_calls = output.tool_calls
+            tool_calls = response.tool_calls
             if tool_calls:
                 tool_map = {tool_item.name: tool_item for tool_item in tools}
                 serialized_tool_calls = [asdict(tool_call) for tool_call in tool_calls]
@@ -191,31 +185,29 @@ class ModelRunner:
                 tool_results = execution.tool_results
             else:
                 serialized_tool_calls, tool_results = [], None
-            assistant_fields: dict[str, Any] = {}
-            if response := output.response:
-                assistant_fields = {
-                    key: value
-                    for key, value in {
-                        "reasoning": response.reasoning,
-                        "provider_data": [
-                            asdict(part) for part in response.message.parts if isinstance(part, republic.ProviderData)
-                        ],
-                    }.items()
-                    if value
-                }
-                if assistant_fields or any(call.metadata for call in response.tool_calls):
-                    assistant_fields.update(source_provider=output.provider, source_model=output.model)
+            assistant_fields = {
+                key: value
+                for key, value in {
+                    "reasoning": response.reasoning,
+                    "provider_data": [
+                        asdict(part) for part in response.message.parts if isinstance(part, republic.ProviderData)
+                    ],
+                }.items()
+                if value
+            }
+            if assistant_fields or any(call.metadata for call in response.tool_calls):
+                assistant_fields.update(source_provider=provider, source_model=candidate.model_id)
             await tape.record_chat(
                 run_id=run_id,
                 system_prompt=system_prompt,
                 new_messages=new_messages,
-                response_text=(output.text or None) if tool_calls else output.text,
+                response_text=(text or None) if tool_calls else text,
                 tool_calls=serialized_tool_calls,
                 tool_results=tool_results,
                 model=request.model,
                 usage=state.usage,
                 assistant_fields=assistant_fields,
-                provider=output.provider,
+                provider=provider,
             )
             if tool_calls:
                 yield StreamEvent("tool_result", {"tool_results": tool_results})
@@ -223,18 +215,18 @@ class ModelRunner:
                     "final", {"ok": True, "tool_calls": serialized_tool_calls, "tool_results": tool_results}
                 )
             else:
-                yield StreamEvent("final", {"ok": True, "text": output.text})
+                yield StreamEvent("final", {"ok": True, "text": text})
 
         return AsyncStreamEvents(iterator(), state=state)
 
-    def _traced_completion(
+    @asynccontextmanager
+    async def _traced_completion(
         self,
         request: LlmCallRequest,
         tools: list[Tool],
         tape: Tape,
         state: StreamState,
-        output: ModelOutput,
-    ) -> AsyncStreamEvents:
+    ) -> AsyncIterator[tuple[ModelCandidate, republic.Stream[Any], AsyncIterator[StreamEvent]]]:
         provider, _, model = request.model.partition(":")
         span = Span(
             f"chat {model or request.model}",
@@ -251,45 +243,36 @@ class ModelRunner:
         span.messages("gen_ai.input.messages", request.messages)
         if span.recording:
             span.set(**{"gen_ai.tool.definitions": [tool.to_schema() | {"type": "function"} for tool in tools]})
+        started = datetime.now(UTC)
+        # Partial output for hook errors and cancellation traces.
+        text: list[str] = []
+        calls: list[republic.ToolCall] = []
 
-        async def iterator() -> AsyncGenerator[StreamEvent, None]:
-            async with asyncio.timeout(self.settings.model_timeout_seconds):
-                async with self._completion(
-                    model=request.model,
-                    messages=list(request.messages),
-                    tools=tools,
-                    max_tokens=request.max_tokens,
-                    reasoning_effort=tape.context.state.get("reasoning_effort"),
-                ) as (candidate, stream):
-                    output.provider = candidate.provider_name or candidate.provider
-                    output.model = candidate.model_id
-                    async for item in stream:
-                        match item:
-                            case TextDelta(chunk=delta) | RefusalDelta(chunk=delta):
-                                output.text += delta
-                                yield StreamEvent("text", {"delta": delta})
-                            case ReasoningDelta(chunk=delta):
-                                yield StreamEvent("reasoning", {"delta": delta})
-                            case ToolCallReady(call=call):
-                                output.tool_calls.append(call)
-                            case Completed(response=response):
-                                output.response = response
-                                output.tool_calls = response.tool_calls
-                                state.usage = {
-                                    **asdict(response.token_usage),
-                                    "total_tokens": response.token_usage.total_tokens,
-                                }
-                                span.set(**{
-                                    "gen_ai.response.model": response.model,
-                                    "gen_ai.response.id": response.id,
-                                    "gen_ai.response.finish_reasons": [response.finish_reason]
-                                    if response.finish_reason
-                                    else None,
-                                })
-
-        async def finish() -> None:
-            if not span.recording:
-                return
+        try:
+            async with asyncio.timeout(self.settings.model_timeout_seconds), AsyncExitStack() as stack:
+                with span.activate():
+                    candidate, stream = await stack.enter_async_context(
+                        self._completion(
+                            model=request.model,
+                            messages=list(request.messages),
+                            tools=tools,
+                            max_tokens=request.max_tokens,
+                            reasoning_effort=tape.context.state.get("reasoning_effort"),
+                        )
+                    )
+                events = await stack.enter_async_context(aclosing(_stream_events(stream, span, state, text, calls)))
+                yield candidate, stream, events
+        except BaseException as exc:
+            span.fail(exc)
+            if isinstance(exc, Exception):
+                await self._fire_after_llm_call(request, "".join(text), calls, state, started, tape, error=exc)
+            raise
+        else:
+            completed = stream.response
+            await self._fire_after_llm_call(
+                request, completed.text or completed.refusal or "", completed.tool_calls, state, started, tape
+            )
+        finally:
             usage = state.usage or {}
             span.set(**{
                 "gen_ai.usage.input_tokens": usage.get("input_tokens"),
@@ -300,18 +283,18 @@ class ModelRunner:
                 [
                     {
                         "role": "assistant",
-                        "content": output.text,
-                        "tool_calls": [asdict(call) for call in output.tool_calls],
+                        "content": "".join(text),
+                        "tool_calls": [asdict(call) for call in calls],
                     }
                 ],
             )
-
-        return AsyncStreamEvents(iterator(), state=state, span=span, on_close=finish)
+            span.end()
 
     async def _fire_after_llm_call(
         self,
         request: LlmCallRequest,
-        output: ModelOutput,
+        text: str,
+        tool_calls: list[republic.ToolCall],
         state: StreamState,
         started: datetime,
         tape: Tape,
@@ -322,8 +305,8 @@ class ModelRunner:
         duration_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
         result = LlmCallResult(
             run_id=request.run_id,
-            text=output.text or None,
-            tool_calls=[asdict(call) for call in output.tool_calls],
+            text=text or None,
+            tool_calls=[asdict(call) for call in tool_calls],
             usage=state.usage,
             error=error,
             duration_ms=duration_ms,
@@ -363,13 +346,38 @@ class ModelRunner:
         return messages, new_messages
 
 
-@dataclass
-class ModelOutput:
-    response: republic.Response[Any] | None = None
-    provider: str | None = None
-    model: str | None = None
-    text: str = ""
-    tool_calls: list[republic.ToolCall] = field(default_factory=list)
+async def _stream_events(
+    stream: republic.Stream[Any],
+    span: Span,
+    state: StreamState,
+    text: list[str],
+    calls: list[republic.ToolCall],
+) -> AsyncGenerator[StreamEvent, None]:
+    native_events = aiter(stream)
+    while True:
+        with span.activate():
+            try:
+                item = await anext(native_events)
+            except StopAsyncIteration:
+                break
+        match item:
+            case TextDelta(chunk=delta) | RefusalDelta(chunk=delta):
+                text.append(delta)
+                yield StreamEvent("text", {"delta": delta})
+            case ReasoningDelta(chunk=delta):
+                yield StreamEvent("reasoning", {"delta": delta})
+            case ToolCallReady(call=call):
+                calls.append(call)
+            case Completed(response=completed):
+                state.usage = {
+                    **asdict(completed.token_usage),
+                    "total_tokens": completed.token_usage.total_tokens,
+                }
+                span.set(**{
+                    "gen_ai.response.model": completed.model,
+                    "gen_ai.response.id": completed.id,
+                    "gen_ai.response.finish_reasons": [completed.finish_reason] if completed.finish_reason else None,
+                })
 
 
 def _request_messages(messages: list[dict[str, Any]], provider: str, model: str) -> list[republic.Message]:
@@ -451,9 +459,11 @@ def _tool_invocation(
     """
     tool_name = tool_call.name
     try:
-        arguments = TOOL_ARGUMENTS_ADAPTER.validate_json(tool_call.arguments or "{}")
-    except ValidationError as exc:
+        arguments = tool_call.args
+    except JSONDecodeError as exc:
         raise BubError(ErrorKind.INVALID_INPUT, "Expected a function tool call with JSON object arguments.") from exc
+    if not isinstance(arguments, dict):
+        raise BubError(ErrorKind.INVALID_INPUT, "Expected a function tool call with JSON object arguments.")
     tool_obj = tool_map.get(tool_name)
     if tool_obj is None:
 
