@@ -192,3 +192,43 @@ model: openrouter:openrouter/free
         settings = load_settings()
 
     assert settings.model == "openrouter:openrouter/free"
+
+
+def test_custom_provider_names_an_endpoint_beside_the_builtin_ones(load_config) -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        load_config(
+            """
+model: relay:qwen/kimi-k3
+fallback_models:
+  - openai:gpt-5
+api_key:
+  openai: sk-openai
+providers:
+  relay:
+    type: openai
+    api_base: https://relay.test/v1
+    api_key: relay-key
+""".strip(),
+        )
+
+        settings = load_settings()
+
+    relay, openai = settings.model_candidates(settings.model)
+    assert (relay.provider, relay.model_id, relay.provider_name) == (LLMProvider.OPENAI, "qwen/kimi-k3", "relay")
+    assert (openai.provider, openai.model_id, openai.provider_name) == (LLMProvider.OPENAI, "gpt-5", None)
+    assert settings.model_client_kwargs("relay") == {"api_key": "relay-key", "api_base": "https://relay.test/v1"}
+    assert settings.model_client_kwargs("openai") == {"api_key": "sk-openai", "api_base": None}
+
+
+def test_custom_provider_falls_back_to_per_provider_settings() -> None:
+    settings = _settings_with_env({
+        "BUB_PROVIDERS": '{"relay": {"type": "anthropic", "api_base": "https://relay.test"}}',
+        "BUB_RELAY_API_KEY": "env-key",
+    })
+
+    assert settings.model_client_kwargs("relay") == {"api_key": "env-key", "api_base": "https://relay.test"}
+
+
+def test_custom_provider_rejects_unknown_type() -> None:
+    with pytest.raises(ValidationError, match="providers"):
+        _settings_with_env({"BUB_PROVIDERS": '{"relay": {"type": "nope"}}'})

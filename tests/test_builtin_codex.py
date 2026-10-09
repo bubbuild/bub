@@ -36,7 +36,7 @@ from bub.builtin.codex_provider import (
     should_use_openai_codex_provider,
 )
 from bub.builtin.model_runner import ModelOutputAccumulator, ModelRunner
-from bub.builtin.settings import ModelCandidate
+from bub.builtin.settings import AgentSettings, CustomProvider, ModelCandidate
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.framework import BubFramework
 
@@ -231,6 +231,35 @@ def test_model_runner_creates_codex_provider_for_codex_model(monkeypatch) -> Non
 
     assert client is fake_provider
     provider_class.assert_called_once_with(api_key=None, api_base=None)
+
+
+def test_custom_openai_provider_leaves_codex_oauth_in_place(monkeypatch) -> None:
+    codex_class = MagicMock(return_value="codex")
+    create = MagicMock(return_value="relay")
+    monkeypatch.setattr("bub.builtin.model_runner.OpenaiCodexProvider", codex_class)
+    monkeypatch.setattr("bub.builtin.model_runner.AnyLLM.create", create)
+    monkeypatch.setattr(
+        "bub.builtin.codex_provider.load_openai_codex_oauth_tokens",
+        lambda: OpenAICodexOAuthTokens(
+            access_token=_jwt_with_account("acct_123"),
+            refresh_token=TEST_REFRESH_TOKEN,
+            expires_at=1_900_000_000,
+        ),
+    )
+    settings = AgentSettings.model_construct(
+        model="relay:qwen/kimi-k3",
+        fallback_models=["openai:gpt-5.5"],
+        api_key=None,
+        api_base=None,
+        client_args={},
+        providers={"relay": CustomProvider(type=LLMProvider.OPENAI, api_base="https://relay.test/v1", api_key="k")},
+    )
+
+    clients = [client for _, client in ModelRunner(settings).iter_llm_clients("relay:qwen/kimi-k3")]
+
+    assert clients == ["relay", "codex"]
+    create.assert_called_once_with(LLMProvider.OPENAI, api_key="k", api_base="https://relay.test/v1")
+    codex_class.assert_called_once_with(api_key=None, api_base=None)
 
 
 def test_codex_provider_adds_response_defaults() -> None:

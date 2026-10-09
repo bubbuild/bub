@@ -45,6 +45,7 @@ class AgentSettings(Settings):
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None
+    providers: dict[str, CustomProvider] = Field(default_factory=dict)
     max_steps: int = Field(default=sys.maxsize, gt=0)
     max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
     model_timeout_seconds: int | None = None
@@ -64,6 +65,7 @@ class AgentSettings(Settings):
 | `BUB_API_BASE` | unset | `api_base` | 默认 API base URL,或按 provider 索引的映射。 |
 | `BUB_<PROVIDER>_API_KEY` | unset | — | 按 provider 划分的 API key,例如 `BUB_OPENAI_API_KEY`。 |
 | `BUB_<PROVIDER>_API_BASE` | unset | — | 按 provider 划分的 API base URL,例如 `BUB_OPENROUTER_API_BASE`。 |
+| `BUB_PROVIDERS` | `{}` | `providers` | 自定义命名的端点,每个用 `type` 指定走哪个 any-llm provider 的协议,并有自己的 `api_base` 和 `api_key`。见[自定义 provider](#自定义-provider)。 |
 | `BUB_MAX_STEPS` | 不限制 | `max_steps` | 单次 turn 内 agent 循环的最大步数；配置时必须为正整数。 |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | 单次模型调用的最大 token 数。 |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | 单次调用的超时秒数。 |
@@ -76,6 +78,28 @@ CLI 控制命令（`quit`、`exit`、`thinking`）、补全和 shell 模式使�
 Telegram 保留现有的原生斜杠命令过滤；前缀设为 `/` 时，使用 `/bub /help`。
 
 启动时 `ProviderSpecificEnvSource` 会扫描 `os.environ` 中匹配 `^BUB_(.+)_(API_KEY|API_BASE)$` 的变量,把捕获到的 provider 名称小写后作为 key 收集。
+
+### 自定义 provider
+
+模型前缀通常是 any-llm 的 provider 名,`api_key` / `api_base` 每个 provider 只能放一个值。如果某个端点说的是 any-llm 已支持的协议,但需要单独起名,就用 `providers`:比如公司代理、中转站或本地网关、自建服务,或同一厂商的第二个账号。每个名字都可以当模型前缀用,`type` 指定它走哪个 any-llm provider 的协议:
+
+```yaml
+model: proxy:gpt-5.5
+fallback_models:
+  - openai:gpt-5.5
+  - relay:claude-sonnet-5
+providers:
+  proxy:
+    type: openai
+    api_base: https://llm-proxy.example.com/v1
+    api_key: sk-proxy-...
+  relay:
+    type: anthropic
+    api_base: https://relay.example.com
+    api_key: sk-relay-...
+```
+
+这里 `proxy:gpt-5.5` 和 `openai:gpt-5.5` 都走 OpenAI 协议,但发往不同的地址、用不同的 key;`openai:` 仍使用它自己的 `api_key` / `api_base`,或 Codex OAuth。条目里没写的字段会回退到 `api_key` / `api_base` 以及 `BUB_<NAME>_API_KEY` / `BUB_<NAME>_API_BASE`。`type` 不是已知 provider 时,加载配置会直接报错。
 
 OpenAI Codex OAuth 不需要单独的请求格式设置。运行 `bub login openai` 后,当模型使用 `openai:` provider 且没有自定义 API base 时,Bub 会检测并使用本地保存的 Codex OAuth token。
 

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from any_llm import AnyLLM
 from any_llm.constants import LLMProvider
-from pydantic import Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
@@ -29,6 +29,15 @@ class ModelCandidate:
     provider: LLMProvider
     model_id: str
     name: str
+    provider_name: str | None = None
+
+
+class CustomProvider(BaseModel):
+    """A named endpoint that speaks one of any-llm's provider APIs."""
+
+    type: LLMProvider
+    api_key: str | None = None
+    api_base: str | None = None
 
 
 class ProviderSpecificEnvSource(PydanticBaseSettingsSource):
@@ -63,6 +72,7 @@ class AgentSettings(Settings):
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None
+    providers: dict[str, CustomProvider] = Field(default_factory=dict)
     max_steps: int = Field(default=sys.maxsize, gt=0)
     max_tokens: int = DEFAULT_MAX_TOKENS
     model_timeout_seconds: int | None = None
@@ -104,15 +114,22 @@ class AgentSettings(Settings):
 
         candidates: list[ModelCandidate] = []
         for candidate in candidate_names:
+            prefix, sep, rest = candidate.partition(":")
+            if sep and (custom := self.providers.get(prefix)):
+                candidates.append(
+                    ModelCandidate(provider=custom.type, model_id=rest, name=candidate, provider_name=prefix)
+                )
+                continue
             provider, model_id = AnyLLM.split_model_provider(candidate)
             candidates.append(ModelCandidate(provider=provider, model_id=model_id, name=candidate))
         return candidates
 
     def model_client_kwargs(self, provider: str) -> dict[str, Any]:
+        custom = self.providers.get(provider)
         return {
             **self.client_args,
-            "api_key": self._provider_value(self.api_key, provider),
-            "api_base": self._provider_value(self.api_base, provider),
+            "api_key": (custom and custom.api_key) or self._provider_value(self.api_key, provider),
+            "api_base": (custom and custom.api_base) or self._provider_value(self.api_base, provider),
         }
 
     @staticmethod
