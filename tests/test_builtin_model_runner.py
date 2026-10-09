@@ -199,7 +199,7 @@ async def test_anthropic_request_enables_caching_and_generation_options(
 
 
 @pytest.mark.asyncio
-async def test_session_reasoning_and_runtime_arguments_take_precedence(
+async def test_session_reasoning_and_runtime_options_override_completion_defaults(
     tmp_path: Path, provider_service: ProviderService
 ) -> None:
     provider_service.reply(sse(chat_events()))
@@ -209,14 +209,13 @@ async def test_session_reasoning_and_runtime_arguments_take_precedence(
                 client_args={
                     "http_client": client,
                     "api_format": "chat",
-                    "extra_body": {"model": "bad", "messages": [], "reasoning_effort": "low"},
+                    "extra_body": {"metadata": {"client": True}},
                 },
                 completion_args={
                     "reasoning_effort": "low",
-                    "model": "ignored",
+                    "tools": [republic.Tool("ignored")],
                     "max_tokens": 1,
-                    "stream": False,
-                    "extra_body": {"reasoning_effort": "low", "tools": []},
+                    "extra_body": {"metadata": {"request": True}},
                 },
             )
         )
@@ -235,6 +234,33 @@ async def test_session_reasoning_and_runtime_arguments_take_precedence(
     assert request["messages"] == [{"role": "user", "content": "hello"}]
     assert request["max_completion_tokens"] == 16384
     assert request["stream"] is True
+    assert "tools" not in request
+    assert request["metadata"] == {"client": True, "request": True}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("request_reasoning", [None, "medium"])
+async def test_wire_reasoning_follows_republic_extra_body_precedence(
+    tmp_path: Path, provider_service: ProviderService, request_reasoning: str | None
+) -> None:
+    provider_service.reply(sse(chat_events()))
+    async with provider_service.client() as client:
+        runner = ModelRunner(
+            AgentSettings(
+                client_args={"http_client": client, "api_format": "chat", "extra_body": {"reasoning_effort": "low"}},
+                completion_args={"extra_body": {"reasoning_effort": request_reasoning} if request_reasoning else {}},
+            )
+        )
+        tape = Tape(
+            tmp_path,
+            AsyncTapeStoreAdapter(InMemoryTapeStore()),
+            TapeContext(anchor=None, state={"reasoning_effort": "high"}),
+        ).scoped("wire-reasoning")
+        _ = [
+            event
+            async for event in runner.run(tape=tape, model="openai:test", tools=[], system_prompt=None, prompt="hello")
+        ]
+    assert provider_service.body()["reasoning_effort"] == (request_reasoning or "low")
 
 
 @pytest.mark.asyncio

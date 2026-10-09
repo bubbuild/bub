@@ -70,7 +70,7 @@ Loaded under the YAML root section.
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Maximum tokens per model call; omitted for Codex. |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | Per-call timeout in seconds. |
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | Extra kwargs passed to the underlying model client (JSON / dict). |
-| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | Extra kwargs passed to each completion call, e.g. `{"reasoning_effort":"high"}`. Bub-managed arguments take precedence. |
+| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | Extra kwargs passed to each completion call, e.g. `{"reasoning_effort":"high"}`. Bub supplies the tools and token limit; see option precedence below. |
 | `BUB_VERBOSE` | `0` | `verbose` | Logging verbosity level (`0`–`2`). |
 
 For example, `command_prefix: "!"` enables `!help` in builtin channels; `,help` becomes ordinary text.
@@ -81,9 +81,11 @@ Provider-specific defaults are gathered at startup by scanning `os.environ` for 
 
 Bub uses Republic for model requests. Use `codex:<model>` for ChatGPT plan access and `openai:<model>` for OpenAI API access. A stored Codex login never changes the `openai:` route. Provider identifiers follow Republic, including `google:` and `azure-openai:`.
 
-`client_args` accepts Republic provider options such as `headers`, `api_format`, `timeout`, and `max_retries`. Protocol defaults follow Republic. Set `api_format: chat` explicitly for a Chat Completions endpoint. An injected HTTP client must be an `httpx2.AsyncClient` and stays caller-owned.
+`client_args` accepts Republic provider options such as `headers`, `api_format`, `timeout`, and `max_retries`. Bub supplies the resolved connection settings (`api_key`, `api_base`); other options pass through unchanged. Protocol defaults follow Republic. Set `api_format: chat` explicitly for a Chat Completions endpoint. An injected HTTP client must be an `httpx2.AsyncClient` and stays caller-owned.
 
-`completion_args` accepts Republic chat options; provider-specific fields must be supplied in `extra_body`. Bub owns the model, messages, tools, streaming, and token limit. Session reasoning settings take precedence over configured reasoning fields. `max_tokens` is omitted for Codex because that endpoint does not support it. Republic handles wire-format conversion and Anthropic requests enable prompt caching.
+`completion_args` accepts Republic chat options. Bub supplies `tools` and the runtime token limit; a session's `reasoning_effort` overrides the configured chat option. The runtime token limit is omitted for Codex because that endpoint does not support it. Republic handles wire-format conversion and Anthropic requests enable prompt caching.
+
+Provider-specific fields go in `extra_body`, which is accepted in both `client_args` and `completion_args`. Republic deep-merges provider defaults with request extras, with request values taking precedence, then merges them over the encoded request body. These explicit wire fields can override chat options, including reasoning and token limits; Bub passes them through unchanged.
 
 Provider names and available protocols follow [Republic's provider directory](https://github.com/bubbuild/republic/blob/main/docs/providers/index.md). Custom provider implementations must be registered with Republic.
 
