@@ -96,7 +96,7 @@ def _tool_signature(tool_item: Tool) -> str:
 
 def render_tools_prompt(tools: Iterable[Tool]) -> str:
     """Render a human-readable description of tools for builtin agent prompts."""
-    agent_tools = [tool_item for tool_item in tools if tool_item.agent_use]
+    agent_tools = [tool_item for tool_item in tools if tool_item.exposure in ("auto", "direct")]
     if not agent_tools:
         return ""
     lines = []
@@ -279,7 +279,7 @@ def _render_subagent(result: SubAgentResult) -> str:
     return result["output"] + "".join(f"[Error: {message}]" for message in result["errors"])
 
 
-@tool(context=True, preserve=True)
+@tool(context=True, exposure="direct")
 async def bash(
     command: str,
     cwd: str | None = None,
@@ -317,7 +317,7 @@ async def bash(
     return shell.output.strip() or "(no output)"
 
 
-@tool(name="bash.output", preserve=True)
+@tool(name="bash.output", exposure="direct")
 async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) -> str:
     """Read buffered output from a background shell, with optional offset/limit for incremental polling."""
     shell = shell_manager.get(shell_id)
@@ -332,14 +332,14 @@ async def bash_output(shell_id: str, offset: int = 0, limit: int | None = None) 
     return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {exit_code}\nnext_offset: {end}\noutput:\n{body}"
 
 
-@tool(name="bash.kill", preserve=True)
+@tool(name="bash.kill", exposure="direct")
 async def kill_bash(shell_id: str) -> str:
     """Terminate a background shell process."""
     shell = await shell_manager.terminate(shell_id)
     return f"id: {shell.shell_id}\nstatus: {shell.status}\nexit_code: {shell.returncode}"
 
 
-@tool(context=True, name="fs.read", preserve=True)
+@tool(context=True, name="fs.read", exposure="direct")
 async def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> str:
     """Read a text file and return its content. Supports optional pagination with offset and limit."""
     environment = environment_from_state(context.state)
@@ -350,7 +350,7 @@ async def fs_read(path: str, offset: int = 0, limit: int | None = None, *, conte
     return "\n".join(lines[start:end])
 
 
-@tool(context=True, name="fs.write", preserve=True)
+@tool(context=True, name="fs.write", exposure="direct")
 async def fs_write(path: str, content: str, *, context: ToolContext) -> str:
     """Write content to a text file."""
     environment = environment_from_state(context.state)
@@ -359,7 +359,7 @@ async def fs_write(path: str, content: str, *, context: ToolContext) -> str:
     return f"wrote: {resolved_path}"
 
 
-@tool(context=True, name="fs.edit", preserve=True)
+@tool(context=True, name="fs.edit", exposure="direct")
 async def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> str:
     """Edit a text file by replacing old text with new text. You can specify the line number to start searching for the old text."""
     environment = environment_from_state(context.state)
@@ -398,7 +398,7 @@ def skill_describe(name: str | None = None, *, context: ToolContext) -> SkillLis
     return {"name": skill.name, "location": str(skill.location), "content": skill.body() or ""}
 
 
-@tool(context=True, name=TOOL_DESCRIBE_TOOL_NAME, preserve=True)
+@tool(context=True, name=TOOL_DESCRIBE_TOOL_NAME, exposure="direct")
 async def tool_describe(names: list[str], *, context: ToolContext) -> ToolDescriptions:
     """Load tools by name and return their definitions. Deferred tools become callable from the next step."""
     agent = _get_agent(context)
@@ -406,7 +406,7 @@ async def tool_describe(names: list[str], *, context: ToolContext) -> ToolDescri
     available = {
         name: tool_item
         for name, tool_item in agent.tools.items()
-        if tool_item.agent_use and (allowed_tools is None or name in allowed_tools)
+        if tool_item.exposure in ("auto", "direct") and (allowed_tools is None or name in allowed_tools)
     }
     index = _tool_name_index(available)
     loaded = set(await loaded_tool_names(context.tape))
@@ -528,7 +528,7 @@ async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> SubAgen
     return {"session_id": subagent_session, "output": output, "errors": errors}
 
 
-@tool(name="help", context=True, agent_use=False)
+@tool(name="help", context=True, exposure="command")
 def show_help(*, context: ToolContext | None = None) -> str:
     """Show a help message."""
     agent = context.state.get("_runtime_agent") if context is not None else None
@@ -554,7 +554,7 @@ def show_help(*, context: ToolContext | None = None) -> str:
     )
 
 
-@tool(name="quit", context=True, agent_use=False)
+@tool(name="quit", context=True, exposure="command")
 async def quit_tool(*, context: ToolContext) -> str:
     """Abort the tasks of the current session. DO NOT use it in a normal workflow."""
     agent = _get_agent(context)
@@ -564,7 +564,7 @@ async def quit_tool(*, context: ToolContext) -> str:
     return "Session tasks stopped."
 
 
-@tool(name="model", context=True, agent_use=False)
+@tool(name="model", context=True, exposure="command")
 async def set_model(model_id: str, *, context: ToolContext) -> str:
     """Switch the model for THIS session. Invoke as the `,model <model_id>` command.
 
@@ -577,7 +577,7 @@ async def set_model(model_id: str, *, context: ToolContext) -> str:
     return f"Session model set to {model_id} (applies from the next turn)."
 
 
-@tool(name="reasoning_effort", context=True, agent_use=False)
+@tool(name="reasoning_effort", context=True, exposure="command")
 async def set_reasoning_effort(reasoning_effort: str, *, context: ToolContext) -> str:
     """Set the reasoning effort for this session starting from the next turn."""
     reasoning_effort = reasoning_effort.strip()

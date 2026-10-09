@@ -367,7 +367,7 @@ class BuiltinImpl:
             code_tools = state.get(CODE_TOOLS_STATE_KEY) or ()
             available_tools = (*state["_runtime_tool_names"], *(tool_item.name for tool_item in code_tools))
         else:
-            available_tools = tuple(tool_item.name for tool_item in agent_tools)
+            available_tools = tuple(tool_item.name for tool_item in agent_tools if tool_item.exposure != "code")
         if call.tool in available_tools:
             return None
 

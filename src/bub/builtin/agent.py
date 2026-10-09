@@ -481,7 +481,7 @@ class Agent:
         )
 
         direct = [tool for tool in tools if not tool.deferred and tool.name != TOOL_DESCRIBE_TOOL_NAME]
-        deferred = {tool.name: tool for tool in tools if tool.deferred and tool.agent_use}
+        deferred = {tool.name: tool for tool in tools if tool.deferred and tool.exposure in ("auto", "direct")}
         if not deferred:
             return direct, ""
         direct.append(self.tools.get(TOOL_DESCRIBE_TOOL_NAME, tool_describe))
@@ -540,7 +540,8 @@ class Agent:
 
         Code mode is a session setting (``state["code_mode"]``, switched by the ``code_mode``
         command) and applies only when ``run_code`` is among the allowed tools: the model then
-        sees preserved tools directly, and every other tool is callable only from code.
+        sees ``direct`` tools, and ``auto`` and ``code`` tools are callable only from code. Outside
+        code mode, ``code`` tools are dropped.
         """
         from bub.builtin.codemode import (
             CODE_MODE_STATE_KEY,
@@ -554,14 +555,14 @@ class Agent:
         direct_tools = [tool for tool in tools if tool.name != RUN_CODE_TOOL_NAME]
         if not state.get(CODE_MODE_STATE_KEY) or len(direct_tools) == len(tools):
             state.pop(CODE_TOOLS_STATE_KEY, None)
-            return direct_tools, ""
+            return [tool for tool in direct_tools if tool.exposure != "code"], ""
 
-        code_tools = [tool for tool in direct_tools if tool.code_use]
+        code_tools = [tool for tool in direct_tools if tool.exposure in ("auto", "code")]
         state[CODE_TOOLS_STATE_KEY] = model_tools(code_tools)
         stub_path = write_tool_stub(
             code_tools, session_id=str(state.get("session_id", "")), workspace=workspace_from_state(state)
         )
-        return [tool for tool in tools if tool.preserve], render_code_mode_prompt(stub_path)
+        return [tool for tool in tools if tool.exposure == "direct"], render_code_mode_prompt(stub_path)
 
     def _system_prompt(
         self,

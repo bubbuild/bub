@@ -196,3 +196,67 @@ async def test_code_mode_exposes_deferred_tools_to_code_without_loading(
     assert _tool_names(requests[0]) == ["run_code"]
     assert [tool.name for tool in state[CODE_TOOLS_STATE_KEY]] == ["direct", "provider_lookup"]
     assert "<deferred_tools>" not in _system_prompt(requests[0])
+
+
+@pytest.mark.asyncio
+async def test_code_exposure_tools_are_hidden_from_the_model_outside_code_mode(
+    framework: BubFramework, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bub.builtin.tools import tool_describe
+
+    direct = Tool.from_callable(lambda: "direct", name="direct")
+    code_tool = Tool.from_callable(lambda: "secret", name="secret", exposure="code")
+    deferred_code_tool = Tool.from_callable(lambda: "lookup", name="provider.lookup", deferred=True, exposure="code")
+    requests = _scripted_provider(
+        monkeypatch,
+        [_tool_call("secret", "secret", {}), {"role": "assistant", "content": "done"}],
+    )
+    agent = Agent(framework, tools=[direct, code_tool, deferred_code_tool, tool_describe], skill_dirs=[])
+
+    stream = await agent.run_stream(session_id="plain", prompt="Hi.", model="openrouter:test-model")
+    _ = [event async for event in stream]
+
+    assert _tool_names(requests[0]) == ["direct"]
+    assert "<deferred_tools>" not in _system_prompt(requests[0])
+    result = next(message for message in requests[1]["messages"] if message["role"] == "tool")
+    assert result["content"].startswith("Tool `secret` does not exist.")
+
+
+@pytest.mark.asyncio
+async def test_code_exposure_tools_are_exposed_to_code_in_code_mode(
+    framework: BubFramework, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from bub.builtin.codemode import CODE_TOOLS_STATE_KEY, run_code
+
+    direct = Tool.from_callable(lambda: "direct", name="direct")
+    code_tool = Tool.from_callable(lambda: "secret", name="secret", exposure="code")
+    requests = _scripted_provider(monkeypatch, [{"role": "assistant", "content": "done"}])
+    agent = Agent(framework, tools=[direct, code_tool, run_code], skill_dirs=[])
+    state: dict[str, Any] = {"code_mode": True, "_runtime_workspace": str(tmp_path)}
+
+    stream = await agent.run_stream(session_id="code", prompt="Hi.", model="openrouter:test-model", state=state)
+    _ = [event async for event in stream]
+
+    assert _tool_names(requests[0]) == ["run_code"]
+    assert [tool.name for tool in state[CODE_TOOLS_STATE_KEY]] == ["direct", "secret"]
+
+
+@pytest.mark.asyncio
+async def test_tool_describe_does_not_describe_code_exposure_tools(
+    framework: BubFramework, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bub.builtin.tools import tool_describe
+
+    deferred = Tool.from_callable(lambda: "lookup", name="provider.lookup", deferred=True)
+    code_tool = Tool.from_callable(lambda: "secret", name="secret", exposure="code")
+    requests = _scripted_provider(
+        monkeypatch,
+        [_tool_call("describe", "tool_describe", {"names": ["secret"]}), {"role": "assistant", "content": "done"}],
+    )
+    agent = Agent(framework, tools=[deferred, code_tool, tool_describe], skill_dirs=[])
+
+    stream = await agent.run_stream(session_id="describe", prompt="Hi.", model="openrouter:test-model")
+    _ = [event async for event in stream]
+
+    describe_result = next(message for message in requests[1]["messages"] if message["role"] == "tool")
+    assert json.loads(describe_result["content"]) == {"tools": [], "unknown": ["secret"]}

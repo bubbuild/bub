@@ -116,7 +116,7 @@ def test_stub_path_is_stable_per_session_and_tool_set(tmp_path: Path, monkeypatc
 
 def test_run_code_is_a_preserved_tool() -> None:
     assert run_code.name == RUN_CODE_TOOL_NAME
-    assert run_code.preserve is True
+    assert run_code.exposure == "direct"
     assert run_code.parameters["required"] == ["code"]
 
 
@@ -210,7 +210,7 @@ async def test_code_mode_command_records_session_switch(tmp_path: Path) -> None:
     result = await set_code_mode.run(enable=True, context=context)
 
     assert set_code_mode.name == "code_mode"
-    assert set_code_mode.agent_use is False
+    assert set_code_mode.exposure == "command"
     assert result == "Session code mode enabled (applies from the next turn)."
     assert context.state["code_mode"] is True
     entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))

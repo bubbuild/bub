@@ -262,7 +262,7 @@ class SpillStore:
         return SpillPage(manifest, "".join(chunks), start, stop, next_cursor, complete)
 
 
-@tool(context=True, name=SPILL_READ_TOOL_NAME, preserve=True)
+@tool(context=True, name=SPILL_READ_TOOL_NAME, exposure="direct")
 async def spill_read(
     handle: str,
     cursor: int = 0,

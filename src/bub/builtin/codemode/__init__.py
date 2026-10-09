@@ -251,7 +251,7 @@ def render_code_mode_prompt(stub_path: Path) -> str:
     )
 
 
-@tool(name=RUN_CODE_TOOL_NAME, context=True, preserve=True)
+@tool(name=RUN_CODE_TOOL_NAME, context=True, exposure="direct")
 async def run_code(code: str, timeout_seconds: int = DEFAULT_RUN_CODE_TIMEOUT_SECONDS, *, context: ToolContext) -> str:
     """Run Python code in the environment and return everything it prints.
 
@@ -299,11 +299,11 @@ async def run_code(code: str, timeout_seconds: int = DEFAULT_RUN_CODE_TIMEOUT_SE
     return "".join(output)
 
 
-@tool(name="code_mode", context=True, agent_use=False)
+@tool(name="code_mode", context=True, exposure="command")
 async def set_code_mode(enable: bool, *, context: ToolContext) -> str:
     """Enable or disable code mode for THIS session. Invoke as the `,code_mode enable=true` command.
 
-    In code mode the model calls preserved tools directly and every other tool from
+    In code mode the model calls `direct` tools directly and every other tool from
     Python through `run_code`. Takes effect on the NEXT turn and persists across restarts.
     """
     await set_session_setting(context, CODE_MODE_STATE_KEY, enable)

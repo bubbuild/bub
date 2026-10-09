@@ -308,7 +308,7 @@ async def test_unknown_handle_and_invalid_read_bounds_are_friendly(tmp_path: Pat
 
 def test_spill_read_uses_the_builtin_tool_naming_convention() -> None:
     assert spill_read.name == SPILL_READ_TOOL_NAME == "spill.read"
-    assert spill_read.preserve is True
+    assert spill_read.exposure == "direct"
     assert model_tools([spill_read])[0].name == SPILL_READ_MODEL_NAME == "spill_read"
     assert "spill_read(handle, cursor?, count?, from_end?)" in render_tools_prompt([spill_read])
 

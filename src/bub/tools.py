@@ -8,7 +8,7 @@ import json
 import time
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Protocol, get_type_hints, overload
+from typing import TYPE_CHECKING, Any, Literal, Protocol, get_args, get_type_hints, overload
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
@@ -134,6 +134,16 @@ def _validate_without_context(func: Callable[..., Any], signature: inspect.Signa
     return validate_call(validate_target)
 
 
+ToolExposure = Literal["auto", "direct", "code", "command"]
+"""Where a tool can be called from.
+
+- ``auto``: by the model directly, or only from ``run_code`` in code mode.
+- ``direct``: by the model directly, also in code mode; never from ``run_code``.
+- ``code``: only from ``run_code`` in code mode; never by the model directly.
+- ``command``: only as a comma command; never by the model or from code.
+"""
+
+
 @dataclass(frozen=True)
 class Tool:
     """A callable unit the model can invoke."""
@@ -143,22 +153,17 @@ class Tool:
     description: str = ""
     parameters: dict[str, Any] = field(default_factory=dict)
     context: bool = False
-    agent_use: bool = True
+    exposure: ToolExposure = "auto"
+    """Where the tool can be called from, see ``ToolExposure``."""
     renderer: Callable[[Any], str] | None = None
-    preserve: bool = False
-    """Keep the tool directly callable by the model in code mode; others are reachable only from code."""
     output_schema: dict[str, Any] | None = None
     """JSON schema of the structured result, used to describe the tool to model-written code."""
     deferred: bool = False
     """Load the tool on demand: only its name is listed until ``tool.describe`` loads its definition."""
 
-    @property
-    def code_use(self) -> bool:
-        """Whether the tool is callable from model-written code (``tools.*`` in ``run_code``).
-
-        Preserved tools stay model-facing only, and tools hidden from the agent are never exposed to code.
-        """
-        return self.agent_use and not self.preserve
+    def __post_init__(self) -> None:
+        if self.exposure not in get_args(ToolExposure):
+            raise ValueError(f"Tool '{self.name}' has unknown exposure {self.exposure!r}.")
 
     def run(self, *args: Any, **kwargs: Any) -> Any:
         return self.handler(*args, **kwargs)
@@ -188,9 +193,8 @@ class Tool:
         name: str | None = None,
         description: str | None = None,
         context: bool = False,
-        agent_use: bool = True,
+        exposure: ToolExposure = "auto",
         renderer: Callable[[Any], str] | None = None,
-        preserve: bool = False,
         deferred: bool = False,
     ) -> Tool:
         signature = inspect.signature(func)
@@ -215,17 +219,20 @@ class Tool:
             parameters=parameters,
             handler=validated,
             context=context,
-            agent_use=agent_use,
+            exposure=exposure,
             renderer=renderer,
-            preserve=preserve,
             output_schema=_output_schema(func),
             deferred=deferred,
         )
 
 
 def model_tools(tools: Iterable[Tool]) -> list[Tool]:
-    """Convert agent-enabled runtime tools into model-safe aliases."""
-    return [replace(tool_item, name=tool_item.name.replace(".", "_")) for tool_item in tools if tool_item.agent_use]
+    """Convert tools callable by the model or code into model-safe aliases; comma commands are dropped."""
+    return [
+        replace(tool_item, name=tool_item.name.replace(".", "_"))
+        for tool_item in tools
+        if tool_item.exposure != "command"
+    ]
 
 
 @dataclass(frozen=True)
@@ -559,9 +566,8 @@ def tool(
     model: type[BaseModel] | None = ...,
     description: str | None = ...,
     context: bool = ...,
-    agent_use: bool = ...,
+    exposure: ToolExposure = ...,
     renderer: Callable[[Any], str] | None = ...,
-    preserve: bool = ...,
     deferred: bool = ...,
 ) -> Tool: ...
 
@@ -574,9 +580,8 @@ def tool(
     model: type[BaseModel] | None = ...,
     description: str | None = ...,
     context: bool = ...,
-    agent_use: bool = ...,
+    exposure: ToolExposure = ...,
     renderer: Callable[[Any], str] | None = ...,
-    preserve: bool = ...,
     deferred: bool = ...,
 ) -> Callable[[Callable], Tool]: ...
 
@@ -588,15 +593,15 @@ def tool(
     model: type[BaseModel] | None = None,
     description: str | None = None,
     context: bool = False,
-    agent_use: bool = True,
+    exposure: ToolExposure = "auto",
     renderer: Callable[[Any], str] | None = None,
-    preserve: bool = False,
     deferred: bool = False,
 ) -> Tool | Callable[[Callable], Tool]:
     """Decorator to convert a function into a Tool instance.
 
     Tools should return structured results; ``renderer`` turns such a result into the
     plain text shown to the model outside code mode (defaults to JSON for non-strings).
+    ``exposure`` decides where the tool can be called from (see ``ToolExposure``), and
     ``deferred`` tools are loaded on demand through ``tool.describe``.
     """
 
@@ -618,9 +623,8 @@ def tool(
                 parameters=model.model_json_schema(),
                 handler=handler,
                 context=context,
-                agent_use=agent_use,
+                exposure=exposure,
                 renderer=renderer,
-                preserve=preserve,
                 output_schema=_output_schema(func),
                 deferred=deferred,
             )
@@ -630,9 +634,8 @@ def tool(
                 name=name,
                 description=description,
                 context=context,
-                agent_use=agent_use,
+                exposure=exposure,
                 renderer=renderer,
-                preserve=preserve,
                 deferred=deferred,
             )
         tool_instance = _add_logging(result)
