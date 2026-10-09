@@ -17,7 +17,7 @@ from loguru import logger
 from republic import ChatOptions
 from republic.events import Completed, ReasoningDelta, RefusalDelta, TextDelta, ToolCallReady
 
-from bub.builtin.settings import AgentSettings, ModelCandidate, provider_extras
+from bub.builtin.settings import AgentSettings, ModelCandidate
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import (
     AgentHooks,
@@ -57,11 +57,6 @@ class ModelRunner:
             stream: republic.Stream[Any] | None = None
             try:
                 client_kwargs = self.settings.model_client_kwargs(candidate.provider_name or candidate.provider)
-                if reasoning_effort is not None and "extra_body" in client_kwargs:
-                    extra = dict(client_kwargs["extra_body"])
-                    extra.pop("reasoning", None)
-                    extra.pop("reasoning_effort", None)
-                    client_kwargs["extra_body"] = extra
                 chat_model = republic.get_model(f"{candidate.provider}:{candidate.model_id}", **client_kwargs)
                 if span := current_span():
                     span.rename(f"chat {candidate.model_id}")
@@ -99,20 +94,14 @@ class ModelRunner:
     def _chat_options(
         self, provider: str, tools: list[Tool], max_tokens: int | None, reasoning_effort: str | None
     ) -> ChatOptions:
-        options = provider_extras(self.settings.completion_args)
-        extra = provider_extras(dict(options.pop("extra_body", {})))
+        options = dict(self.settings.completion_args)
         if provider == "anthropic":
-            extra.setdefault("cache_control", {"type": "ephemeral"})
+            options["extra_body"] = {"cache_control": {"type": "ephemeral"}} | options.get("extra_body", {})
         options["tools"] = [republic.Tool(item.name, item.description, item.parameters) for item in tools]
         if provider != "codex":
             options["max_tokens"] = max_tokens if max_tokens is not None else self.settings.max_tokens
         if reasoning_effort is not None:
             options["reasoning_effort"] = reasoning_effort
-            # Per-session reasoning settings take precedence over provider extras.
-            extra.pop("reasoning_effort", None)
-            extra.pop("reasoning", None)
-        if extra:
-            options["extra_body"] = extra
         return cast("ChatOptions", options)
 
     def run(

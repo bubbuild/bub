@@ -256,7 +256,7 @@ async def test_provider_requests_use_environment_or_explicit_credentials(
 
 
 @pytest.mark.asyncio
-async def test_wire_extras_preserve_gemini_options_without_replacing_the_prompt_or_token_budget(
+async def test_provider_and_completion_extras_follow_republic_deep_merge(
     tmp_path: Path, provider_service: ProviderService
 ) -> None:
     provider_service.reply(sse([{"candidates": [{"content": {"parts": [{"text": "done"}]}, "finishReason": "STOP"}]}]))
@@ -266,13 +266,18 @@ async def test_wire_extras_preserve_gemini_options_without_replacing_the_prompt_
             max_tokens=100,
             client_args={
                 "http_client": client,
-                "extra_body": {"contents": [], "generationConfig": {"maxOutputTokens": 1, "temperature": 0.4}},
+                "extra_body": {"generationConfig": {"maxOutputTokens": 1, "temperature": 0.4, "topK": 12}},
             },
+            completion_args={"extra_body": {"generationConfig": {"temperature": 0.9, "topP": 0.8}}},
         )
         assert await _run(settings, tmp_path) == "done"
     assert provider_service.body()["contents"] == [{"role": "user", "parts": [{"text": "Hello"}]}]
-    assert provider_service.body()["generationConfig"]["maxOutputTokens"] == 100
-    assert provider_service.body()["generationConfig"]["temperature"] == 0.4
+    assert provider_service.body()["generationConfig"] == {
+        "maxOutputTokens": 1,
+        "temperature": 0.9,
+        "topK": 12,
+        "topP": 0.8,
+    }
 
 
 @pytest.mark.asyncio
