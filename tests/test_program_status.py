@@ -19,7 +19,7 @@ from bub.channels.message import ChannelMessage
 from bub.errors import BubError, ErrorKind
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
-from bub.program_status import listener_ready, program_status, waiting
+from bub.program_status import listener_ready, message_failed, message_status, program_status, waiting
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 
 
@@ -31,13 +31,60 @@ class Terminal(StringIO):
 def reports(output):
     return [
         dict(pair.split("=", 1) for pair in body.split(":"))
-        for body in re.findall(r"\x1b]7501;(.*?)\x1b\\", output.getvalue())
+        for body in re.findall(r"\x1b]7501;(.*?)(?:\x1b\\|\x07)", output.getvalue())
     ]
 
 
 @pytest.fixture
 def terminal():
     return Terminal()
+
+
+@pytest.mark.parametrize(
+    ("capability", "terminator"),
+    [
+        (b"\x1b]7501;%p1%s\x1b\\", "\x1b\\"),
+        (b"\x1b]7501;%p1%s\x07", "\x07"),
+        (None, "\x1b\\"),
+        (OSError("terminfo unavailable"), "\x1b\\"),
+    ],
+)
+def test_cli_reads_terminfo_once_and_reuses_template_for_messages(terminal, monkeypatch, capability, terminator):
+    curses = pytest.importorskip("curses")
+    calls = []
+    monkeypatch.setattr(sys, "stdout", terminal)
+    monkeypatch.setattr(terminal, "fileno", lambda: 1)
+    monkeypatch.setattr(curses, "setupterm", lambda **kwargs: calls.append(kwargs))
+
+    def lookup(name):
+        calls.append(name)
+        if isinstance(capability, Exception):
+            raise capability
+        return capability
+
+    monkeypatch.setattr(curses, "tigetstr", lookup)
+    app = BubFramework().create_cli_app()
+
+    @app.command()
+    def execute():
+        with message_status(), waiting("question"):
+            pass
+        message_failed()
+        return 42
+
+    assert get_command(app).main(["execute"], standalone_mode=False) == 42
+    assert calls == [{"fd": 1}, "Pst"]
+    assert [item["state"] for item in reports(terminal)] == [
+        "working",
+        "working",
+        "blocked",
+        "working",
+        "done",
+        "error",
+        "done",
+    ]
+    assert terminal.getvalue().count(terminator) == 7
+    assert "7501;?" not in terminal.getvalue()
 
 
 @pytest.mark.parametrize("output", [None, StringIO(), "broken"])

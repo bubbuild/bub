@@ -23,6 +23,8 @@ When stdout is a terminal, commands report
 cancellation reports `idle`. Prompts report `blocked` with `question`, `permission`, or `auth`.
 `chat` and `gateway` remain `idle` while listening, with separate records for concurrent messages.
 Unsupported terminals ignore the reports; redirected output and direct SDK calls contain no status sequences.
+The CLI reads the terminfo `Pst` capability once at entry and reuses the report template without reading terminal input.
+If the capability is unavailable, support remains unknown and commands send reports directly as the protocol allows.
 Text output and exit codes retain their existing behavior.
 
 ## `bub run`

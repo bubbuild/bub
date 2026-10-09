@@ -18,6 +18,24 @@ if TYPE_CHECKING:
 type State = Literal["idle", "working", "blocked", "done", "error"]
 type Kind = Literal["permission", "question", "auth"]
 
+_REPORT_TEMPLATE = "\x1b]7501;%p1%s\x1b\\"
+
+
+def _report_template(output: TextIO | None) -> str:
+    """Read the spec's Pst capability once without querying terminal input."""
+    with suppress(Exception):
+        if output is not None and output.isatty():
+            import curses
+
+            curses.setupterm(fd=output.fileno())
+            if capability := curses.tigetstr("Pst"):
+                template = capability.decode("ascii")
+                # Python's tparm only takes integers; Pst has one string parameter.
+                if template in (_REPORT_TEMPLATE, _REPORT_TEMPLATE.removesuffix("\x1b\\") + "\x07"):
+                    return template
+    # A missing capability is unknown, so direct reports remain valid.
+    return _REPORT_TEMPLATE
+
 
 @dataclass
 class _Status:
@@ -25,6 +43,7 @@ class _Status:
     id: str | None = None
     state: State = "working"
     result: State = "done"
+    template: str = _REPORT_TEMPLATE
 
     def report(self, state: State, kind: Kind | None = None) -> None:
         self.state = state
@@ -36,7 +55,7 @@ class _Status:
                 fields += f":id={self.id}"
             if kind is not None:
                 fields += f":kind={kind}"
-            self.output.write(f"\x1b]7501;{fields}\x1b\\")
+            self.output.write(self.template.replace("%p1%s", fields))
             self.output.flush()
 
 
@@ -46,7 +65,9 @@ _ids = count(1)
 
 @contextmanager
 def program_status(output: TextIO | None, record_id: str | None = None) -> Iterator[None]:
-    status = _Status(output, record_id)
+    parent = _current.get()
+    template = parent.template if parent is not None and record_id is not None else _report_template(output)
+    status = _Status(output, record_id, template=template)
     token = _current.set(status)
     try:
         status.report("working")
@@ -86,7 +107,7 @@ def listener_ready() -> None:
 
 def message_failed() -> None:
     if (parent := _current.get()) is not None:
-        _Status(parent.output, f"turn-{next(_ids)}").report("error")
+        _Status(parent.output, f"turn-{next(_ids)}", template=parent.template).report("error")
 
 
 def model_failed() -> None:
