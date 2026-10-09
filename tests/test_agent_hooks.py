@@ -8,6 +8,7 @@ from typing import Any
 
 import pluggy
 import pytest
+from republic.errors import StreamIncompleteError
 
 from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
@@ -338,6 +339,59 @@ class TestModelRunnerHookIntegration:
             pass
         assert len(observed) == 1
         assert observed[0].error is None
+
+    @pytest.mark.asyncio
+    async def test_failed_stream_reports_partial_text_once_without_trying_fallback(
+        self, tmp_path: Path, provider_transport: ProviderService
+    ) -> None:
+        observed: list[LlmCallResult] = []
+
+        class Observe:
+            @hookimpl
+            def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
+                observed.append(result)
+
+        provider_transport.reply(sse([{"choices": [{"delta": {"content": "partial"}}]}]))
+        runner, tape = self._runner_and_tape(make_hooks(Observe()), tmp_path, "chat")
+        runner.settings.fallback_models = ["openai:fallback"]
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+        with pytest.raises(StreamIncompleteError) as exc:
+            async for _ in events:
+                pass
+        assert len(observed) == 1
+        assert observed[0].text == "partial"
+        assert observed[0].error is exc.value
+        assert observed[0].usage is None
+        assert len(provider_transport.requests) == 1
+        assert not await tape.read_messages()
+
+    @pytest.mark.asyncio
+    async def test_refusal_text_reaches_the_hook_final_event_and_tape(
+        self, tmp_path: Path, provider_transport: ProviderService
+    ) -> None:
+        observed: list[LlmCallResult] = []
+
+        class Observe:
+            @hookimpl
+            def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
+                observed.append(result)
+
+        provider_transport.reply(
+            sse([
+                {"choices": [{"delta": {"refusal": "Cannot fulfill this request."}, "finish_reason": "stop"}]},
+                "[DONE]",
+            ])
+        )
+        runner, tape = self._runner_and_tape(make_hooks(Observe()), tmp_path, "chat")
+        events = [
+            event
+            async for event in runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+        ]
+        assert events[-1].data == {"ok": True, "text": "Cannot fulfill this request."}
+        assert len(observed) == 1
+        assert observed[0].text == "Cannot fulfill this request."
+        assert observed[0].error is None
+        assert (await tape.read_messages())[-1] == {"role": "assistant", "content": "Cannot fulfill this request."}
 
 
 class TestToolCancellation:
