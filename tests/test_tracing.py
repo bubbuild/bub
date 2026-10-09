@@ -10,14 +10,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from any_llm.constants import LLMProvider
-from any_llm.types.completion import ChatCompletion, ChatCompletionChunk
 
 from bub import tracing
 from bub.builtin.agent import Agent
 from bub.builtin.context import default_tape_context
 from bub.builtin.model_runner import ModelRunner
-from bub.builtin.settings import AgentSettings, ModelCandidate
+from bub.builtin.settings import AgentSettings
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.hooks.interception import LlmCallDecision, ToolCallDecision, ToolCallResult
@@ -26,6 +24,7 @@ from bub.streaming import AsyncStreamEvents, StreamEvent
 from bub.tape import Tape
 from bub.tools import Tool, ToolContext, ToolExecutor
 from bub.utils import workspace_from_state
+from tests.model_fakes import ProviderService, chat_events, sse
 
 
 @pytest.fixture
@@ -43,35 +42,18 @@ def spans(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
 
 
 @pytest.fixture
-def agent(tmp_path: Path) -> Agent:
+def agent(tmp_path: Path, provider_transport: ProviderService) -> Agent:
     framework = BubFramework(config_file=tmp_path / "config.yml")
     framework.load_builtin_hooks()
     agent = Agent(framework)
-    agent.settings = AgentSettings.model_construct(model="openai:test", api_key="unused", api_base=None)
+    agent.settings = AgentSettings(model="openai:test", api_key="unused", client_args={"api_format": "chat"})
     agent.model_runner = ModelRunner(agent.settings, hooks=framework.get_agent_hooks())
     agent.__dict__["tape"] = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context())
     return agent
 
 
-def completion(text: str = "done", calls: list[dict[str, Any]] | None = None) -> ChatCompletion:
-    return ChatCompletion.model_validate({
-        "id": "response-1",
-        "object": "chat.completion",
-        "created": 0,
-        "model": "actual-model",
-        "choices": [
-            {
-                "index": 0,
-                "finish_reason": "tool_calls" if calls else "stop",
-                "message": {"role": "assistant", "content": text, "tool_calls": calls},
-            }
-        ],
-        "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
-    })
-
-
 def call(name: str, call_id: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {"id": call_id, "type": "function", "function": {"name": name, "arguments": json.dumps(arguments or {})}}
+    return {"id": call_id, "name": name, "arguments": json.dumps(arguments or {})}
 
 
 @pytest.mark.asyncio
@@ -79,6 +61,7 @@ async def test_agent_trajectory_has_parallel_tools_messages_and_tape_links(
     spans: Any,
     agent: Agent,
     monkeypatch: pytest.MonkeyPatch,
+    provider_transport: ProviderService,
 ) -> None:
     started = 0
     both_started = asyncio.Event()
@@ -92,12 +75,10 @@ async def test_agent_trajectory_has_parallel_tools_messages_and_tape_links(
         return {"value": "result"}
 
     monkeypatch.setitem(agent.tools, "trace_tool", Tool(name="trace_tool", handler=handler))
-    replies = iter([completion("checking", [call("trace_tool", "call-1"), call("trace_tool", "call-2")]), completion()])
-
-    async def respond(**kwargs: Any) -> ChatCompletion:
-        return next(replies)
-
-    monkeypatch.setattr(agent.model_runner, "completion_response", respond)
+    provider_transport.reply_chat(
+        "checking", [call("trace_tool", "call-1"), call("trace_tool", "call-2")], input_tokens=10, output_tokens=4
+    )
+    provider_transport.reply_chat(input_tokens=10, output_tokens=4)
     events = await agent.run_stream(session_id="trace-test", prompt="hello", state={}, allowed_tools=["trace_tool"])
     async for _ in events:
         assert tracing.current_span() is None
@@ -131,17 +112,10 @@ async def test_agent_trajectory_has_parallel_tools_messages_and_tape_links(
 
 
 @pytest.mark.asyncio
-async def test_subagent_is_nested_under_its_tool(spans: Any, agent: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
-    replies = iter([
-        completion("", [call("subagent", "child", {"prompt": "child task"})]),
-        completion("child done"),
-        completion(),
-    ])
-
-    async def respond(**kwargs: Any) -> ChatCompletion:
-        return next(replies)
-
-    monkeypatch.setattr(agent.model_runner, "completion_response", respond)
+async def test_subagent_is_nested_under_its_tool(spans: Any, agent: Agent, provider_transport: ProviderService) -> None:
+    provider_transport.reply_chat(calls=[call("subagent", "child", {"prompt": "child task"})])
+    provider_transport.reply_chat("child done")
+    provider_transport.reply_chat()
     events = await agent.run_stream(
         session_id="parent", prompt="delegate", state={"_runtime_agent": agent}, allowed_tools=["subagent"]
     )
@@ -163,30 +137,24 @@ async def test_subagent_is_nested_under_its_tool(spans: Any, agent: Agent, monke
 async def test_stream_close_and_cancel_finish_spans_and_provider(
     spans: Any,
     agent: Agent,
-    monkeypatch: pytest.MonkeyPatch,
+    provider_transport: ProviderService,
     cancel: bool,
 ) -> None:
     closed = asyncio.Event()
     waiting = asyncio.Event()
 
-    async def chunks() -> AsyncIterator[ChatCompletionChunk]:
-        try:
-            yield ChatCompletionChunk.model_validate({
-                "id": "chunk-1",
-                "object": "chat.completion.chunk",
-                "created": 0,
-                "model": "actual",
-                "choices": [{"index": 0, "delta": {"content": "first"}}],
-            })
+    import httpx2
+
+    class Body(httpx2.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"choices":[{"delta":{"content":"first"}}]}\n\n'
             waiting.set()
             await asyncio.Event().wait()
-        finally:
+
+        async def aclose(self):
             closed.set()
 
-    async def respond(**kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:
-        return chunks()
-
-    monkeypatch.setattr(agent.model_runner, "completion_response", respond)
+    provider_transport.reply(httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=Body()))
     events = await agent.run_stream(session_id="cancel-test", prompt="hello", state={}, allowed_tools=[])
     assert (await anext(events)).kind == "text"
     assert tracing.current_span() is None
@@ -321,24 +289,19 @@ async def test_failed_tool_records_effective_result_and_original_failure(spans: 
 
 @pytest.mark.asyncio
 async def test_provider_fallback_records_actual_model(
-    spans: Any, agent: Agent, monkeypatch: pytest.MonkeyPatch
+    spans: Any, agent: Agent, provider_service: ProviderService
 ) -> None:
-    class Client:
-        SUPPORTS_COMPLETION_STREAMING = False
+    import httpx2
 
-        async def acompletion(self, **kwargs: Any) -> ChatCompletion:
-            if kwargs["model"] == "unavailable":
-                raise RuntimeError("try next")
-            return completion()
-
-    candidates = [
-        ModelCandidate(name=f"openai:{name}", provider=LLMProvider.OPENAI, model_id=name)
-        for name in ["unavailable", "fallback"]
-    ]
-    monkeypatch.setattr(agent.model_runner, "iter_llm_clients", lambda model: iter((c, Client()) for c in candidates))
-    events = await agent.run_stream(session_id="fallback", prompt="hello", state={}, allowed_tools=[])
-    async for _ in events:
-        pass
+    provider_service.reply(httpx2.Response(503, json={"error": {"message": "unavailable"}}))
+    provider_service.reply(sse(chat_events()))
+    async with provider_service.client() as client:
+        agent.model_runner.settings.fallback_models = ["openai:fallback"]
+        agent.model_runner.settings.model = "openai:unavailable"
+        agent.model_runner.settings.client_args = {"http_client": client, "api_format": "chat", "max_retries": 0}
+        events = await agent.run_stream(session_id="fallback", prompt="hello", state={}, allowed_tools=[])
+        async for _ in events:
+            pass
     model = next(s for s in spans.get_finished_spans() if s.name.startswith("chat "))
     assert model.attributes["gen_ai.request.model"] == "fallback"
     assert model.attributes["gen_ai.provider.name"] == "openai"
@@ -374,28 +337,10 @@ asyncio.run(main())
 
 
 @pytest.mark.asyncio
-async def test_streaming_usage_arrives_on_last_chunk(spans: Any, agent: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
-    async def chunks() -> AsyncIterator[ChatCompletionChunk]:
-        yield ChatCompletionChunk.model_validate({
-            "id": "stream",
-            "object": "chat.completion.chunk",
-            "created": 0,
-            "model": "stream-model",
-            "choices": [{"index": 0, "delta": {"content": "done"}, "finish_reason": "stop"}],
-        })
-        yield ChatCompletionChunk.model_validate({
-            "id": "stream",
-            "object": "chat.completion.chunk",
-            "created": 0,
-            "model": "stream-model",
-            "choices": [],
-            "usage": {"prompt_tokens": 19, "completion_tokens": 3, "total_tokens": 22},
-        })
-
-    async def respond(**kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:
-        return chunks()
-
-    monkeypatch.setattr(agent.model_runner, "completion_response", respond)
+async def test_streaming_usage_arrives_on_last_chunk(
+    spans: Any, agent: Agent, provider_transport: ProviderService
+) -> None:
+    provider_transport.reply_chat(model="stream-model", input_tokens=19, output_tokens=3)
     events = await agent.run_stream(session_id="stream", prompt="hello", state={}, allowed_tools=[])
     assert (await anext(events)).data == {"delta": "done"}
     assert not spans.get_finished_spans()
@@ -410,15 +355,17 @@ async def test_streaming_usage_arrives_on_last_chunk(spans: Any, agent: Agent, m
 
 @pytest.mark.asyncio
 async def test_timeout_marks_model_and_agent_as_failed(
-    spans: Any, agent: Agent, monkeypatch: pytest.MonkeyPatch
+    spans: Any, agent: Agent, provider_transport: ProviderService
 ) -> None:
-    agent.settings.model_timeout_seconds = 0
+    import httpx2
 
-    async def respond(**kwargs: Any) -> ChatCompletion:
-        await asyncio.Event().wait()
-        return completion()
+    class Body(httpx2.AsyncByteStream):
+        async def __aiter__(self):
+            await asyncio.Event().wait()
+            yield b""
 
-    monkeypatch.setattr(agent.model_runner, "completion_response", respond)
+    agent.settings.model_timeout_seconds = 0.01
+    provider_transport.reply(httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=Body()))
     events = await agent.run_stream(session_id="timeout", prompt="hello", state={}, allowed_tools=[])
     with pytest.raises(TimeoutError):
         async for _ in events:
@@ -431,13 +378,10 @@ async def test_timeout_marks_model_and_agent_as_failed(
 
 @pytest.mark.asyncio
 async def test_concurrent_sessions_have_independent_traces(
-    spans: Any, agent: Agent, monkeypatch: pytest.MonkeyPatch
+    spans: Any, agent: Agent, provider_transport: ProviderService
 ) -> None:
-    async def respond(**kwargs: Any) -> ChatCompletion:
-        await asyncio.sleep(0)
-        return completion()
-
-    monkeypatch.setattr(agent.model_runner, "completion_response", respond)
+    provider_transport.reply_chat()
+    provider_transport.reply_chat()
 
     async def run(session: str) -> None:
         events = await agent.run_stream(session_id=session, prompt="hello", state={}, allowed_tools=[])

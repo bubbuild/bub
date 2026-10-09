@@ -54,10 +54,10 @@ async def test_tape_info_formats_token_cache_hit_rate(tmp_path) -> None:
         new_messages=[],
         response_text=None,
         usage={
-            "prompt_tokens": 8,
-            "completion_tokens": 2,
+            "input_tokens": 8,
+            "output_tokens": 2,
             "total_tokens": 10,
-            "prompt_tokens_details": {"cached_tokens": 3},
+            "cached_tokens": 3,
         },
     )
 

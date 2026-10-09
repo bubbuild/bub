@@ -67,6 +67,10 @@ from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 
 `StreamEvent.kind` 可以是 `text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error` 或 `final`。`AsyncStreamEvents` 包装异步迭代器，并暴露最终 `error` 与 `usage` 状态。
 
+builtin 的 `tool_call` 事件使用 Republic 字段：`id`、`name`、`arguments` 和 `metadata`。usage 字典包含 `input_tokens`、`output_tokens`、`reasoning_tokens`、`cached_tokens`、`cache_write_tokens` 和 `total_tokens`。
+
+builtin 的多部分 prompt 包含文本块（`type: text`、`text`）或媒体块（`type: image|audio|video`、`media_type`、`url`）。URL 可以是远程地址或 base64 data URL。Bub 将持久化内容块转换为 Republic 原生 part，provider 编码由 Republic 负责。hook 提供这些文本与媒体块。
+
 ### Error — `bub.errors`
 
 ```python
