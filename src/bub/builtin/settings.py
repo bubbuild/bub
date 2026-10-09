@@ -23,30 +23,6 @@ DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 16384
 
 
-def provider_extras(options: dict[str, Any]) -> dict[str, Any]:
-    """Keep wire extras from replacing the runtime request or token budget."""
-    managed = {
-        "model",
-        "messages",
-        "input",
-        "contents",
-        "system",
-        "instructions",
-        "tools",
-        "stream",
-        "stream_options",
-        "max_tokens",
-        "max_output_tokens",
-        "max_completion_tokens",
-    }
-    result = {key: value for key, value in options.items() if key not in managed}
-    if isinstance(result.get("generationConfig"), dict):
-        result["generationConfig"] = {
-            key: value for key, value in result["generationConfig"].items() if key != "maxOutputTokens"
-        }
-    return result
-
-
 @dataclass(frozen=True)
 class ModelCandidate:
     provider: str
@@ -160,8 +136,6 @@ class AgentSettings(Settings):
         custom = self.providers.get(provider)
         provider = provider if custom else provider.lower()
         options = dict(self.client_args)
-        if "extra_body" in options:
-            options["extra_body"] = provider_extras(options["extra_body"])
         options.setdefault("env_prefix", f"BUB_{provider.upper().replace('-', '_')}")
         prefix = provider.upper().replace("-", "_")
         return {
