@@ -82,15 +82,14 @@ def _parts(message: Mapping[str, Any]) -> list[dict[str, Any]]:
                 # Preserve media structure without copying inline binary payloads.
                 parts.append({"type": "text", "content": f"[{part.get('type', 'media')} omitted]"})
     for call in message.get("tool_calls") or []:
-        function = call.get("function", {})
-        arguments = function.get("arguments", {})
+        arguments = call.get("arguments", {})
         if isinstance(arguments, str):
             with suppress(ValueError):
                 arguments = json.loads(arguments)
         parts.append({
             "type": "tool_call",
             "id": call.get("id", ""),
-            "name": function.get("name", ""),
+            "name": call.get("name", ""),
             "arguments": arguments,
         })
     return parts

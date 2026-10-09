@@ -13,7 +13,6 @@ from inquirer_textual.common.InquirerResult import InquirerResult
 from inquirer_textual.common.PromptSettings import PromptSettings
 from typer.testing import CliRunner
 
-import bub.builtin.auth as auth
 import bub.builtin.cli as cli
 import bub.builtin.onboarding as onboarding
 import bub.configure as configure
@@ -21,14 +20,10 @@ import bub.inquirer as bub_inquirer
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 
-TEST_ACCESS_TOKEN = "access"  # noqa: S105
-TEST_REFRESH_TOKEN = "refresh"  # noqa: S105
-
 
 @pytest.fixture(autouse=True)
 def no_model_discovery_network(monkeypatch):
     monkeypatch.setattr(onboarding, "discover_models", lambda *args, **kwargs: [])
-    monkeypatch.setattr("bub.builtin.codex_provider.load_openai_codex_oauth_tokens", lambda: None)
 
 
 def _fake_result(answer: Any, command: str | None = "enter") -> InquirerResult[Any]:
@@ -543,29 +538,19 @@ def test_onboard_collects_builtin_runtime_config_with_custom_provider(tmp_path: 
     }
 
 
-def test_login_openai_command_runs_codex_oauth(tmp_path: Path) -> None:
-    tokens = auth.OpenAICodexOAuthTokens(
-        access_token=TEST_ACCESS_TOKEN,
-        refresh_token=TEST_REFRESH_TOKEN,
-        expires_at=1_900_000_000,
-        account_id="acct_123",
+def test_login_command_reports_the_authenticated_account(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_executable: Path
+) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "credentials"))
+    result = CliRunner().invoke(
+        _create_app(), ["login", "codex", "--executable", str(codex_executable), "--device-auth"]
     )
-    login = patch("bub.builtin.auth.login_openai_codex_oauth", return_value=tokens)
-
-    with login as login_mock:
-        result = CliRunner().invoke(
-            _create_app(),
-            ["login", "openai", "--codex-home", str(tmp_path), "--manual", "--no-browser"],
-        )
-
-    assert result.exit_code == 0
+    assert result.exit_code == 0, result.output
     assert "login: ok" in result.stdout
-    assert "account_id: acct_123" in result.stdout
-    assert f"auth_file: {tmp_path / 'auth.json'}" in result.stdout
-    login_mock.assert_called_once()
-    assert login_mock.call_args.kwargs["codex_home"] == tmp_path
-    assert login_mock.call_args.kwargs["open_browser"] is False
-    assert login_mock.call_args.kwargs["prompt_for_redirect"] is auth._prompt_for_codex_redirect
+    assert "account_id: device-account" in result.stdout
+    assert "BUB_MODEL=codex:" in result.stdout
+    assert (tmp_path / "credentials" / "auth.json").exists()
+    assert "test-token" not in result.stdout
 
 
 def test_login_rejects_unknown_provider() -> None:

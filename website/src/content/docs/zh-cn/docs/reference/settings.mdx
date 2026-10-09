@@ -65,7 +65,7 @@ class AgentSettings(Settings):
 | `BUB_API_BASE` | unset | `api_base` | 默认 API base URL,或按 provider 索引的映射。 |
 | `BUB_<PROVIDER>_API_KEY` | unset | — | 按 provider 划分的 API key,例如 `BUB_OPENAI_API_KEY`。 |
 | `BUB_<PROVIDER>_API_BASE` | unset | — | 按 provider 划分的 API base URL,例如 `BUB_OPENROUTER_API_BASE`。 |
-| `BUB_PROVIDERS` | `{}` | `providers` | 自定义命名的端点,每个用 `type` 指定走哪个 any-llm provider 的协议,并有自己的 `api_base` 和 `api_key`。见[自定义 provider](#自定义-provider)。 |
+| `BUB_PROVIDERS` | `{}` | `providers` | 自定义命名的端点,每个用 `type` 指定走哪个 Republic provider 的协议,并有自己的 `api_base` 和 `api_key`。见[自定义 provider](#自定义-provider)。 |
 | `BUB_MAX_STEPS` | 不限制 | `max_steps` | 单次 turn 内 agent 循环的最大步数；配置时必须为正整数。 |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | 单次模型调用的最大 token 数。 |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | 单次调用的超时秒数。 |
@@ -77,11 +77,19 @@ class AgentSettings(Settings):
 CLI 控制命令（`quit`、`exit`、`thinking`）、补全和 shell 模式使用同一前缀。
 Telegram 保留现有的原生斜杠命令过滤；前缀设为 `/` 时，使用 `/bub /help`。
 
-启动时 `ProviderSpecificEnvSource` 会扫描 `os.environ` 中匹配 `^BUB_(.+)_(API_KEY|API_BASE)$` 的变量,把捕获到的 provider 名称小写后作为 key 收集。
+启动时 `ProviderSpecificEnvSource` 会扫描 `os.environ` 中匹配 `^BUB_(.+)_(API_KEY|API_BASE)$` 的变量，并将环境变量前缀解析为 Republic provider 名称，例如 `AZURE_OPENAI` → `azure-openai`。
+
+Bub 使用 Republic 发起模型请求。ChatGPT 套餐访问使用 `codex:<model>`，OpenAI API 访问使用 `openai:<model>`。本地 Codex 登录不会改变 `openai:` 路由。provider 标识使用 Republic 的名称，例如 `google:` 和 `azure-openai:`。
+
+`client_args` 接受 Republic provider 参数，例如 `headers`、`api_format`、`timeout` 和 `max_retries`。协议默认值遵循 Republic。Chat Completions 端点需显式设置 `api_format: chat`。注入的 HTTP client 必须是 `httpx2.AsyncClient`，生命周期由调用方管理。
+
+`completion_args` 接受 Republic chat 参数；提供商专用字段需显式放入 `extra_body`。模型、消息、工具、流式输出和 token 上限由 Bub 管理。会话 reasoning 设置优先于配置中的 reasoning 字段。Codex 端点不支持 `max_tokens`，因此不发送该参数。Republic 负责协议转换，Anthropic 请求开启 prompt caching。
+
+Provider 名称和协议能力以 [Republic provider 目录](https://github.com/bubbuild/republic/blob/main/docs/providers/index.md)为准。自定义 provider 实现需注册到 Republic。
 
 ### 自定义 provider
 
-模型前缀通常是 any-llm 的 provider 名,`api_key` / `api_base` 每个 provider 只能放一个值。如果某个端点说的是 any-llm 已支持的协议,但需要单独起名,就用 `providers`:比如公司代理、中转站或本地网关、自建服务,或同一厂商的第二个账号。每个名字都可以当模型前缀用,`type` 指定它走哪个 any-llm provider 的协议:
+模型前缀通常是 Republic 的 provider 名,`api_key` / `api_base` 每个 provider 只能放一个值。如果某个端点说的是 Republic 已支持的协议,但需要单独起名,就用 `providers`:比如公司代理、中转站或本地网关、自建服务,或同一厂商的第二个账号。每个名字都可以当模型前缀用,`type` 指定它走哪个 Republic provider 的协议:
 
 ```yaml
 model: proxy:gpt-5.5
@@ -99,9 +107,8 @@ providers:
     api_key: sk-relay-...
 ```
 
-这里 `proxy:gpt-5.5` 和 `openai:gpt-5.5` 都走 OpenAI 协议,但发往不同的地址、用不同的 key;`openai:` 仍使用它自己的 `api_key` / `api_base`,或 Codex OAuth。条目里没写的字段会回退到 `api_key` / `api_base` 以及 `BUB_<NAME>_API_KEY` / `BUB_<NAME>_API_BASE`。`type` 不是已知 provider 时,加载配置会直接报错。
+这里 `proxy:gpt-5.5` 和 `openai:gpt-5.5` 都走 OpenAI 协议,但发往不同的地址、用不同的 key;`openai:` 仍使用它自己的 `api_key` / `api_base`。条目里没写的字段会回退到 `api_key` / `api_base` 以及 `BUB_<NAME>_API_KEY` / `BUB_<NAME>_API_BASE`。`type` 不是已知 provider 时,加载配置会直接报错。
 
-OpenAI Codex OAuth 不需要单独的请求格式设置。运行 `bub login openai` 后,当模型使用 `openai:` provider 且没有自定义 API base 时,Bub 会检测并使用本地保存的 Codex OAuth token。
 
 ## Spill sidecar —— `SpillSettings`
 
@@ -173,11 +180,11 @@ class TelegramSettings(Settings):
 
 ## Login —— 第三方环境变量
 
-`bub login openai` 读取一个非 `BUB_*` 环境变量:
+`bub login codex` 读取一个非 `BUB_*` 环境变量:
 
 | 环境变量 | 默认值 | 读取方 | 描述 |
 | --- | --- | --- | --- |
-| `CODEX_HOME` | `~/.codex` | `bub login openai`(`src/bub/builtin/auth.py`) | Codex OAuth `auth.json` 的存放目录。可被 `--codex-home` 覆盖。 |
+| `CODEX_HOME` | `~/.codex` | `bub login codex`(`src/bub/builtin/auth.py`) | Codex OAuth `auth.json` 的存放目录。可被 `--codex-home` 覆盖。 |
 
 ## 插件自定义配置
 

@@ -64,9 +64,9 @@ spill 写入以 `spill.write` event 记录。框架管理的生命周期结果�
 
 在某条 tape 的第一次 turn 之前，`TapeService.ensure_bootstrap_anchor` 会检查是否存在 anchor entry。如果没有，则写入一条 `session/start` handoff，`state={"owner": "human"}`。这保证每条 tape 在 context 重建时都有起始 anchor。
 
-### default_tape_context：entry → OpenAI 消息
+### default_tape_context：entry → 模型消息
 
-`default_tape_context()` 构造一个 `TapeContext`，其 `select` 函数（`_select_messages`）遍历 tape entry 并产出 OpenAI 兼容的消息。映射规则如下：
+`default_tape_context()` 构造一个 `TapeContext`，其 `select` 函数（`_select_messages`）遍历 tape entry 并产出 Bub 消息字典，再转换为 Republic 消息。映射规则如下：
 
 - `anchor` → 形如 `[Anchor created: <name>]: <state-as-json>` 的 `assistant` 消息。
 - `message` → 直接以 entry payload 作为 chat 消息 dict。

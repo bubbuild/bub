@@ -1,4 +1,4 @@
-"""Runtime engine to process prompts with any-llm-sdk."""
+"""Runtime engine to process prompts with Republic."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ MAX_AUTO_HANDOFF_RETRIES = 1
 
 
 class Agent:
-    """Agent that processes prompts using hooks, tools, tape, and any-llm-sdk."""
+    """Agent that processes prompts using hooks, tools, tape, and Republic."""
 
     def __init__(
         self,
@@ -512,9 +512,7 @@ class Agent:
         model_tools_for_call = model_tools(tools)
         if (span := current_span()) and span.recording:
             span.set(**{
-                "gen_ai.tool.definitions": [
-                    tool.to_schema()["function"] | {"type": "function"} for tool in model_tools_for_call
-                ]
+                "gen_ai.tool.definitions": [tool.to_schema() | {"type": "function"} for tool in model_tools_for_call]
             })
         steering_inbox = self.framework.get_steering_inbox()
         steering_envelopes = await steering_inbox.drain_messages(tape.context.state) if steering_inbox else []

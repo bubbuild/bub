@@ -7,7 +7,6 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from any_llm.types.completion import ChatCompletionChunk
 
 import bub.builtin.codemode
 import bub.builtin.tools  # noqa: F401  — registers builtin tools (incl. `model`)
@@ -19,20 +18,18 @@ from bub.errors import BubError
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import TapeContext
 from bub.tools import REGISTRY, tool
+from tests.model_fakes import ProviderService
 
 # ---------------------------------------------------------------------------
 # Agent.run() tests: merge_back logic and model passthrough
 # ---------------------------------------------------------------------------
 
 
-class _FakeModelRunner(ModelRunner):
-    def __init__(self, settings: AgentSettings) -> None:
-        super().__init__(settings)
-        self.completion_kwargs: dict[str, Any] | None = None
-
-    async def completion_response(self, **kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:
-        self.completion_kwargs = kwargs
-        return _chat_stream("done")
+@pytest.fixture(autouse=True)
+def model_provider(provider_transport: ProviderService) -> ProviderService:
+    provider_transport.reply_chat()
+    provider_transport.reply_chat()
+    return provider_transport
 
 
 def _make_agent() -> Agent:
@@ -51,39 +48,16 @@ def _make_agent() -> Agent:
     with patch.object(Agent, "__init__", lambda self, fw: None):
         agent = Agent.__new__(Agent)
 
-    agent.settings = AgentSettings.model_construct(model="test:model", api_key="k", api_base="b", client_args={})
+    agent.settings = AgentSettings.model_construct(
+        model="openai:model", api_key="k", api_base=None, client_args={"api_format": "chat"}
+    )
     agent.command_prefix = agent.settings.command_prefix
     agent.framework = framework
     agent.tools = REGISTRY.copy()
     agent.tape_store = None
     agent.skill_dirs = None
-    agent.model_runner = _FakeModelRunner(agent.settings)
+    agent.model_runner = ModelRunner(agent.settings)
     return agent
-
-
-def _model_runner(agent: Agent) -> _FakeModelRunner:
-    assert isinstance(agent.model_runner, _FakeModelRunner)
-    return agent.model_runner
-
-
-def _chat_chunk(content: str) -> ChatCompletionChunk:
-    return ChatCompletionChunk.model_validate({
-        "id": "chatcmpl_test",
-        "object": "chat.completion.chunk",
-        "created": 0,
-        "model": "test:model",
-        "choices": [
-            {
-                "index": 0,
-                "finish_reason": "stop",
-                "delta": {"role": "assistant", "content": content},
-            }
-        ],
-    })
-
-
-async def _chat_stream(content: str) -> AsyncIterator[ChatCompletionChunk]:
-    yield _chat_chunk(content)
 
 
 class _ForkCapture:
@@ -137,7 +111,7 @@ class _FakeTape:
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,
         error: BubError | None = None,
-        response: Any | None = None,
+        assistant_fields: dict[str, Any] | None = None,
         provider: str | None = None,
         model: str | None = None,
         usage: dict[str, Any] | None = None,
@@ -209,8 +183,10 @@ async def test_agent_run_temp_session_does_not_merge_back() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_run_passes_model_to_llm() -> None:
-    """The model parameter should be forwarded to any-llm."""
+async def test_agent_run_passes_model_to_llm(
+    model_provider: ProviderService,
+) -> None:
+    """The model parameter should be forwarded to Republic."""
     agent = _make_agent()
     fork_capture = _ForkCapture()
     fake_tapes = _FakeTapeFactory(fork_capture)
@@ -224,9 +200,9 @@ async def test_agent_run_passes_model_to_llm() -> None:
     )
     [event async for event in result]
 
-    completion_kwargs = _model_runner(agent).completion_kwargs
+    completion_kwargs = model_provider.body()
     assert completion_kwargs is not None
-    assert completion_kwargs["model"] == "openai:gpt-4o"
+    assert completion_kwargs["model"] == "gpt-4o"
 
 
 @pytest.mark.asyncio
@@ -244,8 +220,10 @@ async def test_agent_run_empty_prompt_returns_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_run_model_defaults_to_none() -> None:
-    """When model is not specified, settings.model is used for any-llm."""
+async def test_agent_run_model_defaults_to_none(
+    model_provider: ProviderService,
+) -> None:
+    """When model is not specified, settings.model is used for Republic."""
     agent = _make_agent()
     fork_capture = _ForkCapture()
     fake_tapes = _FakeTapeFactory(fork_capture)
@@ -254,9 +232,9 @@ async def test_agent_run_model_defaults_to_none() -> None:
     result = await agent.run_stream(session_id="user/s1", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
     [event async for event in result]
 
-    completion_kwargs = _model_runner(agent).completion_kwargs
+    completion_kwargs = model_provider.body()
     assert completion_kwargs is not None
-    assert completion_kwargs["model"] == "test:model"
+    assert completion_kwargs["model"] == "model"
 
 
 @pytest.mark.asyncio
@@ -301,11 +279,13 @@ async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state(continua
 
 
 @pytest.mark.asyncio
-async def test_agent_run_model_override_does_not_mutate_default() -> None:
+async def test_agent_run_model_override_does_not_mutate_default(
+    model_provider: ProviderService,
+) -> None:
     """A per-call model override must not leak into the agent's configured model.
 
     The override is resolved per turn (``model or self.settings.model``) and
-    forwarded to any-llm; it must never be written back to ``settings.model``.
+    forwarded to Republic; it must never be written back to ``settings.model``.
     This is the agent-layer half of the guarantee that a session-scoped model
     switch (state['model'] -> run_stream(model=...)) cannot bleed across
     sessions the way a process-global env var would.
@@ -323,14 +303,16 @@ async def test_agent_run_model_override_does_not_mutate_default() -> None:
     )
     [event async for event in result]
 
-    completion_kwargs = _model_runner(agent).completion_kwargs
+    completion_kwargs = model_provider.body()
     assert completion_kwargs is not None
-    assert completion_kwargs["model"] == "openai:gpt-4o"
+    assert completion_kwargs["model"] == "gpt-4o"
     assert agent.settings.model == default_model
 
 
 @pytest.mark.asyncio
-async def test_agent_run_injects_steering_messages_once_by_session() -> None:
+async def test_agent_run_injects_steering_messages_once_by_session(
+    model_provider: ProviderService,
+) -> None:
     agent = _make_agent()
     fork_capture = _ForkCapture()
     fake_tapes = _FakeTapeFactory(fork_capture)
@@ -349,7 +331,7 @@ async def test_agent_run_injects_steering_messages_once_by_session() -> None:
     result = await agent.run_stream(session_id="user/s1", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
     [event async for event in result]
 
-    completion_kwargs = _model_runner(agent).completion_kwargs
+    completion_kwargs = model_provider.body()
     assert completion_kwargs is not None
     completion_messages = completion_kwargs["messages"]
     assert completion_messages[-3:] == [
@@ -367,7 +349,7 @@ async def test_agent_run_injects_steering_messages_once_by_session() -> None:
     result = await agent.run_stream(session_id="user/s1", prompt="again", state={"_runtime_workspace": "/tmp"})  # noqa: S108
     [event async for event in result]
 
-    completion_kwargs = _model_runner(agent).completion_kwargs
+    completion_kwargs = model_provider.body()
     assert completion_kwargs is not None
     completion_messages = completion_kwargs["messages"]
     assert completion_messages[-1] == {"role": "user", "content": "again"}
@@ -375,7 +357,9 @@ async def test_agent_run_injects_steering_messages_once_by_session() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_run_resolves_allowed_tool_aliases_and_limits_prompt() -> None:
+async def test_agent_run_resolves_allowed_tool_aliases_and_limits_prompt(
+    model_provider: ProviderService,
+) -> None:
     allowed_name = "tests.allowed_agent_tool"
     denied_name = "tests.denied_agent_tool"
     REGISTRY.pop(allowed_name, None)
@@ -402,16 +386,18 @@ async def test_agent_run_resolves_allowed_tool_aliases_and_limits_prompt() -> No
     )
     [event async for event in result]
 
-    completion_kwargs = _model_runner(agent).completion_kwargs
+    completion_kwargs = model_provider.body()
     assert completion_kwargs is not None
-    assert [tool.name for tool in completion_kwargs["tools"]] == ["tests_allowed_agent_tool"]
+    assert [tool["function"]["name"] for tool in completion_kwargs["tools"]] == ["tests_allowed_agent_tool"]
     system_prompt = completion_kwargs["messages"][0]["content"]
     assert "tests_allowed_agent_tool" not in system_prompt
     assert "tests_denied_agent_tool" not in system_prompt
 
 
 @pytest.mark.asyncio
-async def test_agent_run_excludes_command_tools() -> None:
+async def test_agent_run_excludes_command_tools(
+    model_provider: ProviderService,
+) -> None:
     visible_name = "tests.visible_agent_tool"
     internal_name = "tests.internal_agent_tool"
     REGISTRY.pop(visible_name, None)
@@ -437,9 +423,9 @@ async def test_agent_run_excludes_command_tools() -> None:
     )
     [event async for event in result]
 
-    completion_kwargs = _model_runner(agent).completion_kwargs
+    completion_kwargs = model_provider.body()
     assert completion_kwargs is not None
-    assert [tool.name for tool in completion_kwargs["tools"]] == ["tests_visible_agent_tool"]
+    assert [tool["function"]["name"] for tool in completion_kwargs["tools"]] == ["tests_visible_agent_tool"]
     system_prompt = completion_kwargs["messages"][0]["content"]
     assert "tests_visible_agent_tool" not in system_prompt
     assert "tests_internal_agent_tool" not in system_prompt
@@ -503,7 +489,7 @@ async def test_run_command_model_switches_session_model_directly() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("allow_run_code", [True, False])
 async def test_code_mode_exposes_preserved_tools_and_run_code_with_stub(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, allow_run_code: bool
+    model_provider: ProviderService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, allow_run_code: bool
 ) -> None:
     from bub.builtin.codemode import CODE_TOOLS_STATE_KEY, RUN_CODE_TOOL_NAME, run_code
 
@@ -517,9 +503,9 @@ async def test_code_mode_exposes_preserved_tools_and_run_code_with_stub(
     result = await agent.run_stream(session_id="user/s1", prompt="hello", state=state, allowed_tools=allowed_tools)
     [event async for event in result]
 
-    completion_kwargs = _model_runner(agent).completion_kwargs
+    completion_kwargs = model_provider.body()
     assert completion_kwargs is not None
-    tool_names = [tool.name for tool in completion_kwargs["tools"]]
+    tool_names = [tool["function"]["name"] for tool in completion_kwargs["tools"]]
     system_prompt = completion_kwargs["messages"][0]["content"]
     if not allow_run_code:
         assert sorted(tool_names) == ["bash", "bash_output", "fs_read", "tape_info"]
@@ -541,7 +527,9 @@ async def test_code_mode_exposes_preserved_tools_and_run_code_with_stub(
 
 
 @pytest.mark.asyncio
-async def test_run_code_is_hidden_when_session_code_mode_is_off(tmp_path: Path) -> None:
+async def test_run_code_is_hidden_when_session_code_mode_is_off(
+    model_provider: ProviderService, tmp_path: Path
+) -> None:
     from bub.builtin.codemode import RUN_CODE_TOOL_NAME, run_code
 
     agent = _make_agent()
@@ -551,10 +539,10 @@ async def test_run_code_is_hidden_when_session_code_mode_is_off(tmp_path: Path) 
     result = await agent.run_stream(session_id="user/s1", prompt="hello", state={"_runtime_workspace": str(tmp_path)})
     [event async for event in result]
 
-    completion_kwargs = _model_runner(agent).completion_kwargs
+    completion_kwargs = model_provider.body()
     assert completion_kwargs is not None
-    assert RUN_CODE_TOOL_NAME not in [tool.name for tool in completion_kwargs["tools"]]
-    assert "tape_info" in [tool.name for tool in completion_kwargs["tools"]]
+    assert RUN_CODE_TOOL_NAME not in [tool["function"]["name"] for tool in completion_kwargs["tools"]]
+    assert "tape_info" in [tool["function"]["name"] for tool in completion_kwargs["tools"]]
     assert "<code_mode>" not in completion_kwargs["messages"][0]["content"]
 
 
