@@ -1166,7 +1166,7 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
         yield StreamEvent("text", {"delta": "  "})
         yield StreamEvent("text", {"delta": "first paragraph\n\n"})
         yield StreamEvent("text", {"delta": "second paragraph"})
-        yield StreamEvent("usage", {"usage": {"completion_tokens": 84}, "elapsed_seconds": 2.0})
+        yield StreamEvent("usage", {"usage": {"output_tokens": 84}, "elapsed_seconds": 2.0})
         yield StreamEvent("final", {})
 
     yielded = [event async for event in channel.stream_events(message, source())]
@@ -1181,15 +1181,15 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
 @pytest.mark.parametrize(
     ("usage", "elapsed", "expected"),
     [
-        ({"completion_tokens": 84, "prompt_tokens": 1000}, 2.0, "42.0"),
+        ({"output_tokens": 84, "input_tokens": 1000}, 2.0, "42.0"),
         ({"output_tokens": 21}, 2.0, "10.5"),
-        ({"completion_tokens": 0}, 2.0, "0.0"),
+        ({"output_tokens": 0}, 2.0, "0.0"),
         (None, 2.0, "-"),
         ({"total_tokens": 100}, 2.0, "-"),
-        ({"completion_tokens": True}, 2.0, "-"),
-        ({"completion_tokens": -1}, 2.0, "-"),
-        ({"completion_tokens": 84}, 0.0, "-"),
-        ({"completion_tokens": 84}, float("nan"), "-"),
+        ({"output_tokens": True}, 2.0, "-"),
+        ({"output_tokens": -1}, 2.0, "-"),
+        ({"output_tokens": 84}, 0.0, "-"),
+        ({"output_tokens": 84}, float("nan"), "-"),
     ],
 )
 def test_cli_toolbar_shows_latest_call_token_speed(usage, elapsed, expected) -> None:

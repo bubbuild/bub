@@ -7,13 +7,12 @@ import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from any_llm import AnyLLM
-from any_llm.constants import LLMProvider
+import republic
 from pydantic import BaseModel, Field, field_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
-from bub import Settings, config, ensure_config
+from bub import Settings, __version__, config, ensure_config
 from bub.builtin.commands import validate_command_prefix
 
 if TYPE_CHECKING:
@@ -24,20 +23,36 @@ DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 16384
 
 
+def _provider_env_name(provider: str) -> str:
+    return provider.upper().replace("-", "_")
+
+
+USER_AGENT = f"bub/{__version__}"
+"""Sent to model providers instead of Republic's default."""
+
+
 @dataclass(frozen=True)
 class ModelCandidate:
-    provider: LLMProvider
+    provider: str
     model_id: str
     name: str
     provider_name: str | None = None
 
 
 class CustomProvider(BaseModel):
-    """A named endpoint that speaks one of any-llm's provider APIs."""
+    """A named endpoint that speaks a registered Republic provider API."""
 
-    type: LLMProvider
+    type: str
     api_key: str | None = None
     api_base: str | None = None
+
+    @field_validator("type")
+    @classmethod
+    def registered_type(cls, value: str) -> str:
+        provider = value.lower()
+        if provider not in republic.all_providers():
+            raise ValueError(f"Unknown Republic provider type: {value!r}")
+        return provider
 
 
 class ProviderSpecificEnvSource(PydanticBaseSettingsSource):
@@ -54,11 +69,12 @@ class ProviderSpecificEnvSource(PydanticBaseSettingsSource):
 
     @staticmethod
     def _provider_specific(setting_name: str) -> dict[str, str]:
+        env_names = {_provider_env_name(name): name for name in republic.all_providers()}
         setting_regex = re.compile(rf"^BUB_(.+)_{setting_name.upper()}$")
         result: dict[str, str] = {}
         for key, value in os.environ.items():
             if match := setting_regex.match(key):
-                result[match.group(1).lower()] = value
+                result[env_names.get(match.group(1), match.group(1).lower())] = value
         return result
 
 
@@ -114,29 +130,41 @@ class AgentSettings(Settings):
 
         candidates: list[ModelCandidate] = []
         for candidate in candidate_names:
-            prefix, sep, rest = candidate.partition(":")
-            if sep and (custom := self.providers.get(prefix)):
-                candidates.append(
-                    ModelCandidate(provider=custom.type, model_id=rest, name=candidate, provider_name=prefix)
-                )
+            provider, separator, model_id = candidate.partition(":")
+            if not separator or not provider or not model_id:
+                raise ValueError(f"Expected a provider:model identifier, got {candidate!r}")
+            if custom := self.providers.get(provider):
+                candidates.append(ModelCandidate(custom.type, model_id, candidate, provider))
                 continue
-            provider, model_id = AnyLLM.split_model_provider(candidate)
-            candidates.append(ModelCandidate(provider=provider, model_id=model_id, name=candidate))
+            provider = provider.lower()
+            candidates.append(ModelCandidate(provider=provider, model_id=model_id, name=f"{provider}:{model_id}"))
         return candidates
 
     def model_client_kwargs(self, provider: str) -> dict[str, Any]:
         custom = self.providers.get(provider)
+        provider = provider if custom else provider.lower()
+        options = dict(self.client_args)
+        # Headers from client_args, including a User-Agent, take precedence.
+        options["headers"] = {"User-Agent": USER_AGENT, **(options.get("headers") or {})}
+        prefix = _provider_env_name(provider)
+        options.setdefault("env_prefix", f"BUB_{prefix}")
         return {
-            **self.client_args,
-            "api_key": (custom and custom.api_key) or self._provider_value(self.api_key, provider),
-            "api_base": (custom and custom.api_base) or self._provider_value(self.api_base, provider),
+            **options,
+            "api_key": (custom and custom.api_key) or self._credential_value(self.api_key, provider, "api_key", prefix),
+            "api_base": (custom and custom.api_base)
+            or self._credential_value(self.api_base, provider, "api_base", prefix),
         }
+
+    @classmethod
+    def _credential_value(
+        cls, value: str | dict[str, str] | None, provider: str, setting: str, prefix: str
+    ) -> str | None:
+        explicit = cls._provider_value(value, provider)
+        return explicit or os.getenv(f"{prefix}_{setting.upper()}", explicit)
 
     @staticmethod
     def _provider_value(value: str | dict[str, str] | None, provider: str) -> str | None:
-        if isinstance(value, dict):
-            return value.get(provider)
-        return value
+        return value.get(provider) if isinstance(value, dict) else value
 
     @property
     def home(self) -> pathlib.Path:

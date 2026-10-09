@@ -6,16 +6,16 @@ import contextlib
 import hashlib
 import inspect
 import json
-from collections.abc import AsyncGenerator, Callable, Coroutine, Iterable, Mapping
+from collections.abc import AsyncGenerator, Callable, Coroutine, Iterable, Mapping, MutableMapping
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
+import republic
 
 from bub import tracing
-from bub.errors import BubError
+from bub.errors import BubError, ErrorKind
 from bub.sidecars import TapeSidecar, sidecar_tape_name
 
 __all__ = [
@@ -37,6 +37,8 @@ __all__ = [
     "UnavailableTapeStore",
     "build_messages",
     "is_async_tape_store",
+    "to_message",
+    "to_messages",
     "utc_now",
 ]
 
@@ -111,10 +113,8 @@ class TapeEntry:
         return cls(id=0, kind="anchor", payload=payload, meta=dict(meta))
 
     @classmethod
-    def tool_call(cls, calls: list[dict[str, Any]], *, content: str | None = None, **meta: Any) -> TapeEntry:
-        payload: dict[str, Any] = {"calls": calls}
-        if content is not None:
-            payload["content"] = content
+    def tool_call(cls, calls: list[dict[str, Any]], *, content: str = "", **meta: Any) -> TapeEntry:
+        payload: dict[str, Any] = {"calls": calls, "content": content}
         return cls(id=0, kind="tool_call", payload=payload, meta=dict(meta))
 
     @classmethod
@@ -140,7 +140,7 @@ class _LastAnchor:
 
 LAST_ANCHOR = _LastAnchor()
 type AnchorSelector = str | None | _LastAnchor
-type SelectedMessages = list[dict[str, Any]] | Coroutine[Any, Any, list[dict[str, Any]]]
+type SelectedMessages = list[republic.Message] | Coroutine[Any, Any, list[republic.Message]]
 type ContextSelector = Callable[[Iterable[TapeEntry], "TapeContext"], SelectedMessages]
 
 
@@ -166,15 +166,99 @@ def build_messages(entries: Iterable[TapeEntry], context: TapeContext) -> Select
     return _default_messages(entries)
 
 
-def _default_messages(entries: Iterable[TapeEntry]) -> list[dict[str, Any]]:
-    messages: list[dict[str, Any]] = []
-    for entry in entries:
-        if entry.kind != "message":
-            continue
-        payload = entry.payload
-        if isinstance(payload, dict):
-            messages.append(dict(payload))
-    return messages
+def _default_messages(entries: Iterable[TapeEntry]) -> list[republic.Message]:
+    return to_messages(
+        entry.payload for entry in entries if entry.kind == "message" and isinstance(entry.payload, dict)
+    )
+
+
+def to_messages(payloads: Iterable[Mapping[str, Any]]) -> list[republic.Message]:
+    """Convert stored message payloads to Republic messages, resolving tool results to earlier calls."""
+    calls: dict[str, republic.ToolCall] = {}
+    return [to_message(payload, calls) for payload in payloads]
+
+
+def to_message(
+    payload: Mapping[str, Any], calls: MutableMapping[str, republic.ToolCall] | None = None
+) -> republic.Message:
+    """Convert one stored message payload; assistant tool calls are added to ``calls``.
+
+    Payloads are ``republic.Message.to_dict()`` output. Older Bub payloads, with media URLs,
+    ``tool_call_id``, ``reasoning`` and ``provider_data`` fields, and tool calls in the Chat
+    Completions ``{"function": {"name", "arguments"}}`` form, are converted to that form first.
+    """
+    calls = {} if calls is None else calls
+    role = payload.get("role")
+    if role not in {"system", "user", "assistant", "tool"}:
+        raise BubError(ErrorKind.INVALID_INPUT, f"Unknown message role: {role}")
+    data = dict(payload)
+    raw_content = data.pop("content", None)
+    if role == "tool" and raw_content is not None and not isinstance(raw_content, str | list):
+        from bub.tools import render_result
+
+        raw_content = render_result(raw_content)
+    content = _content_parts(raw_content)
+    if isinstance(tool_calls := data.get("tool_calls"), list):
+        data["tool_calls"] = [_tool_call_dict(call) for call in tool_calls]
+    if role == "tool" and "tool_call" not in data:
+        call_id = data.pop("tool_call_id", None)
+        if not isinstance(call_id, str) or not call_id:
+            raise BubError(ErrorKind.INVALID_INPUT, "Tool result without a tool call ID.")
+        # Republic announces calls missing from the conversation before their results.
+        call = calls.get(call_id) or republic.ToolCall(call_id, data.pop("name", None) or "", "{}")
+        data["tool_call"] = asdict(call)
+    if reasoning := data.pop("reasoning", None):
+        content.append({"type": "reasoning", "text": reasoning})
+    content.extend({"type": "provider_data", **item} for item in data.pop("provider_data", None) or [])
+    data["content"] = content
+    try:
+        message = republic.Message.from_dict(data)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise BubError(ErrorKind.INVALID_INPUT, f"Invalid {role} message: {exc}") from exc
+    if role == "system" and any(not isinstance(part, republic.Text) for part in message.parts):
+        raise BubError(ErrorKind.INVALID_INPUT, "System messages only support text content.")
+    calls.update((call.id, call) for call in message.tool_calls)
+    return message
+
+
+def _tool_call_dict(call: object) -> object:
+    """Convert a Chat Completions tool call, as recorded by older Bub versions, to Republic's form."""
+    if not isinstance(call, dict) or not isinstance(function := call.get("function"), dict):
+        return call
+    arguments = function.get("arguments")
+    return {
+        "id": call.get("id") or "",
+        "name": function.get("name") or "",
+        "arguments": arguments if isinstance(arguments, str) else json.dumps(arguments or {}),
+    }
+
+
+def _content_parts(content: object) -> list[dict[str, Any]]:
+    if content is None:
+        return []
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    if not isinstance(content, list):
+        raise BubError(ErrorKind.INVALID_INPUT, "Expected text or a list of message content blocks.")
+    parts: list[dict[str, Any]] = []
+    for block in content:
+        match block:
+            case {"type": "image" | "audio" | "video" as kind, "url": str(url), "media_type": str(mime)} if (
+                url.startswith("data:") and "data" not in block
+            ):
+                # Older payloads keep inline media as data URLs.
+                media = {"image": republic.image, "audio": republic.audio, "video": republic.video}[kind](
+                    url, media_type=mime
+                )
+                parts.append({"type": kind, "media_type": media.media_type, "data": media.base64_data})
+            case {"type": "image" | "audio" | "video" as kind} if "url" not in block and "data" not in block:
+                raise BubError(ErrorKind.INVALID_INPUT, f"The {kind} content block needs a url or data.")
+            case {"type": "text" | "reasoning" | "image" | "audio" | "video" | "provider_data"}:
+                parts.append(block)
+            case _:
+                kind = block.get("type") if isinstance(block, dict) else type(block).__name__
+                raise BubError(ErrorKind.INVALID_INPUT, f"Unsupported message content block: {kind}")
+    return parts
 
 
 @dataclass(frozen=True)
@@ -258,17 +342,16 @@ class Tape:
                 if not isinstance(token_usage, int) or isinstance(token_usage, bool):
                     continue
                 last_token_usage = token_usage
-                prompt_tokens = usage.get("prompt_tokens")
-                prompt_details = usage.get("prompt_tokens_details")
-                cached_tokens = prompt_details.get("cached_tokens") if isinstance(prompt_details, Mapping) else None
+                input_tokens = usage.get("input_tokens")
+                cached_tokens = usage.get("cached_tokens")
                 if (
-                    isinstance(prompt_tokens, int)
-                    and not isinstance(prompt_tokens, bool)
-                    and prompt_tokens > 0
+                    isinstance(input_tokens, int)
+                    and not isinstance(input_tokens, bool)
+                    and input_tokens > 0
                     and isinstance(cached_tokens, int)
                     and not isinstance(cached_tokens, bool)
                 ):
-                    last_token_cache_hit_rate = cached_tokens / prompt_tokens
+                    last_token_cache_hit_rate = cached_tokens / input_tokens
                 break
         return TapeInfo(
             name=self.name,
@@ -302,7 +385,7 @@ class Tape:
         tracing.event(f"bub.{name}", **payload)
         await self.store.append(self.name, TapeEntry.event(name, payload, **(tracing.correlation() | meta)))
 
-    async def read_messages(self) -> list[dict[str, Any]]:
+    async def read_messages(self) -> list[republic.Message]:
         query = self.context.build_query(self.query())
         entries = await self.store.fetch_all(query)
         context_entries = (entry for entry in entries if entry.meta.get("context") is not False)
@@ -332,16 +415,16 @@ class Tape:
         *,
         run_id: str,
         system_prompt: str | None,
-        new_messages: list[dict[str, Any]],
+        new_messages: list[republic.Message],
         response_text: str | None,
         context_error: BubError | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_results: list[Any] | None = None,
         error: BubError | None = None,
-        response: Any | None = None,
         provider: str | None = None,
         model: str | None = None,
         usage: dict[str, Any] | None = None,
+        assistant_fields: dict[str, Any] | None = None,
     ) -> None:
         tape_name = self.name
         meta = {"run_id": run_id, **tracing.correlation()}
@@ -350,39 +433,29 @@ class Tape:
         if context_error is not None:
             await self.store.append(tape_name, TapeEntry.error(context_error, **meta))
         for message in new_messages:
-            await self.store.append(tape_name, TapeEntry.message(message, **meta))
+            await self.store.append(tape_name, TapeEntry.message(message.to_dict(), **meta))
         if tool_calls:
-            await self.store.append(tape_name, TapeEntry.tool_call(tool_calls, content=response_text, **meta))
+            call_entry = TapeEntry.tool_call(tool_calls, content=response_text or "", **meta)
+            call_entry.payload.update(assistant_fields or {})
+            await self.store.append(tape_name, call_entry)
         if tool_results is not None:
             await self.store.append(tape_name, TapeEntry.tool_result(tool_results, **meta))
         if error is not None and error is not context_error:
             await self.store.append(tape_name, TapeEntry.error(error, **meta))
         if response_text is not None and not tool_calls:
             await self.store.append(
-                tape_name, TapeEntry.message({"role": "assistant", "content": response_text}, **meta)
+                tape_name,
+                TapeEntry.message({"role": "assistant", "content": response_text, **(assistant_fields or {})}, **meta),
             )
 
         data: dict[str, Any] = {"status": "error" if error is not None else "ok"}
-        resolved_usage = usage or self._extract_usage(response)
-        if resolved_usage is not None:
-            data["usage"] = resolved_usage
+        if usage is not None:
+            data["usage"] = usage
         if provider:
             data["provider"] = provider
         if model:
             data["model"] = model
         await self.store.append(tape_name, TapeEntry.event("run", data, **meta))
-
-    @staticmethod
-    def _extract_usage(response: object) -> dict[str, Any] | None:
-        usage = getattr(response, "usage", None)
-        if usage is None:
-            return None
-        if isinstance(usage, dict):
-            return usage
-        if isinstance(usage, BaseModel):
-            payload = usage.model_dump(exclude_none=True)
-            return payload if isinstance(payload, dict) else None
-        return None
 
     async def _archive_tape(self, tape_name: str, stamp: str) -> Path:
         from bub.store import TapeQuery

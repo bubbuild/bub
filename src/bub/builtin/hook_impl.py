@@ -3,8 +3,9 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 from difflib import get_close_matches
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
+import republic
 import typer
 from loguru import logger
 
@@ -18,7 +19,7 @@ from bub.builtin.steering import InMemorySteeringInbox
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
-from bub.channels.message import ChannelMessage, MediaItem, audio_format_from_mime_type
+from bub.channels.message import ChannelMessage, MediaItem
 from bub.envelope import Envelope, content_of, field_of
 from bub.environment import Environment
 from bub.errors import BubError
@@ -26,6 +27,7 @@ from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
 from bub.model_selection import ModelChoice, ModelOptions
+from bub.prompt import UserContent
 from bub.sidecars import TapeSidecar
 from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents
@@ -55,16 +57,6 @@ When responding to a channel message, you MUST:
 Excessively long context may cause model call failures. In this case, you MAY use tape.info to retrieve the token usage and you SHOULD use tape.handoff tool to shorten the retrieved history.
 </context_contract>
 """
-
-
-def _input_audio_part(data_url: str, mime_type: str) -> dict[str, Any] | None:
-    prefix, separator, data = data_url.partition("base64,")
-    if not separator or not prefix.startswith("data:audio/") or not data:
-        return None
-    return {
-        "type": "input_audio",
-        "input_audio": {"data": data, "format": audio_format_from_mime_type(mime_type)},
-    }
 
 
 class BuiltinImpl:
@@ -144,38 +136,28 @@ class BuiltinImpl:
         # events, so nothing to write here — this hook only closes the lifespan.
 
     @hookimpl
-    async def build_prompt(self, message: ChannelMessage, session_id: str, state: TurnState) -> str | list[dict]:
+    async def build_prompt(self, message: ChannelMessage, session_id: str, state: TurnState) -> list[UserContent]:
         content = content_of(message)
         if strip_command_prefix(content, self._get_agent(state).command_prefix) is not None:
             message.kind = "command"
-            return content.strip()
+            return [content.strip()]
         context = field_of(message, "context_str")
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         context_prefix = f"{context}\n---Date: {now}---\n" if context else ""
         text = f"{context_prefix}{content}"
 
-        media = field_of(message, "media") or []
-        if not media:
-            return text
-
-        media_parts: list[dict] = []
-        for item in cast("list[MediaItem]", media):
+        prompt: list[UserContent] = [text]
+        for item in cast("list[MediaItem]", field_of(message, "media") or []):
+            if item.type not in {"image", "audio", "video"} or not (url := await item.get_url()):
+                continue
             match item.type:
-                case "image" | "video":
-                    data_url = await item.get_url()
-                    if not data_url:
-                        continue
-                    part_type = f"{item.type}_url"
-                    media_parts.append({"type": part_type, part_type: {"url": data_url}})
+                case "image":
+                    prompt.append(republic.image(url, media_type=item.mime_type))
                 case "audio":
-                    data_url = await item.get_url()
-                    if data_url and (audio_part := _input_audio_part(data_url, item.mime_type)):
-                        media_parts.append(audio_part)
-                case _:
-                    pass
-        if media_parts:
-            return [{"type": "text", "text": text}, *media_parts]
-        return text
+                    prompt.append(republic.audio(url, media_type=item.mime_type))
+                case "video":
+                    prompt.append(republic.video(url, media_type=item.mime_type))
+        return prompt
 
     @hookimpl
     async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: TurnState) -> AsyncStreamEvents:

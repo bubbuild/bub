@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import pluggy
 import pytest
+import republic
+from republic.errors import StreamIncompleteError
 
+from bub.builtin.model_runner import ModelRunner
+from bub.builtin.settings import AgentSettings
 from bub.errors import BubError
 from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
 from bub.hooks.interception import (
@@ -20,7 +25,11 @@ from bub.hooks.interception import (
     ToolCallResult,
 )
 from bub.hooks.runtime import HookRuntime
+from bub.prompt import to_content
+from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.tape import Tape, TapeContext
 from bub.tools import Tool, ToolExecutor
+from tests.model_fakes import ProviderService, sse
 
 
 def make_hooks(*plugins: Any) -> AgentHooks:
@@ -32,7 +41,7 @@ def make_hooks(*plugins: Any) -> AgentHooks:
 
 
 def request() -> LlmCallRequest:
-    return LlmCallRequest(run_id="run-1", model="openai:gpt-x", messages=[{"role": "user", "content": "hi"}])
+    return LlmCallRequest(run_id="run-1", model="openai:gpt-x", messages=[republic.user("hi")])
 
 
 class TestBeforeLlmCall:
@@ -48,14 +57,14 @@ class TestBeforeLlmCall:
             def before_llm_call(self, request: LlmCallRequest, state: dict) -> LlmCallRequest:
                 # must see SwapModel's change (registration-order chaining)
                 assert request.model == "anthropic:claude"
-                return replace(request, messages=[*request.messages, {"role": "user", "content": "extra"}])
+                return replace(request, messages=[*request.messages, republic.user("extra")])
 
         # pluggy LIFO: last registered runs first -> register AppendMessage first
         hooks = make_hooks(AppendMessage(), SwapModel())
         result, decision = await hooks.before_llm_call(request(), state={})
         assert decision is None
         assert result.model == "anthropic:claude"
-        assert result.messages[-1]["content"] == "extra"
+        assert result.messages[-1].text == "extra"
 
     @pytest.mark.asyncio
     async def test_none_and_bad_returns_leave_request_unchanged(self) -> None:
@@ -259,48 +268,45 @@ class TestBeforeLlmCallFinish:
 class TestModelRunnerHookIntegration:
     """Regression tests for PR #255 review findings (effective request, exactly-once)."""
 
-    def _runner_and_tape(self, hooks: AgentHooks, captured: dict):
-        import bub
-        from bub.builtin.model_runner import ModelRunner
-        from bub.builtin.settings import AgentSettings
-        from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-        from bub.tape import Tape, TapeContext
-
-        class FakeRunner(ModelRunner):
-            async def completion_response(self, *, model, messages, tools, max_tokens=None, reasoning_effort=None):
-                captured.update(model=model, max_tokens=max_tokens)
-
-                async def chunks():
-                    return
-                    yield  # pragma: no cover
-
-                return chunks()
-
-        settings = AgentSettings.model_construct(model="openai:orig", max_tokens=100, model_timeout_seconds=None)
-        runner = FakeRunner(settings, hooks=hooks)
-        store = AsyncTapeStoreAdapter(InMemoryTapeStore())
-        tape = Tape(bub.home / "tapes", store, TapeContext(anchor=None)).scoped("t1")
+    def _runner_and_tape(self, hooks: AgentHooks, tmp_path: Path, api_format: str | None = None):
+        runner = ModelRunner(
+            AgentSettings(
+                model="openai:orig", max_tokens=100, client_args={"api_format": api_format} if api_format else {}
+            ),
+            hooks=hooks,
+        )
+        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("t1")
         return runner, tape
 
     @pytest.mark.asyncio
-    async def test_rewritten_model_and_max_tokens_reach_provider_and_tape(self) -> None:
+    async def test_rewritten_model_and_max_tokens_reach_provider_and_tape(
+        self, tmp_path: Path, provider_transport: ProviderService
+    ) -> None:
         class Reroute:
             @hookimpl
             def before_llm_call(self, request: LlmCallRequest, state: dict) -> LlmCallRequest:
                 return replace(request, model="anthropic:new", max_tokens=42)
 
-        captured: dict = {}
-        runner, tape = self._runner_and_tape(make_hooks(Reroute()), captured)
-        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+        provider_transport.reply(
+            sse([
+                {"type": "message_start", "message": {"id": "test", "usage": {}}},
+                {"type": "message_stop"},
+            ])
+        )
+        runner, tape = self._runner_and_tape(make_hooks(Reroute()), tmp_path)
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt=to_content("hi"))
         async for _ in events:
             pass
-        assert captured == {"model": "anthropic:new", "max_tokens": 42}
+        assert provider_transport.body()["model"] == "new"
+        assert provider_transport.body()["max_tokens"] == 42
         entries = list(await tape.store.fetch_all(tape.query().kinds("event")))
         run_events = [e for e in entries if e.payload.get("name") == "run"]
         assert run_events[-1].payload["data"]["model"] == "anthropic:new"
 
     @pytest.mark.asyncio
-    async def test_after_llm_call_not_fired_on_early_close(self) -> None:
+    async def test_after_llm_call_not_fired_on_early_close(
+        self, tmp_path: Path, provider_transport: ProviderService
+    ) -> None:
         observed: list[LlmCallResult] = []
 
         class Observe:
@@ -308,28 +314,19 @@ class TestModelRunnerHookIntegration:
             def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
                 observed.append(result)
 
-        captured: dict = {}
-        runner, tape = self._runner_and_tape(make_hooks(Observe()), captured)
+        provider_transport.reply_chat("done")
+        runner, tape = self._runner_and_tape(make_hooks(Observe()), tmp_path, "chat")
 
-        from bub.builtin.model_runner import ModelRunner  # noqa: F401
-
-        async def fake_events(completion, state, output):
-            from bub.streaming import StreamEvent
-
-            yield StreamEvent("text", {"delta": "a"})
-            yield StreamEvent("text", {"delta": "b"})
-
-        runner._completion_events = fake_events  # type: ignore[method-assign]
-        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt=to_content("hi"))
         iterator = events.__aiter__()
         await iterator.__anext__()
         await iterator.aclose()
-        # Consumer close is intentionally NOT a terminal observation:
-        # after_llm_call fires only for real completions and Exception failures.
         assert observed == []
 
     @pytest.mark.asyncio
-    async def test_after_llm_call_fires_exactly_once_on_success(self) -> None:
+    async def test_after_llm_call_fires_exactly_once_on_success(
+        self, tmp_path: Path, provider_transport: ProviderService
+    ) -> None:
         observed: list[LlmCallResult] = []
 
         class Observe:
@@ -337,13 +334,68 @@ class TestModelRunnerHookIntegration:
             def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
                 observed.append(result)
 
-        captured: dict = {}
-        runner, tape = self._runner_and_tape(make_hooks(Observe()), captured)
-        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+        provider_transport.reply_chat("done")
+        runner, tape = self._runner_and_tape(make_hooks(Observe()), tmp_path, "chat")
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt=to_content("hi"))
         async for _ in events:
             pass
         assert len(observed) == 1
         assert observed[0].error is None
+
+    @pytest.mark.asyncio
+    async def test_failed_stream_reports_partial_text_once_without_trying_fallback(
+        self, tmp_path: Path, provider_transport: ProviderService
+    ) -> None:
+        observed: list[LlmCallResult] = []
+
+        class Observe:
+            @hookimpl
+            def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
+                observed.append(result)
+
+        provider_transport.reply(sse([{"choices": [{"delta": {"content": "partial"}}]}]))
+        runner, tape = self._runner_and_tape(make_hooks(Observe()), tmp_path, "chat")
+        runner.settings.fallback_models = ["openai:fallback"]
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt=to_content("hi"))
+        with pytest.raises(StreamIncompleteError) as exc:
+            async for _ in events:
+                pass
+        assert len(observed) == 1
+        assert observed[0].text == "partial"
+        assert observed[0].error is exc.value
+        assert observed[0].usage is None
+        assert len(provider_transport.requests) == 1
+        assert not await tape.read_messages()
+
+    @pytest.mark.asyncio
+    async def test_refusal_text_reaches_the_hook_final_event_and_tape(
+        self, tmp_path: Path, provider_transport: ProviderService
+    ) -> None:
+        observed: list[LlmCallResult] = []
+
+        class Observe:
+            @hookimpl
+            def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
+                observed.append(result)
+
+        provider_transport.reply(
+            sse([
+                {"choices": [{"delta": {"refusal": "Cannot fulfill this request."}, "finish_reason": "stop"}]},
+                "[DONE]",
+            ])
+        )
+        runner, tape = self._runner_and_tape(make_hooks(Observe()), tmp_path, "chat")
+        events = [
+            event
+            async for event in runner.run(
+                tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt=to_content("hi")
+            )
+        ]
+        assert events[-1].data == {"ok": True, "text": "Cannot fulfill this request."}
+        assert len(observed) == 1
+        assert observed[0].text == "Cannot fulfill this request."
+        assert observed[0].error is None
+        assert (await tape.read_messages())[-1] == republic.assistant("Cannot fulfill this request.")
 
 
 class TestToolCancellation:

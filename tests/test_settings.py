@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from unittest.mock import patch
 
+import httpx2
 import pytest
-from any_llm.constants import LLMProvider
 from pydantic import ValidationError
 
+from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import DEFAULT_MODEL, AgentSettings, load_settings
 from bub.builtin.spill import SpillSettings
 from bub.configure import ensure_config
+from bub.prompt import to_content
+from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.tape import Tape, TapeContext
+from tests.model_fakes import ProviderService, chat_events, sse
 
 
 def _settings_with_env(env: dict[str, str]) -> AgentSettings:
@@ -53,20 +59,6 @@ def test_settings_no_keys_return_none() -> None:
     assert settings.completion_args == {}
 
 
-@pytest.mark.parametrize("provider", ["openai", LLMProvider.OPENAI, "acme"])
-def test_client_options_resolve_provider_names_and_enum_values(provider: str) -> None:
-    settings = _settings_with_env({
-        f"BUB_{provider.upper()}_API_KEY": "environment-key",
-        f"BUB_{provider.upper()}_API_BASE": "https://example.test/v1",
-        "BUB_CLIENT_ARGS": '{"api_key": "ignored-key", "api_base": "https://ignored.test", "timeout": 5}',
-    })
-    assert settings.model_client_kwargs(provider) == {
-        "api_key": "environment-key",
-        "api_base": "https://example.test/v1",
-        "timeout": 5,
-    }
-
-
 def test_settings_provider_names_are_lowercased() -> None:
     settings = _settings_with_env({"BUB_OPENROUTER_API_KEY": "sk-or"})
 
@@ -98,7 +90,7 @@ api_key:
 api_base:
   openai: https://api.openai.com
 client_args:
-  extra_headers:
+  headers:
     HTTP-Referer: https://openclaw.ai
     X-Title: OpenClaw
 completion_args:
@@ -114,7 +106,7 @@ completion_args:
     assert settings.api_key == {"openai": "sk-yaml"}
     assert settings.api_base == {"openai": "https://api.openai.com"}
     assert settings.client_args == {
-        "extra_headers": {"HTTP-Referer": "https://openclaw.ai", "X-Title": "OpenClaw"},
+        "headers": {"HTTP-Referer": "https://openclaw.ai", "X-Title": "OpenClaw"},
     }
     assert settings.completion_args == {"reasoning_effort": "high"}
 
@@ -125,7 +117,7 @@ model: openai:gpt-5
 api_key: sk-yaml
 max_steps: 77
 client_args:
-  extra_headers:
+  headers:
     HTTP-Referer: https://yaml.example
     X-Title: YAML App
 """.strip()
@@ -135,7 +127,7 @@ client_args:
         {
             "BUB_MODEL": "anthropic:claude-3-7-sonnet",
             "BUB_API_KEY": "sk-env",
-            "BUB_CLIENT_ARGS": '{"extra_headers":{"HTTP-Referer":"https://env.example","X-Title":"Env App"}}',
+            "BUB_CLIENT_ARGS": '{"headers":{"HTTP-Referer":"https://env.example","X-Title":"Env App"}}',
             "BUB_COMPLETION_ARGS": '{"reasoning_effort":"medium"}',
             "BUB_MAX_STEPS": "12",
         },
@@ -148,7 +140,7 @@ client_args:
     assert settings.api_key == "sk-env"
     assert settings.max_steps == 12
     assert settings.client_args == {
-        "extra_headers": {"HTTP-Referer": "https://env.example", "X-Title": "Env App"},
+        "headers": {"HTTP-Referer": "https://env.example", "X-Title": "Env App"},
     }
     assert settings.completion_args == {"reasoning_effort": "medium"}
 
@@ -194,41 +186,182 @@ model: openrouter:openrouter/free
     assert settings.model == "openrouter:openrouter/free"
 
 
-def test_custom_provider_names_an_endpoint_beside_the_builtin_ones(load_config) -> None:
+async def _run(settings: AgentSettings, tmp_path: Path) -> str:
+    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("settings")
+    events = [
+        event
+        async for event in ModelRunner(settings).run(
+            tape=tape, model=settings.model, tools=[], system_prompt=None, prompt=to_content("Hello")
+        )
+    ]
+    assert events[-1].data["ok"]
+    return events[-1].data["text"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["openai", "acme"])
+async def test_client_options_resolve_provider_names(
+    provider: str, tmp_path: Path, provider_transport: ProviderService
+) -> None:
+    provider_transport.reply_chat()
+    env = {
+        f"BUB_{provider.upper()}_API_KEY": "environment-key",
+        f"BUB_{provider.upper()}_API_BASE": "https://example.test/v1",
+        "BUB_CLIENT_ARGS": '{"api_key": "ignored-key", "api_base": "https://ignored.test", "api_format": "chat"}',
+    }
+    if provider == "acme":
+        env["BUB_PROVIDERS"] = '{"acme": {"type": "openai"}}'
+    settings = _settings_with_env(env)
+    settings.model = f"{provider}:model"
+    assert await _run(settings, tmp_path) == "done"
+    assert provider_transport.requests[0].url.host == "example.test"
+    assert provider_transport.requests[0].headers["authorization"] == "Bearer environment-key"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider,header", [("google", "x-goog-api-key"), ("azure-openai", "api-key"), ("openrouter", "authorization")]
+)
+@pytest.mark.parametrize("explicit_key", [False, True])
+async def test_provider_requests_use_environment_or_explicit_credentials(
+    provider: str, header: str, explicit_key: bool, tmp_path: Path, provider_service: ProviderService
+) -> None:
+    prefix = provider.upper().replace("-", "_")
+    provider_service.reply(
+        sse(
+            [{"candidates": [{"content": {"parts": [{"text": "done"}]}, "finishReason": "STOP"}]}]
+            if provider == "google"
+            else chat_events()
+        )
+    )
+    with patch.dict(
+        os.environ,
+        {f"{prefix}_API_KEY": "environment-key", f"{prefix}_API_BASE": "https://provider.test/v1"},
+        clear=True,
+    ):
+        async with provider_service.client() as client:
+            settings = AgentSettings(
+                model=f"{provider}:model:variant",
+                api_key={provider: "explicit-key"} if explicit_key else None,
+                client_args={"http_client": client, "api_format": "gemini" if provider == "google" else "chat"},
+            )
+            assert await _run(settings, tmp_path) == "done"
+    request = provider_service.requests[0]
+    key = "explicit-key" if explicit_key else "environment-key"
+    assert request.headers[header] == (f"Bearer {key}" if header == "authorization" else key)
+    assert request.url.host == "provider.test"
+    if provider == "google":
+        assert "model:variant" in request.url.path
+    else:
+        assert provider_service.body()["model"] == "model:variant"
+
+
+@pytest.mark.asyncio
+async def test_provider_and_completion_extras_follow_republic_deep_merge(
+    tmp_path: Path, provider_service: ProviderService
+) -> None:
+    provider_service.reply(sse([{"candidates": [{"content": {"parts": [{"text": "done"}]}, "finishReason": "STOP"}]}]))
+    async with provider_service.client() as client:
+        settings = AgentSettings(
+            model="google:test",
+            max_tokens=100,
+            client_args={
+                "http_client": client,
+                "extra_body": {"generationConfig": {"maxOutputTokens": 1, "temperature": 0.4, "topK": 12}},
+            },
+            completion_args={"extra_body": {"generationConfig": {"temperature": 0.9, "topP": 0.8}}},
+        )
+        assert await _run(settings, tmp_path) == "done"
+    assert provider_service.body()["contents"] == [{"role": "user", "parts": [{"text": "Hello"}]}]
+    assert provider_service.body()["generationConfig"] == {
+        "maxOutputTokens": 1,
+        "temperature": 0.9,
+        "topK": 12,
+        "topP": 0.8,
+    }
+
+
+@pytest.mark.asyncio
+async def test_named_endpoint_and_builtin_fallback_use_separate_credentials(
+    load_config, tmp_path: Path, provider_service: ProviderService
+) -> None:
+    provider_service.reply(httpx2.Response(503, json={"error": {"message": "unavailable"}}))
+    provider_service.reply(sse(chat_events()))
     with patch.dict(os.environ, {}, clear=True):
-        load_config(
-            """
+        load_config("""
 model: relay:qwen/kimi-k3
 fallback_models:
   - openai:gpt-5
 api_key:
-  openai: sk-openai
+  openai: openai-key
+api_base:
+  openai: https://openai.test/v1
 providers:
   relay:
     type: openai
     api_base: https://relay.test/v1
     api_key: relay-key
-""".strip(),
-        )
+""")
+        async with provider_service.client() as client:
+            settings = load_settings()
+            settings.client_args = {"http_client": client, "api_format": "chat", "max_retries": 0}
+            assert await _run(settings, tmp_path) == "done"
+    assert [request.url.host for request in provider_service.requests] == ["relay.test", "openai.test"]
+    assert [request.headers["authorization"] for request in provider_service.requests] == [
+        "Bearer relay-key",
+        "Bearer openai-key",
+    ]
+    assert [provider_service.body(index)["model"] for index in range(2)] == ["qwen/kimi-k3", "gpt-5"]
 
-        settings = load_settings()
 
-    relay, openai = settings.model_candidates(settings.model)
-    assert (relay.provider, relay.model_id, relay.provider_name) == (LLMProvider.OPENAI, "qwen/kimi-k3", "relay")
-    assert (openai.provider, openai.model_id, openai.provider_name) == (LLMProvider.OPENAI, "gpt-5", None)
-    assert settings.model_client_kwargs("relay") == {"api_key": "relay-key", "api_base": "https://relay.test/v1"}
-    assert settings.model_client_kwargs("openai") == {"api_key": "sk-openai", "api_base": None}
-
-
-def test_custom_provider_falls_back_to_per_provider_settings() -> None:
-    settings = _settings_with_env({
-        "BUB_PROVIDERS": '{"relay": {"type": "anthropic", "api_base": "https://relay.test"}}',
-        "BUB_RELAY_API_KEY": "env-key",
-    })
-
-    assert settings.model_client_kwargs("relay") == {"api_key": "env-key", "api_base": "https://relay.test"}
+@pytest.mark.asyncio
+async def test_named_endpoint_uses_its_environment_credentials(
+    tmp_path: Path, provider_service: ProviderService
+) -> None:
+    provider_service.reply(
+        sse([
+            {"type": "message_start", "message": {"id": "test", "usage": {}}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "done"}},
+            {"type": "message_stop"},
+        ])
+    )
+    with patch.dict(
+        os.environ,
+        {
+            "BUB_MODEL": "relay:test",
+            "BUB_PROVIDERS": '{"relay": {"type": "anthropic", "api_base": "https://relay.test"}}',
+            "BUB_RELAY_API_KEY": "environment-key",
+        },
+        clear=True,
+    ):
+        async with provider_service.client() as client:
+            settings = AgentSettings(client_args={"http_client": client})
+            assert await _run(settings, tmp_path) == "done"
+    assert provider_service.requests[0].url.host == "relay.test"
+    assert provider_service.requests[0].headers["x-api-key"] == "environment-key"
 
 
 def test_custom_provider_rejects_unknown_type() -> None:
     with pytest.raises(ValidationError, match="providers"):
         _settings_with_env({"BUB_PROVIDERS": '{"relay": {"type": "nope"}}'})
+
+
+@pytest.mark.parametrize("provider", ["azure-openai", "github-copilot"])
+def test_hyphenated_provider_names_resolve_environment_credentials(provider: str) -> None:
+    prefix = provider.upper().replace("-", "_")
+    settings = _settings_with_env({f"BUB_{prefix}_API_KEY": "provider-key"})
+    assert settings.api_key == {provider: "provider-key"}
+
+
+def test_model_clients_identify_as_bub() -> None:
+    import republic
+
+    import bub
+
+    settings = AgentSettings(api_key="sk-test")
+    kwargs = settings.model_client_kwargs("openai")
+    provider = republic.get_provider("openai", **kwargs)
+
+    assert provider.headers["User-Agent"] == f"bub/{bub.__version__}"
+    custom = AgentSettings(api_key="sk-test", client_args={"headers": {"User-Agent": "mine", "X-Team": "a"}})
+    assert custom.model_client_kwargs("openai")["headers"] == {"User-Agent": "mine", "X-Team": "a"}
