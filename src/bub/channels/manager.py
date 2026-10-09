@@ -17,6 +17,7 @@ from bub.channels.message import ChannelMessage
 from bub.configure import Settings, ensure_config
 from bub.envelope import Envelope, content_of, field_of
 from bub.framework import BubFramework
+from bub.program_status import listener_ready, message_failed, message_status
 from bub.streaming import StreamEvent
 from bub.turn import TurnState
 from bub.utils import wait_until_stopped
@@ -215,6 +216,7 @@ class ChannelManager:
         except Exception as exc:
             logger.exception("channel.manager resolve_session failed")
             await self.framework._hook_runtime.notify_error(stage="resolve_session", error=exc, message=message)
+            message_failed()
             return False
         controller = self._controller(session_id)
         state = self._admission_state(message, session_id)
@@ -313,13 +315,14 @@ class ChannelManager:
         return state
 
     async def _run_message(self, message: ChannelMessage) -> None:
-        token = _owning_task.set(asyncio.current_task())
-        try:
-            result = await self.framework.process_inbound(message, self._stream_output)
-            state = getattr(result, "state", {"session_id": message.session_id})
-            await self._promote_steering_to_pending(message.session_id, state)
-        finally:
-            _owning_task.reset(token)
+        with message_status():
+            token = _owning_task.set(asyncio.current_task())
+            try:
+                result = await self.framework.process_inbound(message, self._stream_output)
+                state = getattr(result, "state", {"session_id": message.session_id})
+                await self._promote_steering_to_pending(message.session_id, state)
+            finally:
+                _owning_task.reset(token)
 
     async def _promote_steering_to_pending(self, session_id: str, state: TurnState) -> None:
         steering_inbox = self.framework.get_steering_inbox()
@@ -344,6 +347,7 @@ class ChannelManager:
         async with self.framework.running():
             for channel in self.enabled_channels():
                 await channel.start(stop_event)
+            listener_ready()
             logger.info("channel.manager started listening")
             try:
                 while True:

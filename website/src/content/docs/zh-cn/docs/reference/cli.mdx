@@ -18,6 +18,14 @@ bub [OPTIONS] COMMAND [ARGS]...
 
 框架在 `bub/__main__.py` 中创建:先 `BubFramework().load_hooks()`,再 `create_cli_app()`。当前 framework 实例存放在 `ctx.obj` 上。
 
+stdout 是终端时，命令报告 [OSC 7501 程序状态](https://www.superlogical.com/rex/docs/build/program-status)：
+执行时为 `working`，结束为 `done` 或 `error`，取消为 `idle`。
+交互提示报告 `blocked`，并区分 `question`、`permission`、`auth`。
+`chat` 和 `gateway` 等待消息时为 `idle`，并发消息使用独立记录。
+不支持的终端会忽略报告；重定向输出和直接 SDK 调用没有状态序列。文本输出和退出码沿用现有行为。
+CLI 在入口读取一次 terminfo 的 `Pst` 能力，后续报告复用报文模板，不读取终端输入。
+能力不可用时，支持情况保持未知，命令按规范允许的方式直接发送报告。
+
 ## `bub run`
 
 将一条 `ChannelMessage` 通过 `BubFramework.process_inbound` 跑完整条流水线,并把每个 outbound 打印到 stdout。

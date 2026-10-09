@@ -29,7 +29,7 @@ from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMes
 from bub.streaming import StreamEvent
 from bub.turn import TurnResult
 
-ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[()][A-Za-z])")
+ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][A-Za-z])")
 
 
 def _load_channel_config(
@@ -1455,9 +1455,13 @@ def test_cli_stream_output_does_not_overlap_active_pty_prompt() -> None:
         from bub.channels.cli import CliChannel, _StreamPrinter
         from bub.channels.cli.terminal_output import TerminalPresenter, create_synchronized_output
         from bub.streaming import StreamEvent
+        from bub.program_status import program_status
 
 
         async def main():
+            import sys
+
+            status_output = sys.stdout
             console = Console(force_terminal=True, color_system=None, width=80)
             cli_module.get_console = lambda: console
             output = create_synchronized_output()
@@ -1483,25 +1487,26 @@ def test_cli_stream_output_does_not_overlap_active_pty_prompt() -> None:
             channel._set_llm_loop_running(True)
 
             async def stream():
-                await asyncio.sleep(0.35)
-                chunks = [
-                    "春风一夜入江城\\n",
-                    "细雨无声湿客",
-                    "程\\n",
-                    "莫问归帆何处",
-                    "去\\n",
-                    "明朝山色满",
-                    "前庭",
-                ]
-                for index, chunk in enumerate(chunks):
+                with program_status(status_output):
+                    await asyncio.sleep(0.35)
+                    chunks = [
+                        "春风一夜入江城\\n",
+                        "细雨无声湿客",
+                        "程\\n",
+                        "莫问归帆何处",
+                        "去\\n",
+                        "明朝山色满",
+                        "前庭",
+                    ]
+                    for index, chunk in enumerate(chunks):
+                        await asyncio.sleep(0.03)
+                        await printer.render(StreamEvent("text", {"delta": chunk}))
+                        if index == 3:
+                            await presenter.write(lambda: console.print("bub > steer now"))
                     await asyncio.sleep(0.03)
-                    await printer.render(StreamEvent("text", {"delta": chunk}))
-                    if index == 3:
-                        await presenter.write(lambda: console.print("bub > steer now"))
-                await asyncio.sleep(0.03)
-                await printer.render(StreamEvent("final", {}))
-                channel._stream_printer = None
-                channel._set_llm_loop_running(False)
+                    await printer.render(StreamEvent("final", {}))
+                    channel._stream_printer = None
+                    channel._set_llm_loop_running(False)
 
             task = asyncio.create_task(stream())
             with patch_stdout(raw=True):
@@ -1554,6 +1559,10 @@ def test_cli_stream_output_does_not_overlap_active_pty_prompt() -> None:
         os.close(master_fd)
 
     assert process.wait(timeout=1) == 0, raw_output.decode(errors="replace")
+    working = b"\x1b]7501;state=working:app=bub\x1b\\"
+    done = b"\x1b]7501;state=done:app=bub\x1b\\"
+    assert raw_output.count(working) == raw_output.count(done) == 1
+    assert raw_output.index(working) < raw_output.index("春风一夜入江城".encode()) < raw_output.index(done)
     output = _plain_terminal_text(raw_output)
 
     assert "春风一夜入江城" in output
@@ -1842,3 +1851,47 @@ def _async_return(value):
         return value
 
     return runner
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_run_reports_raw_program_status_after_output_on_a_real_pty(failure: bool) -> None:
+    script = textwrap.dedent(
+        f"""
+        from bub.framework import BubFramework
+        from bub.builtin.cli import run
+        from bub.hooks import hookimpl
+        from bub.errors import BubError, ErrorKind
+        from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
+
+        class Model:
+            @hookimpl
+            def run_model_stream(self, prompt, session_id, state):
+                async def events():
+                    if {failure!r}:
+                        yield StreamEvent("error", {{"kind": "provider", "message": "failed"}})
+                    yield StreamEvent("text", {{"delta": "actual response"}})
+                result_state = StreamState(error=BubError(ErrorKind.PROVIDER, "failed") if {failure!r} else None)
+                return AsyncStreamEvents(events(), state=result_state)
+
+        framework = BubFramework()
+        framework.plugin_manager.register(Model())
+        app = framework.create_cli_app()
+        app.command("run")(run)
+        app(["run", "request"])
+        """
+    )
+    master_fd, slave_fd = pty.openpty()
+    process = subprocess.Popen([sys.executable, "-c", script], stdin=slave_fd, stdout=slave_fd, stderr=slave_fd)
+    os.close(slave_fd)
+    try:
+        raw = _read_pty_until_exit(master_fd, process, timeout=10)
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=1)
+        os.close(master_fd)
+    assert process.wait(timeout=1) == 0, raw.decode(errors="replace")
+    working = b"\x1b]7501;state=working:app=bub\x1b\\"
+    outcome = f"\x1b]7501;state={'error' if failure else 'done'}:app=bub\x1b\\".encode()
+    assert raw.count(working) == raw.count(outcome) == 1
+    assert raw.index(working) < raw.index(b"actual response") < raw.index(outcome)

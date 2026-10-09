@@ -21,6 +21,7 @@ from bub.builtin.auth import app as login_app  # noqa: F401
 from bub.channels.message import ChannelMessage
 from bub.envelope import field_of
 from bub.framework import BubFramework
+from bub.program_status import waiting
 from bub.turn import TurnResult
 
 ONBOARD_BANNER = r"""
@@ -173,7 +174,9 @@ def onboard(
     enabled_channels = str(config_data.get("enabled_channels", "")).strip()
     if not enabled_channels or not is_gateway_service_supported():
         return
-    if not bub_inquirer.ask_confirm("Install gateway as a background service?", default=False):
+    with waiting("permission"):
+        approved = bub_inquirer.ask_confirm("Install gateway as a background service?", default=False)
+    if not approved:
         return
 
     try:

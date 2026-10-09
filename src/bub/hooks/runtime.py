@@ -11,6 +11,7 @@ import pluggy
 from loguru import logger
 
 from bub.envelope import Envelope
+from bub.program_status import model_finished
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.turn import TurnState
 
@@ -178,6 +179,7 @@ class HookRuntime:
                     async for event in stream:
                         if event.kind == "text":
                             text += str(event.data.get("delta", ""))
+                model_finished(stream)
                 return text
         return None
 

@@ -10,6 +10,8 @@ from inquirer_textual.common.InquirerResult import InquirerResult
 from inquirer_textual.common.PromptSettings import PromptSettings
 from inquirer_textual.common.Shortcut import Shortcut
 
+from bub.program_status import waiting
+
 CheckboxValidator = Callable[[list[str]], bool | str]
 
 CHECKBOX_HINT_SETTINGS = PromptSettings(shortcuts=[Shortcut("space", "toggle", "Space check/uncheck")])
@@ -24,18 +26,22 @@ def ask_prompt(question: InquirerResult[Any]) -> Any:
     return answer
 
 
+@waiting("question")
 def ask_text(message: str, default: str = "") -> str:
     return cast("str", ask_prompt(prompts.text(message, default=default)))
 
 
+@waiting("auth")
 def ask_secret(message: str) -> str:
     return cast("str", ask_prompt(prompts.secret(message)))
 
 
+@waiting("question")
 def ask_confirm(message: str, default: bool = False) -> bool:
     return cast("bool", ask_prompt(prompts.confirm(message, default=default)))
 
 
+@waiting("question")
 def ask_select(message: str, choices: list[str], default: str = "") -> str:
     return cast(
         "str",
@@ -49,6 +55,7 @@ def ask_select(message: str, choices: list[str], default: str = "") -> str:
     )
 
 
+@waiting("question")
 def ask_fuzzy(message: str, choices: list[str], default: str | None = None) -> str:
     return cast(
         "str",
@@ -62,6 +69,7 @@ def ask_fuzzy(message: str, choices: list[str], default: str | None = None) -> s
     )
 
 
+@waiting("question")
 def ask_checkbox(
     message: str,
     choices: list[str],
