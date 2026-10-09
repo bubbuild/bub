@@ -103,8 +103,8 @@ def test_render_tools_prompt_returns_empty_string_for_empty_input() -> None:
     assert render_tools_prompt([]) == ""
 
 
-def test_render_tools_prompt_excludes_tools_disabled_for_agent_use() -> None:
-    internal_tool = Tool(name="tests.internal", handler=lambda: None, agent_use=False)
+def test_render_tools_prompt_excludes_command_tools() -> None:
+    internal_tool = Tool(name="tests.internal", handler=lambda: None, exposure="command")
 
     assert render_tools_prompt([internal_tool]) == ""
 
@@ -188,7 +188,7 @@ async def test_set_model_overwrites_previous_model(tmp_path) -> None:
 def test_set_reasoning_effort_is_registered_for_internal_use() -> None:
     assert REGISTRY["reasoning_effort"] is set_reasoning_effort
     assert set_reasoning_effort.context is True
-    assert set_reasoning_effort.agent_use is False
+    assert set_reasoning_effort.exposure == "command"
     assert set_reasoning_effort.parameters == {
         "type": "object",
         "properties": {"reasoning_effort": {"type": "string"}},

@@ -30,7 +30,7 @@ The tool's name defaults to the function name. Override it with `@tool(name="mat
 
 ## Return structured results
 
-Tools should return structured data — a `dict`, `TypedDict`, list, or Pydantic model — rather than pre-formatted prose. The exceptions are tools marked `preserve=True` (see [Code mode](#code-mode)) and comma-command-only tools (`agent_use=False`): code never calls them, so they return plain text. Pass `renderer=` to control how that result is turned into the plain text the model reads:
+Tools should return structured data — a `dict`, `TypedDict`, list, or Pydantic model — rather than pre-formatted prose. The exceptions are tools with `exposure="direct"` or `exposure="command"` (see [Code mode](#code-mode)): code never calls them, so they return plain text. Pass `renderer=` to control how that result is turned into the plain text the model reads:
 
 ```python
 from typing import TypedDict
@@ -55,12 +55,23 @@ def get_order(order_id: str) -> Order:
 
 Code mode lets the model call tools from Python instead of one tool call at a time. It is a per-session switch: send the comma command `,code_mode enable=true` (or `,code_mode enable=false`) to turn it on or off. The change applies from the next turn and persists across restarts. SDK callers can set `state["code_mode"] = True` instead. In a code-mode turn where `run_code` is among the allowed tools:
 
-- The model sees only tools marked `preserve=True` (`bash`, `bash.output`, `bash.kill`, `fs.read`, `fs.write`, `fs.edit`, `spill.read`) plus `run_code(code: str) -> str`. Preserved tools are called directly only; they are not available under `tools.*`.
+- The model sees only tools with `exposure="direct"` (`bash`, `bash.output`, `bash.kill`, `fs.read`, `fs.write`, `fs.edit`, `spill.read`) plus `run_code(code: str) -> str`. Direct tools are called directly only; they are not available under `tools.*`.
 - Every other allowed tool is an async function inside `run_code`, named after its model-facing name (`tape.info` becomes `await tools.tape_info()`). Top-level `await` is allowed and `asyncio.gather` runs calls concurrently. Calls take keyword arguments, go through the usual `before_tool_call`/`after_tool_call` hooks, return structured results, and raise on failure.
-- Bub writes a Python stub with one function per non-preserved allowed tool — parameter and return types plus docstring — under `~/.bub/codemode/` and puts its path in the system prompt. The path stays the same for a session as long as its tool set does not change.
+- Bub writes a Python stub with one function per allowed `auto` or `code` tool — parameter and return types plus docstring — under `~/.bub/codemode/` and puts its path in the system prompt. The path stays the same for a session as long as its tool set does not change.
 - `run_code(code, timeout_seconds=120)` returns what the code writes to stdout. An uncaught exception becomes a tool error whose details carry the printed output and the traceback.
 
-If `run_code` is not allowed (for example, a subagent restricted with `allowed_tools`), that turn falls back to direct tool calls. Declare `preserve=True` on your own tools to keep them directly callable. Nested calls run with `ToolContext.code_mode` set to `True` (hooks see it as `call.context.code_mode`); their results are not rendered or spilled.
+If `run_code` is not allowed (for example, a subagent restricted with `allowed_tools`), that turn falls back to direct tool calls.
+
+The `exposure` option of `@tool` and `Tool.from_callable` decides where a tool can be called from:
+
+| `exposure` | Outside code mode | In code mode |
+| --- | --- | --- |
+| `"auto"` (default) | Model calls it directly | Only from `run_code` |
+| `"direct"` | Model calls it directly | Model calls it directly; not under `tools.*` |
+| `"code"` | Unavailable; `tool_describe` does not describe it | Only from `run_code` |
+| `"command"` | Comma command only | Comma command only |
+
+Nested calls run with `ToolContext.code_mode` set to `True` (hooks see it as `call.context.code_mode`); their results are not rendered or spilled.
 
 `run_code` hands the code to the session [environment](#run-tools-in-an-environment)'s `run_code`, together with a `call_tool` callback. Tool calls always run on the host through that callback, so hooks still see every call. `timeout_seconds` cancels the environment call. The builtin `LocalEnvironment` starts a fresh Python process for every call (`sys.executable`, working directory is the workspace) and forwards tool calls as JSON lines over its stdin and stdout, so arguments and results must be JSON-serializable. When the code finishes, fails or times out, it kills the process and everything it started. That process runs on the host with the same permissions as `bash`, so enable code mode only where `bash` would be acceptable. The return annotation of a tool function (or `Tool.output_schema`, for tools built by hand) determines the result type shown in the stub.
 
@@ -72,7 +83,7 @@ Mark a tool `deferred=True` (on `@tool`, `Tool.from_callable`, or with `dataclas
 - `tool_describe` returns the name, description, and parameters of each requested tool and appends a `tool.loaded` tape event with the runtime names of newly loaded deferred tools. Unknown or disallowed names are returned under `unknown`.
 - On every model request Bub reads all `tool.loaded` events from the tape and appends those tools, in load order, after the direct tools. Loaded tools stay available for later steps and turns of the session until the tape is reset.
 - `allowed_tools` filters direct and deferred tools alike: a deferred tool outside the scope is neither listed nor loadable.
-- Calling a deferred tool before loading it returns guidance to call `tool_describe` first. Code mode sees every allowed tool: deferred tools that are not preserved appear in the stub without loading, and deferral applies only to the remaining model-facing tools.
+- Calling a deferred tool before loading it returns guidance to call `tool_describe` first. Code mode sees every allowed tool: deferred `auto` and `code` tools appear in the stub without loading, and deferral applies only to the remaining model-facing tools.
 
 ## Run tools in an environment
 

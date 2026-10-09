@@ -55,13 +55,14 @@ def test_model_tools_rewrites_dotted_names_without_mutating_original() -> None:
     assert "additionalProperties" not in rename_me.parameters
 
 
-def test_model_tools_excludes_tools_disabled_for_agent_use() -> None:
+def test_model_tools_excludes_command_tools() -> None:
     visible_tool = Tool(name="tests.visible", handler=lambda: None)
-    internal_tool = Tool(name="tests.internal", handler=lambda: None, agent_use=False)
+    code_tool = Tool(name="tests.code", handler=lambda: None, exposure="code")
+    internal_tool = Tool(name="tests.internal", handler=lambda: None, exposure="command")
 
-    rewritten = model_tools([visible_tool, internal_tool])
+    rewritten = model_tools([visible_tool, code_tool, internal_tool])
 
-    assert [item.name for item in rewritten] == ["tests_visible"]
+    assert [item.name for item in rewritten] == ["tests_visible", "tests_code"]
 
 
 @pytest.mark.asyncio
@@ -75,21 +76,21 @@ async def test_tool_decorator_registers_tool_and_preserves_metadata() -> None:
 
     assert sync_tool.name == tool_name
     assert sync_tool.description == "Sync test tool"
-    assert sync_tool.agent_use is True
+    assert sync_tool.exposure == "auto"
     assert REGISTRY[tool_name] is sync_tool
     assert await sync_tool.run(value="hello") == "HELLO"
 
 
 @pytest.mark.asyncio
-async def test_tool_decorator_can_disable_agent_use_without_disabling_direct_calls() -> None:
+async def test_tool_decorator_command_exposure_keeps_direct_calls() -> None:
     tool_name = "tests.internal_tool"
     REGISTRY.pop(tool_name, None)
 
-    @tool(name=tool_name, agent_use=False)
+    @tool(name=tool_name, exposure="command")
     def internal_tool(value: str) -> str:
         return value.upper()
 
-    assert internal_tool.agent_use is False
+    assert internal_tool.exposure == "command"
     assert REGISTRY[tool_name] is internal_tool
     assert await internal_tool.run("hello") == "HELLO"
 
@@ -205,16 +206,9 @@ def test_tool_render_defaults_to_json_for_structured_results() -> None:
     assert sample.render(EchoInput(value="x")) == '{"value":"x"}'
 
 
-@pytest.mark.parametrize(
-    ("agent_use", "preserve", "code_use"),
-    [(True, False, True), (True, True, False), (False, False, False), (False, True, False)],
-)
-def test_tool_code_use_excludes_preserved_and_agent_hidden_tools(
-    agent_use: bool, preserve: bool, code_use: bool
-) -> None:
-    sample = Tool(name="tests.code_use", handler=lambda: None, agent_use=agent_use, preserve=preserve)
-
-    assert sample.code_use is code_use
+def test_tool_rejects_unknown_exposure() -> None:
+    with pytest.raises(ValueError, match="unknown exposure 'model'"):
+        Tool(name="tests.exposure", handler=lambda: None, exposure="model")  # type: ignore[arg-type]
 
 
 def test_tool_decorator_accepts_renderer() -> None:

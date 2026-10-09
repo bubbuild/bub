@@ -411,7 +411,7 @@ async def test_agent_run_resolves_allowed_tool_aliases_and_limits_prompt() -> No
 
 
 @pytest.mark.asyncio
-async def test_agent_run_excludes_tools_disabled_for_agent_use() -> None:
+async def test_agent_run_excludes_command_tools() -> None:
     visible_name = "tests.visible_agent_tool"
     internal_name = "tests.internal_agent_tool"
     REGISTRY.pop(visible_name, None)
@@ -421,7 +421,7 @@ async def test_agent_run_excludes_tools_disabled_for_agent_use() -> None:
     def visible_agent_tool() -> str:
         return "visible"
 
-    @tool(name=internal_name, description="Internal tool", agent_use=False)
+    @tool(name=internal_name, description="Internal tool", exposure="command")
     def internal_agent_tool() -> str:
         return "internal"
 
