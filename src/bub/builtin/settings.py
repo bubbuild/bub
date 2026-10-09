@@ -23,6 +23,10 @@ DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 16384
 
 
+def _provider_env_name(provider: str) -> str:
+    return provider.upper().replace("-", "_")
+
+
 @dataclass(frozen=True)
 class ModelCandidate:
     provider: str
@@ -61,7 +65,7 @@ class ProviderSpecificEnvSource(PydanticBaseSettingsSource):
 
     @staticmethod
     def _provider_specific(setting_name: str) -> dict[str, str]:
-        env_names = {name.upper().replace("-", "_"): name for name in republic.all_providers()}
+        env_names = {_provider_env_name(name): name for name in republic.all_providers()}
         setting_regex = re.compile(rf"^BUB_(.+)_{setting_name.upper()}$")
         result: dict[str, str] = {}
         for key, value in os.environ.items():
@@ -136,8 +140,8 @@ class AgentSettings(Settings):
         custom = self.providers.get(provider)
         provider = provider if custom else provider.lower()
         options = dict(self.client_args)
-        options.setdefault("env_prefix", f"BUB_{provider.upper().replace('-', '_')}")
-        prefix = provider.upper().replace("-", "_")
+        prefix = _provider_env_name(provider)
+        options.setdefault("env_prefix", f"BUB_{prefix}")
         return {
             **options,
             "api_key": (custom and custom.api_key) or self._credential_value(self.api_key, provider, "api_key", prefix),

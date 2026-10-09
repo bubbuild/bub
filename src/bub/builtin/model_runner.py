@@ -10,11 +10,10 @@ from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from json import JSONDecodeError
 from time import monotonic
-from typing import Any, cast
+from typing import Any
 
 import republic
 from loguru import logger
-from republic import ChatOptions
 from republic.events import Completed, ReasoningDelta, RefusalDelta, TextDelta, ToolCallReady
 
 from bub.builtin.settings import AgentSettings, ModelCandidate
@@ -93,7 +92,7 @@ class ModelRunner:
 
     def _chat_options(
         self, provider: str, tools: list[Tool], max_tokens: int | None, reasoning_effort: str | None
-    ) -> ChatOptions:
+    ) -> dict[str, Any]:
         options = dict(self.settings.completion_args)
         if provider == "anthropic":
             options["extra_body"] = {"cache_control": {"type": "ephemeral"}} | options.get("extra_body", {})
@@ -102,7 +101,7 @@ class ModelRunner:
             options["max_tokens"] = max_tokens if max_tokens is not None else self.settings.max_tokens
         if reasoning_effort is not None:
             options["reasoning_effort"] = reasoning_effort
-        return cast("ChatOptions", options)
+        return options
 
     def run(
         self,
@@ -117,7 +116,7 @@ class ModelRunner:
         state = StreamState()
 
         async def iterator() -> AsyncGenerator[StreamEvent, None]:
-            run_id = f"run-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}"
+            run_id = self.generate_run_id()
             messages, new_messages = await self.build_messages(
                 tape=tape,
                 run_id=run_id,
@@ -278,6 +277,10 @@ class ModelRunner:
                 ],
             )
             span.end()
+
+    @staticmethod
+    def generate_run_id() -> str:
+        return f"run-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}"
 
     async def _fire_after_llm_call(
         self,
