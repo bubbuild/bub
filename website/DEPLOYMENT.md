@@ -19,7 +19,7 @@ Recommended settings:
 - Deploy command: `pnpm wrangler deploy`
 - Path: `website`
 - Environment variable: `SITE_URL=https://bub.build`
-- Node version: `24.21.0` (pinned in both `.node-version` files; remove any older
+- Node version: `24.21.0` (pinned in `website/.node-version`; remove any older
   `NODE_VERSION` override, or set it to `24.21.0`)
 - Build secret: `GITHUB_TOKEN=<GitHub PAT>` (optional, recommended for higher GitHub API limits)
 
@@ -27,7 +27,7 @@ The repo keeps a minimal [wrangler.jsonc](./wrangler.jsonc) and relies on
 Astro/Wrangler's default Cloudflare integration for the generated Worker
 configuration.
 
-Keep the repository and website Node pins aligned so Cloudflare and GitHub
+Keep the website Node pin as the single source of truth so Cloudflare and GitHub
 Actions install the same dependencies. Node 22.12 causes pnpm to skip
 `@napi-rs/wasm-runtime`, which requires Node 22.13+ on the 22.x line; the
 Cloudflare bundle then fails to resolve it. Other dependencies require Node
