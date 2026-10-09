@@ -68,6 +68,7 @@ class ChannelManager:
         else:
             self._enabled_channels = self._settings.enabled_channels.split(",")
         self._messages = asyncio.Queue[ChannelMessage]()
+        self._started_channels: list[Channel] | None = None
         self._session_controllers: dict[str, SessionTurnController] = {}
         self._session_handlers: dict[str, MessageHandler] = {}
 
@@ -342,23 +343,30 @@ class ChannelManager:
         stop_event = asyncio.Event()
         self.framework.bind_channel_router(self)
         async with self.framework.running():
-            for channel in self.enabled_channels():
-                await channel.start(stop_event)
-            logger.info("channel.manager started listening")
+            started_channels: list[Channel] = []
+            self._started_channels = started_channels
             try:
-                while True:
-                    message = await wait_until_stopped(self._messages.get(), stop_event)
-                    if not await self._admit_message(message):
-                        continue
-                    self._schedule_message(message)
-            except asyncio.CancelledError:
-                logger.info("channel.manager received shutdown signal")
-            except Exception:
-                logger.exception("channel.manager error")
-                raise
+                for channel in self.enabled_channels():
+                    await channel.start(stop_event)
+                    started_channels.append(channel)
+                logger.info("channel.manager started listening")
+                try:
+                    while True:
+                        message = await wait_until_stopped(self._messages.get(), stop_event)
+                        if not await self._admit_message(message):
+                            continue
+                        self._schedule_message(message)
+                except asyncio.CancelledError:
+                    logger.info("channel.manager received shutdown signal")
+                except Exception:
+                    logger.exception("channel.manager error")
+                    raise
             finally:
                 self.framework.bind_channel_router(None)
-                await self.shutdown()
+                try:
+                    await self.shutdown()
+                finally:
+                    self._started_channels = None
                 logger.info("channel.manager stopped")
 
     async def shutdown(self) -> None:
@@ -372,7 +380,8 @@ class ChannelManager:
                 count += 1
         self._session_controllers.clear()
         logger.info(f"channel.manager cancelled {count} in-flight tasks")
-        for channel in self.enabled_channels():
+        channels = self._started_channels if self._started_channels is not None else self.enabled_channels()
+        for channel in channels:
             await channel.stop()
 
     async def admit_channel_message(

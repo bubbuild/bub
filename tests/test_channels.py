@@ -671,6 +671,36 @@ async def test_channel_manager_shutdown_cancels_tasks_and_stops_enabled_channels
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("startup_error", [RuntimeError("startup failed"), asyncio.CancelledError()])
+async def test_channel_manager_cleans_up_started_channels_when_startup_fails(
+    load_config, startup_error: BaseException
+) -> None:
+    _load_channel_config(load_config)
+    first = FakeChannel("first")
+    last = FakeChannel("last")
+
+    class FailingChannel(FakeChannel):
+        async def start(self, stop_event: asyncio.Event) -> None:
+            raise startup_error
+
+    failing = FailingChannel("failing")
+    framework = FakeFramework({"first": first, "failing": failing, "last": last})
+    manager = ChannelManager(framework)
+
+    with pytest.raises(type(startup_error)) as exc_info:
+        await manager.listen_and_run()
+
+    assert exc_info.value is startup_error
+    assert first.started is True
+    assert first.stopped is True
+    assert last.started is False
+    assert last.stopped is False
+    assert framework.router is None
+    assert framework.running_entries == 1
+    assert framework.running_exits == 1
+
+
+@pytest.mark.asyncio
 async def test_channel_manager_listen_and_run_passes_stream_output_setting(
     monkeypatch: pytest.MonkeyPatch, load_config
 ) -> None:
