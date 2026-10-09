@@ -1,5 +1,6 @@
 ---
 import Features from '@/components/Features.astro';
+import GetStarted from '@/components/GetStarted.astro';
 import Hero from '@/components/Hero.astro';
 import HookIntro from '@/components/HookIntro.astro';
 import TapeModel from '@/components/TapeModel.astro';
@@ -8,7 +9,7 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 import { getRepoStats } from '@/lib/github';
 import { SITE_URL } from 'astro:env/client';
 
-const { title, description, ogImage, hero, features = {}, hookIntro = {}, tapeModel = {}, testimonials = {} } = Astro.props;
+const { title, description, ogImage, hero, getStarted = {}, features = {}, hookIntro = {}, tapeModel = {}, testimonials = {} } = Astro.props;
 
 const { contributors } = getRepoStats();
 ---
@@ -26,6 +27,7 @@ const { contributors } = getRepoStats();
     </div>
     <div class="divide-y divide-border">
       <Hero {...hero} contributors={contributors} />
+      <GetStarted {...getStarted} />
       <Features {...features} />
       <HookIntro {...hookIntro} />
       <TapeModel {...tapeModel} />

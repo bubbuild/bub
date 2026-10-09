@@ -1,0 +1,21 @@
+---
+import InstallCommand from '@/components/ui/InstallCommand.astro';
+import SectionHeading from '@/components/ui/SectionHeading.astro';
+import type { GetStartedData } from '@/data/landing-page';
+
+type Props = GetStartedData;
+
+const { eyebrow, heading, description, install } = Astro.props;
+---
+
+<section id="get-started" class="relative scroll-mt-20 py-20 md:py-28" data-reveal aria-label="Get started">
+  <div class="mx-auto max-w-6xl px-5 md:px-8">
+    <div class="mx-auto w-full text-center md:max-w-[60vw]">
+      <SectionHeading align="center" eyebrow={eyebrow} heading={heading} subheading={description} />
+
+      <div class="mt-10">
+        <InstallCommand install={install} />
+      </div>
+    </div>
+  </div>
+</section>
