@@ -32,7 +32,7 @@ from bub.sidecars import TapeSidecar
 from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents
 from bub.tape import TapeContext
-from bub.tools import render_result
+from bub.tools import is_content_result, render_result
 from bub.turn import TurnState
 
 AGENTS_FILE_NAME = "AGENTS.md"
@@ -395,6 +395,16 @@ class BuiltinImpl:
         elif isinstance(result.error, BubError):
             tool_result = result.error.as_dict() if result.result is None else result.result
         else:
+            return
+
+        if is_content_result(tool_result):
+            # Bound the text; media stays inline.
+            blocks = tool_result["content"]
+            text = "".join(block["text"] for block in blocks if block.get("type") == "text")
+            bounded_text = await spill.spill_tool_result(tape, text, tool=call.tool, run_id=call.run_id)
+            if bounded_text != text:
+                media = [block for block in blocks if block.get("type") != "text"]
+                result.result = {**tool_result, "content": [{"type": "text", "text": bounded_text}, *media]}
             return
 
         rendered_result = render_result(tool_result)
