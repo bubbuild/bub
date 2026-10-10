@@ -64,16 +64,18 @@ Spill writes are recorded as `spill.write`. Framework-managed lifecycle outcomes
 
 Before the first turn on a tape, `TapeService.ensure_bootstrap_anchor` checks for an anchor entry. If none exists, it writes a `session/start` handoff with `state={"owner": "human"}`. This guarantees that context reconstruction has a starting anchor on every tape.
 
-### default_tape_context: entries → OpenAI messages
+### default_tape_context: entries → model messages
 
-`default_tape_context()` builds a `TapeContext` whose `select` function (`_select_messages`) walks tape entries and emits OpenAI-compatible messages. The mapping is:
+`default_tape_context()` builds a `TapeContext` whose `select` function (`_select_messages`) walks tape entries and returns a list of `republic.Message` objects. The mapping is:
 
 - `anchor` → an `assistant` message of the form `[Anchor created: <name>]: <state-as-json>`.
-- `message` → the entry payload, used as a chat message dict.
+- `message` → the entry payload, converted with `bub.tape.to_message`. New user messages are stored as `republic.Message.to_dict()`; older Bub payloads (media URLs, `tool_call_id`, `reasoning`, `provider_data`) are still read.
 - `tool_call` → one `assistant` message with the saved text (or empty content for calls without text, including older entries) and a `tool_calls` array.
-- `tool_result` → one `tool` role message per result; when a preceding `tool_call` is pending, Bub copies the call's `id` into `tool_call_id` by result position.
+- `tool_result` → one `republic.tool(...)` message per result, paired with the preceding `tool_call` entry's calls by position. Results without a recorded call are skipped.
 
-The context selector is a hook (`build_tape_context`), so plugins can replace it with a different strategy — compaction, summarization, retrieval — without touching the rest of the pipeline.
+Saved reasoning and provider data are always included; Republic sends them back only to API formats that accept them.
+
+The context selector is a hook (`build_tape_context`), so plugins can replace it with a different strategy — compaction, summarization, retrieval — without touching the rest of the pipeline. A custom `select` must return Republic messages (or an awaitable of them); `bub.tape.to_messages` converts stored message payloads.
 
 Entries marked `context=False` are removed before the selector runs. This is how operational spill events remain queryable on the tape without appearing in either the default context or a plugin-defined context.
 

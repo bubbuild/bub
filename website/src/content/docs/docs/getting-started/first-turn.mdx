@@ -12,7 +12,7 @@ This tutorial walks through one full turn — the framework's name for one inbou
 You should have:
 
 - [Bub installed](/docs/getting-started/install/) and `bub hooks` reporting the `builtin` plugin
-- one model access path: an API key exported as `BUB_API_KEY` or a provider-specific `BUB_<PROVIDER>_API_KEY`; alternatively, OpenAI Codex OAuth via `bub login openai` with `BUB_MODEL=openai:<codex-model>`
+- one model access path: an API key exported as `BUB_API_KEY` or a provider-specific `BUB_<PROVIDER>_API_KEY`; alternatively, OpenAI Codex OAuth via `bub login codex` with `BUB_MODEL=codex:<model>`
 
 ## 1. Create a workspace
 
@@ -80,15 +80,15 @@ For interactive use, start a chat session instead:
 bub chat
 ```
 
-## 5. Optional: log in with OpenAI OAuth
+## 5. Optional: use your ChatGPT plan
 
-If you want to use the OpenAI Codex OAuth path instead of an API key, log in with OAuth:
+Install the Codex CLI, then log in to use your ChatGPT plan:
 
 ```bash
-bub login openai
+bub login codex
 ```
 
-Bub stores the credential locally. Use it by setting `BUB_MODEL=openai:<codex-model>` for a model available to your Codex account, leaving `BUB_API_KEY` unset, and not setting a custom `BUB_API_BASE`.
+The Codex CLI stores the credential in its local file store; Republic reads and refreshes it. Use it by setting `BUB_MODEL=codex:<model>` for a model available to your Codex account, leaving `BUB_API_KEY` unset, and not setting a custom `BUB_API_BASE`.
 
 ## Next steps
 

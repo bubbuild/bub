@@ -1,5 +1,6 @@
 import pluggy
 import pytest
+import republic
 
 from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
 from bub.hooks.runtime import HookRuntime
@@ -139,3 +140,27 @@ async def test_run_model_stream_falls_back_to_plain_hook() -> None:
     assert stream is not None
     events = [event async for event in stream]
     assert [(event.kind, event.data) for event in events] == [("text", {"delta": "plain"})]
+
+
+@pytest.mark.asyncio
+async def test_model_hooks_receive_the_legacy_prompt_form() -> None:
+    received: list[object] = []
+
+    class PlainPlugin:
+        @hookimpl
+        async def run_model(self, prompt, session_id, state):
+            received.append(prompt)
+            return "plain"
+
+    runtime = _runtime_with_plugins(("plain", PlainPlugin()))
+
+    await runtime.run_model(prompt=["hello", "world"], session_id="s", state={})
+    await runtime.run_model(prompt=["look", republic.Image("image/png", data=b"png")], session_id="s", state={})
+
+    assert received == [
+        "hello\nworld",
+        [
+            {"type": "text", "text": "look"},
+            {"type": "image", "media_type": "image/png", "url": "data:image/png;base64,cG5n"},
+        ],
+    ]

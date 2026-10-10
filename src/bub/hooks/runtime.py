@@ -11,6 +11,7 @@ import pluggy
 from loguru import logger
 
 from bub.envelope import Envelope
+from bub.prompt import LegacyPrompt, UserContent, to_content, to_legacy_prompt
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.turn import TurnState
 
@@ -162,8 +163,11 @@ class HookRuntime:
     def _kwargs_for_impl(impl: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
         return {name: kwargs[name] for name in impl.argnames if name in kwargs}
 
-    async def run_model(self, prompt: str | list[dict], session_id: str, state: TurnState) -> str | None:
-        """Run the first model hook found and return its text."""
+    async def run_model(
+        self, prompt: list[UserContent] | LegacyPrompt, session_id: str, state: TurnState
+    ) -> str | None:
+        """Run the first model hook found and return its text; hooks receive the legacy prompt form."""
+        prompt = to_legacy_prompt(to_content(prompt))
 
         for _, plugin in reversed(self._plugin_manager.list_name_plugin()):
             if hasattr(plugin, "run_model"):
@@ -182,9 +186,10 @@ class HookRuntime:
         return None
 
     async def run_model_stream(
-        self, prompt: str | list[dict], session_id: str, state: TurnState
+        self, prompt: list[UserContent] | LegacyPrompt, session_id: str, state: TurnState
     ) -> AsyncStreamEvents | None:
-        """Run the first streaming model hook, falling back to a text hook."""
+        """Run the first streaming model hook, falling back to a text hook; hooks receive the legacy prompt form."""
+        prompt = to_legacy_prompt(to_content(prompt))
 
         for _, plugin in reversed(self._plugin_manager.list_name_plugin()):
             if hasattr(plugin, "run_model_stream"):

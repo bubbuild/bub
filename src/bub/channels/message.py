@@ -9,32 +9,6 @@ from typing import Any, Literal
 type MessageKind = Literal["error", "normal", "command"]
 type MediaType = Literal["image", "audio", "video", "document"]
 
-_AUDIO_FORMAT_TO_MIME_TYPE = {
-    "aiff": "audio/aiff",
-    "flac": "audio/flac",
-    "m4a": "audio/mp4",
-    "mp3": "audio/mpeg",
-    "ogg": "audio/ogg",
-    "wav": "audio/wav",
-    "webm": "audio/webm",
-}
-_AUDIO_MIME_TYPE_TO_FORMAT = {
-    **{mime_type: audio_format for audio_format, mime_type in _AUDIO_FORMAT_TO_MIME_TYPE.items()},
-    "audio/x-aiff": "aiff",
-    "audio/x-flac": "flac",
-    "audio/x-m4a": "m4a",
-    "audio/x-wav": "wav",
-}
-
-
-def audio_format_from_mime_type(mime_type: str) -> str:
-    normalized = mime_type.partition(";")[0].strip().lower()
-    return _AUDIO_MIME_TYPE_TO_FORMAT.get(normalized, normalized.removeprefix("audio/") or "unknown")
-
-
-def audio_mime_type_from_format(audio_format: str) -> str:
-    return _AUDIO_FORMAT_TO_MIME_TYPE.get(audio_format, f"audio/{audio_format}")
-
 
 @dataclass
 class MediaItem:

@@ -120,7 +120,7 @@ See the [Build docs](https://bub.build/docs/build/) for hook guides, packaging, 
 | `bub gateway`      | Channel listener (Telegram, etc.) |
 | `bub install`      | Install or sync Bub plugin deps   |
 | `bub update`       | Upgrade Bub plugin deps           |
-| `bub login openai` | OpenAI Codex OAuth                |
+| `bub login codex`  | ChatGPT plan login               |
 
 Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-skill`, `,fs.read path=README.md`).
 
@@ -131,7 +131,7 @@ Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-sk
 | Variable                    | Default                      | Description                                          |
 | --------------------------- | ---------------------------- | ---------------------------------------------------- |
 | `BUB_MODEL`                 | `openrouter:openrouter/free` | Model identifier                                     |
-| `BUB_API_KEY`               | —                            | Provider key (optional with `bub login openai`)      |
+| `BUB_API_KEY`               | —                            | Provider key (optional with `bub login codex`)      |
 | `BUB_API_BASE`              | —                            | Custom provider endpoint                             |
 | `BUB_CLIENT_ARGS`           | —                            | JSON object forwarded to the underlying model client |
 | `BUB_COMPLETION_ARGS`       | —                            | JSON object forwarded to each completion call         |

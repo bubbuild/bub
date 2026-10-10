@@ -6,7 +6,7 @@ from typing import Any
 
 import pluggy
 import pytest
-from any_llm.types.completion import ChatCompletion
+import republic
 
 from bub.builtin.context import default_tape_context
 from bub.builtin.hook_impl import BuiltinImpl
@@ -27,6 +27,7 @@ from bub.hooks.runtime import HookRuntime
 from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore, TapeStore
 from bub.tape import Tape
 from bub.tools import Tool, ToolContext, ToolExecutor, model_tools
+from tests.model_fakes import ProviderService
 
 
 class _SpillHooks:
@@ -121,11 +122,11 @@ async def test_oversized_result_is_bounded_and_readable_across_merge(tmp_path: P
             system_prompt=None,
             new_messages=[],
             response_text=None,
-            tool_calls=[{"id": "call-1", "type": "function", "function": {"name": "large", "arguments": "{}"}}],
+            tool_calls=[{"id": "call-1", "name": "large", "arguments": "{}"}],
             tool_results=execution.tool_results,
         )
         request_messages = await tape.read_messages()
-        request_body = json.dumps(request_messages, ensure_ascii=False)
+        request_body = json.dumps([message.to_dict() for message in request_messages], ensure_ascii=False)
         assert handle in request_body
         assert output not in request_body
 
@@ -331,9 +332,9 @@ async def test_tape_archive_preserves_spilled_results_and_clears_the_session(tmp
         await tape.record_chat(
             run_id="run-1",
             system_prompt=None,
-            new_messages=[{"role": "user", "content": "archive this"}],
+            new_messages=[republic.user("archive this")],
             response_text=None,
-            tool_calls=[{"id": "call-1", "type": "function", "function": {"name": "large", "arguments": "{}"}}],
+            tool_calls=[{"id": "call-1", "name": "large", "arguments": "{}"}],
             tool_results=execution.tool_results,
         )
 
@@ -366,7 +367,7 @@ async def test_code_mode_results_stay_structured_and_are_not_spilled(tmp_path: P
 @pytest.mark.parametrize("fails", [False, True])
 @pytest.mark.asyncio
 async def test_result_spill_requires_reader_in_current_model_tools(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fails: bool
+    tmp_path: Path, provider_transport: ProviderService, fails: bool
 ) -> None:
     class SpillPlugin:
         @hookimpl(trylast=True)
@@ -377,7 +378,7 @@ async def test_result_spill_requires_reader_in_current_model_tools(
     plugin_manager.add_hookspecs(BubHookSpecs)
     plugin_manager.register(SpillPlugin())
     runner = ModelRunner(
-        AgentSettings.model_construct(model="test-model", model_timeout_seconds=None),
+        AgentSettings(model="openai:test", client_args={"api_format": "chat"}),
         hooks=AgentHooks(HookRuntime(plugin_manager)),
     )
     output = "large output " * 2000
@@ -387,32 +388,8 @@ async def test_result_spill_requires_reader_in_current_model_tools(
             raise RuntimeError(output)
         return output
 
-    async def complete(**kwargs: Any) -> ChatCompletion:
-        return ChatCompletion.model_validate({
-            "id": "completion-1",
-            "object": "chat.completion",
-            "created": 0,
-            "model": "test-model",
-            "choices": [
-                {
-                    "index": 0,
-                    "finish_reason": "tool_calls",
-                    "message": {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [
-                            {
-                                "id": "call-large",
-                                "type": "function",
-                                "function": {"name": "large", "arguments": "{}"},
-                            }
-                        ],
-                    },
-                }
-            ],
-        })
-
-    monkeypatch.setattr(runner, "completion_response", complete)
+    for _ in range(3):
+        provider_transport.reply_chat(calls=[{"id": "call-large", "name": "large", "arguments": "{}"}])
     root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
     async with root.fork_tape() as tape:
         for reader_available in (False, True, False):
@@ -422,7 +399,7 @@ async def test_result_spill_requires_reader_in_current_model_tools(
             events = [
                 event
                 async for event in runner.run(
-                    tape=tape, model="test-model", tools=model_tools(tools), system_prompt=None, prompt="Run large."
+                    tape=tape, model="openai:test", tools=model_tools(tools), system_prompt=None, prompt="Run large."
                 )
             ]
             result = next(event.data["tool_results"][0] for event in events if event.kind == "tool_result")

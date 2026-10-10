@@ -6,10 +6,12 @@ import asyncio
 import importlib
 import json
 import os
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
+
+import republic
 
 if TYPE_CHECKING:
     import opentelemetry.trace as otel
@@ -70,7 +72,8 @@ def _json(value: Any) -> str:
 def _parts(message: Mapping[str, Any]) -> list[dict[str, Any]]:
     content = message.get("content")
     if message.get("role") == "tool":
-        return [{"type": "tool_call_response", "id": message.get("tool_call_id", ""), "response": content}]
+        call_id = message.get("tool_call_id") or (message.get("tool_call") or {}).get("id", "")
+        return [{"type": "tool_call_response", "id": call_id, "response": content}]
     parts: list[dict[str, Any]] = []
     if isinstance(content, str) and content:
         parts.append({"type": "text", "content": content})
@@ -82,15 +85,14 @@ def _parts(message: Mapping[str, Any]) -> list[dict[str, Any]]:
                 # Preserve media structure without copying inline binary payloads.
                 parts.append({"type": "text", "content": f"[{part.get('type', 'media')} omitted]"})
     for call in message.get("tool_calls") or []:
-        function = call.get("function", {})
-        arguments = function.get("arguments", {})
+        arguments = call.get("arguments", {})
         if isinstance(arguments, str):
             with suppress(ValueError):
                 arguments = json.loads(arguments)
         parts.append({
             "type": "tool_call",
             "id": call.get("id", ""),
-            "name": function.get("name", ""),
+            "name": call.get("name", ""),
             "arguments": arguments,
         })
     return parts
@@ -153,9 +155,10 @@ class Span:
         if self.recording:
             self._span.update_name(name)
 
-    def messages(self, key: str, messages: list[dict[str, Any]]) -> None:
+    def messages(self, key: str, messages: Sequence[Mapping[str, Any] | republic.Message]) -> None:
         if self.recording:
-            normalized = [{"role": m.get("role", "user"), "parts": _parts(m)} for m in messages]
+            dicts = [m.to_dict() if isinstance(m, republic.Message) else m for m in messages]
+            normalized = [{"role": m.get("role", "user"), "parts": _parts(m)} for m in dicts]
             direction = "input" if key == "gen_ai.input.messages" else "output"
             self.set(**{
                 key: _json(normalized),

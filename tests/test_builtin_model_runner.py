@@ -1,405 +1,465 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator
+import json
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Any
 
+import httpx2
 import pytest
-from any_llm.constants import LLMProvider
-from any_llm.providers.anthropic.base import BaseAnthropicProvider
-from any_llm.providers.openai.base import BaseOpenAIProvider
-from any_llm.types.completion import (
-    ChatCompletion,
-    ChatCompletionChunk,
-    ChatCompletionMessageFunctionToolCall,
-    Function,
-)
-from openai.types.chat.chat_completion_message_custom_tool_call import ChatCompletionMessageCustomToolCall, Custom
+import republic
+from republic.errors import APIStatusError, StreamIncompleteError
 
 from bub.builtin.context import default_tape_context
-from bub.builtin.model_runner import (
-    ModelRunner,
-    _adapt_messages_for_provider,
-    parse_native_function_call,
-    tool_invocation_from_native,
-)
-from bub.builtin.settings import AgentSettings, ModelCandidate
+from bub.builtin.model_runner import ModelRunner
+from bub.builtin.settings import AgentSettings
 from bub.errors import BubError, ErrorKind
-from bub.store import FileTapeStore
-from bub.tape import AsyncTapeStoreAdapter, InMemoryTapeStore, Tape, TapeContext
-from bub.tools import Tool, ToolExecutor
-
-
-@pytest.mark.parametrize("provider", [LLMProvider.GEMINI, LLMProvider.VERTEXAI])
-def test_adapt_messages_converts_video_url_for_google_providers(provider: LLMProvider) -> None:
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "describe this video"},
-                {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,dmlkZW8="}},
-                {"type": "input_audio", "input_audio": {"data": "YXVkaW8=", "format": "ogg"}},
-            ],
-        }
-    ]
-
-    result = _adapt_messages_for_provider(messages, provider)
-
-    assert result == [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "describe this video"},
-                {"type": "file", "file": {"file_data": "data:video/mp4;base64,dmlkZW8="}},
-                {"type": "file", "file": {"file_data": "data:audio/ogg;base64,YXVkaW8="}},
-            ],
-        }
-    ]
-    assert messages[0]["content"][1]["type"] == "video_url"
-
-
-def test_adapt_messages_keeps_native_multimodal_blocks_for_openrouter() -> None:
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,dmlkZW8="}},
-                {"type": "input_audio", "input_audio": {"data": "YXVkaW8=", "format": "ogg"}},
-            ],
-        }
-    ]
-
-    assert _adapt_messages_for_provider(messages, LLMProvider.OPENROUTER) is messages
+from bub.prompt import to_content
+from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
+from bub.tape import Tape, TapeContext, TapeEntry
+from bub.tools import Tool
+from tests.model_fakes import ProviderService, chat_events, sse, tool_events
 
 
 @pytest.mark.asyncio
-async def test_unknown_tool_placeholder_surfaces_error_without_hooks() -> None:
-    tool_call = ChatCompletionMessageFunctionToolCall(
-        id="call-1",
-        type="function",
-        function=Function(name="missing_tool", arguments="{}"),
-    )
-    invocation = tool_invocation_from_native(tool_call, {})
-
-    execution = await ToolExecutor().execute_async([invocation])
-
-    assert execution.error is not None
-    assert "missing_tool" in execution.error.message
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("streaming", [False, True])
-@pytest.mark.parametrize("content", [None, "", "Check byte equality.\nOnly exact equality counts."])
-@pytest.mark.parametrize("continuation_prompt", ["Continue.", "", None])
-async def test_tool_call_text_survives_into_next_request_after_tape_reload(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    streaming: bool,
-    content: str | None,
-    continuation_prompt: str | None,
+@pytest.mark.parametrize("outcome", ["success", "http_error", "incomplete"])
+async def test_model_call_closes_its_owned_client(
+    tmp_path: Path, provider_service: ProviderService, monkeypatch: pytest.MonkeyPatch, outcome: str
 ) -> None:
-    calls = [
-        {"id": f"call-{name}", "type": "function", "function": {"name": name, "arguments": "{}"}}
-        for name in ("inspect", "compare")
-    ]
-    response = BaseOpenAIProvider._convert_completion_response({
-        "id": "completion-1",
-        "object": "chat.completion",
-        "created": 0,
-        "model": "test-model",
-        "choices": [
-            {
-                "index": 0,
-                "finish_reason": "tool_calls",
-                "message": {"role": "assistant", "content": content, "tool_calls": calls},
-            }
-        ],
-    })
+    clients = []
+    constructor = httpx2.AsyncClient
 
-    async def stream() -> AsyncIterator[ChatCompletionChunk]:
-        deltas = [{"content": part} for part in (content or "").splitlines(keepends=True)]
-        deltas.append({"tool_calls": [{"index": index, **call} for index, call in enumerate(calls)]})
-        for delta in deltas:
-            yield ChatCompletionChunk.model_validate({
-                "id": "completion-1",
-                "object": "chat.completion.chunk",
-                "created": 0,
-                "model": "test-model",
-                "choices": [{"index": 0, "delta": delta}],
-            })
+    def create_client(**kwargs):
+        client = constructor(**kwargs, transport=httpx2.MockTransport(provider_service._respond))
+        clients.append(client)
+        return client
 
-    requests: list[list[dict[str, Any]]] = []
+    monkeypatch.setattr(httpx2, "AsyncClient", create_client)
+    error = None
+    if outcome == "http_error":
+        provider_service.reply(httpx2.Response(401, json={"error": "unauthorized"}))
+        error = APIStatusError
+    else:
+        provider_service.reply(sse(chat_events() if outcome == "success" else chat_events()[:-1]))
+        if outcome == "incomplete":
+            error = StreamIncompleteError
+    runner = ModelRunner(AgentSettings(client_args={"api_format": "chat", "max_retries": 0}))
+    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("owned")
+    with pytest.raises(error) if error is not None else nullcontext():
+        events = [
+            event
+            async for event in runner.run(tape=tape, model="openai:test", tools=[], system_prompt=None, prompt="hello")
+        ]
+        assert events[-1].data == {"ok": True, "text": "done"}
+    assert len(clients) == 1
+    assert clients[0].is_closed
 
-    async def complete(**kwargs: Any) -> ChatCompletion | AsyncIterator[ChatCompletionChunk]:
-        requests.append(kwargs["messages"])
-        return stream() if streaming else response
 
-    runner = ModelRunner(AgentSettings.model_construct(model="test-model", model_timeout_seconds=None))
-    monkeypatch.setattr(runner, "completion_response", complete)
+@pytest.mark.asyncio
+async def test_unknown_tool_returns_an_error_result(tmp_path: Path, provider_service: ProviderService) -> None:
+    provider_service.reply(
+        sse(
+            tool_events([
+                {"index": 0, "id": "call-1", "function": {"name": "missing_tool", "arguments": "{}"}},
+            ])
+        )
+    )
+    async with provider_service.client() as client:
+        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("unknown")
+        events = [
+            event
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("Run the tool.")
+            )
+        ]
+    result = next(event.data["tool_results"][0] for event in events if event.kind == "tool_result")
+    assert result["kind"] == "tool"
+    assert "missing_tool" in result["message"]
+    assert events[-1].kind == "final"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["", "Check byte equality.\nOnly exact equality counts."])
+@pytest.mark.parametrize("continuation_prompt", ["Continue.", "", None])
+async def test_tool_turn_replays_after_tape_reload(
+    tmp_path: Path, provider_service: ProviderService, content: str, continuation_prompt: str | None
+) -> None:
+    provider_service.reply(
+        sse(
+            tool_events(
+                [
+                    {"index": index, "id": f"call-{name}", "function": {"name": name, "arguments": "{}"}}
+                    for index, name in enumerate(("inspect", "compare"))
+                ],
+                text=content,
+            )
+        )
+    )
+    provider_service.reply(sse(chat_events("Compared.")))
     tools = [Tool(name="inspect", handler=lambda: "files found"), Tool(name="compare", handler=lambda: "bytes differ")]
-    root = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("test-tape")
-    async with root.fork_tape() as tape:
+    async with provider_service.client() as client:
+        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        root = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("turn")
+        async with root.fork_tape() as tape:
+            await tape.ensure_bootstrap_anchor()
+            events = [
+                event
+                async for event in runner.run(
+                    tape=tape,
+                    model="openai:test",
+                    tools=tools,
+                    system_prompt=None,
+                    prompt=to_content("Compare the outputs."),
+                )
+            ]
+        reopened = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("turn")
+        follow_up = [
+            event
+            async for event in runner.run(
+                tape=reopened,
+                model="openai:test",
+                tools=tools,
+                system_prompt=None,
+                prompt=None if continuation_prompt is None else to_content(continuation_prompt),
+            )
+        ]
+    assert next(event.data["tool_results"] for event in events if event.kind == "tool_result") == [
+        "files found",
+        "bytes differ",
+    ]
+    messages = provider_service.body()["messages"]
+    users = [message["content"] for message in messages if message["role"] == "user"]
+    assert users == ["Compare the outputs.", *([continuation_prompt] if continuation_prompt is not None else [])]
+    assistant = next(message for message in messages if message["role"] == "assistant")
+    assert (assistant.get("content") or "") == content
+    assert {call["id"]: call["function"]["name"] for call in assistant["tool_calls"]} == {
+        "call-inspect": "inspect",
+        "call-compare": "compare",
+    }
+    assert {message["tool_call_id"]: message["content"] for message in messages if message["role"] == "tool"} == {
+        "call-inspect": "files found",
+        "call-compare": "bytes differ",
+    }
+    assert follow_up[-1].data == {"ok": True, "text": "Compared."}
+
+
+@pytest.mark.asyncio
+async def test_continuation_sends_steering_without_a_prompt(tmp_path: Path, provider_service: ProviderService) -> None:
+    provider_service.reply(sse(chat_events()))
+    async with provider_service.client() as client:
+        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context()).scoped("steering")
         await tape.ensure_bootstrap_anchor()
         events = [
             event
             async for event in runner.run(
-                tape=tape, model="test-model", tools=tools, system_prompt=None, prompt="Compare the outputs."
+                tape=tape,
+                model="openai:test",
+                tools=[],
+                system_prompt=None,
+                prompt=None,
+                steering_messages=[["new user direction"]],
             )
         ]
-
-    reloaded = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped(
-        "test-tape"
-    )
-    async for _ in runner.run(
-        tape=reloaded, model="test-model", tools=tools, system_prompt=None, prompt=continuation_prompt
-    ):
-        pass
-
-    assert "".join(event.data["delta"] for event in events if event.kind == "text") == (content or "")
-    expected_messages = [
-        {"role": "user", "content": "Compare the outputs."},
-        {"role": "assistant", "content": content or "", "tool_calls": calls},
-        {"role": "tool", "content": "files found", "tool_call_id": "call-inspect", "name": "inspect"},
-        {"role": "tool", "content": "bytes differ", "tool_call_id": "call-compare", "name": "compare"},
-    ]
-    if continuation_prompt is not None:
-        expected_messages.append({"role": "user", "content": continuation_prompt})
-    assert requests[1] == expected_messages
-    if continuation_prompt is None:
-        persisted = await reloaded.store.fetch_all(reloaded.query().kinds("message"))
-        assert [entry.payload for entry in persisted if entry.payload.get("role") == "user"] == [
-            {"role": "user", "content": "Compare the outputs."}
-        ]
+    assert provider_service.body()["messages"] == [{"role": "user", "content": "new user direction"}]
+    assert events[-1].data == {"ok": True, "text": "done"}
+    assert republic.user("new user direction") in await tape.read_messages()
 
 
 @pytest.mark.asyncio
-async def test_build_messages_keeps_steering_when_continuation_has_no_prompt(tmp_path: Path) -> None:
-    runner = ModelRunner(AgentSettings.model_construct(model="test-model"))
-    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context()).scoped("steering")
-    await tape.ensure_bootstrap_anchor()
+async def test_tool_result_without_its_call_in_context_is_still_sent(
+    tmp_path: Path, provider_service: ProviderService
+) -> None:
+    provider_service.reply(sse(chat_events()))
+    async with provider_service.client() as client:
+        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("orphan")
+        await tape.store.append(
+            tape.name,
+            TapeEntry.message({"role": "tool", "tool_call_id": "call-1", "name": "inspect", "content": "Ready"}),
+        )
+        events = [
+            event
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=[], system_prompt="Be brief.", prompt=to_content("Continue.")
+            )
+        ]
+    messages = provider_service.body()["messages"]
+    assert messages[0] == {"role": "system", "content": "Be brief."}
+    assert messages[1]["tool_calls"][0]["id"] == "call-1"
+    assert messages[1]["tool_calls"][0]["function"]["name"] == "inspect"
+    assert messages[2] == {"role": "tool", "tool_call_id": "call-1", "content": "Ready"}
+    assert events[-1].data == {"ok": True, "text": "done"}
 
-    messages, new_messages = await runner.build_messages(
-        tape=tape,
-        run_id="run-1",
-        system_prompt=None,
-        prompt=None,
-        model="test-model",
-        steering_messages=["new user direction"],
-    )
 
-    assert messages == new_messages == [{"role": "user", "content": "new user direction"}]
-
-
+@pytest.mark.asyncio
 @pytest.mark.parametrize("arguments", ["[]", "null", "1", "not json"])
-def test_function_tool_call_rejects_non_object_arguments(arguments: str) -> None:
-    call = ChatCompletionMessageFunctionToolCall(
-        id="call-1", type="function", function=Function(name="inspect", arguments=arguments)
+async def test_invalid_tool_arguments_do_not_execute_the_handler(
+    tmp_path: Path, provider_service: ProviderService, arguments: str
+) -> None:
+    provider_service.reply(
+        sse(tool_events([{"index": 0, "id": "call-1", "function": {"name": "inspect", "arguments": arguments}}]))
     )
+    invoked = []
+    async with provider_service.client() as client:
+        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("invalid")
+        with pytest.raises(BubError) as exc:
+            _ = [
+                event
+                async for event in runner.run(
+                    tape=tape,
+                    model="openai:test",
+                    tools=[Tool(name="inspect", handler=lambda: invoked.append(True))],
+                    system_prompt=None,
+                    prompt=to_content("Inspect."),
+                )
+            ]
+    assert exc.value.kind == ErrorKind.INVALID_INPUT
+    assert not invoked
+    assert not await tape.store.fetch_all(tape.query().kinds("tool_result"))
 
-    with pytest.raises(BubError) as exc_info:
-        parse_native_function_call(call)
 
-    assert exc_info.value.kind == ErrorKind.INVALID_INPUT
+@pytest.mark.asyncio
+async def test_streaming_reports_usage_and_records_it_in_tape(
+    tmp_path: Path, provider_service: ProviderService
+) -> None:
+    provider_service.reply(sse(chat_events()))
+    async with provider_service.client() as client:
+        runner = ModelRunner(AgentSettings(max_tokens=100, client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("usage")
+        events = [
+            event
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("hello")
+            )
+        ]
+    assert provider_service.body()["stream_options"] == {"include_usage": True}
+    usage = next(event.data for event in events if event.kind == "usage")
+    assert usage["usage"]["input_tokens"] == 3
+    assert usage["usage"]["output_tokens"] == 2
+    assert usage["usage"]["total_tokens"] == 5
+    assert usage["elapsed_seconds"] >= 0
+    assert events[-1].data == {"ok": True, "text": "done"}
+    assert (await tape.info()).last_token_usage == 5
 
 
-def test_custom_tool_call_is_not_treated_as_a_function_call() -> None:
-    call = ChatCompletionMessageCustomToolCall(
-        id="call-1", type="custom", custom=Custom(name="inspect", input="raw input")
+@pytest.mark.asyncio
+async def test_anthropic_request_enables_caching_and_generation_options(
+    tmp_path: Path, provider_service: ProviderService
+) -> None:
+    provider_service.reply(
+        sse([
+            {"type": "message_start", "message": {"id": "test", "usage": {}}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "done"}},
+            {"type": "message_stop"},
+        ])
     )
+    async with provider_service.client() as client:
+        runner = ModelRunner(
+            AgentSettings(max_tokens=100, client_args={"http_client": client}, completion_args={"temperature": 0.2})
+        )
+        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("cache")
+        events = [
+            event
+            async for event in runner.run(
+                tape=tape, model="anthropic:test", tools=[], system_prompt=None, prompt=to_content("hello")
+            )
+        ]
+    assert provider_service.body()["cache_control"] == {"type": "ephemeral"}
+    assert provider_service.body()["temperature"] == 0.2
+    assert provider_service.body()["max_tokens"] == 100
+    assert events[-1].data == {"ok": True, "text": "done"}
 
-    with pytest.raises(BubError) as exc_info:
-        parse_native_function_call(call)
 
-    assert exc_info.value.kind == ErrorKind.INVALID_INPUT
+@pytest.mark.asyncio
+async def test_session_reasoning_and_runtime_options_override_completion_defaults(
+    tmp_path: Path, provider_service: ProviderService
+) -> None:
+    provider_service.reply(sse(chat_events()))
+    async with provider_service.client() as client:
+        runner = ModelRunner(
+            AgentSettings(
+                client_args={
+                    "http_client": client,
+                    "api_format": "chat",
+                    "extra_body": {"metadata": {"client": True}},
+                },
+                completion_args={
+                    "reasoning_effort": "low",
+                    "tools": [republic.Tool("ignored")],
+                    "max_tokens": 1,
+                    "extra_body": {"metadata": {"request": True}},
+                },
+            )
+        )
+        tape = Tape(
+            tmp_path,
+            AsyncTapeStoreAdapter(InMemoryTapeStore()),
+            TapeContext(anchor=None, state={"reasoning_effort": "high"}),
+        ).scoped("reasoning")
+        _ = [
+            event
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("hello")
+            )
+        ]
+    request = provider_service.body()
+    assert request["reasoning_effort"] == "high"
+    assert request["model"] == "test"
+    assert request["messages"] == [{"role": "user", "content": "hello"}]
+    assert request["max_completion_tokens"] == 16384
+    assert request["stream"] is True
+    assert "tools" not in request
+    assert request["metadata"] == {"client": True, "request": True}
 
 
-class _FakeStreamingOpenAIProvider(BaseOpenAIProvider):
-    SUPPORTS_COMPLETION_STREAMING = True
+@pytest.mark.asyncio
+@pytest.mark.parametrize("request_reasoning", [None, "medium"])
+async def test_wire_reasoning_follows_republic_extra_body_precedence(
+    tmp_path: Path, provider_service: ProviderService, request_reasoning: str | None
+) -> None:
+    provider_service.reply(sse(chat_events()))
+    async with provider_service.client() as client:
+        runner = ModelRunner(
+            AgentSettings(
+                client_args={"http_client": client, "api_format": "chat", "extra_body": {"reasoning_effort": "low"}},
+                completion_args={"extra_body": {"reasoning_effort": request_reasoning} if request_reasoning else {}},
+            )
+        )
+        tape = Tape(
+            tmp_path,
+            AsyncTapeStoreAdapter(InMemoryTapeStore()),
+            TapeContext(anchor=None, state={"reasoning_effort": "high"}),
+        ).scoped("wire-reasoning")
+        _ = [
+            event
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("hello")
+            )
+        ]
+    assert provider_service.body()["reasoning_effort"] == (request_reasoning or "low")
 
-    def __init__(self) -> None:
-        self.completion_kwargs: dict[str, Any] | None = None
 
-    async def acompletion(self, **kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:
-        self.completion_kwargs = kwargs
-        include_usage = kwargs.get("stream_options") == {"include_usage": True}
-
-        async def stream() -> AsyncIterator[ChatCompletionChunk]:
-            yield ChatCompletionChunk.model_validate({
-                "id": "chatcmpl_test",
-                "object": "chat.completion.chunk",
-                "created": 0,
-                "model": "gpt-test",
+@pytest.mark.asyncio
+async def test_truncated_stream_never_executes_tools(tmp_path: Path, provider_service: ProviderService) -> None:
+    provider_service.reply(
+        sse([
+            {
                 "choices": [
                     {
-                        "index": 0,
-                        "finish_reason": None,
-                        "delta": {"role": "assistant", "content": "done"},
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "id": "call-1", "function": {"name": "echo", "arguments": "{}"}}
+                            ]
+                        }
                     }
-                ],
-            })
-            final_chunk: dict[str, Any] = {
-                "id": "chatcmpl_test",
-                "object": "chat.completion.chunk",
-                "created": 0,
-                "model": "gpt-test",
-                "choices": [],
+                ]
             }
-            if include_usage:
-                final_chunk["usage"] = {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
-            yield ChatCompletionChunk.model_validate(final_chunk)
-
-        return stream()
-
-
-class _FakeStreamingAnthropicProvider(BaseAnthropicProvider):
-    def __init__(self) -> None:
-        self.completion_kwargs: dict[str, Any] | None = None
-
-    def _init_client(self, api_key: str | None = None, api_base: str | None = None, **kwargs: Any) -> None:
-        pass
-
-    async def acompletion(self, **kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:
-        self.completion_kwargs = kwargs
-
-        async def stream() -> AsyncIterator[ChatCompletionChunk]:
-            if False:
-                yield
-
-        return stream()
-
-
-class _FakeOpenAIModelRunner(ModelRunner):
-    def __init__(self, settings: AgentSettings, llm: _FakeStreamingOpenAIProvider) -> None:
-        super().__init__(settings)
-        self._llm = llm
-
-    def iter_llm_clients(self, model: str) -> Iterator[tuple[ModelCandidate, _FakeStreamingOpenAIProvider]]:
-        yield ModelCandidate(provider=LLMProvider.OPENAI, model_id=model, name=f"openai:{model}"), self._llm
-
-
-class _FakeAnthropicModelRunner(ModelRunner):
-    def __init__(self, settings: AgentSettings, llm: _FakeStreamingAnthropicProvider) -> None:
-        super().__init__(settings)
-        self._llm = llm
-
-    def iter_llm_clients(self, model: str) -> Iterator[tuple[ModelCandidate, _FakeStreamingAnthropicProvider]]:
-        yield ModelCandidate(provider=LLMProvider.ANTHROPIC, model_id=model, name=f"anthropic:{model}"), self._llm
+        ])
+    )
+    invoked = []
+    async with provider_service.client() as client:
+        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("truncated")
+        with pytest.raises(republic.errors.StreamIncompleteError):
+            _ = [
+                event
+                async for event in runner.run(
+                    tape=tape,
+                    model="openai:test",
+                    tools=[Tool(name="echo", handler=lambda: invoked.append(True))],
+                    system_prompt=None,
+                    prompt=to_content("hello"),
+                )
+            ]
+    assert not invoked
+    assert not await tape.store.fetch_all(tape.query().kinds("tool_call", "tool_result"))
 
 
 @pytest.mark.asyncio
-async def test_streaming_openai_usage_is_requested_and_recorded_in_tape(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("next_model", ["google:model-one", "google:model-two", "openai:model-one"])
+async def test_provider_state_is_replayed_only_to_its_api_format_after_reload(
+    tmp_path: Path, provider_service: ProviderService, next_model: str
 ) -> None:
-    clock = iter([10.0, 12.0])
-    monkeypatch.setattr("bub.builtin.model_runner.monotonic", lambda: next(clock))
-    store = InMemoryTapeStore()
-    tape = Tape(tmp_path, AsyncTapeStoreAdapter(store), TapeContext()).scoped("test-tape")
-    llm = _FakeStreamingOpenAIProvider()
-    runner = _FakeOpenAIModelRunner(
-        AgentSettings.model_construct(model="openai:gpt-test", max_tokens=100, model_timeout_seconds=None),
-        llm,
-    )
-
-    await tape.ensure_bootstrap_anchor()
-    events = [
-        event async for event in runner.run(tape=tape, model="gpt-test", tools=[], system_prompt=None, prompt="hello")
-    ]
-
-    assert llm.completion_kwargs is not None
-    assert llm.completion_kwargs["stream"] is True
-    assert llm.completion_kwargs["stream_options"] == {"include_usage": True}
-    assert [(event.kind, event.data) for event in events] == [
-        ("text", {"delta": "done"}),
-        (
-            "usage",
+    opaque = {"executableCode": {"language": "PYTHON", "code": "1 + 1"}}
+    provider_service.reply(
+        sse([
             {
-                "usage": {"completion_tokens": 2, "prompt_tokens": 3, "total_tokens": 5},
-                "elapsed_seconds": 2.0,
-            },
-        ),
-        ("final", {"ok": True, "text": "done"}),
-    ]
-    run_events = [
-        entry for entry in store.read("test-tape") or [] if entry.kind == "event" and entry.payload.get("name") == "run"
-    ]
-    assert len(run_events) == 1
-    assert run_events[0].payload["data"]["usage"] == {
-        "completion_tokens": 2,
-        "prompt_tokens": 3,
-        "total_tokens": 5,
-    }
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                opaque,
+                                {
+                                    "functionCall": {"id": "call-1", "name": "lookup", "args": {}},
+                                    "thoughtSignature": "signature",
+                                },
+                            ]
+                        },
+                        "finishReason": "STOP",
+                    }
+                ]
+            }
+        ])
+    )
+    provider_service.reply(
+        sse(
+            chat_events()
+            if next_model.startswith("openai:")
+            else [{"candidates": [{"content": {"parts": [{"text": "done"}]}, "finishReason": "STOP"}]}]
+        )
+    )
+    async with provider_service.client() as client:
+        runner = ModelRunner(AgentSettings(client_args={"http_client": client}))
+        tape = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("metadata")
+        await tape.ensure_bootstrap_anchor()
+        tools = [Tool(name="lookup", handler=lambda: "lookup result")]
+        _ = [
+            event
+            async for event in runner.run(
+                tape=tape, model="google:model-one", tools=tools, system_prompt=None, prompt=to_content("lookup")
+            )
+        ]
+        reopened = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped(
+            "metadata"
+        )
+        if next_model.startswith("openai:"):
+            runner.settings.client_args["api_format"] = "chat"
+        events = [
+            event
+            async for event in runner.run(
+                tape=reopened, model=next_model, tools=tools, system_prompt=None, prompt=to_content("Continue.")
+            )
+        ]
+    request = json.dumps(provider_service.body())
+    assert "lookup result" in request
+    assert ("signature" in request) is next_model.startswith("google:")
+    assert ("executableCode" in request) is next_model.startswith("google:")
+    assert events[-1].data == {"ok": True, "text": "done"}
 
 
 @pytest.mark.asyncio
-async def test_anthropic_prompt_caching_is_requested() -> None:
-    llm = _FakeStreamingAnthropicProvider()
-    runner = _FakeAnthropicModelRunner(
-        AgentSettings.model_construct(model="anthropic:claude-test", max_tokens=100),
-        llm,
+async def test_named_tool_choice_is_sent_to_anthropic(tmp_path: Path, provider_service: ProviderService) -> None:
+    provider_service.reply(
+        sse([
+            {"type": "message_start", "message": {"id": "test", "usage": {}}},
+            {"type": "message_stop"},
+        ])
     )
-
-    await runner.completion_response(model="claude-test", messages=[{"role": "user", "content": "hello"}], tools=[])
-
-    assert llm.completion_kwargs is not None
-    assert llm.completion_kwargs["stream"] is True
-    assert llm.completion_kwargs["cache_control"] == {"type": "ephemeral"}
-    assert "stream_options" not in llm.completion_kwargs
-
-
-@pytest.mark.asyncio
-async def test_run_applies_reasoning_effort_from_tape_state(tmp_path: Path) -> None:
-    tape = Tape(
-        tmp_path,
-        AsyncTapeStoreAdapter(InMemoryTapeStore()),
-        TapeContext(state={"reasoning_effort": "high"}),
-    ).scoped("test-tape")
-    llm = _FakeStreamingOpenAIProvider()
-    runner = _FakeOpenAIModelRunner(
-        AgentSettings.model_construct(
-            model="openai:gpt-test",
-            max_tokens=100,
-            model_timeout_seconds=None,
-            completion_args={"reasoning_effort": "low"},
-        ),
-        llm,
-    )
-
-    await tape.ensure_bootstrap_anchor()
-    events = runner.run(tape=tape, model="gpt-test", tools=[], system_prompt=None, prompt="hello")
-    [event async for event in events]
-
-    assert llm.completion_kwargs is not None
-    assert llm.completion_kwargs["reasoning_effort"] == "high"
-
-
-@pytest.mark.asyncio
-async def test_completion_args_are_forwarded_without_overriding_managed_args() -> None:
-    llm = _FakeStreamingOpenAIProvider()
-    runner = _FakeOpenAIModelRunner(
-        AgentSettings.model_construct(
-            model="openai:gpt-test",
-            max_tokens=100,
-            completion_args={
-                "reasoning_effort": "high",
-                "model": "ignored-model",
-                "max_tokens": 1,
-                "stream": False,
-                "stream_options": {"include_usage": False},
-            },
-        ),
-        llm,
-    )
-
-    await runner.completion_response(
-        model="gpt-test",
-        messages=[{"role": "user", "content": "hello"}],
-        tools=[],
-        max_tokens=42,
-    )
-
-    assert llm.completion_kwargs is not None
-    assert llm.completion_kwargs["reasoning_effort"] == "high"
-    assert llm.completion_kwargs["model"] == "gpt-test"
-    assert llm.completion_kwargs["max_tokens"] == 42
-    assert llm.completion_kwargs["stream"] is True
-    assert llm.completion_kwargs["stream_options"] == {"include_usage": True}
+    async with provider_service.client() as client:
+        runner = ModelRunner(
+            AgentSettings(client_args={"http_client": client}, completion_args={"tool_choice": republic.Tool("echo")})
+        )
+        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("choice")
+        _ = [
+            event
+            async for event in runner.run(
+                tape=tape,
+                model="anthropic:test",
+                tools=[Tool(name="echo", handler=lambda: "done")],
+                system_prompt=None,
+                prompt=to_content("hello"),
+            )
+        ]
+    assert provider_service.body()["tool_choice"] == {"type": "tool", "name": "echo"}

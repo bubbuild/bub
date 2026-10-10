@@ -3,32 +3,29 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-import os
 from typing import Any
 from urllib.parse import urlsplit
 
+import republic
 import typer
-from any_llm import AnyLLM
-from any_llm.exceptions import AuthenticationError, MissingApiKeyError, UnsupportedProviderError
+from republic.errors import APITimeoutError, AuthenticationError, ProviderNotFoundError, UnsupportedFeatureError
 
 from bub import configure, inquirer
-from bub.builtin.codex_provider import should_use_openai_codex_provider
-from bub.builtin.settings import DEFAULT_MODEL, AgentSettings
+from bub.builtin.settings import DEFAULT_MODEL, AgentSettings, CustomProvider
 
 PROVIDERS = {
     "openrouter": "OpenRouter (hosted model gateway)",
     "openai": "OpenAI (official API)",
     "openai-compatible": "OpenAI-compatible (custom URL / local server)",
     "anthropic": "Anthropic (Claude API)",
-    "gemini": "Google Gemini (native API)",
-    "azure": "Azure AI (Azure endpoint)",
-    "bedrock": "Amazon Bedrock (AWS)",
+    "google": "Google Gemini (native API)",
+    "codex": "Codex (ChatGPT plan login)",
+    "azure-openai": "Azure OpenAI (Azure endpoint)",
     "ollama": "Ollama (local server)",
-    "groq": "Groq",
     "mistral": "Mistral AI",
     "deepseek": "DeepSeek",
-    "custom": "Other provider (SDK provider name)",
+    "magpie": "Magpie (local model gateway)",
+    "custom": "Other registered Republic provider",
 }
 OPENAI_BASE = "https://api.openai.com/v1"
 CONNECTION_TIMEOUT = 10
@@ -37,31 +34,12 @@ EDIT_CONNECTION = "Edit URL / API key"
 RETRY_CONNECTION = "Retry connection"
 
 
-def _provider_class(provider: str) -> type[AnyLLM] | None:
-    try:
-        return AnyLLM.get_provider_class(provider)
-    except (ImportError, UnsupportedProviderError):
-        return None
-
-
 def _default_base(provider: str) -> str:
-    provider_class = _provider_class(provider)
-    if provider_class is None:
+    try:
+        client = republic.get_provider(provider, api_key="display-only", api_base="", env_prefix="BUB_DISPLAY_ONLY")
+    except (AuthenticationError, ProviderNotFoundError, ValueError):
         return ""
-    env_name = provider_class.ENV_API_BASE_NAME
-    return (
-        (os.getenv(env_name) if env_name else None)
-        or provider_class.API_BASE
-        or ("http://localhost:11434" if provider == "ollama" else "")
-    )
-
-
-def _has_environment_key(provider: str) -> bool:
-    if AgentSettings().model_client_kwargs(provider)["api_key"]:
-        return True
-    provider_class = _provider_class(provider)
-    names = (provider_class.ENV_API_KEY_NAME or "").split("/") if provider_class else []
-    return any(os.getenv(name) for name in names)
+    return client.api_base
 
 
 def _endpoint(provider: str, api_base: str | None) -> str:
@@ -98,20 +76,9 @@ def _ask_base(default: str, *, required: bool) -> str:
 
 
 async def _discover_models(provider: str, **client_args: Any) -> list[str]:
-    async with asyncio.timeout(CONNECTION_TIMEOUT):
-        if not AnyLLM.get_provider_class(provider).SUPPORTS_LIST_MODELS:
-            raise NotImplementedError
-        llm = AnyLLM.create(provider, **client_args)
-        try:
-            models = await llm.alist_models()
-            return sorted({model.id.strip() for model in models if isinstance(model.id, str) and model.id.strip()})
-        finally:
-            client = getattr(llm, "client", None)
-            close = getattr(client, "aclose", None) or getattr(client, "close", None)
-            if callable(close):
-                result = close()
-                if inspect.isawaitable(result):
-                    await result
+    async with republic.get_provider(provider, **{**client_args, "timeout": CONNECTION_TIMEOUT}) as client:
+        models = await client.list_models()
+    return sorted({model.id.strip() for model in models if isinstance(model.id, str) and model.id.strip()})
 
 
 def discover_models(provider: str, **client_args: Any) -> list[str]:
@@ -120,16 +87,14 @@ def discover_models(provider: str, **client_args: Any) -> list[str]:
 
 
 def _connection_error(exc: Exception) -> str:
-    # SDK errors may contain request URLs, response bodies or credentials.
-    if isinstance(exc, AuthenticationError | MissingApiKeyError):
+    # Provider errors may contain request URLs, response bodies or credentials.
+    if isinstance(exc, AuthenticationError):
         return "Authentication failed or API key missing. Check the key and its permissions."
-    if isinstance(exc, TimeoutError):
+    if isinstance(exc, TimeoutError | APITimeoutError):
         return f"Connection timed out after {CONNECTION_TIMEOUT} seconds. Check the URL and network."
-    if isinstance(exc, NotImplementedError | UnsupportedProviderError):
+    if isinstance(exc, NotImplementedError | UnsupportedFeatureError | ProviderNotFoundError):
         return "Model discovery is unavailable for this provider. You can enter a model ID manually."
-    if isinstance(exc, ImportError):
-        return "The provider SDK is not installed. Install its dependencies or enter a model ID manually."
-    status = getattr(exc, "status_code", None) or getattr(getattr(exc, "original_exception", None), "status_code", None)
+    status = getattr(exc, "status_code", None)
     if status in {401, 403}:
         return f"Authentication rejected (HTTP {status}). Check the API key and its permissions."
     if status == 404:
@@ -151,9 +116,13 @@ def _choose_model(models: list[str], default: str) -> str:
 
 
 def _connection_config(
-    current_config: dict[str, object], provider: str, api_base: str, api_key: str
+    current_config: dict[str, object], provider: str, api_base: str, api_key: str, api_format: str | None
 ) -> dict[str, object]:
+    if isinstance(named := current_config.get("providers"), dict) and provider in named:
+        return {"providers": {provider: {"api_base": api_base or None, "api_key": api_key or None}}}
     config: dict[str, object] = {}
+    if api_format is not None:
+        config["client_args"] = {**AgentSettings.model_validate(current_config).client_args, "api_format": api_format}
     for name, value in (("api_base", api_base), ("api_key", api_key)):
         existing = current_config.get(name)
         if isinstance(existing, dict):
@@ -167,12 +136,15 @@ def _connection_config(
 
 def _select_connection(
     current_config: dict[str, object], current_provider: str, current_endpoint: str
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, str | None]:
     choice = (
         "openai-compatible" if current_provider == "openai" and current_endpoint != OPENAI_BASE else current_provider
     )
     choices = dict(PROVIDERS)
     choices.setdefault(choice, choice)
+    for registered in republic.all_providers():
+        if registered != "typesafe":
+            choices.setdefault(registered, registered)
     selected = inquirer.ask_fuzzy("LLM provider", choices=list(choices.values()), default=choices[choice])
     choice = next((name for name, label in choices.items() if label == selected), selected)
     provider = "openai" if choice == "openai-compatible" else choice
@@ -186,10 +158,13 @@ def _select_connection(
         for name in ("api_base", "api_key")
         if isinstance(value := current_config.get(name), dict) or provider == current_provider
     }
-    stored = AgentSettings.model_construct(
-        api_base=explicit.get("api_base"), api_key=explicit.get("api_key")
-    ).model_client_kwargs(provider)
-    api_base, api_key = stored["api_base"] or "", stored["api_key"] or ""
+    stored = AgentSettings.model_construct(api_base=explicit.get("api_base"), api_key=explicit.get("api_key"))
+    api_base = AgentSettings._provider_value(stored.api_base, provider) or ""
+    api_key = AgentSettings._provider_value(stored.api_key, provider) or ""
+    if isinstance(named := current_config.get("providers"), dict) and provider in named:
+        custom = CustomProvider.model_validate(named[provider])
+        api_base = custom.api_base or api_base
+        api_key = custom.api_key or api_key
     previous_endpoint = _endpoint(provider, api_base)
     if choice == "openai" and previous_endpoint != OPENAI_BASE:
         api_base = OPENAI_BASE
@@ -197,35 +172,33 @@ def _select_connection(
         typer.echo(f"API endpoint: {endpoint}" if api_base else f"Default API endpoint: {endpoint}")
     if (
         choice in {"openai-compatible", "custom"}
-        or provider in {"azure", "ollama"}
+        or provider in {"azure-openai", "ollama", "magpie"}
         or (choice != "openai" and api_base and _endpoint(provider, api_base) != _default_base(provider).rstrip("/"))
     ):
-        api_base = _ask_base(api_base, required=choice == "openai-compatible" or provider == "azure")
+        api_base = _ask_base(api_base, required=choice == "openai-compatible" or provider == "azure-openai")
     if _endpoint(provider, api_base) != previous_endpoint:
         api_key = ""
-    return provider, api_base, api_key
+    return provider, api_base, api_key, "chat" if choice == "openai-compatible" else None
 
 
-def _ask_key(provider: str, api_base: str, api_key: str) -> str:
+def _ask_key(api_key: str) -> str:
     prompt = "API key (Enter to keep current key)" if api_key else "API key (optional)"
     api_key = inquirer.ask_secret(prompt).strip() or api_key
-    if (
-        provider == "openai"
-        and api_base
-        and api_base.rstrip("/") != OPENAI_BASE
-        and not api_key
-        and not _has_environment_key(provider)
-    ):
-        # The OpenAI SDK requires a nonempty key even for servers without auth.
-        return "not-required"
     return api_key
 
 
 def _configure_connection(
-    current_config: dict[str, object], provider: str, api_base: str, api_key: str, model_default: str
+    current_config: dict[str, object],
+    provider: str,
+    api_base: str,
+    api_key: str,
+    model_default: str,
+    api_format: str | None,
 ) -> dict[str, object]:
     action = ""
     models: list[str] = []
+    settings = AgentSettings.model_validate(current_config)
+    provider_type = settings.providers[provider].type if provider in settings.providers else provider
     typer.echo("Leave the API key blank to keep the current key or use environment credentials.")
     while action != MANUAL_MODEL:
         if action == EDIT_CONNECTION:
@@ -234,21 +207,20 @@ def _configure_connection(
             if _endpoint(provider, api_base) != previous_endpoint:
                 api_key = model_default = ""
         if action != RETRY_CONNECTION:
-            api_key = _ask_key(provider, api_base, api_key)
-            config = _connection_config(current_config, provider, api_base, api_key)
+            api_key = _ask_key(api_key) if provider_type != "codex" else ""
+            config = _connection_config(current_config, provider, api_base, api_key, api_format)
             settings = AgentSettings.model_validate(configure.merge({}, current_config, config))
             client_args = settings.model_client_kwargs(provider)
+            provider_type = settings.providers[provider].type if provider in settings.providers else provider
             if (client_args["api_base"] or "", client_args["api_key"] or "") != (api_base, api_key):
                 typer.echo("BUB_* environment settings override this connection's URL or API key.")
-        if should_use_openai_codex_provider(
-            provider, model_default, api_key=client_args["api_key"], api_base=client_args["api_base"]
-        ):
-            typer.echo("Using OpenAI OAuth login. Model discovery is unavailable; enter a model ID manually.")
+        if provider_type == "codex":
+            typer.echo("Using Codex account login. Model discovery is unavailable; enter a model ID manually.")
             break
         typer.echo("Checking connection and fetching models...")
         try:
-            models = discover_models(provider, **client_args)
-        except (NotImplementedError, UnsupportedProviderError) as exc:
+            models = discover_models(provider_type, **client_args)
+        except (NotImplementedError, UnsupportedFeatureError, ProviderNotFoundError) as exc:
             typer.secho(_connection_error(exc), fg="yellow")
             break
         except Exception as exc:
@@ -271,8 +243,9 @@ def collect_model_config(current_config: dict[str, object]) -> dict[str, object]
     if not separator:
         current_provider, _, fallback = DEFAULT_MODEL.partition(":")
         model_default = settings.model.strip() or fallback
+    current_provider = current_provider.lower()
     current_endpoint = _endpoint(current_provider, settings.model_client_kwargs(current_provider)["api_base"])
-    provider, api_base, api_key = _select_connection(current_config, current_provider, current_endpoint)
+    provider, api_base, api_key, api_format = _select_connection(current_config, current_provider, current_endpoint)
     if (provider, _endpoint(provider, api_base)) != (current_provider, current_endpoint):
         model_default = ""
-    return _configure_connection(current_config, provider, api_base, api_key, model_default)
+    return _configure_connection(current_config, provider, api_base, api_key, model_default, api_format)

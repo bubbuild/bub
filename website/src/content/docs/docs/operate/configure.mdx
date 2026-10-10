@@ -13,16 +13,16 @@ Bub reads its own configuration from these places, in order of precedence (highe
 2. `.env` values loaded during CLI startup or by settings classes that explicitly declare `env_file=".env"`.
 3. `~/.bub/config.yml` (created by `bub onboard`).
 
-Downstream model SDKs may still read their own provider variables, such as `OPENROUTER_API_KEY`, when no explicit `BUB_API_KEY` is supplied. Bub's settings layer only maps `BUB_*` variables.
+When no explicit Bub key is supplied, Bub reads `<PROVIDER>_API_KEY` and `<PROVIDER>_API_BASE`, using Republic provider names with hyphens replaced by underscores. Examples include `OPENROUTER_API_KEY`, `GOOGLE_API_KEY`, and `AZURE_OPENAI_API_KEY`. Explicit `BUB_*` settings take precedence.
 
 ## Before you begin
 
 - Bub is installed (`bub --help` works).
-- You have one model provider's API key, or you have run `bub login openai` for OAuth.
+- You have one model provider's API key, or you have run `bub login codex` for OAuth.
 
 ## 1. Run the interactive setup
 
-`bub onboard` guides you through provider selection, API key and URL (when needed), connection checking, searchable model selection, channels, and streaming settings. Hosted providers use their default URL; choose **OpenAI-compatible** for a custom OpenAI-compatible server. Leave the API key blank to use environment credentials. If the model list is unavailable, you can edit the connection, retry, or enter a model ID manually. The connection check fetches models without generating a completion. An existing OpenAI OAuth login skips model discovery and uses manual model entry. The collected configuration replaces `~/.bub/config.yml`; existing file contents are not merged into the onboarding prompts. Plugins may add prompts through the `onboard_config` hook.
+`bub onboard` guides you through provider selection, API key and URL (when needed), connection checking, searchable model selection, channels, and streaming settings. Hosted providers use their default URL; choose **OpenAI-compatible** for a custom OpenAI-compatible server. Leave the API key blank to use environment credentials. If the model list is unavailable, you can edit the connection, retry, or enter a model ID manually. The connection check fetches models without generating a completion. Selecting Codex skips model discovery and uses manual model entry. The collected configuration replaces `~/.bub/config.yml`; existing values supply prompt defaults and are preserved unless updated. Plugins may add prompts through the `onboard_config` hook.
 
 ```bash
 bub onboard
@@ -55,14 +55,14 @@ Every YAML key has a matching environment variable. The pattern is `BUB_<UPPERCA
 
 | Variable | Purpose |
 |---|---|
-| `BUB_MODEL` | Model identifier, e.g. `openrouter:openrouter/free` or `openai:<codex-model>`. |
-| `BUB_API_KEY` | API key for the active provider. Leave unset when using `bub login openai`. |
-| `BUB_API_BASE` | Override the provider's base URL. Leave unset for Codex OAuth so Bub can route through the Codex backend. |
+| `BUB_MODEL` | Model identifier, e.g. `openrouter:openrouter/free` or `codex:<model>`. |
+| `BUB_API_KEY` | API key for the active provider. Leave unset when using `bub login codex`. |
+| `BUB_API_BASE` | Override the provider's base URL. Leave unset to use the selected provider's default endpoint. |
 | `BUB_HOME` | Bub's runtime data directory (history, tapes, managed plugin project). Default `~/.bub`; does not move the default config file. |
 | `BUB_<PROVIDER>_API_KEY` | Per-provider key, e.g. `BUB_OPENROUTER_API_KEY`. |
 | `BUB_<PROVIDER>_API_BASE` | Per-provider base URL. |
 
-When you use `bub login openai`, Bub reads Codex OAuth credentials from `CODEX_HOME` or `~/.codex` and refreshes them automatically. Use a model id under the `openai:` provider and keep both `BUB_API_KEY` and `BUB_API_BASE` unset for that path.
+Republic reads and refreshes Codex file credentials from `$CODEX_HOME/auth.json` or `~/.codex/auth.json`. Install the Codex CLI for a new login, then select `codex:<model>` and leave `BUB_API_KEY` unset. Use `openai:<model>` with API credentials for OpenAI API access.
 
 To reach an endpoint that speaks a supported API under a name of its own (a company proxy, a relay, a second account), declare it under `providers` and use that name as the model prefix; see [Custom providers](/docs/reference/settings/#custom-providers).
 
