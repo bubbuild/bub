@@ -21,6 +21,7 @@ from bub.hooks.interception import (
     ToolCallResult,
 )
 from bub.model_selection import ModelOptions
+from bub.prompt import LegacyPrompt, UserContent
 from bub.sidecars import TapeSidecar
 from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import AsyncStreamEvents, StreamState
@@ -36,7 +37,14 @@ hookimpl = pluggy.HookimplMarker(BUB_HOOK_NAMESPACE)
 
 
 class BubHookSpecs:
-    """Hook contract for Bub framework extensions."""
+    """Hook contract for Bub framework extensions.
+
+    ``build_prompt`` returns user content: text, ``republic.Image``,
+    ``republic.Audio`` and ``republic.Video``; legacy text and content-block
+    results are still converted by inspecting the returned value. Hooks that
+    receive a prompt get the legacy form: text without media, otherwise content
+    blocks with media URLs (see ``bub.prompt.to_legacy_prompt``).
+    """
 
     @hookspec(firstresult=True)
     def resolve_session(self, message: Envelope) -> str:
@@ -44,11 +52,11 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def build_prompt(self, message: Envelope, session_id: str, state: TurnState) -> str | list[dict]:
-        """Build model prompt for this turn.
+    def build_prompt(self, message: Envelope, session_id: str, state: TurnState) -> list[UserContent] | LegacyPrompt:
+        """Build model prompt content for this turn.
 
-        Returns either a plain text string or a list of content parts
-        (OpenAI multimodal format) when media attachments are present.
+        Return a list of text and Republic media such as ``republic.image(...)``.
+        Legacy text and content-block lists are still accepted and converted.
         """
         raise NotImplementedError
 

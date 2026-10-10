@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
+import republic
 from loguru import logger
 
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
@@ -19,13 +20,13 @@ class LlmCallRequest:
     """Outgoing agent-loop LLM request exposed to interception hooks.
 
     Hooks may return a modified copy (``dataclasses.replace``) to change the
-    model or messages for this call. Tool objects are not exposed;
+    model or messages (``republic.Message`` objects) for this call. Tool objects are not exposed;
     ``tool_names`` is observational and altering the toolset is out of scope.
     """
 
     run_id: str
     model: str
-    messages: list[dict[str, Any]]
+    messages: list[republic.Message]
     tool_names: tuple[str, ...] = ()
     max_tokens: int | None = None
 

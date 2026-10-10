@@ -12,6 +12,7 @@ from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import DEFAULT_MODEL, AgentSettings, load_settings
 from bub.builtin.spill import SpillSettings
 from bub.configure import ensure_config
+from bub.prompt import to_content
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
 from tests.model_fakes import ProviderService, chat_events, sse
@@ -190,7 +191,7 @@ async def _run(settings: AgentSettings, tmp_path: Path) -> str:
     events = [
         event
         async for event in ModelRunner(settings).run(
-            tape=tape, model=settings.model, tools=[], system_prompt=None, prompt="Hello"
+            tape=tape, model=settings.model, tools=[], system_prompt=None, prompt=to_content("Hello")
         )
     ]
     assert events[-1].data["ok"]

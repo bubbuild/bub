@@ -14,6 +14,7 @@ from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.framework import BubFramework
+from bub.prompt import to_content
 from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
 from bub.tape import Tape, TapeContext, TapeEntry
 from bub.tools import Tool
@@ -61,7 +62,9 @@ async def test_codex_sends_content_with_file_credentials(
             )
         events = [
             event
-            async for event in runner.run(tape=tape, model="codex:test", tools=[], system_prompt=None, prompt=prompt)
+            async for event in runner.run(
+                tape=tape, model="codex:test", tools=[], system_prompt=None, prompt=to_content(prompt)
+            )
         ]
     request = provider_service.requests[0]
     body = provider_service.body()
@@ -118,7 +121,9 @@ async def test_codex_replays_encrypted_reasoning_and_tool_results_after_reload(
         tools = [Tool(name="echo", handler=lambda: "echoed")]
         _ = [
             event
-            async for event in runner.run(tape=tape, model="codex:test", tools=tools, system_prompt=None, prompt="echo")
+            async for event in runner.run(
+                tape=tape, model="codex:test", tools=tools, system_prompt=None, prompt=to_content("echo")
+            )
         ]
         reopened = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped(
             "codex"
@@ -163,7 +168,9 @@ async def test_named_endpoint_falls_back_to_codex_with_its_own_credentials(
         tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("fallback")
         events = [
             event
-            async for event in runner.run(tape=tape, model="relay:sample", tools=[], system_prompt=None, prompt="hello")
+            async for event in runner.run(
+                tape=tape, model="relay:sample", tools=[], system_prompt=None, prompt=to_content("hello")
+            )
         ]
     assert [str(request.url) for request in provider_service.requests] == [
         "https://relay.test/v1/responses",

@@ -207,9 +207,9 @@ async def test_build_prompt_marks_commands_and_prefixes_context(tmp_path: Path) 
     command_prompt = await impl.build_prompt(command, session_id="s", state={})
     normal_prompt = await impl.build_prompt(normal, session_id="s", state={})
 
-    assert command_prompt == ",help"
+    assert command_prompt == [",help"]
     assert command.kind == "command"
-    prompt_lines = normal_prompt.splitlines()
+    prompt_lines = normal_prompt[0].splitlines()
     assert prompt_lines[0] == normal.context_str
     assert prompt_lines[2] == "hello"
 
@@ -230,7 +230,7 @@ async def test_build_prompt_uses_system_timezone_for_context_date(
 
         prompt = await impl.build_prompt(message, session_id="s", state={})
 
-        date_line = prompt.splitlines()[1]
+        date_line = prompt[0].splitlines()[1]
         assert date_line.startswith("---Date: ")
         assert date_line.endswith("+08:00---")
     finally:

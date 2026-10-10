@@ -6,7 +6,7 @@ import asyncio
 import re
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import AsyncExitStack, aclosing, asynccontextmanager
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from datetime import UTC, datetime
 from json import JSONDecodeError
 from time import monotonic
@@ -24,9 +24,10 @@ from bub.hooks.interception import (
     LlmCallRequest,
     LlmCallResult,
 )
+from bub.prompt import UserContent
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import Tape
-from bub.tools import Tool, ToolContext, ToolExecutor, render_result
+from bub.tools import Tool, ToolContext, ToolExecutor
 from bub.tracing import Span, current_span, event
 
 CONTEXT_LENGTH_PATTERNS = re.compile(
@@ -45,7 +46,7 @@ class ModelRunner:
         self,
         *,
         model: str,
-        messages: list[dict[str, Any]],
+        messages: list[republic.Message],
         tools: list[Tool],
         max_tokens: int | None = None,
         reasoning_effort: str | None = None,
@@ -66,14 +67,7 @@ class ModelRunner:
                             "gen_ai.request.model": candidate.model_id,
                         })
                     options = self._chat_options(candidate.provider, tools, max_tokens, reasoning_effort)
-                    stream = await stack.enter_async_context(
-                        chat_model.stream(
-                            _request_messages(
-                                messages, candidate.provider_name or candidate.provider, candidate.model_id
-                            ),
-                            **options,
-                        )
-                    )
+                    stream = await stack.enter_async_context(chat_model.stream(messages, **options))
                 except Exception as exc:
                     event("bub.model.attempt_failed", model=candidate.name, error=type(exc).__name__)
                     if completion_error is None:
@@ -109,8 +103,8 @@ class ModelRunner:
         model: str,
         tools: list[Tool],
         system_prompt: str | None,
-        prompt: str | list[dict] | None,
-        steering_messages: list[list[dict[str, Any]] | str] | None = None,
+        prompt: list[UserContent] | None,
+        steering_messages: list[list[UserContent]] | None = None,
     ) -> AsyncStreamEvents:
         state = StreamState()
 
@@ -182,8 +176,6 @@ class ModelRunner:
                 }.items()
                 if value
             }
-            if assistant_fields or any(call.metadata for call in response.tool_calls):
-                assistant_fields.update(source_provider=provider, source_model=candidate.model_id)
             await tape.record_chat(
                 run_id=run_id,
                 system_prompt=system_prompt,
@@ -310,10 +302,10 @@ class ModelRunner:
         tape: Tape,
         run_id: str,
         system_prompt: str | None,
-        prompt: str | list[dict] | None,
+        prompt: list[UserContent] | None,
         model: str,
-        steering_messages: list[list[dict[str, Any]] | str] | None = None,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        steering_messages: list[list[UserContent]] | None = None,
+    ) -> tuple[list[republic.Message], list[republic.Message]]:
         try:
             messages = await tape.read_messages()
         except BubError as exc:
@@ -327,12 +319,10 @@ class ModelRunner:
                 model=model,
             )
             raise
-        steering = [{"role": "user", "content": message} for message in (steering_messages or [])]
+        contents = [*(steering_messages or []), *([] if prompt is None else [prompt])]
+        new_messages = [republic.user(*content) for content in contents]
         if system_prompt:
-            messages = [{"role": "system", "content": system_prompt}, *messages]
-        new_messages = [*steering]
-        if prompt is not None:
-            new_messages.append({"role": "user", "content": prompt})
+            messages = [republic.system(system_prompt), *messages]
         messages.extend(new_messages)
         return messages, new_messages
 
@@ -369,65 +359,6 @@ async def _stream_events(
                     "gen_ai.response.id": completed.id,
                     "gen_ai.response.finish_reasons": [completed.finish_reason] if completed.finish_reason else None,
                 })
-
-
-def _request_messages(messages: list[dict[str, Any]], provider: str, model: str) -> list[republic.Message]:
-    """Convert the tape and hook dictionaries at the request boundary."""
-    result: list[republic.Message] = []
-    calls: dict[str, republic.ToolCall] = {}
-    for message in messages:
-        role = message["role"]
-        if role not in {"system", "user", "assistant", "tool"}:
-            raise BubError(ErrorKind.INVALID_INPUT, f"Unknown message role: {role}")
-        if role == "tool":
-            result.append(
-                republic.tool(
-                    calls[message["tool_call_id"]],
-                    render_result(message.get("content", "")),
-                    is_error=bool(message.get("is_error")),
-                )
-            )
-            continue
-        converted = republic.user(*_request_content(message.get("content")))
-        keep_metadata = message.get("source_provider") == provider and message.get("source_model") == model
-        parts = list(converted.parts)
-        if keep_metadata:
-            if reasoning := message.get("reasoning"):
-                parts.append(republic.Reasoning(reasoning))
-            parts.extend(republic.ProviderData(**item) for item in message.get("provider_data", []))
-        tool_calls = tuple(
-            republic.ToolCall(**(call | {"metadata": call.get("metadata", {}) if keep_metadata else {}}))
-            for call in message.get("tool_calls") or []
-        )
-        calls.update((call.id, call) for call in tool_calls)
-        result.append(replace(converted, role=role, parts=tuple(parts), tool_calls=tool_calls))
-    return result
-
-
-def _request_content(content: object) -> list[str | republic.Image | republic.Audio | republic.Video]:
-    if content is None:
-        return []
-    if isinstance(content, str):
-        return [content]
-    if not isinstance(content, list):
-        raise BubError(ErrorKind.INVALID_INPUT, "Expected text or a list of message content blocks.")
-    result: list[str | republic.Image | republic.Audio | republic.Video] = []
-    for block in content:
-        match block:
-            case {"type": "text", "text": str(text)}:
-                result.append(text)
-            case {"type": "image", "url": str(url), "media_type": str(mime)}:
-                result.append(republic.image(url, media_type=mime))
-            case {"type": "audio", "url": str(url), "media_type": str(mime)}:
-                result.append(republic.audio(url, media_type=mime))
-            case {"type": "video", "url": str(url), "media_type": str(mime)}:
-                result.append(republic.video(url, media_type=mime))
-            case _:
-                raise BubError(
-                    ErrorKind.INVALID_INPUT,
-                    f"Unsupported message content block: {block.get('type') if isinstance(block, dict) else type(block).__name__}",
-                )
-    return result
 
 
 def _tool_invocation(
