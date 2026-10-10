@@ -167,3 +167,18 @@ async def test_framework_has_no_environment_without_a_provider(tmp_path: Path) -
 
     assert await framework.get_environment("session") is None
     assert ENVIRONMENT_STATE_KEY not in state
+
+
+@pytest.mark.asyncio
+async def test_default_read_bytes_reads_files_through_the_environment_python(tmp_path: Path) -> None:
+    class SpawnOnlyEnvironment(RecordingEnvironment):
+        async def read_bytes(self, path: str) -> bytes:
+            return await Environment.read_bytes(self, path)
+
+    environment = SpawnOnlyEnvironment(tmp_path)
+    (tmp_path / "blob.bin").write_bytes(b"\x00\xffbinary")
+
+    assert await environment.read_bytes(str(tmp_path / "blob.bin")) == b"\x00\xffbinary"
+    assert len(environment.spawned) == 1
+    with pytest.raises(OSError, match="FileNotFoundError"):
+        await environment.read_bytes(str(tmp_path / "missing.bin"))

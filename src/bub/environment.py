@@ -104,6 +104,19 @@ class Environment(abc.ABC):
     async def read_text(self, path: str) -> str:
         """Read a UTF-8 text file."""
 
+    async def read_bytes(self, path: str) -> bytes:
+        """Read a file as bytes.
+
+        The default runs ``python`` in the environment to print the file; override it with direct access.
+        """
+        script = "import sys; sys.stdout.buffer.write(open(sys.argv[1], 'rb').read())"
+        process = await self.spawn([self.python, "-c", script, path])
+        process.close_stdin()
+        data, error = await asyncio.gather(process.stdout.read(), process.stderr.read())
+        if await process.wait() != 0:
+            raise OSError(error.decode("utf-8", errors="replace").strip() or f"cannot read {path}")
+        return data
+
     @abc.abstractmethod
     async def write_text(self, path: str, content: str) -> None:
         """Write a UTF-8 text file, creating missing parent directories."""
@@ -126,7 +139,9 @@ class Environment(abc.ABC):
 
         The code may use top-level ``await``. For each name in ``tools``, ``tools.<name>(**kwargs)``
         must be an async function that returns ``await call_tool(name, kwargs)``; errors from
-        ``call_tool`` surface in the code as exceptions. Pass everything the code writes to stdout
+        ``call_tool`` surface in the code as exceptions. The code may also call ``call_tool`` with names
+        prefixed ``republic.``; ``bub.builtin.codemode.code_runner_child`` shows the ``republic`` module
+        that makes those calls. Pass everything the code writes to stdout
         to ``write`` as it happens, so output survives a timeout. Raise :class:`CodeFailed` when the
         code raises; any other exception reports that the runtime itself failed. When cancelled
         (for example on timeout), stop the code before returning.

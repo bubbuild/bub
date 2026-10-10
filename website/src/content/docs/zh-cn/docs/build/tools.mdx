@@ -59,6 +59,8 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 - 其他允许的工具在 `run_code` 中都是异步函数，名称使用面向模型的形式（`tape.info` 对应 `await tools.tape_info()`）。支持顶层 `await`，可以用 `asyncio.gather` 并发调用。调用只接受关键字参数，照常经过 `before_tool_call`/`after_tool_call` hook，返回结构化结果，失败时抛出异常。
 - Bub 会在 `~/.bub/codemode/` 下为允许的 `auto` 和 `code` 工具生成一个 Python stub 文件，每个工具对应一个函数，包含参数类型、返回类型和 docstring，并把文件路径写入 system prompt。只要工具集合不变，同一个 session 中这个路径保持不变。
 - `run_code(code, timeout_seconds=120)` 返回代码写到 stdout 的内容。未捕获的异常会变成工具错误，错误详情中包含已打印的输出和 traceback。
+- 代码里还有一个 `republic` 模块（已作为全局变量预置，也可以 `import`），其用法写在 stub 文件末尾。其中有媒体类 `republic.Image`、`Audio` 和 `Video`。`republic.get_model(spec=None)` 返回对话模型——不传 spec 时就是当前会话使用的模型——支持 `chat()` 和 `stream()`（`async with model.stream(...) as stream: async for event in stream`，事件类型在 `republic.events` 中）；`republic.get_embedding_model(spec)` 和 `republic.get_decision_model(spec)` 分别返回 embedding 模型和决策模型。它们都是代理：请求由 Bub 使用自己的 provider 配置和凭证发出，凭证不会进入代码。
+- 仅代码可用的工具 `tools.attach_image(image=...)`、`tools.attach_audio(audio=...)` 和 `tools.attach_video(video=...)` 会把媒体附加到这次 `run_code` 的结果里，模型因此可以看到代码生成的图表或截图。除了 `republic` 媒体对象，它们也接受执行环境内的文件路径（相对路径基于其 workspace）、http(s)/gs URL 或 data URL，并自行加载，文件通过执行环境的 `read_bytes` 读取。带媒体的结果以 `{"type": "tool_content", "content": [...]}` 记录（可用 `bub.tools.content_result` 构造），并作为多模态工具消息发给模型；spill 只截断其中的文本。
 
 如果 `run_code` 不在允许范围内（例如被 `allowed_tools` 限制的 subagent），该 turn 会退回直接调用工具的方式。
 
@@ -91,9 +93,9 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 `bash`、`bash.output`、`bash.kill` 和 `fs.*` 不直接操作宿主机，而是在当前 session 的 `Environment`（见 [`bub.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/environment.py)）里启动进程、读写文本文件，`run_code` 的代码也在这里执行。工具本身的行为（后台 shell、超时、渲染、hook）都留在宿主上，所以一个执行环境只需要实现几个操作：
 
 - `spawn(command, *, cwd=None, env=None)` 返回一个 `Process`：传字符串时经 shell 执行，传序列时作为参数列表直接执行。进程提供 `stdout`/`stderr` 流、`write_stdin`、`wait` 和 `signal(kill=...)`，其中 `signal` 必须作用到整个进程树。
-- `read_text(path)` 和 `write_text(path, content)` 读写执行环境内的文件。
+- `read_text(path)` 和 `write_text(path, content)` 读写执行环境内的文件。`read_bytes(path)` 读取二进制文件；默认实现会用执行环境的 `python` 输出文件内容，能直接访问文件的执行环境应覆盖它。
 - `workspace` 是执行环境内的工作目录，`resolve_path` 基于它解析相对路径。
-- `run_code(code, *, tools, call_tool, write)` 执行 Python 代码，代码里的 `await tools.<name>(**kwargs)` 会调用 `call_tool(name, kwargs)`。代码写到 stdout 的内容要实时交给 `write`；代码抛异常时抛出 `CodeFailed`；被取消时要停止代码。具体怎么执行由执行环境决定。有 Python 解释器的执行环境可以直接复用 `bub.builtin.codemode.code_runner.run_code_in_subprocess`，它会用 `spawn` 启动进程来执行代码。
+- `run_code(code, *, tools, call_tool, write)` 执行 Python 代码，代码里的 `await tools.<name>(**kwargs)` 会调用 `call_tool(name, kwargs)`。`republic` 模块会以 `republic.` 前缀的名字调用 `call_tool`，Republic 值以带 `"$republic"` 键的 JSON 对象传输；子进程 runner 已经提供了这个模块。代码写到 stdout 的内容要实时交给 `write`；代码抛异常时抛出 `CodeFailed`；被取消时要停止代码。具体怎么执行由执行环境决定。有 Python 解释器的执行环境可以直接复用 `bub.builtin.codemode.code_runner.run_code_in_subprocess`，它会用 `spawn` 启动进程来执行代码。
 - `close()` 释放执行环境。
 
 通过 `provide_environment(session_id, workspace)` hook 为每个 session 提供执行环境。Bub 在 session 的第一个 turn 调用它，把结果放进 `state["_runtime_environment"]`，并在 `framework.running()` 退出时关闭。Bub 的 builtin hook 提供 `LocalEnvironment`（见 [`bub.builtin.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/environment.py)），直接在宿主上运行；插件提供的实现会优先于它。自定义工具可以用 `bub.builtin.environment.environment_from_state(context.state)` 使用同一个环境。

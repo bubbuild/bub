@@ -424,3 +424,23 @@ async def test_result_spill_without_tool_availability_keeps_full_output(tmp_path
 
     assert execution.tool_results == [output]
     assert list(await root.store.fetch_all(root.scoped(root.sidecar_tape_name(SPILL_SIDECAR_NAME)).query())) == []
+
+
+@pytest.mark.asyncio
+async def test_spill_bounds_text_of_content_results_and_keeps_media(tmp_path: Path) -> None:
+    import republic
+
+    from bub.tools import content_result, result_content
+
+    image = republic.Image("image/png", data=b"png")
+    root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
+
+    async with root.fork_tape() as tape:
+        execution = await _spill_executor().execute_async(
+            [(Tool(name="run_code", handler=lambda: content_result(["x" * 20_000, image])), {})],
+            context=_spill_context(tape=tape, run_id="run-1"),
+        )
+
+    text, media = result_content(execution.tool_results[0])
+    assert "tool output spilled" in text
+    assert media == image

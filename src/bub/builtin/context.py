@@ -9,7 +9,7 @@ from typing import Any
 import republic
 
 from bub.tape import TapeContext, TapeEntry, to_message
-from bub.tools import render_result
+from bub.tools import result_content
 
 
 def default_tape_context() -> TapeContext:
@@ -67,4 +67,4 @@ def _append_tool_result_entry(
         return
     # Results without a recorded call cannot be expressed as tool messages.
     for call, result in zip(pending_calls, results, strict=False):
-        messages.append(republic.tool(call, render_result(result)))
+        messages.append(republic.tool(call, *result_content(result)))
