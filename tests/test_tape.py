@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import republic
 
 from bub.builtin.context import default_tape_context
 from bub.store import AsyncTapeStoreAdapter, ForkTapeStore, InMemoryTapeStore
-from bub.tape import Tape, TapeContext, TapeEntry
+from bub.tape import Tape, TapeContext, TapeEntry, to_messages
 
 
 def test_tape_reexports_legacy_store_objects() -> None:
@@ -37,9 +38,10 @@ async def test_legacy_tool_call_without_content_replays_with_its_result(tmp_path
     store.append("test-tape", TapeEntry(id=0, kind="tool_call", payload={"calls": calls}))
     store.append("test-tape", TapeEntry.tool_result(["files found"]))
 
+    call = republic.ToolCall("call-1", "inspect", "{}")
     assert await tape.read_messages() == [
-        {"role": "assistant", "content": "", "tool_calls": calls},
-        {"role": "tool", "content": "files found", "tool_call_id": "call-1", "name": "inspect"},
+        republic.assistant("", tool_calls=[call]),
+        republic.tool(call, "files found"),
     ]
 
 
@@ -50,7 +52,7 @@ async def test_text_only_response_remains_a_standalone_assistant_message(tmp_pat
     await tape.ensure_bootstrap_anchor()
     await tape.record_chat(run_id="run-1", system_prompt=None, new_messages=[], response_text=content)
 
-    assert await tape.read_messages() == [{"role": "assistant", "content": content}]
+    assert await tape.read_messages() == [republic.assistant(content)]
 
 
 @pytest.mark.asyncio
@@ -134,3 +136,45 @@ async def test_context_excluded_entries_do_not_reach_custom_context_selectors(tm
     await tape.append_event("hidden", {}, context=False)
 
     assert await tape.read_messages() == [{"role": "assistant", "content": "visible"}]
+
+
+@pytest.mark.asyncio
+async def test_new_messages_round_trip_through_the_tape(tmp_path: Path) -> None:
+    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context()).scoped("test-tape")
+    await tape.ensure_bootstrap_anchor()
+    prompt = republic.user("Describe this.", republic.image(b"png-bytes", media_type="image/png"))
+    await tape.record_chat(run_id="run-1", system_prompt=None, new_messages=[prompt], response_text="A picture.")
+
+    assert await tape.read_messages() == [prompt, republic.assistant("A picture.")]
+
+
+def test_legacy_payloads_convert_to_republic_messages() -> None:
+    call = republic.ToolCall("call-1", "inspect", "{}")
+    payloads = [
+        {
+            "role": "user",
+            "content": [{"type": "image", "url": "data:image/png;base64,cG5n", "media_type": "image/png"}],
+        },
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "call-1", "name": "inspect", "arguments": "{}"}],
+            "reasoning": "Look first.",
+            "provider_data": [{"api_format": "responses", "payload": {"type": "reasoning"}}],
+        },
+        {"role": "tool", "tool_call_id": "call-1", "content": {"files": 2}},
+    ]
+
+    assert to_messages(payloads) == [
+        republic.user(republic.Image("image/png", data=b"png")),
+        republic.Message(
+            "assistant",
+            (
+                republic.Text(""),
+                republic.Reasoning("Look first."),
+                republic.ProviderData("responses", {"type": "reasoning"}),
+            ),
+            tool_calls=(call,),
+        ),
+        republic.tool(call, '{"files": 2}'),
+    ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Generator
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,14 @@ import pytest
 
 import bub.configure as configure
 from tests.model_fakes import ProviderService
+
+
+@pytest.fixture(autouse=True)
+def isolate_bub_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Importing bub.framework loads the developer's .env into os.environ; tests set what they need.
+    for name in list(os.environ):
+        if name.startswith("BUB_"):
+            monkeypatch.delenv(name)
 
 
 @pytest.fixture(autouse=True)

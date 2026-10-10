@@ -6,7 +6,9 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
-from bub.tape import TapeContext, TapeEntry
+import republic
+
+from bub.tape import TapeContext, TapeEntry, to_message
 from bub.tools import render_result
 
 
@@ -16,90 +18,53 @@ def default_tape_context() -> TapeContext:
     return TapeContext(select=_select_messages)
 
 
-def _select_messages(entries: Iterable[TapeEntry], _context: TapeContext) -> list[dict[str, Any]]:
-    messages: list[dict[str, Any]] = []
-    pending_calls: list[dict[str, Any]] = []
+def _select_messages(entries: Iterable[TapeEntry], _context: TapeContext) -> list[republic.Message]:
+    messages: list[republic.Message] = []
+    calls: dict[str, republic.ToolCall] = {}
+    pending_calls: list[republic.ToolCall] = []
 
     for entry in entries:
         match entry.kind:
             case "anchor":
-                _append_anchor_entry(messages, entry)
+                messages.append(_anchor_message(entry))
             case "message":
-                _append_message_entry(messages, entry)
+                if isinstance(entry.payload, dict):
+                    messages.append(to_message(entry.payload, calls))
             case "tool_call":
-                pending_calls = _append_tool_call_entry(messages, entry)
+                pending_calls = _append_tool_call_entry(messages, calls, entry)
             case "tool_result":
                 _append_tool_result_entry(messages, pending_calls, entry)
                 pending_calls = []
     return messages
 
 
-def _append_anchor_entry(messages: list[dict[str, Any]], entry: TapeEntry) -> None:
+def _anchor_message(entry: TapeEntry) -> republic.Message:
     payload = entry.payload
     content = f"[Anchor created: {payload.get('name')}]: {json.dumps(payload.get('state'), ensure_ascii=False)}"
-    messages.append({"role": "assistant", "content": content})
+    return republic.assistant(content)
 
 
-def _append_message_entry(messages: list[dict[str, Any]], entry: TapeEntry) -> None:
-    payload = entry.payload
-    if isinstance(payload, dict):
-        messages.append(dict(payload))
-
-
-def _append_tool_call_entry(messages: list[dict[str, Any]], entry: TapeEntry) -> list[dict[str, Any]]:
-    calls = _normalize_tool_calls(entry.payload.get("calls"))
-    if calls:
-        fields = {
-            key: entry.payload[key]
-            for key in ("reasoning", "provider_data", "source_provider", "source_model")
-            if key in entry.payload
-        }
-        messages.append({
-            "role": "assistant",
-            "content": entry.payload.get("content") or "",
-            "tool_calls": calls,
-            **fields,
-        })
-    return calls
+def _append_tool_call_entry(
+    messages: list[republic.Message], calls: dict[str, republic.ToolCall], entry: TapeEntry
+) -> list[republic.ToolCall]:
+    raw_calls = entry.payload.get("calls")
+    if not isinstance(raw_calls, list) or not (tool_calls := [item for item in raw_calls if isinstance(item, dict)]):
+        return []
+    fields = {key: entry.payload[key] for key in ("reasoning", "provider_data") if key in entry.payload}
+    message = to_message(
+        {"role": "assistant", "content": entry.payload.get("content") or "", "tool_calls": tool_calls, **fields},
+        calls,
+    )
+    messages.append(message)
+    return list(message.tool_calls)
 
 
 def _append_tool_result_entry(
-    messages: list[dict[str, Any]],
-    pending_calls: list[dict[str, Any]],
-    entry: TapeEntry,
+    messages: list[republic.Message], pending_calls: list[republic.ToolCall], entry: TapeEntry
 ) -> None:
-    results = entry.payload.get("results")
+    results: Any = entry.payload.get("results")
     if not isinstance(results, list):
         return
-    for index, result in enumerate(results):
-        messages.append(_build_tool_result_message(result, pending_calls, index))
-
-
-def _build_tool_result_message(
-    result: object,
-    pending_calls: list[dict[str, Any]],
-    index: int,
-) -> dict[str, Any]:
-    message: dict[str, Any] = {"role": "tool", "content": render_result(result)}
-    if index >= len(pending_calls):
-        return message
-
-    call = pending_calls[index]
-    call_id = call.get("id")
-    if isinstance(call_id, str) and call_id:
-        message["tool_call_id"] = call_id
-
-    name = call.get("name")
-    if isinstance(name, str) and name:
-        message["name"] = name
-    return message
-
-
-def _normalize_tool_calls(value: object) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    calls: list[dict[str, Any]] = []
-    for item in value:
-        if isinstance(item, dict):
-            calls.append(dict(item))
-    return calls
+    # Results without a recorded call cannot be expressed as tool messages.
+    for call, result in zip(pending_calls, results, strict=False):
+        messages.append(republic.tool(call, render_result(result)))

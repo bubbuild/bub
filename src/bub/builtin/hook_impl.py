@@ -5,6 +5,7 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import cast
 
+import republic
 import typer
 from loguru import logger
 
@@ -26,6 +27,7 @@ from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
 from bub.model_selection import ModelChoice, ModelOptions
+from bub.prompt import UserContent
 from bub.sidecars import TapeSidecar
 from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents
@@ -134,27 +136,28 @@ class BuiltinImpl:
         # events, so nothing to write here — this hook only closes the lifespan.
 
     @hookimpl
-    async def build_prompt(self, message: ChannelMessage, session_id: str, state: TurnState) -> str | list[dict]:
+    async def build_prompt(self, message: ChannelMessage, session_id: str, state: TurnState) -> list[UserContent]:
         content = content_of(message)
         if strip_command_prefix(content, self._get_agent(state).command_prefix) is not None:
             message.kind = "command"
-            return content.strip()
+            return [content.strip()]
         context = field_of(message, "context_str")
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         context_prefix = f"{context}\n---Date: {now}---\n" if context else ""
         text = f"{context_prefix}{content}"
 
-        media = field_of(message, "media") or []
-        if not media:
-            return text
-
-        media_parts: list[dict] = []
-        for item in cast("list[MediaItem]", media):
-            if item.type in {"image", "audio", "video"} and (url := await item.get_url()):
-                media_parts.append({"type": item.type, "media_type": item.mime_type, "url": url})
-        if media_parts:
-            return [{"type": "text", "text": text}, *media_parts]
-        return text
+        prompt: list[UserContent] = [text]
+        for item in cast("list[MediaItem]", field_of(message, "media") or []):
+            if item.type not in {"image", "audio", "video"} or not (url := await item.get_url()):
+                continue
+            match item.type:
+                case "image":
+                    prompt.append(republic.image(url, media_type=item.mime_type))
+                case "audio":
+                    prompt.append(republic.audio(url, media_type=item.mime_type))
+                case "video":
+                    prompt.append(republic.video(url, media_type=item.mime_type))
+        return prompt
 
     @hookimpl
     async def run_model_stream(self, prompt: str | list[dict], session_id: str, state: TurnState) -> AsyncStreamEvents:

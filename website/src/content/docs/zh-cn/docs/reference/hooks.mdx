@@ -17,7 +17,7 @@ description: BubHookSpecs 中每个钩子的类型、签名、返回值与调用
 | --- | --- | --- | --- | --- | --- |
 | `resolve_session` | firstresult | `(message: Envelope) -> str` | session id | `BubFramework.process_inbound` | 没有任何实现返回值时,框架回退为 `"{channel}:{chat_id}"`。 |
 | `load_state` | broadcast | `(message: Envelope, session_id: str) -> TurnState` | dict to merge | `BubFramework.process_inbound` | 框架先反转结果列表再依次合并,使高优先级的键覆盖低优先级。 |
-| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: TurnState) -> str \| list[dict]` | prompt or content parts | `BubFramework.process_inbound` | 没有实现返回非 `None` 值，或选中的 firstresult 为 falsy 时，回退到 `content_of(message)`。已选中的 falsy 值不会触发继续尝试低优先级实现。 |
+| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: TurnState) -> list[UserContent]` | prompt content | `BubFramework.process_inbound` | 没有实现返回非 `None` 值，或选中的 firstresult 为 falsy 时，回退到 `content_of(message)`。已选中的 falsy 值不会触发继续尝试低优先级实现。 |
 | `run_model` | firstresult | `(prompt, session_id, state) -> str` | model text | `HookRuntime.run_model` | 旧版纯文本路径。`run_model` 与 `run_model_stream` 选其一实现,不要同时实现。 |
 | `run_model_stream` | firstresult | `(prompt, session_id, state) -> AsyncStreamEvents` | async stream | `HookRuntime.run_model_stream` | 推荐路径。无流式实现时框架将 `run_model` 结果包装为单个 chunk 的流。 |
 | `continue_prompt` | firstresult | `(prompt: str \| list[dict] \| None, tape: Tape, state: StreamState) -> str \| None` | 可选的下一步 user 消息 | `Agent._stream_events_with_auto_handoff` | 每次 agent loop 继续前调用。`prompt` 是刚完成 step 使用的 prompt；如果上一步未添加消息则为 `None`。实现可同步或异步；若没有 hook 返回字符串，下一次模型调用只使用现有对话，不额外添加 user 消息。 |
@@ -40,6 +40,12 @@ description: BubHookSpecs 中每个钩子的类型、签名、返回值与调用
 | `after_llm_call` | observer | `(request: LlmCallRequest, result: LlmCallResult, state: TurnState) -> None` | 无 | `ModelRunner.run` 经 `AgentHooks` | 每次完成的调用恰好触发一次:成功或 `Exception` 失败。取消 / 消费方 `aclose()` 不观察。`result.error` 是原始异常。 |
 | `before_tool_call` | chained | `(call: ToolCall, state: TurnState) -> ToolCallDecision \| None` | decision | `ToolExecutor` 经 `AgentHooks` | 逐次工具调用。`proceed(arguments=…)` 折叠参数修改;`replace(result)` / `deny(message)` 短路。否决只能通过 decision 对象——异常仅记日志并跳过。 |
 | `after_tool_call` | 终态处理 | `(call: ToolCall, result: ToolCallResult, state: TurnState) -> None` | 无 | `ToolExecutor` 经 `AgentHooks` | 成功、失败、deny/replace 会触发。取消不观察。赋值 `result.result` 会替换模型可见结果；失败时 `result.error` 仍是原始 `BubError`。 |
+
+### Prompt 内容
+
+`build_prompt` 返回 `bub.prompt` 中的 `list[UserContent]`，其中 `UserContent = str | republic.Image | republic.Audio | republic.Video`。媒体用 `republic.image(...)`、`republic.audio(...)` 或 `republic.video(...)` 构造。为保持兼容，它仍可返回旧格式：字符串，或 content block 字典列表（例如 `{"type": "image", "media_type": "image/png", "url": "..."}`）。框架会根据实际返回值进行转换。
+
+接收 prompt 的 hook（`run_model`、`run_model_stream`、`continue_prompt`、`system_prompt`）仍收到旧格式：没有媒体时为字符串，否则为 content block 列表，媒体使用 URL（内联媒体转为 `data:` URL）。可用 `bub.prompt.to_content(prompt)` 转为 user content。
 
 ## 钩子如何被调用
 

@@ -15,6 +15,7 @@ from bub.builtin.settings import AgentSettings
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.errors import BubError, ErrorKind
 from bub.framework import BubFramework
+from bub.prompt import to_content
 from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
 from bub.tools import Tool
@@ -57,7 +58,9 @@ async def test_channel_media_reaches_gemini_and_survives_tape_reload(
         await tape.ensure_bootstrap_anchor()
         events = [
             event
-            async for event in runner.run(tape=tape, model="google:test", tools=[], system_prompt=None, prompt=prompt)
+            async for event in runner.run(
+                tape=tape, model="google:test", tools=[], system_prompt=None, prompt=to_content(prompt)
+            )
         ]
         reopened = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped(
             "media"
@@ -65,7 +68,7 @@ async def test_channel_media_reaches_gemini_and_survives_tape_reload(
         follow_up = [
             event
             async for event in runner.run(
-                tape=reopened, model="google:test", tools=[], system_prompt=None, prompt="Continue."
+                tape=reopened, model="google:test", tools=[], system_prompt=None, prompt=to_content("Continue.")
             )
         ]
     expected = [
@@ -103,7 +106,7 @@ async def test_consumer_close_releases_the_request_and_respects_client_ownership
             client_args["http_client"] = client
         runner = ModelRunner(AgentSettings(client_args=client_args))
         tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("cancel")
-        events = runner.run(tape=tape, model="openai:test", tools=[], system_prompt=None, prompt="hello")
+        events = runner.run(tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("hello"))
         assert (await anext(events)).data == {"delta": "first"}
         await events.aclose()
         assert closed.is_set()
@@ -125,7 +128,9 @@ async def test_primary_success_does_not_require_an_available_fallback(
         tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("fallback")
         events = [
             event
-            async for event in runner.run(tape=tape, model="openai:test", tools=[], system_prompt=None, prompt="hello")
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("hello")
+            )
         ]
     assert len(provider_service.requests) == 1
     assert events[-1].data == {"ok": True, "text": "done"}
@@ -167,7 +172,7 @@ async def test_fresh_process_replays_tool_signatures_to_the_provider(
                 model="google:test",
                 tools=[Tool(name="lookup", handler=lambda: "lookup result")],
                 system_prompt=None,
-                prompt="Look it up.",
+                prompt=to_content("Look it up."),
             )
         ]
     code = """
@@ -189,7 +194,7 @@ async def main():
         directory = Path(sys.argv[1])
         tape = Tape(directory, AsyncTapeStoreAdapter(FileTapeStore(directory)), default_tape_context()).scoped("persisted")
         runner = ModelRunner(AgentSettings(client_args={"http_client": client}))
-        events = [event async for event in runner.run(tape=tape, model="google:test", tools=[], system_prompt=None, prompt="Continue.")]
+        events = [event async for event in runner.run(tape=tape, model="google:test", tools=[], system_prompt=None, prompt=["Continue."])]
     print(json.dumps({"request": bodies[0], "result": events[-1].data}))
 asyncio.run(main())
 """
@@ -216,14 +221,14 @@ async def test_media_urls_preserve_explicit_mime_types(tmp_path: Path, provider_
                 model="google:test",
                 tools=[],
                 system_prompt=None,
-                prompt=[
+                prompt=to_content([
                     {
                         "type": "image",
                         "media_type": "image/png",
                         "url": "https://example.test/photo.png?signature=opaque",
                     },
                     {"type": "image", "media_type": "image/webp", "url": "https://example.test/attachment"},
-                ],
+                ]),
             )
         ]
     assert provider_service.body()["contents"][0]["parts"] == [
@@ -252,7 +257,7 @@ async def test_invalid_content_fails_without_a_provider_request(
             _ = [
                 event
                 async for event in runner.run(
-                    tape=tape, model="google:test", tools=[], system_prompt=None, prompt=[block]
+                    tape=tape, model="google:test", tools=[], system_prompt=None, prompt=to_content([block])
                 )
             ]
     assert exc.value.kind == ErrorKind.INVALID_INPUT

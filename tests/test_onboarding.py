@@ -9,7 +9,7 @@ import httpx2 as httpx
 import pytest
 import republic
 import typer
-from republic.errors import AuthenticationError, UnsupportedFeatureError
+from republic.errors import APITimeoutError, AuthenticationError, UnsupportedFeatureError
 from typer.testing import CliRunner
 
 from bub import configure, inquirer
@@ -71,7 +71,7 @@ def test_all_providers_check_connection_before_selecting_models(prompts, provide
     names = [name for name, _ in calls]
     assert names[0] == "LLM provider"
     assert names.index("API key (optional)") < names.index("discover") < names.index("LLM model (type to search)")
-    if provider in {"openai-compatible", "azure-openai", "ollama"}:
+    if provider in {"openai-compatible", "azure-openai", "ollama", "magpie"}:
         assert names.index("API base URL") < names.index("API key (optional)")
     else:
         assert "API base URL" not in names
@@ -547,27 +547,28 @@ def test_discovery_uses_entered_endpoint_and_credentials_and_closes_client(monke
     assert clients[0].is_closed
 
 
-def test_discovery_timeout_cancels_request_and_closes_client(monkeypatch):
+def test_discovery_timeout_is_passed_to_the_client_and_closes_it(monkeypatch):
     clients = []
-    cancelled = []
+    timeouts = []
     constructor = httpx.AsyncClient
 
-    async def respond(request):
-        try:
-            await asyncio.Event().wait()
-        finally:
-            cancelled.append(True)
+    def respond(request):
+        timeouts.append(request.extensions["timeout"])
+        raise httpx.ReadTimeout("timed out", request=request)
 
     def create_client(**kwargs):
         client = constructor(**kwargs, transport=httpx.MockTransport(respond))
         clients.append(client)
         return client
 
-    monkeypatch.setattr(onboarding, "CONNECTION_TIMEOUT", 0.01)
     monkeypatch.setattr(httpx, "AsyncClient", create_client)
-    with pytest.raises(TimeoutError):
-        onboarding.discover_models("openai", api_base="https://example.test/v1", api_key="test-key")
-    assert cancelled == [True]
+    with pytest.raises(APITimeoutError) as exc:
+        # A configured client timeout does not apply to the connection check.
+        onboarding.discover_models(
+            "openai", api_base="https://example.test/v1", api_key="test-key", timeout=600, max_retries=0
+        )
+    assert timeouts[0]["read"] == onboarding.CONNECTION_TIMEOUT
+    assert "timed out" in onboarding._connection_error(exc.value)
     assert clients[0].is_closed
 
 

@@ -31,7 +31,7 @@ type TurnState = dict[str, Any]
 @dataclass(frozen=True)
 class TurnResult:
     session_id: str
-    prompt: str | list[dict[str, Any]]
+    prompt: list[UserContent]
     model_output: str
     outbounds: list[Envelope] = field(default_factory=list)
     state: TurnState = field(default_factory=dict)

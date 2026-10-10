@@ -17,7 +17,7 @@ For the *why* and *how* of each stage see [Turn pipeline](/docs/concepts/turn-pi
 | --- | --- | --- | --- | --- | --- |
 | `resolve_session` | firstresult | `(message: Envelope) -> str` | session id | `BubFramework.process_inbound` | Falls back to `"{channel}:{chat_id}"` when no impl returns a value. |
 | `load_state` | broadcast | `(message: Envelope, session_id: str) -> TurnState` | dict to merge | `BubFramework.process_inbound` | Framework reverses results, then merges in order so high-priority keys overwrite low-priority. |
-| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: TurnState) -> str \| list[dict]` | prompt or content parts | `BubFramework.process_inbound` | Falls back to `content_of(message)` when no impl returns a non-`None` value, or when the selected firstresult is falsy. A falsy selected value does not cause lower-priority impls to run. |
+| `build_prompt` | firstresult | `(message: Envelope, session_id: str, state: TurnState) -> list[UserContent]` | prompt content | `BubFramework.process_inbound` | Falls back to `content_of(message)` when no impl returns a non-`None` value, or when the selected firstresult is falsy. A falsy selected value does not cause lower-priority impls to run. |
 | `run_model` | firstresult | `(prompt, session_id, state) -> str` | model text | `HookRuntime.run_model` | Legacy text path. Implement either `run_model` or `run_model_stream`, not both. |
 | `run_model_stream` | firstresult | `(prompt, session_id, state) -> AsyncStreamEvents` | async stream | `HookRuntime.run_model_stream` | Preferred. Falls back to wrapping a `run_model` result in a one-chunk stream when no streaming impl exists. |
 | `continue_prompt` | firstresult | `(prompt: str \| list[dict] \| None, tape: Tape, state: StreamState) -> str \| None` | optional next-step user message | `Agent._stream_events_with_auto_handoff` | Runs before each continued agent-loop step. `prompt` is the prompt used by the completed step, or `None` if none was added. Implementations may be sync or async. If no hook returns a string, the next model call uses the existing conversation without adding a user message. |
@@ -40,6 +40,12 @@ For the *why* and *how* of each stage see [Turn pipeline](/docs/concepts/turn-pi
 | `after_llm_call` | observer | `(request: LlmCallRequest, result: LlmCallResult, state: TurnState) -> None` | none | `ModelRunner.run` via `AgentHooks` | Fires exactly once per completed call: success or `Exception` failure. Cancellation / consumer `aclose()` is not observed. `result.error` is the original exception. |
 | `before_tool_call` | chained | `(call: ToolCall, state: TurnState) -> ToolCallDecision \| None` | decision | `ToolExecutor` via `AgentHooks` | Per tool invocation. `proceed(arguments=…)` folds argument changes; `replace(result)` / `deny(message)` short-circuit. Veto only via the decision object — exceptions are logged and skipped. |
 | `after_tool_call` | terminal handler | `(call: ToolCall, result: ToolCallResult, state: TurnState) -> None` | none | `ToolExecutor` via `AgentHooks` | Fires for success, failure and deny/replace. Cancellation is not observed. Assigning `result.result` replaces the model-facing value; `result.error` remains the original `BubError` for failures. |
+
+### Prompt content
+
+`build_prompt` returns `list[UserContent]` from `bub.prompt`, where `UserContent = str | republic.Image | republic.Audio | republic.Video`. Build media with `republic.image(...)`, `republic.audio(...)` or `republic.video(...)`. For compatibility, it may still return the legacy forms: a string, or a list of content-block dicts such as `{"type": "image", "media_type": "image/png", "url": "..."}`. The framework converts them by inspecting the returned value.
+
+Hooks that receive a prompt (`run_model`, `run_model_stream`, `continue_prompt`, `system_prompt`) still get the legacy form: a string when the prompt has no media, otherwise content blocks whose media use URLs (inline media become `data:` URLs). `bub.prompt.to_content(prompt)` converts it to user content.
 
 ## How hooks are invoked
 

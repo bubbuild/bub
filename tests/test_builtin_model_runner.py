@@ -13,8 +13,9 @@ from bub.builtin.context import default_tape_context
 from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
 from bub.errors import BubError, ErrorKind
+from bub.prompt import to_content
 from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
-from bub.tape import Tape, TapeContext
+from bub.tape import Tape, TapeContext, TapeEntry
 from bub.tools import Tool
 from tests.model_fakes import ProviderService, chat_events, sse, tool_events
 
@@ -68,7 +69,7 @@ async def test_unknown_tool_returns_an_error_result(tmp_path: Path, provider_ser
         events = [
             event
             async for event in runner.run(
-                tape=tape, model="openai:test", tools=[], system_prompt=None, prompt="Run the tool."
+                tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("Run the tool.")
             )
         ]
     result = next(event.data["tool_results"][0] for event in events if event.kind == "tool_result")
@@ -104,14 +105,22 @@ async def test_tool_turn_replays_after_tape_reload(
             events = [
                 event
                 async for event in runner.run(
-                    tape=tape, model="openai:test", tools=tools, system_prompt=None, prompt="Compare the outputs."
+                    tape=tape,
+                    model="openai:test",
+                    tools=tools,
+                    system_prompt=None,
+                    prompt=to_content("Compare the outputs."),
                 )
             ]
         reopened = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("turn")
         follow_up = [
             event
             async for event in runner.run(
-                tape=reopened, model="openai:test", tools=tools, system_prompt=None, prompt=continuation_prompt
+                tape=reopened,
+                model="openai:test",
+                tools=tools,
+                system_prompt=None,
+                prompt=None if continuation_prompt is None else to_content(continuation_prompt),
             )
         ]
     assert next(event.data["tool_results"] for event in events if event.kind == "tool_result") == [
@@ -149,12 +158,38 @@ async def test_continuation_sends_steering_without_a_prompt(tmp_path: Path, prov
                 tools=[],
                 system_prompt=None,
                 prompt=None,
-                steering_messages=["new user direction"],
+                steering_messages=[["new user direction"]],
             )
         ]
     assert provider_service.body()["messages"] == [{"role": "user", "content": "new user direction"}]
     assert events[-1].data == {"ok": True, "text": "done"}
-    assert {"role": "user", "content": "new user direction"} in await tape.read_messages()
+    assert republic.user("new user direction") in await tape.read_messages()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_without_its_call_in_context_is_still_sent(
+    tmp_path: Path, provider_service: ProviderService
+) -> None:
+    provider_service.reply(sse(chat_events()))
+    async with provider_service.client() as client:
+        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("orphan")
+        await tape.store.append(
+            tape.name,
+            TapeEntry.message({"role": "tool", "tool_call_id": "call-1", "name": "inspect", "content": "Ready"}),
+        )
+        events = [
+            event
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=[], system_prompt="Be brief.", prompt=to_content("Continue.")
+            )
+        ]
+    messages = provider_service.body()["messages"]
+    assert messages[0] == {"role": "system", "content": "Be brief."}
+    assert messages[1]["tool_calls"][0]["id"] == "call-1"
+    assert messages[1]["tool_calls"][0]["function"]["name"] == "inspect"
+    assert messages[2] == {"role": "tool", "tool_call_id": "call-1", "content": "Ready"}
+    assert events[-1].data == {"ok": True, "text": "done"}
 
 
 @pytest.mark.asyncio
@@ -177,7 +212,7 @@ async def test_invalid_tool_arguments_do_not_execute_the_handler(
                     model="openai:test",
                     tools=[Tool(name="inspect", handler=lambda: invoked.append(True))],
                     system_prompt=None,
-                    prompt="Inspect.",
+                    prompt=to_content("Inspect."),
                 )
             ]
     assert exc.value.kind == ErrorKind.INVALID_INPUT
@@ -195,7 +230,9 @@ async def test_streaming_reports_usage_and_records_it_in_tape(
         tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("usage")
         events = [
             event
-            async for event in runner.run(tape=tape, model="openai:test", tools=[], system_prompt=None, prompt="hello")
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("hello")
+            )
         ]
     assert provider_service.body()["stream_options"] == {"include_usage": True}
     usage = next(event.data for event in events if event.kind == "usage")
@@ -226,7 +263,7 @@ async def test_anthropic_request_enables_caching_and_generation_options(
         events = [
             event
             async for event in runner.run(
-                tape=tape, model="anthropic:test", tools=[], system_prompt=None, prompt="hello"
+                tape=tape, model="anthropic:test", tools=[], system_prompt=None, prompt=to_content("hello")
             )
         ]
     assert provider_service.body()["cache_control"] == {"type": "ephemeral"}
@@ -263,7 +300,9 @@ async def test_session_reasoning_and_runtime_options_override_completion_default
         ).scoped("reasoning")
         _ = [
             event
-            async for event in runner.run(tape=tape, model="openai:test", tools=[], system_prompt=None, prompt="hello")
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("hello")
+            )
         ]
     request = provider_service.body()
     assert request["reasoning_effort"] == "high"
@@ -295,7 +334,9 @@ async def test_wire_reasoning_follows_republic_extra_body_precedence(
         ).scoped("wire-reasoning")
         _ = [
             event
-            async for event in runner.run(tape=tape, model="openai:test", tools=[], system_prompt=None, prompt="hello")
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("hello")
+            )
         ]
     assert provider_service.body()["reasoning_effort"] == (request_reasoning or "low")
 
@@ -329,7 +370,7 @@ async def test_truncated_stream_never_executes_tools(tmp_path: Path, provider_se
                     model="openai:test",
                     tools=[Tool(name="echo", handler=lambda: invoked.append(True))],
                     system_prompt=None,
-                    prompt="hello",
+                    prompt=to_content("hello"),
                 )
             ]
     assert not invoked
@@ -338,7 +379,7 @@ async def test_truncated_stream_never_executes_tools(tmp_path: Path, provider_se
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("next_model", ["google:model-one", "google:model-two", "openai:model-one"])
-async def test_provider_state_is_replayed_only_to_its_source_after_reload(
+async def test_provider_state_is_replayed_only_to_its_api_format_after_reload(
     tmp_path: Path, provider_service: ProviderService, next_model: str
 ) -> None:
     opaque = {"executableCode": {"language": "PYTHON", "code": "1 + 1"}}
@@ -377,7 +418,7 @@ async def test_provider_state_is_replayed_only_to_its_source_after_reload(
         _ = [
             event
             async for event in runner.run(
-                tape=tape, model="google:model-one", tools=tools, system_prompt=None, prompt="lookup"
+                tape=tape, model="google:model-one", tools=tools, system_prompt=None, prompt=to_content("lookup")
             )
         ]
         reopened = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped(
@@ -388,13 +429,13 @@ async def test_provider_state_is_replayed_only_to_its_source_after_reload(
         events = [
             event
             async for event in runner.run(
-                tape=reopened, model=next_model, tools=tools, system_prompt=None, prompt="Continue."
+                tape=reopened, model=next_model, tools=tools, system_prompt=None, prompt=to_content("Continue.")
             )
         ]
     request = json.dumps(provider_service.body())
     assert "lookup result" in request
-    assert ("signature" in request) is (next_model == "google:model-one")
-    assert ("executableCode" in request) is (next_model == "google:model-one")
+    assert ("signature" in request) is next_model.startswith("google:")
+    assert ("executableCode" in request) is next_model.startswith("google:")
     assert events[-1].data == {"ok": True, "text": "done"}
 
 
@@ -418,7 +459,7 @@ async def test_named_tool_choice_is_sent_to_anthropic(tmp_path: Path, provider_s
                 model="anthropic:test",
                 tools=[Tool(name="echo", handler=lambda: "done")],
                 system_prompt=None,
-                prompt="hello",
+                prompt=to_content("hello"),
             )
         ]
     assert provider_service.body()["tool_choice"] == {"type": "tool", "name": "echo"}
