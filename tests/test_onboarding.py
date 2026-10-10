@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 from bub import configure, inquirer
 from bub.builtin import onboarding
 from bub.builtin.onboarding import discover_models
+from bub.builtin.settings import USER_AGENT
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 
@@ -165,16 +166,16 @@ def test_retry_then_edit_checks_the_updated_connection(prompts, monkeypatch):
 
     monkeypatch.setattr(onboarding, "discover_models", discover)
     config = onboarding.collect_model_config({})
-    assert probes == [
-        {"api_base": "https://first.test/v1", "api_key": "first-key", "env_prefix": "BUB_OPENAI", "api_format": "chat"},
-        {"api_base": "https://first.test/v1", "api_key": "first-key", "env_prefix": "BUB_OPENAI", "api_format": "chat"},
-        {
-            "api_base": "https://second.test/v1",
-            "api_key": "second-key",
-            "env_prefix": "BUB_OPENAI",
-            "api_format": "chat",
-        },
-    ]
+    headers = {"User-Agent": USER_AGENT}
+    first = {
+        "api_base": "https://first.test/v1",
+        "api_key": "first-key",
+        "env_prefix": "BUB_OPENAI",
+        "api_format": "chat",
+        "headers": headers,
+    }
+    second = {**first, "api_base": "https://second.test/v1", "api_key": "second-key"}
+    assert probes == [first, first, second]
     assert config["client_args"] == {"api_format": "chat"}
     assert probes[-1] == onboarding.AgentSettings.model_validate(config).model_client_kwargs("openai")
     assert [name for name, _ in calls].count("LLM provider") == 1

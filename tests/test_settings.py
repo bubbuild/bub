@@ -351,3 +351,17 @@ def test_hyphenated_provider_names_resolve_environment_credentials(provider: str
     prefix = provider.upper().replace("-", "_")
     settings = _settings_with_env({f"BUB_{prefix}_API_KEY": "provider-key"})
     assert settings.api_key == {provider: "provider-key"}
+
+
+def test_model_clients_identify_as_bub() -> None:
+    import republic
+
+    import bub
+
+    settings = AgentSettings(api_key="sk-test")
+    kwargs = settings.model_client_kwargs("openai")
+    provider = republic.get_provider("openai", **kwargs)
+
+    assert provider.headers["User-Agent"] == f"bub/{bub.__version__}"
+    custom = AgentSettings(api_key="sk-test", client_args={"headers": {"User-Agent": "mine", "X-Team": "a"}})
+    assert custom.model_client_kwargs("openai")["headers"] == {"User-Agent": "mine", "X-Team": "a"}
