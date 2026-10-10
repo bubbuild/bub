@@ -90,9 +90,9 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       contributorsLabel: 'Developed by contributors worldwide',
     },
     getStarted: {
-      eyebrow: 'Get started',
-      heading: 'Install in one command.',
-      description: 'Installs Bub and a starter preset. Everything else is a plugin.',
+      eyebrow: 'Install',
+      heading: 'Quick Start',
+      description: 'Pick a preset, add plugins as needed. Done.',
       install: {
         platforms: [
           {
@@ -196,9 +196,9 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       contributorsLabel: '由全球开发者共同打造',
     },
     getStarted: {
-      eyebrow: '开始使用',
-      heading: '一行命令即可安装。',
-      description: '装好 Bub 与起始预设。其余的都是插件。',
+      eyebrow: '安装',
+      heading: '快速开始',
+      description: '选预设，按需装插件。完成。',
       install: {
         platforms: [
           {

@@ -12,7 +12,7 @@ const { platforms, copyLabel, copiedLabel } = install;
 ---
 
 <div
-  class="install-command min-w-0 border border-border bg-card text-left shadow-[var(--site-shadow)]"
+  class="install-command min-w-0 border border-border bg-card text-left shadow-(--site-shadow)"
   data-install-command
   data-command={platforms[0]?.command ?? ''}
   data-copied-label={copiedLabel}
@@ -58,7 +58,7 @@ const { platforms, copyLabel, copiedLabel } = install;
       type="button"
       class:list={[
         'mr-2 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center self-center',
-        'text-muted-foreground transition hover:bg-secondary hover:text-foreground hover:shadow-[var(--site-shadow)]',
+        'text-muted-foreground transition hover:bg-secondary hover:text-foreground hover:shadow-(--site-shadow)',
         'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring',
       ]}
       aria-label={copyLabel}
