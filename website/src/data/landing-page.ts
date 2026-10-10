@@ -6,14 +6,14 @@
 // ---------------------------------------------------------------------------
 
 export type HeroData = {
-  badge?: string;
-  title?: string;
-  description?: string;
+  badge: string;
+  title: string;
+  description: string;
   primaryHref: string;
-  primaryLabel?: string;
-  secondaryHref?: string;
-  secondaryLabel?: string;
-  contributorsLabel?: string;
+  primaryLabel: string;
+  secondaryHref: string;
+  secondaryLabel: string;
+  contributorsLabel: string;
 };
 
 export type InstallPlatform = {
@@ -30,48 +30,57 @@ export type InstallCommandData = {
 };
 
 export type GetStartedData = {
-  eyebrow?: string;
-  heading?: string;
-  description?: string;
+  eyebrow: string;
+  heading: string;
+  description: string;
   install: InstallCommandData;
 };
 
 export type FeatureItem = { icon: string; title: string; description: string };
 
 export type FeaturesData = {
-  eyebrow?: string;
-  heading?: string;
-  subheading?: string;
-  features?: FeatureItem[];
+  eyebrow: string;
+  heading: string;
+  subheading: string;
+  features: FeatureItem[];
 };
 
+export type HookStage = { name: string; note: string };
+
 export type HookIntroData = {
-  eyebrow?: string;
-  heading?: string;
-  description?: string[];
-  hookStages?: { name: string; note: string }[];
+  eyebrow: string;
+  heading: string;
+  description: string[];
+  hookStages: HookStage[];
 };
 
 export type TapeModelData = {
-  eyebrow?: string;
-  heading?: string;
-  description?: string[];
+  eyebrow: string;
+  heading: string;
+  description: string[];
+  learnMore: string;
+};
+
+export type TestimonialItem = {
+  name: string;
+  handle: string;
+  text: string;
+  avatar?: string;
+  platform?: string;
 };
 
 export type TestimonialsData = {
-  eyebrow?: string;
-  heading?: string;
-  /** Populated at runtime from the userwall content collection. */
-  testimonials?: { name: string; handle: string; text: string; avatar?: string; platform?: string }[];
+  eyebrow: string;
+  heading: string;
 };
 
 export type LandingPageData = {
   hero: HeroData;
-  getStarted?: GetStartedData;
-  features?: FeaturesData;
-  hookIntro?: HookIntroData;
-  tapeModel?: TapeModelData;
-  testimonials?: TestimonialsData;
+  getStarted: GetStartedData;
+  features: FeaturesData;
+  hookIntro: HookIntroData;
+  tapeModel: TapeModelData;
+  testimonials: TestimonialsData;
 };
 
 export type LandingLocale = 'en' | 'zh-cn';
@@ -81,8 +90,7 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
     hero: {
       badge: 'Composable · Tape-driven · Channel-agnostic',
       title: 'Bub is a tiny agent runtime, composable with plugins.',
-      description:
-        'Start with a working agent. Use plugins to change how it thinks, remembers, and connects.',
+      description: 'Start with a working agent. Use plugins to change how it thinks, remembers, and connects.',
       primaryHref: '#get-started',
       primaryLabel: 'Get Started',
       secondaryHref: '/docs/getting-started/',
@@ -177,6 +185,7 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
         "Context isn't accumulated in session state. It's reconstructed from an append-only tape — a sequence of immutable facts. Entries record what happened; anchors mark phase boundaries and carry structured state.",
         'Corrections append new facts that supersede old ones — never overwrite. Views are assembled from anchors forward, not inherited wholesale. Every decision is auditable, replayable, and forkable.',
       ],
+      learnMore: 'Learn more at tape.system',
     },
     testimonials: {
       eyebrow: 'Community',
@@ -187,8 +196,7 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
     hero: {
       badge: '插件组合 · Tape 驱动 · Channel 任选',
       title: 'Bub，轻量的 Agent 运行时，以插件自由组合。',
-      description:
-        '开箱即用，再用插件按需定制模型执行、记忆和消息渠道。',
+      description: '开箱即用，再用插件按需定制模型执行、记忆和消息渠道。',
       primaryHref: '#get-started',
       primaryLabel: '开始使用',
       secondaryHref: '/zh-cn/docs/getting-started/',
@@ -224,22 +232,26 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
         {
           icon: 'webhook',
           title: '按需组合',
-          description: '内核精简，内置实现均可替换。每个轮次阶段都是一个 pluggy hook，可通过 Python 插件覆盖，无需 fork 运行时。',
+          description:
+            '内核精简，内置实现均可替换。每个轮次阶段都是一个 pluggy hook，可通过 Python 插件覆盖，无需 fork 运行时。',
         },
         {
           icon: 'layers',
           title: 'Tape 上下文',
-          description: '所有上下文均可从追加式 tape 记录中重建、Fork，而非堆叠在 session 状态中。无损摘要，避免幻觉记忆。',
+          description:
+            '所有上下文均可从追加式 tape 记录中重建、Fork，而非堆叠在 session 状态中。无损摘要，避免幻觉记忆。',
         },
         {
           icon: 'radioTower',
           title: 'Channel 任选',
-          description: '同一个 Pipeline 上驱动 CLI、Telegram 甚至你添加的任何 channel。Hooks 从不感知运行在哪个地方，可以是任意来源。',
+          description:
+            '同一个 Pipeline 上驱动 CLI、Telegram 甚至你添加的任何 channel。Hooks 从不感知运行在哪个地方，可以是任意来源。',
         },
         {
           icon: 'package',
           title: '开箱即用',
-          description: 'CLI、chat、gateway、逗号命令和默认 agent runtime 都以内置插件形式交付。第一天就能直接用，需要控制权时也能随时替换。',
+          description:
+            'CLI、chat、gateway、逗号命令和默认 agent runtime 都以内置插件形式交付。第一天就能直接用，需要控制权时也能随时替换。',
         },
         {
           icon: 'users',
@@ -256,10 +268,7 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
     hookIntro: {
       eyebrow: '架构',
       heading: '处处都是 Hooks。',
-      description: [
-        'Bub 中每个阶段都是一个可插拔的 hook。',
-        '通过注册你自己的 hook 覆盖任意阶段。无需 fork。',
-      ],
+      description: ['Bub 中每个阶段都是一个可插拔的 hook。', '通过注册你自己的 hook 覆盖任意阶段。无需 fork。'],
       hookStages: [
         { name: 'resolve_session', note: '路由到正确的会话' },
         { name: 'load_state', note: '从 tape 重建上下文' },
@@ -277,6 +286,7 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
         '上下文不积累在 session 状态中，而是从追加式 tape——不可变事实的序列——中重建：Entry 记录发生了什么、Anchor 标记阶段边界并携带结构化状态。',
         '通过修正追加新事实来取代旧事实——从不覆盖。视图从 anchor 往后组装，而非整体继承。每次决策都可审计、可重放、可 fork。',
       ],
+      learnMore: '前往 tape.system 了解更多',
     },
     testimonials: {
       eyebrow: '社区',

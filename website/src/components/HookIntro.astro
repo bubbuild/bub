@@ -1,20 +1,16 @@
 ---
 import SectionHeading from '@/components/ui/SectionHeading.astro';
+import type { HookIntroData } from '@/data/landing-page';
 
-interface Props {
-  eyebrow?: string;
-  heading?: string;
-  description?: string[];
-  hookStages?: { name: string; note: string }[];
-}
+type Props = HookIntroData;
 
-const { eyebrow, heading, description = [], hookStages = [] }: Props = Astro.props;
+const { eyebrow, heading, description, hookStages } = Astro.props;
 
 /* ── SVG coordinate system ── */
 const SPACING = 62;
 const FIRST_Y = 44;
-const RX = 305;          // right-side node center x
-const LX = 95;           // left-side node center x
+const RX = 305; // right-side node center x
+const LX = 95; // left-side node center x
 const VB_W = 400;
 const VB_H = FIRST_Y + (hookStages.length - 1) * SPACING + FIRST_Y;
 
@@ -31,13 +27,12 @@ const segs: string[] = [
   `C ${first.x} ${first.y - 20}, ${first.x} ${first.y - 8}, ${first.x} ${first.y}`,
 ];
 for (let i = 1; i < nodeCoords.length; i++) {
-  const p = nodeCoords[i - 1], c = nodeCoords[i];
+  const p = nodeCoords[i - 1],
+    c = nodeCoords[i];
   const my = (p.y + c.y) / 2;
   segs.push(`C ${p.x} ${my}, ${c.x} ${my}, ${c.x} ${c.y}`);
 }
-segs.push(
-  `C ${last.x} ${last.y + 8}, ${last.x} ${last.y + 20}, ${last.x} ${VB_H + 44}`,
-);
+segs.push(`C ${last.x} ${last.y + 8}, ${last.x} ${last.y + 20}, ${last.x} ${VB_H + 44}`);
 const pathD = segs.join(' ');
 
 /* Build straight vertical path for mobile */
@@ -48,42 +43,21 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 <section class="relative overflow-hidden py-20 md:py-28" data-reveal aria-label="Hook architecture">
   <div class="relative mx-auto max-w-6xl px-5 md:px-8">
     <div class="flex flex-col gap-12 md:flex-row md:items-start md:gap-16 lg:gap-24">
-
       <!-- Left: intro text -->
       <div class="md:w-[42%] md:shrink-0">
-        <SectionHeading
-          eyebrow={eyebrow}
-          heading={heading}
-          descriptions={description}
-          descriptionsClass="mt-5"
-          class="mb-0 max-w-none"
-        />
+        <SectionHeading eyebrow={eyebrow} heading={heading} body={description} class="mb-0 max-w-none" />
       </div>
 
       <!-- Right: serpentine flow diagram -->
       <div class="hook-flow relative flex-1" data-hook-flow>
-        <div
-          class="hook-flow-inner relative mx-auto"
-          style={`aspect-ratio: ${VB_W} / ${VB_H}; max-width: 420px;`}
-        >
+        <div class="hook-flow-inner relative mx-auto" style={`aspect-ratio: ${VB_W} / ${VB_H}; max-width: 420px;`}>
           <div class="hook-grid" aria-hidden="true"></div>
 
           <!-- SVG path layer -->
-          <svg
-            class="absolute inset-0 h-full w-full"
-            viewBox={`0 0 ${VB_W} ${VB_H}`}
-            fill="none"
-            aria-hidden="true"
-          >
+          <svg class="absolute inset-0 h-full w-full" viewBox={`0 0 ${VB_W} ${VB_H}`} fill="none" aria-hidden="true">
             <!-- Desktop: serpentine S-curve paths -->
             <g class="hook-paths-desktop">
-              <path
-                d={pathD}
-                stroke="var(--border)"
-                stroke-width="1.5"
-                stroke-dasharray="6 4"
-                opacity="0.45"
-              />
+              <path d={pathD} stroke="var(--border)" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.45" />
               <path
                 d={pathD}
                 stroke="var(--primary)"
@@ -97,13 +71,7 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 
             <!-- Mobile: straight vertical path -->
             <g class="hook-paths-mobile">
-              <path
-                d={straightPathD}
-                stroke="var(--border)"
-                stroke-width="1.5"
-                stroke-dasharray="6 4"
-                opacity="0.45"
-              />
+              <path d={straightPathD} stroke="var(--border)" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.45" />
               <path
                 d={straightPathD}
                 stroke="var(--primary)"
@@ -122,8 +90,8 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 
           <!-- Node cards -->
           {hookStages.map((stage, i) => {
-            const yPct = ((FIRST_Y + i * SPACING) / VB_H * 100).toFixed(2);
-            const xPct = (nodeCoords[i].x / VB_W * 100).toFixed(2);
+            const yPct = (((FIRST_Y + i * SPACING) / VB_H) * 100).toFixed(2);
+            const xPct = ((nodeCoords[i].x / VB_W) * 100).toFixed(2);
             return (
               <div
                 class="hook-node absolute z-10"
@@ -139,7 +107,6 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
           })}
         </div>
       </div>
-
     </div>
   </div>
 </section>
@@ -147,20 +114,8 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 <style>
   /* ── Fade-mask at top / bottom of the flow ── */
   .hook-flow {
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      transparent 0%,
-      black 7%,
-      black 93%,
-      transparent 100%
-    );
-    mask-image: linear-gradient(
-      to bottom,
-      transparent 0%,
-      black 7%,
-      black 93%,
-      transparent 100%
-    );
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 7%, black 93%, transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 7%, black 93%, transparent 100%);
   }
 
   .hook-grid {
@@ -181,11 +136,19 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
   }
 
   /* ── Desktop / mobile path toggle (unscoped for SVG) ── */
-  :global(.hook-paths-mobile) { display: none; }
+  :global(.hook-paths-mobile) {
+    display: none;
+  }
   @media (max-width: 639px) {
-    :global(.hook-paths-desktop) { display: none; }
-    :global(.hook-paths-mobile)  { display: block; }
-    .hook-node { left: 50% !important; }
+    :global(.hook-paths-desktop) {
+      display: none;
+    }
+    :global(.hook-paths-mobile) {
+      display: block;
+    }
+    .hook-node {
+      left: 50% !important;
+    }
   }
 
   /* ── Node card — D2 / Mermaid tech-diagram feel ── */
@@ -200,7 +163,7 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
     text-align: center;
     transition:
       border-color 0.4s ease,
-      box-shadow   0.4s ease;
+      box-shadow 0.4s ease;
     will-change: box-shadow;
   }
 
@@ -219,7 +182,9 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
     line-height: 1.3;
     color: var(--muted-foreground);
     opacity: 0.6;
-    transition: opacity 0.35s ease, color 0.35s ease;
+    transition:
+      opacity 0.35s ease,
+      color 0.35s ease;
   }
 
   /* ── Active node: ping flash ── */
@@ -277,9 +242,9 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
   const SPACING = 62;
   const CX_MOBILE = 200;
 
-  const CYCLE_DUR    = 7;
-  const TRAIL_LEAD   = 0.018;
-  const FADE_ZONE    = 0.06;
+  const CYCLE_DUR = 7;
+  const TRAIL_LEAD = 0.018;
+  const FADE_ZONE = 0.06;
   const NEAR_DIST_SQ = 36 * 36;
   const PATH_SAMPLE_COUNT = 560;
   const HOOK_FRAME_MS = 1000 / 30;
@@ -312,8 +277,8 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
     let activeIdx = -1;
     let currentMobile: boolean | null = null;
 
-    const nodeEls  = Array.from(root.querySelectorAll('[data-hook-node]')) as HTMLElement[];
-    const dot      = root.querySelector('[data-hook-dot]') as SVGCircleElement | null;
+    const nodeEls = Array.from(root.querySelectorAll('[data-hook-node]')) as HTMLElement[];
+    const dot = root.querySelector('[data-hook-dot]') as SVGCircleElement | null;
     const dotTrail = root.querySelector('[data-hook-dot-trail]') as SVGCircleElement | null;
     if (!dot || !nodeEls.length) return;
 
@@ -341,7 +306,7 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 
       const group = isMobile ? '.hook-paths-mobile' : '.hook-paths-desktop';
       const svgPath = root!.querySelector(`${group} path:first-child`) as SVGPathElement | null;
-      const trail   = root!.querySelector(
+      const trail = root!.querySelector(
         isMobile ? '[data-hook-trail-mobile]' : '[data-hook-trail]',
       ) as SVGPathElement | null;
 
@@ -351,7 +316,7 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
       const nodeCoords = nodeEls.map((el) => {
         const idx = Number(el.dataset.hookNode);
         return {
-          x: isMobile ? CX_MOBILE : (idx % 2 === 0 ? RX : LX),
+          x: isMobile ? CX_MOBILE : idx % 2 === 0 ? RX : LX,
           y: FIRST_Y + idx * SPACING,
         };
       });
@@ -366,7 +331,10 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
           const dx = pt.x - nodeCoords[i].x;
           const dy = pt.y - nodeCoords[i].y;
           const dSq = dx * dx + dy * dy;
-          if (dSq < bestSq) { bestSq = dSq; nearest = i; }
+          if (dSq < bestSq) {
+            bestSq = dSq;
+            nearest = i;
+          }
         }
 
         return {
@@ -462,14 +430,18 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
     reduceMotionMql.addEventListener('change', handleMotionPreferenceChange);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    const stopInView = inView(root, () => {
-      rootInView = true;
-      maybeStartAnimation();
-      return () => {
-        rootInView = false;
-        stopAnimation();
-      };
-    }, { margin: '-8% 0px' });
+    const stopInView = inView(
+      root,
+      () => {
+        rootInView = true;
+        maybeStartAnimation();
+        return () => {
+          rootInView = false;
+          stopAnimation();
+        };
+      },
+      { margin: '-8% 0px' },
+    );
 
     hookFlowWindow.__bubHookFlowCleanup = () => {
       stopInView();

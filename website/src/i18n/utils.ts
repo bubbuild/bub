@@ -53,7 +53,7 @@ export function getStaticLocalePaths(): StaticLocalePath[] {
 
 /** Return the BCP-47 lang tag for an HTML `lang` attribute. */
 export function getHtmlLang(locale: Locale): string {
-  return htmlLangMap[locale] ?? locale;
+  return htmlLangMap[locale];
 }
 
 /** Return a `t()` function bound to the given locale. */
@@ -62,7 +62,7 @@ export function useTranslations(lang: Locale) {
   const defaultUi = ui[defaultLang];
 
   return function t(key: UIKey): string {
-    return localeUi[key] ?? defaultUi[key] ?? key;
+    return localeUi[key] ?? defaultUi[key];
   };
 }
 
@@ -138,7 +138,6 @@ export interface NavProps {
   docsLabel: string;
   blogLabel: string;
   hubLabel: string;
-  githubLabel: string;
   menuLabel: string;
   closeLabel: string;
 }
@@ -156,7 +155,6 @@ export function getNavProps(locale: Locale, pathname: string): NavProps {
     docsLabel: t('nav.docs'),
     blogLabel: t('nav.blog'),
     hubLabel: t('nav.plugins'),
-    githubLabel: t('nav.github'),
     menuLabel: t('nav.menu'),
     closeLabel: t('nav.close'),
   };

@@ -1,23 +1,14 @@
 ---
 import Icon from '@/components/ui/Icon.astro';
-
-interface Feature {
-  icon: string;
-  title: string;
-  description: string;
-}
+import type { FeatureItem } from '@/data/landing-page';
 
 interface Props {
-  feature: Feature;
+  feature: FeatureItem;
   wide?: boolean;
   iconSize?: number;
 }
 
-const {
-  feature,
-  wide = false,
-  iconSize = wide ? 120 : 96,
-} = Astro.props;
+const { feature, wide = false, iconSize = wide ? 120 : 96 } = Astro.props;
 ---
 
 <div

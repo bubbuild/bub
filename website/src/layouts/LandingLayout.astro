@@ -1,20 +1,23 @@
 ---
-import Features from '@/components/Features.astro';
-import GetStarted from '@/components/GetStarted.astro';
-import Hero from '@/components/Hero.astro';
-import HookIntro from '@/components/HookIntro.astro';
-import TapeModel from '@/components/TapeModel.astro';
-import Testimonials from '@/components/Testimonials.astro';
 import BaseLayout from '@/layouts/BaseLayout.astro';
-import { getRepoStats } from '@/lib/github';
 import { SITE_URL } from 'astro:env/client';
 
-const { title, description, ogImage, hero, getStarted = {}, features = {}, hookIntro = {}, tapeModel = {}, testimonials = {} } = Astro.props;
+interface Props {
+  title: string;
+  description: string;
+  ogImage: string;
+}
 
-const { contributors } = getRepoStats();
+const { title, description, ogImage } = Astro.props;
 ---
 
-<BaseLayout title={title} description={description} ogImage={ogImage} canonicalUrl={SITE_URL} bodyClass="ambient-page min-h-screen antialiased font-sans">
+<BaseLayout
+  title={title}
+  description={description}
+  ogImage={ogImage}
+  canonicalUrl={SITE_URL}
+  bodyClass="ambient-page min-h-screen antialiased font-sans"
+>
   <main id="main-content" class="relative isolate">
     <div class="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
       <svg class="grain-texture absolute inset-0 h-full w-full" xmlns="http://www.w3.org/2000/svg">
@@ -26,12 +29,7 @@ const { contributors } = getRepoStats();
       </svg>
     </div>
     <div class="divide-y divide-border">
-      <Hero {...hero} contributors={contributors} />
-      <GetStarted {...getStarted} />
-      <Features {...features} />
-      <HookIntro {...hookIntro} />
-      <TapeModel {...tapeModel} />
-      <Testimonials {...testimonials} />
+      <slot />
     </div>
   </main>
 </BaseLayout>
@@ -71,7 +69,7 @@ const { contributors } = getRepoStats();
     opacity: 0.04;
   }
   :global(.dark) .grain-texture,
-  :global([data-theme="dark"]) .grain-texture {
+  :global([data-theme='dark']) .grain-texture {
     opacity: 0.06;
   }
 </style>

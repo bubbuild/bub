@@ -2,15 +2,18 @@
 import FeatureCard from '@/components/ui/FeatureCard.astro';
 import SectionHeading from '@/components/ui/SectionHeading.astro';
 import SiteLogo from '@/components/ui/SiteLogo.astro';
+import type { FeaturesData } from '@/data/landing-page';
 
-const { eyebrow, heading, subheading, features = [] } = Astro.props;
+type Props = FeaturesData;
+
+const { eyebrow, heading, subheading, features } = Astro.props;
 
 // Layout: [0]=2cols, [1], [2], CENTER LOGO, [3], [4], [5]=2cols → 3×3 grid
 ---
 
 <section class="relative py-20 md:py-28" data-reveal aria-label="Features">
   <div class="mx-auto max-w-6xl px-5 md:px-8">
-    <SectionHeading eyebrow={eyebrow} heading={heading} subheading={subheading} />
+    <SectionHeading eyebrow={eyebrow} heading={heading} body={[subheading]} />
 
     <div class="grid gap-px border border-border bg-border shadow-[var(--site-shadow-elevated)] sm:grid-cols-2 lg:grid-cols-3">
       {/* Row 1: feature[0] col-span-2 + feature[1] */}

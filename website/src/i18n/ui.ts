@@ -33,7 +33,6 @@ export const ui = {
     'nav.docs': 'Docs',
     'nav.blog': 'Blog',
     'nav.plugins': 'Plugins',
-    'nav.github': 'GitHub',
     'nav.menu': 'Menu',
     'nav.close': 'Close',
 
@@ -50,9 +49,6 @@ export const ui = {
 
     // Language switcher label (shown as the "other" language)
     'lang.switch': '中文',
-
-    // Tape model section
-    'tapeModel.learnMore': 'Learn more at tape.system',
   },
 
   'zh-cn': {
@@ -64,7 +60,6 @@ export const ui = {
     'nav.docs': '文档',
     'nav.blog': '博客',
     'nav.plugins': '插件',
-    'nav.github': 'GitHub',
     'nav.menu': '菜单',
     'nav.close': '关闭',
 
@@ -81,9 +76,6 @@ export const ui = {
 
     // Language switcher label
     'lang.switch': 'English',
-
-    // Tape model section
-    'tapeModel.learnMore': '前往 tape.system 了解更多',
   },
 } as const;
 

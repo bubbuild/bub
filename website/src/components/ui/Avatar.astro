@@ -1,0 +1,26 @@
+---
+import Icon from '@/components/ui/Icon.astro';
+
+interface Props {
+  src?: string;
+  alt?: string;
+  size?: number;
+}
+
+const { src, alt = '', size = 20 } = Astro.props;
+---
+
+<div class="absolute inset-0">
+  <div class="absolute inset-0 flex items-center justify-center">
+    <Icon name="circleUserRound" size={size} aria-hidden="true" />
+  </div>
+  {src && (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      class="absolute inset-0 h-full w-full object-cover"
+      onerror="this.remove()"
+    />
+  )}
+</div>

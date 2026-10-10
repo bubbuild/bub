@@ -1,16 +1,11 @@
 ---
 import Icon from '@/components/ui/Icon.astro';
 import SectionHeading from '@/components/ui/SectionHeading.astro';
-import { useTranslations, getLangFromUrl } from '@/i18n/utils';
+import type { TapeModelData } from '@/data/landing-page';
 
+type Props = TapeModelData;
 
-interface Props {
-  eyebrow?: string;
-  heading?: string;
-  description?: string[];
-}
-
-const { eyebrow, heading, description = [] }: Props = Astro.props;
+const { eyebrow, heading, description, learnMore } = Astro.props;
 
 type TapeEntry = {
   ts: string;
@@ -22,31 +17,28 @@ type TapeEntry = {
 };
 
 const tapeEntries: TapeEntry[] = [
-  { ts: '14:32:01', kind: 'event',  op: 'user_msg',    key: 'e_101', value: '"explain hooks"' },
-  { ts: '14:32:02', kind: 'event',  op: 'build_prompt', key: 'e_102', value: 'system + 12 msgs' },
-  { ts: '14:32:04', kind: 'event',  op: 'model_reply',  key: 'e_103', value: '"Hooks are pluggy…"' },
-  { ts: '14:32:04', kind: 'event',  op: 'tool_call',    key: 'e_104', value: 'read_docs("hooks")' },
-  { ts: '14:32:05', kind: 'event',  op: 'tool_result',  key: 'e_105', value: '{ok: true, lines: 47}' },
-  { ts: '14:32:06', kind: 'anchor', op: 'handoff',      key: 'a_001', value: 'phase → correction, owner: agent' },
-  { ts: '14:32:06', kind: 'event',  op: 'correction',   key: 'e_106', value: 'supersedes e_103', corrects: 'e_103' },
-  { ts: '14:32:07', kind: 'event',  op: 'model_reply',  key: 'e_107', value: '"Updated: Hooks use pluggy…"' },
-  { ts: '14:32:08', kind: 'event',  op: 'save_state',   key: 'e_108', value: 'tape flushed ✓' },
+  { ts: '14:32:01', kind: 'event', op: 'user_msg', key: 'e_101', value: '"explain hooks"' },
+  { ts: '14:32:02', kind: 'event', op: 'build_prompt', key: 'e_102', value: 'system + 12 msgs' },
+  { ts: '14:32:04', kind: 'event', op: 'model_reply', key: 'e_103', value: '"Hooks are pluggy…"' },
+  { ts: '14:32:04', kind: 'event', op: 'tool_call', key: 'e_104', value: 'read_docs("hooks")' },
+  { ts: '14:32:05', kind: 'event', op: 'tool_result', key: 'e_105', value: '{ok: true, lines: 47}' },
+  { ts: '14:32:06', kind: 'anchor', op: 'handoff', key: 'a_001', value: 'phase → correction, owner: agent' },
+  { ts: '14:32:06', kind: 'event', op: 'correction', key: 'e_106', value: 'supersedes e_103', corrects: 'e_103' },
+  { ts: '14:32:07', kind: 'event', op: 'model_reply', key: 'e_107', value: '"Updated: Hooks use pluggy…"' },
+  { ts: '14:32:08', kind: 'event', op: 'save_state', key: 'e_108', value: 'tape flushed ✓' },
 ];
 
-const entryCount = tapeEntries.filter(e => e.kind === 'event').length;
-const anchorCount = tapeEntries.filter(e => e.kind === 'anchor').length;
+const entryCount = tapeEntries.filter((e) => e.kind === 'event').length;
+const anchorCount = tapeEntries.filter((e) => e.kind === 'anchor').length;
 const COL_COUNT = 5;
-const t = useTranslations(getLangFromUrl(Astro.url));
 ---
 
 <section class="relative py-20 md:py-28" data-reveal aria-label="Tape context model">
   <div class="mx-auto max-w-6xl px-5 md:px-8">
     <div class="grid items-start gap-10 lg:grid-cols-2 lg:gap-16">
-
       <!-- ── Tape visualization ── -->
       <div class="relative order-2 lg:order-1" data-tape-viz>
         <div class="overflow-hidden border border-border bg-card shadow-[var(--site-shadow-elevated)]">
-
           <!-- Title bar -->
           <div class="flex items-center justify-between border-b border-border px-4 py-2.5 sm:px-5 sm:py-3">
             <span class="font-mono text-[0.65rem] text-muted-foreground/60">~/.bub/tapes/session_a1b2</span>
@@ -67,7 +59,11 @@ const t = useTranslations(getLangFromUrl(Astro.url));
               aria-hidden="true"
             ></div>
 
-            <table class="w-full border-collapse font-mono text-[0.62rem] leading-[1.5]" role="log" aria-label="Tape entries">
+            <table
+              class="w-full border-collapse font-mono text-[0.62rem] leading-[1.5]"
+              role="log"
+              aria-label="Tape entries"
+            >
               <colgroup>
                 <col class="w-[66px] max-sm:hidden" />
                 <col class="w-[18px]" />
@@ -77,15 +73,39 @@ const t = useTranslations(getLangFromUrl(Astro.url));
               </colgroup>
               <thead>
                 <tr data-tape-header class="opacity-0">
-                  <th scope="col" class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border max-sm:hidden">time</th>
-                  <th scope="col" class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border" aria-label="kind"></th>
-                  <th scope="col" class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border">op</th>
-                  <th scope="col" class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border max-sm:hidden">key</th>
-                  <th scope="col" class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border">payload</th>
+                  <th
+                    scope="col"
+                    class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border max-sm:hidden"
+                  >
+                    time
+                  </th>
+                  <th
+                    scope="col"
+                    class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border"
+                    aria-label="kind"
+                  ></th>
+                  <th
+                    scope="col"
+                    class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border"
+                  >
+                    op
+                  </th>
+                  <th
+                    scope="col"
+                    class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border max-sm:hidden"
+                  >
+                    key
+                  </th>
+                  <th
+                    scope="col"
+                    class="px-[0.65rem] py-2 text-[0.5rem] font-medium uppercase tracking-[0.1em] text-left whitespace-nowrap text-muted-foreground opacity-40 border-b border-border"
+                  >
+                    payload
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {tapeEntries.map((entry, i) => (
+                {tapeEntries.map((entry, i) =>
                   entry.kind === 'anchor' ? (
                     <tr class="opacity-0 translate-y-2" data-tape-row={i} data-kind="anchor">
                       <td colspan={COL_COUNT} class="px-[0.65rem] py-[0.55rem]">
@@ -93,7 +113,9 @@ const t = useTranslations(getLangFromUrl(Astro.url));
                           <span class="h-px flex-1 bg-[var(--site-accent-signal-rule)]" aria-hidden="true"></span>
                           <span class="tape-anchor-badge inline-flex items-center gap-[0.35rem] border border-[var(--site-accent-signal-border)] bg-[var(--site-accent-signal-bg)] px-[0.6rem] py-[0.2rem] transition-shadow duration-[400ms]">
                             <Icon name="anchor" size={10} class="text-primary" aria-hidden="true" />
-                            <span class="font-mono text-[0.58rem] font-semibold uppercase tracking-[0.05em] text-primary">{entry.op}</span>
+                            <span class="font-mono text-[0.58rem] font-semibold uppercase tracking-[0.05em] text-primary">
+                              {entry.op}
+                            </span>
                             <span class="font-mono text-[0.5rem] text-primary/50 max-sm:hidden">{entry.value}</span>
                           </span>
                           <span class="h-px flex-1 bg-[var(--site-accent-signal-rule)]" aria-hidden="true"></span>
@@ -108,7 +130,9 @@ const t = useTranslations(getLangFromUrl(Astro.url));
                       data-key={entry.key}
                       data-corrects={entry.corrects ?? ''}
                     >
-                      <td class="px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle tabular-nums text-muted-foreground opacity-35 max-sm:hidden">{entry.ts}</td>
+                      <td class="px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle tabular-nums text-muted-foreground opacity-35 max-sm:hidden">
+                        {entry.ts}
+                      </td>
                       <td class="py-[0.38rem] px-0 whitespace-nowrap align-middle text-center">
                         <span
                           class:list={[
@@ -120,19 +144,28 @@ const t = useTranslations(getLangFromUrl(Astro.url));
                           aria-hidden="true"
                         />
                       </td>
-                      <td class:list={['tape-td--op px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle font-medium', entry.corrects ? 'text-primary' : 'text-foreground']}>
+                      <td
+                        class:list={[
+                          'tape-td--op px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle font-medium',
+                          entry.corrects ? 'text-primary' : 'text-foreground',
+                        ]}
+                      >
                         {entry.op}
                       </td>
-                      <td class="px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle text-[0.56rem] text-muted-foreground opacity-40 max-sm:hidden">{entry.key}</td>
+                      <td class="px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle text-[0.56rem] text-muted-foreground opacity-40 max-sm:hidden">
+                        {entry.key}
+                      </td>
                       <td class="tape-td--payload px-[0.65rem] py-[0.38rem] whitespace-nowrap align-middle text-muted-foreground opacity-70 max-w-[170px] overflow-hidden text-ellipsis max-sm:max-w-[120px]">
                         {entry.corrects && (
-                          <span class="mr-1 border-b border-dashed border-[var(--site-accent-signal-dashed)] pb-px text-[0.56rem] text-primary/70">← {entry.corrects}</span>
+                          <span class="mr-1 border-b border-dashed border-[var(--site-accent-signal-dashed)] pb-px text-[0.56rem] text-primary/70">
+                            ← {entry.corrects}
+                          </span>
                         )}
                         <span>{entry.value}</span>
                       </td>
                     </tr>
-                  )
-                ))}
+                  ),
+                )}
               </tbody>
             </table>
           </div>
@@ -163,7 +196,9 @@ const t = useTranslations(getLangFromUrl(Astro.url));
 
           <!-- Status bar -->
           <div class="flex flex-wrap items-center gap-2 px-3 py-[0.55rem] border-t border-border font-mono">
-            <span class="inline-flex items-center bg-[var(--site-accent-signal-bg-strong)] px-[0.4rem] py-[0.1rem] text-[0.56rem] font-bold text-primary">{entryCount + anchorCount} entries</span>
+            <span class="inline-flex items-center bg-[var(--site-accent-signal-bg-strong)] px-[0.4rem] py-[0.1rem] text-[0.56rem] font-bold text-primary">
+              {entryCount + anchorCount} entries
+            </span>
             <span class="text-[0.56rem] text-muted-foreground opacity-55">{anchorCount} anchor</span>
             <span class="text-[0.52rem] text-muted-foreground opacity-35">·</span>
             <span class="text-[0.52rem] text-muted-foreground opacity-35">append-only</span>
@@ -173,24 +208,22 @@ const t = useTranslations(getLangFromUrl(Astro.url));
 
       <!-- ── Text content ── -->
       <div class="order-1 lg:order-2">
-        <SectionHeading
-          eyebrow={eyebrow}
-          heading={heading}
-          descriptions={description}
-          descriptionsClass="mt-5"
-          class="mb-0 max-w-none"
-        />
+        <SectionHeading eyebrow={eyebrow} heading={heading} body={description} class="mb-0 max-w-none" />
         <a
           href="https://tape.systems/"
           target="_blank"
           rel="noreferrer"
           class="group mt-6 inline-flex items-center gap-1.5 font-mono text-[0.7rem] text-muted-foreground transition-colors hover:text-primary"
         >
-          {t('tapeModel.learnMore')}
-          <Icon name="arrowUpRight" size={12} class="opacity-50 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+          {learnMore}
+          <Icon
+            name="arrowUpRight"
+            size={12}
+            class="opacity-50 transition-opacity group-hover:opacity-100"
+            aria-hidden="true"
+          />
         </a>
       </div>
-
     </div>
   </div>
 </section>
@@ -223,15 +256,28 @@ const t = useTranslations(getLangFromUrl(Astro.url));
   [data-tape-running] .tape-cursor-line {
     animation: cursor-blink 1s ease-in-out infinite;
   }
-  .tape-live-label { color: var(--site-accent-live); opacity: 0.8; }
+  .tape-live-label {
+    color: var(--site-accent-live);
+    opacity: 0.8;
+  }
 
   @keyframes live-pulse {
-    0%, 100% { opacity: 1; }
-    50%      { opacity: 0.45; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
   }
   @keyframes cursor-blink {
-    0%, 100% { opacity: 1; }
-    50%       { opacity: 0; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0;
+    }
   }
 
   /* ── JS-applied dynamic states ── */
@@ -239,7 +285,9 @@ const t = useTranslations(getLangFromUrl(Astro.url));
     text-decoration: line-through;
     text-decoration-color: var(--site-accent-signal-emphasis);
     opacity: 0.3;
-    transition: opacity 0.4s ease, text-decoration-color 0.4s ease;
+    transition:
+      opacity 0.4s ease,
+      text-decoration-color 0.4s ease;
   }
   .tape-row-superseded .tape-td--op {
     opacity: 0.3;
@@ -294,7 +342,11 @@ const t = useTranslations(getLangFromUrl(Astro.url));
     }
 
     function sched(fn: () => void, ms: number) {
-      timers.push(window.setTimeout(() => { if (active) fn(); }, ms));
+      timers.push(
+        window.setTimeout(() => {
+          if (active) fn();
+        }, ms),
+      );
     }
 
     function runAnimation(
@@ -321,7 +373,7 @@ const t = useTranslations(getLangFromUrl(Astro.url));
       stopAnimations();
       setRunning(false);
       if (header) header.style.opacity = '0';
-      rows.forEach(r => {
+      rows.forEach((r) => {
         r.style.opacity = '0';
         r.style.transform = 'translateY(8px)';
         r.classList.remove('tape-row-superseded', 'tape-row-highlight', 'tape-anchor-glow');
@@ -353,7 +405,7 @@ const t = useTranslations(getLangFromUrl(Astro.url));
         runAnimation(
           rows,
           { opacity: [0, 1], y: [10, 0] },
-          { delay: stagger(GAP, { startDelay: BASE }), duration: 0.4, ease: [0.22, 1, 0.36, 1] }
+          { delay: stagger(GAP, { startDelay: BASE }), duration: 0.4, ease: [0.22, 1, 0.36, 1] },
         );
       }, 80);
 
@@ -384,21 +436,31 @@ const t = useTranslations(getLangFromUrl(Astro.url));
       });
 
       // ─ Phase 4: scan line
-      sched(() => {
-        if (!scan) return;
-        const h = scan.parentElement?.scrollHeight ?? 300;
-        runAnimation(scan, { opacity: [0, 0.7, 0.7, 0], y: [0, 0, h, h] }, { duration: 1.3, ease: [0.4, 0, 0.2, 1] });
-      }, (ENTRANCE_END + 0.15) * 1000);
+      sched(
+        () => {
+          const parent = scan?.parentElement;
+          if (!scan || !parent) return;
+          const h = parent.scrollHeight;
+          runAnimation(scan, { opacity: [0, 0.7, 0.7, 0], y: [0, 0, h, h] }, { duration: 1.3, ease: [0.4, 0, 0.2, 1] });
+        },
+        (ENTRANCE_END + 0.15) * 1000,
+      );
 
       // ─ Phase 5: cursor
-      sched(() => {
-        if (cursor) runAnimation(cursor, { opacity: [0, 1] }, { duration: 0.4, ease: 'easeOut' });
-      }, (ENTRANCE_END + 0.5) * 1000);
+      sched(
+        () => {
+          if (cursor) runAnimation(cursor, { opacity: [0, 1] }, { duration: 0.4, ease: 'easeOut' });
+        },
+        (ENTRANCE_END + 0.5) * 1000,
+      );
 
       // ─ Phase 6: view assembly
-      sched(() => {
-        if (viewEl) runAnimation(viewEl, { opacity: [0, 1], y: [6, 0] }, { duration: 0.5, ease: [0.22, 1, 0.36, 1] });
-      }, (ENTRANCE_END + 1.2) * 1000);
+      sched(
+        () => {
+          if (viewEl) runAnimation(viewEl, { opacity: [0, 1], y: [6, 0] }, { duration: 0.5, ease: [0.22, 1, 0.36, 1] });
+        },
+        (ENTRANCE_END + 1.2) * 1000,
+      );
 
       // ─ Phase 7: hold → fade out → loop
       const fadeAt = (ENTRANCE_END + 1.8 + HOLD) * 1000;
@@ -409,15 +471,19 @@ const t = useTranslations(getLangFromUrl(Astro.url));
       }, fadeAt);
     }
 
-    const stopInView = inView(viz, () => {
-      active = true;
-      cycle();
-      return () => {
-        active = false;
-        clearTimers();
-        reset();
-      };
-    }, { margin: '-20% 0px -20% 0px' });
+    const stopInView = inView(
+      viz,
+      () => {
+        active = true;
+        cycle();
+        return () => {
+          active = false;
+          clearTimers();
+          reset();
+        };
+      },
+      { margin: '-20% 0px -20% 0px' },
+    );
 
     tapeAnimationWindow.__bubTapeAnimationCleanup = () => {
       stopInView();

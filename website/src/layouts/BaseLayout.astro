@@ -34,8 +34,6 @@ interface Props {
   backToTop?: boolean;
   /** Whether to render the skip-to-content link. Default true. */
   skipLink?: boolean;
-  /** Override nav props (rare — only if you need a custom nav). */
-  navOverrides?: Record<string, string>;
   /** Extra head content via named slot. */
   /** robots meta. */
   robots?: string;
@@ -44,8 +42,7 @@ interface Props {
 const locale = getLangFromUrl(Astro.url);
 const htmlLang = getHtmlLang(locale);
 const t = useTranslations(locale);
-const navProps = { ...getNavProps(locale, Astro.url.pathname), ...(Astro.props.navOverrides ?? {}) };
-const footerCopyright = `© ${new Date().getUTCFullYear()} Bub Contributors`;
+const navProps = getNavProps(locale, Astro.url.pathname);
 
 const { starsFormatted: stars } = getRepoStats();
 
@@ -132,7 +129,7 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? SITE_URL).href;
 
     <slot />
 
-    <Footer copyright={footerCopyright} githubLabel={navProps.githubLabel} />
+    <Footer />
 
     {backToTop && (
       <button
@@ -173,18 +170,22 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? SITE_URL).href;
           htmlEl.style.opacity = '0';
           htmlEl.style.transform = 'translateY(24px)';
 
-          const stopInView = inView(htmlEl, () => {
-            const controls = animate(
-              htmlEl,
-              { opacity: [0, 1], transform: ['translateY(24px)', 'translateY(0)'] },
-              { duration: 0.6, ease: [0.25, 0.1, 0.25, 1] },
-            );
-            return () => {
-              controls.stop();
-              htmlEl.style.opacity = '0';
-              htmlEl.style.transform = 'translateY(24px)';
-            };
-          }, { margin: '0px 0px -10% 0px' });
+          const stopInView = inView(
+            htmlEl,
+            () => {
+              const controls = animate(
+                htmlEl,
+                { opacity: [0, 1], transform: ['translateY(24px)', 'translateY(0)'] },
+                { duration: 0.6, ease: [0.25, 0.1, 0.25, 1] },
+              );
+              return () => {
+                controls.stop();
+                htmlEl.style.opacity = '0';
+                htmlEl.style.transform = 'translateY(24px)';
+              };
+            },
+            { margin: '0px 0px -10% 0px' },
+          );
 
           baseLayoutWindow.__bubRevealCleanups?.push(() => {
             stopInView();
@@ -221,7 +222,10 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? SITE_URL).href;
       }
 
       function initBaseLayoutUi() {
-        requestAnimationFrame(() => { initScrollReveals(); initBackToTop(); });
+        requestAnimationFrame(() => {
+          initScrollReveals();
+          initBackToTop();
+        });
       }
 
       const baseLayoutWindow = window as BaseLayoutWindow;

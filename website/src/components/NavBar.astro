@@ -2,37 +2,29 @@
 import ThemeToggle from '@/components/ui/ThemeToggle.astro';
 import Icon from '@/components/ui/Icon.astro';
 import SiteLogo from '@/components/ui/SiteLogo.astro';
+import type { NavProps } from '@/i18n/utils';
 import { REPO_SLUG, REPO_URL } from '@/lib/github';
 
-interface Props {
-  docsHref?: string;
-  blogHref?: string;
-  languageHref?: string;
-  languageLabel?: string;
-  homeHref?: string;
-  docsLabel?: string;
-  blogLabel?: string;
-  hubLabel?: string;
-  githubLabel?: string;
-  menuLabel?: string;
-  closeLabel?: string;
+interface Props extends NavProps {
   stars?: string;
 }
 
 const {
-  docsHref = '/docs/getting-started/',
-  blogHref = '/posts/',
-  languageHref = '/zh-cn/',
-  languageLabel = '中文',
-  homeHref = '/',
-  docsLabel = 'Docs',
-  blogLabel = 'Blog',
-  hubLabel = 'Plugins',
-  githubLabel = 'GitHub',
-  menuLabel = 'Menu',
-  closeLabel = 'Close',
+  docsHref,
+  blogHref,
+  languageHref,
+  languageLabel,
+  homeHref,
+  docsLabel,
+  blogLabel,
+  hubLabel,
+  menuLabel,
+  closeLabel,
   stars,
 }: Props = Astro.props;
+
+// Brand name — a proper noun, so it is intentionally not localized.
+const githubLabel = 'GitHub';
 
 const hasStars = Boolean(stars);
 
@@ -46,18 +38,22 @@ const navItems = [
 <header class="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md w-full" role="banner">
   <div class="mx-auto flex max-w-6xl items-center justify-between px-5 py-3 md:px-8">
     <!-- Brand -->
-    <a class="flex items-center gap-2.5 text-[0.95rem] font-bold tracking-tight text-foreground no-underline" href={homeHref}>
+    <a
+      class="flex items-center gap-2.5 text-[0.95rem] font-bold tracking-tight text-foreground no-underline"
+      href={homeHref}
+    >
       <SiteLogo alt="Bub" width={32} height={32} class="h-8 w-8" />
       <span>Bub</span>
     </a>
 
     <!-- Desktop nav -->
-    <nav class="hidden items-center gap-5 text-sm text-muted-foreground md:flex" role="navigation" aria-label="Main navigation">
+    <nav
+      class="hidden items-center gap-5 text-sm text-muted-foreground md:flex"
+      role="navigation"
+      aria-label="Main navigation"
+    >
       {navItems.map((item) => (
-        <a
-          class="flex items-center gap-1.5 no-underline transition-colors hover:text-foreground"
-          href={item.href}
-        >
+        <a class="flex items-center gap-1.5 no-underline transition-colors hover:text-foreground" href={item.href}>
           {item.icon && <Icon name={item.icon} size={14} class="opacity-50" aria-hidden="true" />}
           {item.label}
         </a>
@@ -98,7 +94,11 @@ const navItems = [
           <span class="sr-only group-open:hidden">{menuLabel}</span>
           <span class="sr-only hidden group-open:inline">{closeLabel}</span>
         </summary>
-        <nav class="mobile-dropdown absolute left-0 right-0 top-full border-b border-border/60 bg-background/95 backdrop-blur-md p-5" role="navigation" aria-label="Mobile navigation">
+        <nav
+          class="mobile-dropdown absolute left-0 right-0 top-full border-b border-border/60 bg-background/95 backdrop-blur-md p-5"
+          role="navigation"
+          aria-label="Mobile navigation"
+        >
           <div class="grid gap-0 text-sm">
             {navItems.map((item) => (
               <a
@@ -109,7 +109,14 @@ const navItems = [
                 {item.label}
               </a>
             ))}
-            <a class="github-nav-button flex items-center gap-2.5 border-b border-border/50 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href={REPO_URL} target="_blank" rel="noreferrer" aria-label={`${githubLabel}: ${REPO_SLUG}`} title={githubLabel}>
+            <a
+              class="github-nav-button flex items-center gap-2.5 border-b border-border/50 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary"
+              href={REPO_URL}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`${githubLabel}: ${REPO_SLUG}`}
+              title={githubLabel}
+            >
               <span class="github-nav-button__icon-wrap shrink-0" aria-hidden="true">
                 <Icon name="github" size={15} class="github-nav-button__github opacity-60" />
                 <Icon name="star" size={15} class="github-nav-button__star" fill="currentColor" />
@@ -122,7 +129,10 @@ const navItems = [
                 </span>
               )}
             </a>
-            <a class="flex items-center gap-2.5 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary" href={languageHref}>
+            <a
+              class="flex items-center gap-2.5 px-3 py-3 text-foreground no-underline transition-colors hover:bg-secondary"
+              href={languageHref}
+            >
               <Icon name="languages" size={15} class="opacity-50" aria-hidden="true" />
               {languageLabel}
             </a>

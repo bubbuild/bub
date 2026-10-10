@@ -2,9 +2,15 @@
 export const prerender = false;
 
 import { getCollection } from 'astro:content';
+import Features from '@/components/Features.astro';
+import GetStarted from '@/components/GetStarted.astro';
+import Hero from '@/components/Hero.astro';
+import HookIntro from '@/components/HookIntro.astro';
+import TapeModel from '@/components/TapeModel.astro';
+import Testimonials from '@/components/Testimonials.astro';
 import { getLandingPageData } from '@/data/landing-page';
 import { getLocaleFromParam, useTranslations } from '@/i18n/utils';
-import { gitHubAvatarUrl } from '@/lib/github';
+import { getRepoStats, gitHubAvatarUrl } from '@/lib/github';
 import LandingLayout from '@/layouts/LandingLayout.astro';
 
 // In SSR mode, read locale from the catch-all param.
@@ -21,26 +27,20 @@ if (!locale) {
 const t = useTranslations(locale);
 const pageData = getLandingPageData(locale);
 const ogImage = locale === 'en' ? '/og/index.png' : `/og/${locale}/index.png`;
+const { contributors } = getRepoStats();
 
-// Load testimonial items from the userwall content collection.
 const userwallEntries = await getCollection('userwall');
-const testimonials = {
-  ...pageData.testimonials,
-  testimonials: userwallEntries.map((entry) => ({
-    ...entry.data,
-    avatar: gitHubAvatarUrl(entry.data.github),
-  })),
-};
+const testimonialItems = userwallEntries.map((entry) => ({
+  ...entry.data,
+  avatar: gitHubAvatarUrl(entry.data.github),
+}));
 ---
 
-<LandingLayout
-  title={t('site.title')}
-  description={t('site.description')}
-  ogImage={ogImage}
-  hero={pageData.hero}
-  getStarted={pageData.getStarted}
-  features={pageData.features}
-  hookIntro={pageData.hookIntro}
-  tapeModel={pageData.tapeModel}
-  testimonials={testimonials}
-/>
+<LandingLayout title={t('site.title')} description={t('site.description')} ogImage={ogImage}>
+  <Hero {...pageData.hero} contributors={contributors} />
+  <GetStarted {...pageData.getStarted} />
+  <Features {...pageData.features} />
+  <HookIntro {...pageData.hookIntro} />
+  <TapeModel {...pageData.tapeModel} />
+  <Testimonials {...pageData.testimonials} testimonials={testimonialItems} />
+</LandingLayout>
