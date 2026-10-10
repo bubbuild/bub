@@ -24,6 +24,7 @@ PROVIDERS = {
     "ollama": "Ollama (local server)",
     "mistral": "Mistral AI",
     "deepseek": "DeepSeek",
+    "magpie": "Magpie (local model gateway)",
     "custom": "Other registered Republic provider",
 }
 OPENAI_BASE = "https://api.openai.com/v1"
@@ -75,8 +76,7 @@ def _ask_base(default: str, *, required: bool) -> str:
 
 
 async def _discover_models(provider: str, **client_args: Any) -> list[str]:
-    async with asyncio.timeout(CONNECTION_TIMEOUT):
-        client = republic.get_provider(provider, **client_args)
+    async with asyncio.timeout(CONNECTION_TIMEOUT), republic.get_provider(provider, **client_args) as client:
         models = await client.list_models()
         return sorted({model.id.strip() for model in models if isinstance(model.id, str) and model.id.strip()})
 

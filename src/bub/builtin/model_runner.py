@@ -53,40 +53,39 @@ class ModelRunner:
         completion_error: Exception | None = None
         candidates = self.settings.model_candidates(model)
         for index, candidate in enumerate(candidates):
-            stream: republic.Stream[Any] | None = None
-            try:
-                client_kwargs = self.settings.model_client_kwargs(candidate.provider_name or candidate.provider)
-                chat_model = republic.get_model(f"{candidate.provider}:{candidate.model_id}", **client_kwargs)
-                if span := current_span():
-                    span.rename(f"chat {candidate.model_id}")
-                    span.set(**{
-                        "gen_ai.provider.name": candidate.provider,
-                        "gen_ai.request.model": candidate.model_id,
-                    })
-                options = self._chat_options(candidate.provider, tools, max_tokens, reasoning_effort)
-                stream = chat_model.stream(
-                    _request_messages(messages, candidate.provider_name or candidate.provider, candidate.model_id),
-                    **options,
-                )
-                await stream.__aenter__()
-            except Exception as exc:
-                if stream is not None:
-                    await stream.__aexit__(type(exc), exc, exc.__traceback__)
-                event("bub.model.attempt_failed", model=candidate.name, error=type(exc).__name__)
-                if completion_error is None:
-                    completion_error = exc
-                if index == len(candidates) - 1:
-                    raise completion_error from None
-                logger.warning(
-                    "model candidate failed; trying fallback model={} error={}", candidate.name, type(exc).__name__
-                )
-
-            else:
+            async with AsyncExitStack() as stack:
                 try:
+                    client_kwargs = self.settings.model_client_kwargs(candidate.provider_name or candidate.provider)
+                    chat_model = await stack.enter_async_context(
+                        republic.get_model(f"{candidate.provider}:{candidate.model_id}", **client_kwargs)
+                    )
+                    if span := current_span():
+                        span.rename(f"chat {candidate.model_id}")
+                        span.set(**{
+                            "gen_ai.provider.name": candidate.provider,
+                            "gen_ai.request.model": candidate.model_id,
+                        })
+                    options = self._chat_options(candidate.provider, tools, max_tokens, reasoning_effort)
+                    stream = await stack.enter_async_context(
+                        chat_model.stream(
+                            _request_messages(
+                                messages, candidate.provider_name or candidate.provider, candidate.model_id
+                            ),
+                            **options,
+                        )
+                    )
+                except Exception as exc:
+                    event("bub.model.attempt_failed", model=candidate.name, error=type(exc).__name__)
+                    if completion_error is None:
+                        completion_error = exc
+                    if index == len(candidates) - 1:
+                        raise completion_error from None
+                    logger.warning(
+                        "model candidate failed; trying fallback model={} error={}", candidate.name, type(exc).__name__
+                    )
+                else:
                     yield candidate, stream
-                finally:
-                    await stream.__aexit__(None, None, None)
-                return
+                    return
 
         raise RuntimeError("no model candidates available")
 
@@ -382,15 +381,10 @@ def _request_messages(messages: list[dict[str, Any]], provider: str, model: str)
             raise BubError(ErrorKind.INVALID_INPUT, f"Unknown message role: {role}")
         if role == "tool":
             result.append(
-                republic.Message(
-                    "tool",
-                    tool_results=(
-                        republic.tool_result(
-                            calls[message["tool_call_id"]],
-                            render_result(message.get("content", "")),
-                            is_error=bool(message.get("is_error")),
-                        ),
-                    ),
+                republic.tool(
+                    calls[message["tool_call_id"]],
+                    render_result(message.get("content", "")),
+                    is_error=bool(message.get("is_error")),
                 )
             )
             continue

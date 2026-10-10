@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from pathlib import Path
 
+import httpx2
 import pytest
 import republic
+from republic.errors import APIStatusError, StreamIncompleteError
 
 from bub.builtin.context import default_tape_context
 from bub.builtin.model_runner import ModelRunner
@@ -14,6 +17,40 @@ from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
 from bub.tools import Tool
 from tests.model_fakes import ProviderService, chat_events, sse, tool_events
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "http_error", "incomplete"])
+async def test_model_call_closes_its_owned_client(
+    tmp_path: Path, provider_service: ProviderService, monkeypatch: pytest.MonkeyPatch, outcome: str
+) -> None:
+    clients = []
+    constructor = httpx2.AsyncClient
+
+    def create_client(**kwargs):
+        client = constructor(**kwargs, transport=httpx2.MockTransport(provider_service._respond))
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(httpx2, "AsyncClient", create_client)
+    error = None
+    if outcome == "http_error":
+        provider_service.reply(httpx2.Response(401, json={"error": "unauthorized"}))
+        error = APIStatusError
+    else:
+        provider_service.reply(sse(chat_events() if outcome == "success" else chat_events()[:-1]))
+        if outcome == "incomplete":
+            error = StreamIncompleteError
+    runner = ModelRunner(AgentSettings(client_args={"api_format": "chat", "max_retries": 0}))
+    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("owned")
+    with pytest.raises(error) if error is not None else nullcontext():
+        events = [
+            event
+            async for event in runner.run(tape=tape, model="openai:test", tools=[], system_prompt=None, prompt="hello")
+        ]
+        assert events[-1].data == {"ok": True, "text": "done"}
+    assert len(clients) == 1
+    assert clients[0].is_closed
 
 
 @pytest.mark.asyncio
