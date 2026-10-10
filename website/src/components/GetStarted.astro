@@ -10,12 +10,9 @@ const { eyebrow, heading, description, install } = Astro.props;
 
 <section id="get-started" class="relative scroll-mt-20 py-20 md:py-28" data-reveal aria-label="Get started">
   <div class="mx-auto max-w-6xl px-5 md:px-8">
-    <div class="mx-auto w-full text-center md:max-w-[60vw]">
-      <SectionHeading align="center" eyebrow={eyebrow} heading={heading} subheading={description} />
-
-      <div class="mt-10">
-        <InstallCommand install={install} />
-      </div>
+    <SectionHeading align="center" eyebrow={eyebrow} heading={heading} subheading={description} />
+    <div class="mx-auto max-w-3xl">
+      <InstallCommand install={install} />
     </div>
   </div>
 </section>

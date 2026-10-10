@@ -9,17 +9,12 @@ interface Props {
 
 const { install } = Astro.props;
 const { platforms, copyLabel, copiedLabel } = install;
-
-// Both platform commands are rendered up front and toggled client-side, so
-// switching never re-highlights anything — it only flips `hidden`. Seeding the
-// copy target from the first platform keeps it defined before hydration.
-const initialCommand = platforms[0]?.command ?? '';
 ---
 
 <div
   class="install-command min-w-0 border border-border bg-card text-left shadow-[var(--site-shadow)]"
   data-install-command
-  data-command={initialCommand}
+  data-command={platforms[0]?.command ?? ''}
   data-copied-label={copiedLabel}
 >
   <div class="flex border-b border-border bg-secondary">
@@ -29,9 +24,8 @@ const initialCommand = platforms[0]?.command ?? '';
         class:list={[
           'min-h-11 flex-1 cursor-pointer px-3 font-mono text-xs font-medium',
           'text-muted-foreground transition-colors hover:bg-card/60 hover:text-foreground',
-          // Active tab: raised to --card and painted 1px taller so it covers the
-          // bar's bottom border and merges into the code surface below it.
           'aria-pressed:relative aria-pressed:z-[1] aria-pressed:bg-card aria-pressed:text-foreground',
+          // Hide the border under the selected tab.
           'aria-pressed:shadow-[0_1px_0_var(--card)]',
           'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring',
           index === 0 && 'border-r border-border',
@@ -83,23 +77,10 @@ const initialCommand = platforms[0]?.command ?? '';
 </div>
 
 <style>
-  /* Everything that styles *this* component's own elements is a utility in the
-     class list above. What is left cannot be: shiki writes its colours and
-     background as inline styles on markup we don't own, so these overrides have
-     to target shiki's output and use !important to beat an inline style.
-
-     (The rule also drops shiki's own `padding` / font declarations: the
-     container already sets `font-mono text-sm leading-5`, which the inline
-     <code> inherits, and <code> has no default padding.) */
-
-  /* The container already draws the code surface (bg-card), so the highlighter
-     contributes token colours and word wrapping only. */
   .install-code :global(code.astro-code) {
     background: transparent !important;
   }
 
-  /* Dual-theme output keeps the dark colours in --shiki-dark custom properties;
-     swap them in when the site is in dark mode (mirrors Hero.astro). */
   :global(.dark) .install-code :global(code.astro-code span[style*='--shiki-dark']),
   :global([data-theme='dark']) .install-code :global(code.astro-code span[style*='--shiki-dark']) {
     color: var(--shiki-dark) !important;
