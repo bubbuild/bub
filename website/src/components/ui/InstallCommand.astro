@@ -1,66 +1,64 @@
 ---
 import Icon from '@/components/ui/Icon.astro';
+import type { InstallCommandData } from '@/data/landing-page';
+import { Code } from 'astro:components';
 
 interface Props {
-  commands: {
-    posix: string;
-    windows: string;
-  };
-  platformLabel: string;
-  posixLabel: string;
-  windowsLabel: string;
-  copyLabel: string;
-  copiedLabel: string;
+  install: InstallCommandData;
 }
 
-const { commands, platformLabel, posixLabel, windowsLabel, copyLabel, copiedLabel } = Astro.props;
-const installOptions = [
-  { id: 'posix', label: posixLabel, command: commands.posix },
-  { id: 'windows', label: windowsLabel, command: commands.windows },
-];
+const { install } = Astro.props;
+const { platforms, copyLabel, copiedLabel } = install;
 ---
 
 <div
-  class="min-w-0 border border-border bg-card/80 shadow-[var(--site-shadow)]"
+  class="install-command min-w-0 border border-border bg-card text-left shadow-(--site-shadow)"
   data-install-command
-  data-command={commands.posix}
+  data-command={platforms[0]?.command ?? ''}
   data-copied-label={copiedLabel}
 >
-  <div
-    class="flex border-b border-border"
-    role="group"
-    aria-label={platformLabel}
-  >
-    {installOptions.map((option, index) => (
+  <div class="flex border-b border-border bg-secondary">
+    {platforms.map((platform, index) => (
       <button
         type="button"
         class:list={[
-          'install-platform min-h-11 w-1/2 cursor-pointer px-3 font-mono text-xs font-medium',
-          'text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground',
+          'min-h-11 flex-1 cursor-pointer px-3 font-mono text-xs font-medium',
+          'text-muted-foreground transition-colors hover:bg-card/60 hover:text-foreground',
+          'aria-pressed:relative aria-pressed:z-[1] aria-pressed:bg-card aria-pressed:text-foreground',
+          // Hide the border under the selected tab.
+          'aria-pressed:shadow-[0_1px_0_var(--card)]',
           'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring',
           index === 0 && 'border-r border-border',
         ]}
         aria-pressed={index === 0 ? 'true' : 'false'}
-        data-platform={option.id}
-        data-command={option.command}
+        data-platform={platform.id}
+        data-command={platform.command}
       >
-        {option.label}
+        {platform.label}
       </button>
     ))}
   </div>
-  <div class="flex min-w-0 items-start">
+  <div class="flex min-w-0 items-stretch">
     <span class="shrink-0 pl-4 pt-3 font-mono text-sm leading-5 text-muted-foreground" aria-hidden="true">$</span>
-    <code
-      class="min-w-0 flex-1 overflow-x-auto whitespace-nowrap px-2 py-3 font-mono text-sm leading-5 text-foreground"
-      data-command-value
-    >
-      {commands.posix}
-    </code>
+    <div class="install-code min-w-0 flex-1 py-3 pl-2 pr-1 font-mono text-sm leading-5">
+      {platforms.map((platform, index) => (
+        <span data-command-view={platform.id} hidden={index !== 0}>
+          <Code
+            inline
+            wrap
+            code={platform.command}
+            lang="shellscript"
+            themes={{ light: 'night-owl-light', dark: 'night-owl' }}
+            defaultColor="light"
+          />
+        </span>
+      ))}
+    </div>
     <button
       type="button"
       class:list={[
-        'flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center border-l border-border',
-        'text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
+        'mr-2 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center self-center',
+        'text-muted-foreground transition hover:bg-secondary hover:text-foreground hover:shadow-(--site-shadow)',
         'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring',
       ]}
       aria-label={copyLabel}
@@ -79,9 +77,13 @@ const installOptions = [
 </div>
 
 <style>
-  .install-platform[aria-pressed='true'] {
-    background: var(--secondary);
-    color: var(--foreground);
+  .install-code :global(code.astro-code) {
+    background: transparent !important;
+  }
+
+  :global(.dark) .install-code :global(code.astro-code span[style*='--shiki-dark']),
+  :global([data-theme='dark']) .install-code :global(code.astro-code span[style*='--shiki-dark']) {
+    color: var(--shiki-dark) !important;
   }
 </style>
 
@@ -120,7 +122,9 @@ const installOptions = [
     container.dataset.copyReady = 'true';
 
     const button = container.querySelector<HTMLButtonElement>('[data-copy-command]');
-    const commandValue = container.querySelector<HTMLElement>('[data-command-value]');
+    const commandViews = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-command-view]'),
+    );
     const platformOptions = Array.from(
       container.querySelectorAll<HTMLButtonElement>('[data-platform]'),
     );
@@ -132,8 +136,13 @@ const installOptions = [
       for (const option of platformOptions) {
         option.setAttribute('aria-pressed', String(option === selectedOption));
       }
+
       container.dataset.command = selectedOption.dataset.command ?? '';
-      if (commandValue) commandValue.textContent = container.dataset.command;
+
+      const activePlatform = selectedOption.dataset.platform;
+      for (const view of commandViews) {
+        view.hidden = view.dataset.commandView !== activePlatform;
+      }
     };
 
     for (const option of platformOptions) {

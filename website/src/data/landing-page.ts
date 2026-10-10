@@ -9,18 +9,31 @@ export type HeroData = {
   badge?: string;
   title?: string;
   description?: string;
-  installCommands: {
-    posix: string;
-    windows: string;
-  };
-  installPlatformLabel: string;
-  posixInstallLabel: string;
-  windowsInstallLabel: string;
-  copyInstallCommandLabel: string;
-  copiedInstallCommandLabel: string;
   primaryHref: string;
   primaryLabel?: string;
+  secondaryHref?: string;
+  secondaryLabel?: string;
   contributorsLabel?: string;
+};
+
+export type InstallPlatform = {
+  /** `windows` also drives the default tab on Windows; `posix` is the fallback. */
+  id: 'posix' | 'windows';
+  label: string;
+  command: string;
+};
+
+export type InstallCommandData = {
+  platforms: InstallPlatform[];
+  copyLabel: string;
+  copiedLabel: string;
+};
+
+export type GetStartedData = {
+  eyebrow?: string;
+  heading?: string;
+  description?: string;
+  install: InstallCommandData;
 };
 
 export type FeatureItem = { icon: string; title: string; description: string };
@@ -54,6 +67,7 @@ export type TestimonialsData = {
 
 export type LandingPageData = {
   hero: HeroData;
+  getStarted?: GetStartedData;
   features?: FeaturesData;
   hookIntro?: HookIntroData;
   tapeModel?: TapeModelData;
@@ -69,18 +83,32 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       title: 'Bub is a tiny agent runtime, composable with plugins.',
       description:
         'Start with a working agent. Use plugins to change how it thinks, remembers, and connects.',
-      installCommands: {
-        posix: 'curl -fsSL https://bub.build/install.sh | bash',
-        windows: 'powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"',
-      },
-      installPlatformLabel: 'Choose installation platform',
-      posixInstallLabel: 'macOS / Linux',
-      windowsInstallLabel: 'Windows',
-      copyInstallCommandLabel: 'Copy install command',
-      copiedInstallCommandLabel: 'Install command copied',
-      primaryHref: '/docs/getting-started/',
+      primaryHref: '#get-started',
       primaryLabel: 'Get Started',
+      secondaryHref: '/docs/getting-started/',
+      secondaryLabel: 'Read the docs',
       contributorsLabel: 'Developed by contributors worldwide',
+    },
+    getStarted: {
+      eyebrow: 'Install',
+      heading: 'Quick Start',
+      description: 'Pick a preset, add plugins as needed. Done.',
+      install: {
+        platforms: [
+          {
+            id: 'posix',
+            label: 'macOS / Linux',
+            command: 'curl -fsSL https://bub.build/install.sh | bash',
+          },
+          {
+            id: 'windows',
+            label: 'Windows',
+            command: 'powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"',
+          },
+        ],
+        copyLabel: 'Copy install command',
+        copiedLabel: 'Install command copied',
+      },
     },
     features: {
       eyebrow: 'Features',
@@ -161,18 +189,32 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       title: 'Bub，轻量的 Agent 运行时，以插件自由组合。',
       description:
         '开箱即用，再用插件按需定制模型执行、记忆和消息渠道。',
-      installCommands: {
-        posix: 'curl -fsSL https://bub.build/install.sh | bash',
-        windows: 'powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"',
-      },
-      installPlatformLabel: '选择安装平台',
-      posixInstallLabel: 'macOS / Linux',
-      windowsInstallLabel: 'Windows',
-      copyInstallCommandLabel: '复制安装命令',
-      copiedInstallCommandLabel: '安装命令已复制',
-      primaryHref: '/zh-cn/docs/getting-started/',
+      primaryHref: '#get-started',
       primaryLabel: '开始使用',
+      secondaryHref: '/zh-cn/docs/getting-started/',
+      secondaryLabel: '阅读文档',
       contributorsLabel: '由全球开发者共同打造',
+    },
+    getStarted: {
+      eyebrow: '安装',
+      heading: '快速开始',
+      description: '选预设，按需装插件。完成。',
+      install: {
+        platforms: [
+          {
+            id: 'posix',
+            label: 'macOS / Linux',
+            command: 'curl -fsSL https://bub.build/install.sh | bash',
+          },
+          {
+            id: 'windows',
+            label: 'Windows',
+            command: 'powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"',
+          },
+        ],
+        copyLabel: '复制安装命令',
+        copiedLabel: '安装命令已复制',
+      },
     },
     features: {
       eyebrow: '特性',
