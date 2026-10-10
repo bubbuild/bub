@@ -246,7 +246,7 @@ requires-dist = [
     { name = "python-telegram-bot", specifier = ">=22.7" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "rapidfuzz", specifier = ">=3.14.5" },
-    { name = "republic", git = "https://github.com/bubbuild/republic.git?rev=449debdfed5b45dffb4744091db84fbbeb0704b7" },
+    { name = "republic", specifier = ">=0.6.0a1" },
     { name = "rich", specifier = ">=14.3.4" },
     { name = "typer", specifier = ">=0.24.1" },
     { name = "typing-extensions", specifier = ">=4.15.0" },
@@ -1645,13 +1645,17 @@ wheels = [
 
 [[package]]
 name = "republic"
-version = "0.5.9.dev23+g449debdfe"
-source = { git = "https://github.com/bubbuild/republic.git?rev=449debdfed5b45dffb4744091db84fbbeb0704b7#449debdfed5b45dffb4744091db84fbbeb0704b7" }
+version = "0.6.0a1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
     { name = "filelock" },
     { name = "httpx2" },
     { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/02/a2/4c36a93722932d29095c6aca053829d77a5ae1d9a5b2e989e61544d528af/republic-0.6.0a1.tar.gz", hash = "sha256:3eb72270bb8f0e52c3fbe66aed37e88edf7b8f31bb3926db508aeb8f71306a93", size = 227363, upload-time = "2026-10-10T03:59:28.606Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/1e/c70546f7ab7947ccb44f305e297fb42924db6fc82ec23ecd9d58ecebd692/republic-0.6.0a1-py3-none-any.whl", hash = "sha256:7970fd013890e7c8b121bdc91f3d7cf93b2fa30605cf4540afb5b790a4a86516", size = 74563, upload-time = "2026-10-10T03:59:29.577Z" },
 ]
 
 [[package]]

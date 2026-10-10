@@ -80,7 +80,10 @@ async def test_channel_media_reaches_gemini_and_survives_tape_reload(
 
 
 @pytest.mark.asyncio
-async def test_consumer_close_releases_the_request_without_closing_the_shared_client(tmp_path: Path) -> None:
+@pytest.mark.parametrize("external_client", [False, True])
+async def test_consumer_close_releases_the_request_and_respects_client_ownership(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, external_client: bool
+) -> None:
     closed = asyncio.Event()
 
     class Body(httpx2.AsyncByteStream):
@@ -94,13 +97,17 @@ async def test_consumer_close_releases_the_request_without_closing_the_shared_cl
     async with httpx2.AsyncClient(
         transport=httpx2.MockTransport(lambda _: httpx2.Response(200, stream=Body()))
     ) as client:
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        monkeypatch.setattr(httpx2, "AsyncClient", lambda **kwargs: client)
+        client_args = {"api_format": "chat"}
+        if external_client:
+            client_args["http_client"] = client
+        runner = ModelRunner(AgentSettings(client_args=client_args))
         tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("cancel")
         events = runner.run(tape=tape, model="openai:test", tools=[], system_prompt=None, prompt="hello")
         assert (await anext(events)).data == {"delta": "first"}
         await events.aclose()
         assert closed.is_set()
-        assert not client.is_closed
+        assert client.is_closed is not external_client
         assert not await tape.store.fetch_all(tape.query().kinds("message"))
 
 
