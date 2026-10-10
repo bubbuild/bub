@@ -87,7 +87,7 @@ Bub 使用 Republic 发起模型请求。ChatGPT 套餐访问使用 `codex:<mode
 
 提供商专用字段放入 `extra_body`，`client_args` 和 `completion_args` 都支持它。Republic 将 provider 默认值与请求级 extras 深合并，请求级值优先，再覆盖编码后的请求体。这些显式协议字段可覆盖 reasoning、token 上限等 chat 参数；Bub 原样传递。
 
-Provider 名称和协议能力以 [Republic provider 目录](https://github.com/bubbuild/republic/blob/main/docs/providers/index.md)为准。自定义 provider 实现需注册到 Republic。
+Provider 名称和协议能力以 [Republic provider 目录](https://getrepublic.org/providers/)为准。自定义 provider 实现需注册到 Republic。
 
 ### 自定义 provider
 

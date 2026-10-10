@@ -87,7 +87,7 @@ Bub uses Republic for model requests. Use `codex:<model>` for ChatGPT plan acces
 
 Provider-specific fields go in `extra_body`, which is accepted in both `client_args` and `completion_args`. Republic deep-merges provider defaults with request extras, with request values taking precedence, then merges them over the encoded request body. These explicit wire fields can override chat options, including reasoning and token limits; Bub passes them through unchanged.
 
-Provider names and available protocols follow [Republic's provider directory](https://github.com/bubbuild/republic/blob/main/docs/providers/index.md). Custom provider implementations must be registered with Republic.
+Provider names and available protocols follow [Republic's provider directory](https://getrepublic.org/providers/). Custom provider implementations must be registered with Republic.
 
 ### Custom providers
 

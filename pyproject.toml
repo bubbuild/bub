@@ -27,7 +27,7 @@ dependencies = [
     "pluggy>=1.6.0",
     "inquirer-textual>=0.8.0",
     "typer>=0.24.1",
-    "republic @ git+https://github.com/bubbuild/republic.git@449debdfed5b45dffb4744091db84fbbeb0704b7",
+    "republic>=0.6.0a1",
     "rich>=14.3.4",
     "prompt-toolkit>=3.0.52",
     "python-telegram-bot>=22.7",
@@ -71,9 +71,6 @@ dev = [
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.hatch.version]
 source = "vcs"
