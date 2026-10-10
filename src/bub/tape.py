@@ -184,7 +184,8 @@ def to_message(
     """Convert one stored message payload; assistant tool calls are added to ``calls``.
 
     Payloads are ``republic.Message.to_dict()`` output. Older Bub payloads, with media URLs,
-    ``tool_call_id``, ``reasoning`` and ``provider_data`` fields, are converted to that form first.
+    ``tool_call_id``, ``reasoning`` and ``provider_data`` fields, and tool calls in the Chat
+    Completions ``{"function": {"name", "arguments"}}`` form, are converted to that form first.
     """
     calls = {} if calls is None else calls
     role = payload.get("role")
@@ -197,6 +198,8 @@ def to_message(
 
         raw_content = render_result(raw_content)
     content = _content_parts(raw_content)
+    if isinstance(tool_calls := data.get("tool_calls"), list):
+        data["tool_calls"] = [_tool_call_dict(call) for call in tool_calls]
     if role == "tool" and "tool_call" not in data:
         call_id = data.pop("tool_call_id", None)
         if not isinstance(call_id, str) or not call_id:
@@ -216,6 +219,18 @@ def to_message(
         raise BubError(ErrorKind.INVALID_INPUT, "System messages only support text content.")
     calls.update((call.id, call) for call in message.tool_calls)
     return message
+
+
+def _tool_call_dict(call: object) -> object:
+    """Convert a Chat Completions tool call, as recorded by older Bub versions, to Republic's form."""
+    if not isinstance(call, dict) or not isinstance(function := call.get("function"), dict):
+        return call
+    arguments = function.get("arguments")
+    return {
+        "id": call.get("id") or "",
+        "name": function.get("name") or "",
+        "arguments": arguments if isinstance(arguments, str) else json.dumps(arguments or {}),
+    }
 
 
 def _content_parts(content: object) -> list[dict[str, Any]]:

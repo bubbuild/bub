@@ -46,6 +46,27 @@ async def test_legacy_tool_call_without_content_replays_with_its_result(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_chat_completions_tool_calls_from_older_tapes_replay_with_their_results(tmp_path: Path) -> None:
+    store = InMemoryTapeStore()
+    tape = Tape(tmp_path, AsyncTapeStoreAdapter(store), default_tape_context()).scoped("test-tape")
+    await tape.ensure_bootstrap_anchor()
+    calls = [
+        {"id": "call-1", "type": "function", "function": {"name": "fs_read", "arguments": '{"path": "a.txt"}'}},
+        {"id": "call-2", "type": "function", "function": {"name": "tape_info", "arguments": {}}},
+    ]
+    store.append("test-tape", TapeEntry.tool_call(calls, content="Let me look."))
+    store.append("test-tape", TapeEntry.tool_result(["hello", {"entries": 3}]))
+
+    read = republic.ToolCall("call-1", "fs_read", '{"path": "a.txt"}')
+    info = republic.ToolCall("call-2", "tape_info", "{}")
+    assert await tape.read_messages() == [
+        republic.assistant("Let me look.", tool_calls=[read, info]),
+        republic.tool(read, "hello"),
+        republic.tool(info, '{"entries": 3}'),
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("content", ["", "done"])
 async def test_text_only_response_remains_a_standalone_assistant_message(tmp_path: Path, content: str) -> None:
     tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context()).scoped("test-tape")
