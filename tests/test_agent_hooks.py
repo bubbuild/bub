@@ -8,6 +8,7 @@ from typing import Any
 
 import pluggy
 import pytest
+import republic
 from republic.errors import StreamIncompleteError
 
 from bub.builtin.model_runner import ModelRunner
@@ -24,6 +25,7 @@ from bub.hooks.interception import (
     ToolCallResult,
 )
 from bub.hooks.runtime import HookRuntime
+from bub.prompt import to_content
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
 from bub.tools import Tool, ToolExecutor
@@ -39,7 +41,7 @@ def make_hooks(*plugins: Any) -> AgentHooks:
 
 
 def request() -> LlmCallRequest:
-    return LlmCallRequest(run_id="run-1", model="openai:gpt-x", messages=[{"role": "user", "content": "hi"}])
+    return LlmCallRequest(run_id="run-1", model="openai:gpt-x", messages=[republic.user("hi")])
 
 
 class TestBeforeLlmCall:
@@ -55,14 +57,14 @@ class TestBeforeLlmCall:
             def before_llm_call(self, request: LlmCallRequest, state: dict) -> LlmCallRequest:
                 # must see SwapModel's change (registration-order chaining)
                 assert request.model == "anthropic:claude"
-                return replace(request, messages=[*request.messages, {"role": "user", "content": "extra"}])
+                return replace(request, messages=[*request.messages, republic.user("extra")])
 
         # pluggy LIFO: last registered runs first -> register AppendMessage first
         hooks = make_hooks(AppendMessage(), SwapModel())
         result, decision = await hooks.before_llm_call(request(), state={})
         assert decision is None
         assert result.model == "anthropic:claude"
-        assert result.messages[-1]["content"] == "extra"
+        assert result.messages[-1].text == "extra"
 
     @pytest.mark.asyncio
     async def test_none_and_bad_returns_leave_request_unchanged(self) -> None:
@@ -292,7 +294,7 @@ class TestModelRunnerHookIntegration:
             ])
         )
         runner, tape = self._runner_and_tape(make_hooks(Reroute()), tmp_path)
-        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt=to_content("hi"))
         async for _ in events:
             pass
         assert provider_transport.body()["model"] == "new"
@@ -315,7 +317,7 @@ class TestModelRunnerHookIntegration:
         provider_transport.reply_chat("done")
         runner, tape = self._runner_and_tape(make_hooks(Observe()), tmp_path, "chat")
 
-        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt=to_content("hi"))
         iterator = events.__aiter__()
         await iterator.__anext__()
         await iterator.aclose()
@@ -334,7 +336,7 @@ class TestModelRunnerHookIntegration:
 
         provider_transport.reply_chat("done")
         runner, tape = self._runner_and_tape(make_hooks(Observe()), tmp_path, "chat")
-        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt=to_content("hi"))
         async for _ in events:
             pass
         assert len(observed) == 1
@@ -354,7 +356,7 @@ class TestModelRunnerHookIntegration:
         provider_transport.reply(sse([{"choices": [{"delta": {"content": "partial"}}]}]))
         runner, tape = self._runner_and_tape(make_hooks(Observe()), tmp_path, "chat")
         runner.settings.fallback_models = ["openai:fallback"]
-        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+        events = runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt=to_content("hi"))
         with pytest.raises(StreamIncompleteError) as exc:
             async for _ in events:
                 pass
@@ -385,13 +387,15 @@ class TestModelRunnerHookIntegration:
         runner, tape = self._runner_and_tape(make_hooks(Observe()), tmp_path, "chat")
         events = [
             event
-            async for event in runner.run(tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt="hi")
+            async for event in runner.run(
+                tape=tape, model="openai:orig", tools=[], system_prompt=None, prompt=to_content("hi")
+            )
         ]
         assert events[-1].data == {"ok": True, "text": "Cannot fulfill this request."}
         assert len(observed) == 1
         assert observed[0].text == "Cannot fulfill this request."
         assert observed[0].error is None
-        assert (await tape.read_messages())[-1] == {"role": "assistant", "content": "Cannot fulfill this request."}
+        assert (await tape.read_messages())[-1] == republic.assistant("Cannot fulfill this request.")
 
 
 class TestToolCancellation:

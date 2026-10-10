@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import republic
 
 import bub.builtin.codemode
 import bub.builtin.tools  # noqa: F401  — registers builtin tools (incl. `model`)
@@ -15,6 +16,7 @@ from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
 from bub.builtin.steering import InMemorySteeringInbox
 from bub.errors import BubError
+from bub.prompt import UserContent
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.tape import TapeContext
 from bub.tools import REGISTRY, tool
@@ -40,8 +42,8 @@ def _make_agent() -> Agent:
     framework.get_system_prompt.return_value = ""
     framework.get_tape_sidecars.return_value = ()
 
-    async def build_prompt(message: dict[str, Any], session_id: str, state: dict[str, Any]) -> str:
-        return str(message["content"])
+    async def build_prompt(message: dict[str, Any], session_id: str, state: dict[str, Any]) -> list[UserContent]:
+        return [str(message["content"])]
 
     framework.build_prompt = build_prompt
 
@@ -83,7 +85,7 @@ class _FakeTape:
         self._fork = fork_capture
         self.name = "test-tape"
         self.context = TapeContext(state={})
-        self.messages: list[dict[str, Any]] = []
+        self.messages: list[republic.Message] = []
         self.events: list[tuple[str, str, dict[str, Any]]] = []
 
     async def ensure_bootstrap_anchor(self) -> None:
@@ -94,7 +96,7 @@ class _FakeTape:
         async with self._fork.fork_tape(self.name, merge_back=merge_back):
             yield self
 
-    async def read_messages(self) -> list[dict[str, Any]]:
+    async def read_messages(self) -> list[republic.Message]:
         return list(self.messages)
 
     async def append_event(self, name: str, payload: dict[str, Any], **meta: Any) -> None:
@@ -105,7 +107,7 @@ class _FakeTape:
         *,
         run_id: str,
         system_prompt: str | None,
-        new_messages: list[dict[str, Any]],
+        new_messages: list[republic.Message],
         response_text: str | None,
         context_error: BubError | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
@@ -128,7 +130,7 @@ class _FakeTape:
         if error is not None and error is not context_error:
             self.events.append((self.name, "error", error.as_dict()))
         if response_text is not None:
-            self.messages.append({"role": "assistant", "content": response_text})
+            self.messages.append(republic.assistant(response_text))
         self.events.append((self.name, "run", {"run_id": run_id, "model": model, "error": error is not None}))
 
 
@@ -242,8 +244,8 @@ async def test_agent_run_model_defaults_to_none(
 async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state(continuation: str | None) -> None:
     agent = _make_agent()
     tape = _FakeTape(_ForkCapture())
-    prompts: list[str | list[dict] | None] = []
-    continuation_prompts: list[str | list[dict] | None] = []
+    prompts: list[list[UserContent] | None] = []
+    continuation_prompts: list[list[UserContent] | None] = []
     observed_usage: list[dict[str, Any] | None] = []
 
     async def run_once(**kwargs: Any) -> AsyncStreamEvents:
@@ -255,7 +257,7 @@ async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state(continua
 
         return AsyncStreamEvents(iterator(), state=StreamState(usage={"step": len(prompts)}))
 
-    async def continue_prompt(*, prompt: str | list[dict] | None, tape: _FakeTape, state: StreamState) -> str | None:
+    async def continue_prompt(*, prompt: list[UserContent] | None, tape: _FakeTape, state: StreamState) -> str | None:
         continuation_prompts.append(prompt)
         observed_usage.append(state.usage)
         return continuation
@@ -267,14 +269,14 @@ async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state(continua
         event
         async for event in agent._stream_events_with_auto_handoff(
             tape=tape,  # type: ignore[arg-type]
-            prompt="initial prompt",
+            prompt=["initial prompt"],
             state=StreamState(),
         )
     ]
 
     assert [event.kind for event in events] == ["final", "final"]
-    assert prompts == ["initial prompt", continuation]
-    assert continuation_prompts == ["initial prompt"]
+    assert prompts == [["initial prompt"], None if continuation is None else [continuation]]
+    assert continuation_prompts == [["initial prompt"]]
     assert observed_usage == [{"step": 1}]
 
 
@@ -340,10 +342,10 @@ async def test_agent_run_injects_steering_messages_once_by_session(
         {"role": "user", "content": "hello"},
     ]
     assert fake_tapes.tape.messages == [
-        {"role": "user", "content": "first steer"},
-        {"role": "user", "content": "second steer"},
-        {"role": "user", "content": "hello"},
-        {"role": "assistant", "content": "done"},
+        republic.user("first steer"),
+        republic.user("second steer"),
+        republic.user("hello"),
+        republic.assistant("done"),
     ]
 
     result = await agent.run_stream(session_id="user/s1", prompt="again", state={"_runtime_workspace": "/tmp"})  # noqa: S108

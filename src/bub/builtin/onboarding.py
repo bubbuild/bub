@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 import republic
 import typer
-from republic.errors import AuthenticationError, ProviderNotFoundError, UnsupportedFeatureError
+from republic.errors import APITimeoutError, AuthenticationError, ProviderNotFoundError, UnsupportedFeatureError
 
 from bub import configure, inquirer
 from bub.builtin.settings import DEFAULT_MODEL, AgentSettings, CustomProvider
@@ -76,9 +76,9 @@ def _ask_base(default: str, *, required: bool) -> str:
 
 
 async def _discover_models(provider: str, **client_args: Any) -> list[str]:
-    async with asyncio.timeout(CONNECTION_TIMEOUT), republic.get_provider(provider, **client_args) as client:
+    async with republic.get_provider(provider, **{**client_args, "timeout": CONNECTION_TIMEOUT}) as client:
         models = await client.list_models()
-        return sorted({model.id.strip() for model in models if isinstance(model.id, str) and model.id.strip()})
+    return sorted({model.id.strip() for model in models if isinstance(model.id, str) and model.id.strip()})
 
 
 def discover_models(provider: str, **client_args: Any) -> list[str]:
@@ -90,7 +90,7 @@ def _connection_error(exc: Exception) -> str:
     # Provider errors may contain request URLs, response bodies or credentials.
     if isinstance(exc, AuthenticationError):
         return "Authentication failed or API key missing. Check the key and its permissions."
-    if isinstance(exc, TimeoutError):
+    if isinstance(exc, TimeoutError | APITimeoutError):
         return f"Connection timed out after {CONNECTION_TIMEOUT} seconds. Check the URL and network."
     if isinstance(exc, NotImplementedError | UnsupportedFeatureError | ProviderNotFoundError):
         return "Model discovery is unavailable for this provider. You can enter a model ID manually."
@@ -172,7 +172,7 @@ def _select_connection(
         typer.echo(f"API endpoint: {endpoint}" if api_base else f"Default API endpoint: {endpoint}")
     if (
         choice in {"openai-compatible", "custom"}
-        or provider in {"azure-openai", "ollama"}
+        or provider in {"azure-openai", "ollama", "magpie"}
         or (choice != "openai" and api_base and _endpoint(provider, api_base) != _default_base(provider).rstrip("/"))
     ):
         api_base = _ask_base(api_base, required=choice == "openai-compatible" or provider == "azure-openai")

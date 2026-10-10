@@ -15,6 +15,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any
 
+import republic
 from loguru import logger
 
 from bub.builtin.commands import strip_command_prefix, validate_command_prefix
@@ -25,6 +26,7 @@ from bub.builtin.model_runner import (
 from bub.builtin.settings import load_settings
 from bub.envelope import field_of
 from bub.framework import BubFramework
+from bub.prompt import LegacyPrompt, UserContent, prompt_text, to_content
 from bub.skills import discover_skills, render_skills_prompt
 from bub.store import AsyncTapeStore, AsyncTapeStoreAdapter, InMemoryTapeStore, TapeStore, is_async_tape_store
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
@@ -115,7 +117,7 @@ class Agent:
         self,
         *,
         session_id: str,
-        prompt: str | list[dict],
+        prompt: list[UserContent] | LegacyPrompt,
         state: TurnState | None = None,
         model: str | None = None,
         allowed_skills: Collection[str] | None = None,
@@ -127,8 +129,9 @@ class Agent:
         Args:
             session_id: Session identity within the workspace. A ``temp/`` prefix
                 prevents the turn's fork from merging back into its parent tape.
-            prompt: Text or multimodal content parts. Text beginning with this
-                agent's command prefix after stripping whitespace invokes a command.
+            prompt: User content (text, images, audio and video); legacy text and content blocks are converted.
+                A text-only prompt beginning with this agent's command prefix after
+                stripping whitespace invokes a command.
             state: Mutable turn state. None loads state through framework hooks
                 using this agent's store; supplied state skips that loading.
                 The current agent is always bound into the state.
@@ -154,11 +157,12 @@ class Agent:
                 "gen_ai.conversation.id": session_id,
             },
         )
-        span.messages("gen_ai.input.messages", [{"role": "user", "content": prompt}])
         stack = AsyncExitStack()
         try:
             with span.activate():
-                if not prompt:
+                content = to_content(prompt)
+                span.messages("gen_ai.input.messages", [republic.user(*content)])
+                if not any(content):
                     events = self._events_from_iterable([
                         StreamEvent("text", {"delta": "error: empty prompt"}),
                         StreamEvent("final", {"text": "error: empty prompt", "ok": False}),
@@ -180,7 +184,11 @@ class Agent:
                         tape.fork_tape(merge_back=not session_id.startswith("temp/"))
                     )
                     await tape.ensure_bootstrap_anchor()
-                    command = strip_command_prefix(prompt, self.command_prefix) if isinstance(prompt, str) else None
+                    command = (
+                        strip_command_prefix(content[0], self.command_prefix)
+                        if len(content) == 1 and isinstance(content[0], str)
+                        else None
+                    )
                     if command is not None:
                         result = await self._run_command(tape=tape, line=command)
                         events = self._events_from_iterable([
@@ -190,7 +198,7 @@ class Agent:
                     else:
                         events = await self._agent_loop(
                             tape=tape,
-                            prompt=prompt,
+                            prompt=content,
                             model=model,
                             allowed_skills=allowed_skills,
                             allowed_tools=allowed_tools,
@@ -283,18 +291,18 @@ class Agent:
         self,
         *,
         tape: Tape,
-        prompt: str | list[dict],
+        prompt: list[UserContent],
         model: str | None = None,
         allowed_skills: Collection[str] | None = None,
         allowed_tools: Collection[str] | None = None,
     ) -> AsyncStreamEvents:
-        next_prompt: str | list[dict] = prompt
+        next_prompt = prompt
         display_model = model or self.settings.model
         await tape.append_event(
             "loop.start",
             {
                 "model": display_model,
-                "prompt": prompt,
+                "prompt": _prompt_payload(prompt),
                 "allowed_skills": list(allowed_skills) if allowed_skills else None,
                 "allowed_tools": list(allowed_tools) if allowed_tools else None,
             },
@@ -313,7 +321,7 @@ class Agent:
     async def _stream_events_with_auto_handoff(
         self,
         tape: Tape,
-        prompt: str | list[dict],
+        prompt: list[UserContent],
         state: StreamState,
         model: str | None = None,
         allowed_skills: Collection[str] | None = None,
@@ -321,12 +329,15 @@ class Agent:
     ) -> AsyncGenerator[StreamEvent, None]:
         auto_handoff_remaining = MAX_AUTO_HANDOFF_RETRIES
         display_model = model or self.settings.model
-        next_prompt: str | list[dict] | None = prompt
+        next_prompt: list[UserContent] | None = prompt
         for step in range(1, self.settings.max_steps + 1):
             start = time.monotonic()
             should_continue = False
             logger.info("loop.step step={} tape={} model={}", step, tape.name, display_model)
-            await tape.append_event("loop.step.start", {"step": step, "prompt": next_prompt})
+            await tape.append_event(
+                "loop.step.start",
+                {"step": step, "prompt": None if next_prompt is None else _prompt_payload(next_prompt)},
+            )
             try:
                 output = await self._run_once(
                     tape=tape,
@@ -407,7 +418,8 @@ class Agent:
                 )
                 return
 
-            next_prompt = await self.framework.continue_prompt(prompt=next_prompt, tape=tape, state=state)
+            continuation = await self.framework.continue_prompt(prompt=next_prompt, tape=tape, state=state)
+            next_prompt = None if continuation is None else [continuation]
             await tape.append_event(
                 "loop.step",
                 {
@@ -433,24 +445,17 @@ class Agent:
         self,
         *,
         tape: Tape,
-        prompt: str | list[dict] | None,
+        prompt: list[UserContent] | None,
         model: str | None = None,
         allowed_tools: Collection[str] | None = None,
         allowed_skills: Collection[str] | None = None,
     ) -> AsyncStreamEvents:
-        if isinstance(prompt, str):
-            prompt_text = prompt
-        elif prompt is None:
-            prompt_text = ""
-        else:
-            prompt_text = _extract_text_from_parts(prompt)
         if allowed_skills is not None:
             allowed_skills = {name.casefold() for name in allowed_skills}
             tape.context.state["allowed_skills"] = list(allowed_skills)
         return await self._run_once_stream(
             tape=tape,
             prompt=prompt,
-            prompt_text=prompt_text,
             model=model,
             allowed_skills=allowed_skills,
             tools=self._allowed_tools(tape, allowed_tools),
@@ -492,8 +497,7 @@ class Agent:
         self,
         *,
         tape: Tape,
-        prompt: str | list[dict] | None,
-        prompt_text: str,
+        prompt: list[UserContent] | None,
         model: str | None,
         allowed_skills: set[str] | None,
         tools: list[Tool],
@@ -502,7 +506,7 @@ class Agent:
         tools, code_mode_prompt = await self._prepare_code_mode(tools, tape)
         tools, deferred_prompt = await self._prepare_deferred_tools(tools, tape)
         system_prompt = self._system_prompt(
-            prompt_text,
+            prompt or [],
             state=tape.context.state,
             allowed_skills=allowed_skills,
             tools_prompt="\n\n".join(block for block in (code_mode_prompt, deferred_prompt) if block),
@@ -516,7 +520,7 @@ class Agent:
             })
         steering_inbox = self.framework.get_steering_inbox()
         steering_envelopes = await steering_inbox.drain_messages(tape.context.state) if steering_inbox else []
-        steering_messages = list(
+        steering_messages: list[list[UserContent]] = list(
             await asyncio.gather(*[
                 self.framework.build_prompt(
                     message, session_id=field_of(message, "session_id"), state=tape.context.state
@@ -564,7 +568,7 @@ class Agent:
 
     def _system_prompt(
         self,
-        prompt: str,
+        prompt: list[UserContent],
         state: TurnState,
         allowed_skills: set[str] | None = None,
         tools_prompt: str = "",
@@ -575,7 +579,7 @@ class Agent:
         if tools_prompt:
             blocks.append(tools_prompt)
         workspace = workspace_from_state(state)
-        if skills_prompt := self._load_skills_prompt(prompt, workspace, allowed_skills):
+        if skills_prompt := self._load_skills_prompt(prompt_text(prompt), workspace, allowed_skills):
             blocks.append(skills_prompt)
         return "\n\n".join(blocks)
 
@@ -614,6 +618,6 @@ def _parse_args(args_tokens: list[str]) -> Args:
     return Args(positional=positional, kwargs=kwargs)
 
 
-def _extract_text_from_parts(parts: list[dict]) -> str:
-    """Extract text content from multimodal content parts."""
-    return "\n".join(p.get("text", "") for p in parts if p.get("type") == "text")
+def _prompt_payload(content: list[UserContent]) -> object:
+    """Serialize prompt content for tape events."""
+    return republic.user(*content).to_dict().get("content")

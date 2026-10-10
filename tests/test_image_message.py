@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import base64
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import republic
 
 from bub.builtin.hook_impl import BuiltinImpl
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.channels.telegram import TelegramChannel, TelegramMessageParser, _extract_media_items
 from bub.framework import BubFramework
+from bub.prompt import prompt_text, to_content, to_legacy_prompt
 
 # ---------------------------------------------------------------------------
 # MediaItem & ChannelMessage
@@ -298,18 +299,19 @@ def _build_impl(tmp_path: Path) -> tuple[BubFramework, BuiltinImpl]:
 
 
 @pytest.mark.asyncio
-async def test_build_prompt_returns_string_without_media(tmp_path: Path) -> None:
+async def test_build_prompt_returns_text_without_media(tmp_path: Path) -> None:
     _, impl = _build_impl(tmp_path)
     message = ChannelMessage(session_id="s", channel="tg", content="hello")
 
     result = await impl.build_prompt(message, session_id="s", state={})
 
-    assert isinstance(result, str)
-    assert "hello" in result
+    assert len(result) == 1
+    assert isinstance(result[0], str)
+    assert "hello" in result[0]
 
 
 @pytest.mark.asyncio
-async def test_build_prompt_returns_multimodal_parts_with_image_media(tmp_path: Path) -> None:
+async def test_build_prompt_returns_text_and_inline_image(tmp_path: Path) -> None:
     _, impl = _build_impl(tmp_path)
     message = ChannelMessage(
         session_id="s",
@@ -320,17 +322,10 @@ async def test_build_prompt_returns_multimodal_parts_with_image_media(tmp_path: 
 
     result = await impl.build_prompt(message, session_id="s", state={})
 
-    assert isinstance(result, list)
     assert len(result) == 2
-
-    text_part = result[0]
-    assert text_part["type"] == "text"
-    assert "describe this" in text_part["text"]
-
-    image_part = result[1]
-    assert image_part["type"] == "image"
-    expected = base64.b64encode(b"\xff\xd8").decode("utf-8")
-    assert image_part["url"] == f"data:image/jpeg;base64,{expected}"
+    assert isinstance(result[0], str)
+    assert "describe this" in result[0]
+    assert result[1] == republic.Image("image/jpeg", data=b"\xff\xd8")
 
 
 @pytest.mark.asyncio
@@ -348,14 +343,11 @@ async def test_build_prompt_with_multiple_images(tmp_path: Path) -> None:
 
     result = await impl.build_prompt(message, session_id="s", state={})
 
-    assert isinstance(result, list)
-    assert len(result) == 3
-    assert result[1]["type"] == "image"
-    assert result[2]["type"] == "image"
+    assert result[1:] == [republic.Image("image/jpeg", data=b"A"), republic.Image("image/jpeg", data=b"B")]
 
 
 @pytest.mark.asyncio
-async def test_build_prompt_returns_video_part_with_media(tmp_path: Path) -> None:
+async def test_build_prompt_returns_inline_video(tmp_path: Path) -> None:
     _, impl = _build_impl(tmp_path)
     message = ChannelMessage(
         session_id="s",
@@ -366,16 +358,9 @@ async def test_build_prompt_returns_video_part_with_media(tmp_path: Path) -> Non
 
     result = await impl.build_prompt(message, session_id="s", state={})
 
-    assert isinstance(result, list)
     assert len(result) == 2
-    assert result[0]["type"] == "text"
-    assert "describe this video" in result[0]["text"]
-    expected = base64.b64encode(b"video").decode("utf-8")
-    assert result[1] == {
-        "type": "video",
-        "media_type": "video/mp4",
-        "url": f"data:video/mp4;base64,{expected}",
-    }
+    assert "describe this video" in result[0]
+    assert result[1] == republic.Video("video/mp4", data=b"video")
 
 
 @pytest.mark.asyncio
@@ -390,8 +375,8 @@ async def test_build_prompt_skips_video_when_download_is_too_large(tmp_path: Pat
 
     result = await impl.build_prompt(message, session_id="s", state={})
 
-    assert isinstance(result, str)
-    assert "describe this video" in result
+    assert len(result) == 1
+    assert "describe this video" in result[0]
 
 
 @pytest.mark.asyncio
@@ -399,7 +384,7 @@ async def test_build_prompt_skips_video_when_download_is_too_large(tmp_path: Pat
     "mime_type",
     ["audio/mpeg", "audio/ogg", "audio/x-wav"],
 )
-async def test_build_prompt_returns_audio_part(tmp_path: Path, mime_type: str) -> None:
+async def test_build_prompt_returns_inline_audio(tmp_path: Path, mime_type: str) -> None:
     _, impl = _build_impl(tmp_path)
     message = ChannelMessage(
         session_id="s",
@@ -410,14 +395,8 @@ async def test_build_prompt_returns_audio_part(tmp_path: Path, mime_type: str) -
 
     result = await impl.build_prompt(message, session_id="s", state={})
 
-    assert isinstance(result, list)
-    assert result[0]["type"] == "text"
-    assert "listen to this" in result[0]["text"]
-    assert result[1] == {
-        "type": "audio",
-        "media_type": mime_type,
-        "url": f"data:{mime_type};base64,{base64.b64encode(b'audio').decode('utf-8')}",
-    }
+    assert "listen to this" in result[0]
+    assert result[1] == republic.Audio(mime_type, data=b"audio")
 
 
 @pytest.mark.asyncio
@@ -432,8 +411,7 @@ async def test_build_prompt_preserves_remote_audio_url(tmp_path: Path) -> None:
 
     result = await impl.build_prompt(message, session_id="s", state={})
 
-    assert isinstance(result, list)
-    assert result[1] == {"type": "audio", "media_type": "audio/ogg", "url": "https://example.com/audio.ogg"}
+    assert result[1] == republic.Audio("audio/ogg", url="https://example.com/audio.ogg")
 
 
 @pytest.mark.asyncio
@@ -448,35 +426,32 @@ async def test_build_prompt_command_ignores_media(tmp_path: Path) -> None:
 
     result = await impl.build_prompt(message, session_id="s", state={})
 
-    assert isinstance(result, str)
-    assert result == ",help"
+    assert result == [",help"]
     assert message.kind == "command"
 
 
 # ---------------------------------------------------------------------------
-# _extract_text_from_parts
+# Prompt content compatibility
 # ---------------------------------------------------------------------------
 
 
-def test_extract_text_from_parts() -> None:
-    from bub.builtin.agent import _extract_text_from_parts
-
-    parts = [
+def test_legacy_prompt_blocks_convert_to_user_content() -> None:
+    content = to_content([
         {"type": "text", "text": "hello"},
-        {"type": "image", "media_type": "image/jpeg", "url": "data:image/jpeg;base64,X"},
+        {"type": "image", "media_type": "image/jpeg", "url": "data:image/jpeg;base64,WA=="},
         {"type": "text", "text": "world"},
+    ])
+
+    assert content == ["hello", republic.Image("image/jpeg", data=b"X"), "world"]
+    assert prompt_text(content) == "hello\nworld"
+    assert to_content("hello") == ["hello"]
+    assert to_content(content) == content
+
+
+def test_user_content_converts_back_to_legacy_prompt() -> None:
+    assert to_legacy_prompt(["hello", "world"]) == "hello\nworld"
+    assert to_legacy_prompt([]) == ""
+    assert to_legacy_prompt(["look", republic.Image("image/png", url="https://example.test/a.png")]) == [
+        {"type": "text", "text": "look"},
+        {"type": "image", "media_type": "image/png", "url": "https://example.test/a.png"},
     ]
-    assert _extract_text_from_parts(parts) == "hello\nworld"
-
-
-def test_extract_text_from_parts_empty() -> None:
-    from bub.builtin.agent import _extract_text_from_parts
-
-    assert _extract_text_from_parts([]) == ""
-
-
-def test_extract_text_from_parts_no_text_parts() -> None:
-    from bub.builtin.agent import _extract_text_from_parts
-
-    parts = [{"type": "image", "media_type": "image/jpeg", "url": "data:image/jpeg;base64,X"}]
-    assert _extract_text_from_parts(parts) == ""

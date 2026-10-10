@@ -6,6 +6,7 @@ from typing import Any
 
 import pluggy
 import pytest
+import republic
 
 from bub.builtin.context import default_tape_context
 from bub.builtin.hook_impl import BuiltinImpl
@@ -125,7 +126,7 @@ async def test_oversized_result_is_bounded_and_readable_across_merge(tmp_path: P
             tool_results=execution.tool_results,
         )
         request_messages = await tape.read_messages()
-        request_body = json.dumps(request_messages, ensure_ascii=False)
+        request_body = json.dumps([message.to_dict() for message in request_messages], ensure_ascii=False)
         assert handle in request_body
         assert output not in request_body
 
@@ -331,7 +332,7 @@ async def test_tape_archive_preserves_spilled_results_and_clears_the_session(tmp
         await tape.record_chat(
             run_id="run-1",
             system_prompt=None,
-            new_messages=[{"role": "user", "content": "archive this"}],
+            new_messages=[republic.user("archive this")],
             response_text=None,
             tool_calls=[{"id": "call-1", "name": "large", "arguments": "{}"}],
             tool_results=execution.tool_results,
