@@ -107,6 +107,9 @@ class LocalEnvironment(Environment):
     async def read_text(self, path: str) -> str:
         return await asyncio.to_thread(Path(path).read_text, encoding="utf-8")
 
+    async def read_bytes(self, path: str) -> bytes:
+        return await asyncio.to_thread(Path(path).read_bytes)
+
     async def write_text(self, path: str, content: str) -> None:
         def write() -> None:
             target = Path(path)

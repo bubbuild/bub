@@ -10,11 +10,13 @@ from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal, Protocol, get_args, get_type_hints, overload
 
+import republic
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import ToolCall, ToolCallResult
+from bub.prompt import UserContent
 from bub.tape import Tape
 from bub.tracing import Span
 
@@ -47,6 +49,41 @@ def render_result(result: Any) -> str:
         return json.dumps(result, ensure_ascii=False)
     except TypeError:
         return str(result)
+
+
+CONTENT_RESULT_TYPE = "tool_content"
+
+
+def content_result(content: Sequence[UserContent]) -> dict[str, Any]:
+    """Build a model-facing tool result that carries media along with text.
+
+    The result is JSON so it can be recorded on the tape; ``result_content`` reads it back.
+    """
+    blocks = [
+        {"type": "text", "text": item} if isinstance(item, str) else republic.user(item).to_dict()["content"][0]
+        for item in content
+    ]
+    return {"type": CONTENT_RESULT_TYPE, "content": blocks}
+
+
+def is_content_result(result: Any) -> bool:
+    return (
+        isinstance(result, dict)
+        and result.get("type") == CONTENT_RESULT_TYPE
+        and isinstance(result.get("content"), list)
+    )
+
+
+def result_content(result: Any) -> list[UserContent]:
+    """Return a tool result as content for the model: media of ``content_result`` results, otherwise text."""
+    if not is_content_result(result):
+        return [render_result(result)]
+    parts = republic.Message.from_dict({"role": "user", "content": result["content"]}).parts
+    return [
+        part.text if isinstance(part, republic.Text) else part
+        for part in parts
+        if isinstance(part, republic.Text | republic.Image | republic.Audio | republic.Video)
+    ]
 
 
 def _to_snake_case(name: str) -> str:
@@ -408,7 +445,8 @@ class ToolExecutor:
             )
             if inspect.isawaitable(value):
                 value = await value
-            if self._render:
+            # Content results already carry model-facing text and media.
+            if self._render and not is_content_result(value):
                 value = tool_obj.render(value)
         except BubError:
             raise
