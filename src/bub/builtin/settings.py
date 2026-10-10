@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
-from bub import Settings, config, ensure_config
+from bub import Settings, __version__, config, ensure_config
 from bub.builtin.commands import validate_command_prefix
 
 if TYPE_CHECKING:
@@ -25,6 +25,10 @@ DEFAULT_MAX_TOKENS = 16384
 
 def _provider_env_name(provider: str) -> str:
     return provider.upper().replace("-", "_")
+
+
+USER_AGENT = f"bub/{__version__}"
+"""Sent to model providers instead of Republic's default."""
 
 
 @dataclass(frozen=True)
@@ -140,6 +144,8 @@ class AgentSettings(Settings):
         custom = self.providers.get(provider)
         provider = provider if custom else provider.lower()
         options = dict(self.client_args)
+        # Headers from client_args, including a User-Agent, take precedence.
+        options["headers"] = {"User-Agent": USER_AGENT, **(options.get("headers") or {})}
         prefix = _provider_env_name(provider)
         options.setdefault("env_prefix", f"BUB_{prefix}")
         return {
