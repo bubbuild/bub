@@ -19,15 +19,6 @@ const { title, description, ogImage } = Astro.props;
   bodyClass="ambient-page min-h-screen antialiased font-sans"
 >
   <main id="main-content" class="relative isolate">
-    <div class="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
-      <svg class="grain-texture absolute inset-0 h-full w-full" xmlns="http://www.w3.org/2000/svg">
-        <filter id="bub-grain">
-          <feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="3" stitchTiles="stitch" />
-          <feColorMatrix type="saturate" values="0" />
-        </filter>
-        <rect width="100%" height="100%" filter="url(#bub-grain)" />
-      </svg>
-    </div>
     <div class="divide-y divide-border">
       <slot />
     </div>
@@ -40,14 +31,31 @@ const { title, description, ogImage } = Astro.props;
       radial-gradient(ellipse 60% 50% at 12% 8%, var(--site-ambient-1), transparent),
       radial-gradient(ellipse 50% 45% at 88% 42%, var(--site-ambient-2), transparent),
       radial-gradient(ellipse 55% 50% at 32% 85%, var(--site-ambient-3), transparent);
-    background: var(--ambient-gradient), var(--background);
-    background-attachment: fixed;
+    /* the base layer paints bg-background on body; drop it so the glow layer below shows */
+    background-color: transparent;
   }
 
+  /* The glow sits on its own viewport-anchored layer, which the compositor just reuses —
+     a fixed-attachment background would be re-rasterized on every scroll frame instead.
+     It stays opaque and behind body on purpose: html paints its own background, so body
+     would otherwise paint over this layer rather than let it through. */
+  :global(body.ambient-page)::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-color: var(--background);
+    background-image: var(--ambient-gradient);
+  }
+
+  /* Sticky at the viewport origin, so a viewport-sized image lands on the same pixels
+     background-attachment: fixed would produce, without the per-frame re-raster */
   :global(body.ambient-page > header) {
     background-color: color-mix(in oklch, var(--background) 82%, transparent);
     background-image: var(--ambient-gradient);
-    background-attachment: fixed;
+    background-size: 100vw 100vh;
+    background-repeat: no-repeat;
     backdrop-filter: blur(12px) saturate(1.2);
   }
 
@@ -63,13 +71,5 @@ const { title, description, ogImage } = Astro.props;
     background-image: var(--ambient-gradient);
     background-attachment: fixed;
     backdrop-filter: blur(8px);
-  }
-
-  .grain-texture {
-    opacity: 0.04;
-  }
-  :global(.dark) .grain-texture,
-  :global([data-theme='dark']) .grain-texture {
-    opacity: 0.06;
   }
 </style>
