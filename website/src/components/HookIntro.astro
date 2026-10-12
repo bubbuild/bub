@@ -6,11 +6,11 @@ type Props = HookIntroData;
 
 const { eyebrow, heading, description, hookStages } = Astro.props;
 
-/* ── SVG coordinate system ── */
-const SPACING = 62;
+const SPACING = 72;
 const FIRST_Y = 44;
-const RX = 305; // right-side node center x
-const LX = 95; // left-side node center x
+const RX = 296; // right-side node center x
+const LX = 104; // left-side node center x
+const BEND = 0.5; // 0.5 puts both control points on the midpoint, for a smooth S with vertical tangents
 const VB_W = 400;
 const VB_H = FIRST_Y + (hookStages.length - 1) * SPACING + FIRST_Y;
 
@@ -19,7 +19,7 @@ const nodeCoords = hookStages.map((_, i) => ({
   y: FIRST_Y + i * SPACING,
 }));
 
-/* Build serpentine SVG path (with hidden leader / trailer for seamless loop) */
+/* Serpentine path, with hidden leader / trailer so the loop seam is offscreen */
 const first = nodeCoords[0] ?? { x: RX, y: FIRST_Y };
 const last = nodeCoords[nodeCoords.length - 1] ?? first;
 const segs: string[] = [
@@ -29,13 +29,12 @@ const segs: string[] = [
 for (let i = 1; i < nodeCoords.length; i++) {
   const p = nodeCoords[i - 1],
     c = nodeCoords[i];
-  const my = (p.y + c.y) / 2;
-  segs.push(`C ${p.x} ${my}, ${c.x} ${my}, ${c.x} ${c.y}`);
+  const dy = (c.y - p.y) * BEND;
+  segs.push(`C ${p.x} ${p.y + dy}, ${c.x} ${c.y - dy}, ${c.x} ${c.y}`);
 }
 segs.push(`C ${last.x} ${last.y + 8}, ${last.x} ${last.y + 20}, ${last.x} ${VB_H + 44}`);
 const pathD = segs.join(' ');
 
-/* Build straight vertical path for mobile */
 const CX = VB_W / 2;
 const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 ---
@@ -43,21 +42,34 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 <section class="relative overflow-hidden py-20 md:py-28" data-reveal aria-label="Hook architecture">
   <div class="relative mx-auto max-w-6xl px-5 md:px-8">
     <div class="flex flex-col gap-12 md:flex-row md:items-start md:gap-16 lg:gap-24">
-      <!-- Left: intro text -->
       <div class="md:w-[42%] md:shrink-0">
         <SectionHeading eyebrow={eyebrow} heading={heading} body={description} class="mb-0 max-w-none" />
       </div>
 
-      <!-- Right: serpentine flow diagram -->
       <div class="hook-flow relative flex-1" data-hook-flow>
-        <div class="hook-flow-inner relative mx-auto" style={`aspect-ratio: ${VB_W} / ${VB_H}; max-width: 420px;`}>
+        <div class="hook-flow-inner relative mx-auto" style={`aspect-ratio: ${VB_W} / ${VB_H}; max-width: 460px;`}>
           <div class="hook-grid" aria-hidden="true"></div>
 
-          <!-- SVG path layer -->
           <svg class="absolute inset-0 h-full w-full" viewBox={`0 0 ${VB_W} ${VB_H}`} fill="none" aria-hidden="true">
-            <!-- Desktop: serpentine S-curve paths -->
+            <defs>
+              <!-- Tracks need end-fades; keep the animating subtree out of a CSS mask -->
+              <linearGradient
+                id="hook-track-fade"
+                gradientUnits="userSpaceOnUse"
+                x1="0"
+                y1="0"
+                x2="0"
+                y2={VB_H}
+              >
+                <stop offset="0%" style="stop-color: var(--border); stop-opacity: 0" />
+                <stop offset="7%" style="stop-color: var(--border); stop-opacity: 0.45" />
+                <stop offset="93%" style="stop-color: var(--border); stop-opacity: 0.45" />
+                <stop offset="100%" style="stop-color: var(--border); stop-opacity: 0" />
+              </linearGradient>
+            </defs>
+
             <g class="hook-paths-desktop">
-              <path d={pathD} stroke="var(--border)" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.45" />
+              <path d={pathD} stroke="url(#hook-track-fade)" stroke-width="1.5" stroke-dasharray="6 4" />
               <path
                 d={pathD}
                 stroke="var(--primary)"
@@ -69,9 +81,8 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
               />
             </g>
 
-            <!-- Mobile: straight vertical path -->
             <g class="hook-paths-mobile">
-              <path d={straightPathD} stroke="var(--border)" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.45" />
+              <path d={straightPathD} stroke="url(#hook-track-fade)" stroke-width="1.5" stroke-dasharray="6 4" />
               <path
                 d={straightPathD}
                 stroke="var(--primary)"
@@ -83,12 +94,23 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
               />
             </g>
 
-            <!-- Traveling dots avoid animated SVG blur filters; the trail supplies the glow cue. -->
-            <circle r="5.5" cx="-50" cy="-50" fill="var(--primary)" opacity="0" visibility="hidden" data-hook-dot />
-            <circle r="3" cx="-50" cy="-50" fill="var(--primary)" opacity="0" visibility="hidden" data-hook-dot-trail />
+            <!-- Dots sit at the origin; JS moves them with CSS transform -->
+            <circle
+              r="5.5"
+              cx="0"
+              cy="0"
+              fill="var(--primary)"
+              style="opacity: 0; visibility: hidden; will-change: transform"
+              data-hook-dot></circle>
+            <circle
+              r="3"
+              cx="0"
+              cy="0"
+              fill="var(--primary)"
+              style="opacity: 0; visibility: hidden; will-change: transform"
+              data-hook-dot-trail></circle>
           </svg>
 
-          <!-- Node cards -->
           {hookStages.map((stage, i) => {
             const yPct = (((FIRST_Y + i * SPACING) / VB_H) * 100).toFixed(2);
             const xPct = ((nodeCoords[i].x / VB_W) * 100).toFixed(2);
@@ -112,12 +134,6 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 </section>
 
 <style>
-  /* ── Fade-mask at top / bottom of the flow ── */
-  .hook-flow {
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 7%, black 93%, transparent 100%);
-    mask-image: linear-gradient(to bottom, transparent 0%, black 7%, black 93%, transparent 100%);
-  }
-
   .hook-grid {
     position: absolute;
     inset: 0;
@@ -126,16 +142,24 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
     background-image: radial-gradient(circle, var(--site-grid-dot) 1px, transparent 1px);
     background-size: 18px 18px;
     opacity: 0.18;
+    /* Static layer only — masking a repainting subtree costs a re-composite per frame */
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 7%, black 93%, transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 7%, black 93%, transparent 100%);
   }
 
-  /* ── Trail (hidden until JS activates) ── */
+  /* Layout-only: cards are wider than the box, so paint containment would clip them */
+  .hook-flow-inner {
+    contain: layout;
+  }
+
+  /* Hidden until JS activates the trail */
   .hook-trail {
     opacity: 0;
     stroke-dasharray: 0.14 0.86;
     stroke-dashoffset: 0.14;
   }
 
-  /* ── Desktop / mobile path toggle (unscoped for SVG) ── */
+  /* :global — these selectors target SVG children */
   :global(.hook-paths-mobile) {
     display: none;
   }
@@ -151,8 +175,8 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
     }
   }
 
-  /* ── Node card — D2 / Mermaid tech-diagram feel ── */
   .hook-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 1px;
@@ -161,10 +185,6 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
     white-space: nowrap;
     box-shadow: var(--site-shadow-card);
     text-align: center;
-    transition:
-      border-color 0.4s ease,
-      box-shadow 0.4s ease;
-    will-change: box-shadow;
   }
 
   .hook-card-name {
@@ -187,9 +207,19 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
       color 0.35s ease;
   }
 
-  /* ── Active node: ping flash ── */
-  .hook-node.active .hook-card {
-    border-color: var(--primary);
+  /* Ping stays on the card's own border — opacity only, no scale, no outer glow */
+  .hook-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 2px solid var(--site-hook-ping-ring);
+    box-shadow: inset 0 0 8px var(--site-hook-ping-glow);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .hook-node.active .hook-card::after {
     animation: ring-ping 2s ease-out forwards;
   }
   .hook-node.active .hook-card-name {
@@ -201,28 +231,16 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
 
   @keyframes ring-ping {
     0% {
-      box-shadow:
-        0 0 0 0 var(--site-hook-ping-ring-idle),
-        0 0 0px var(--site-hook-ping-glow-idle),
-        var(--site-shadow-card);
+      opacity: 0;
     }
-    15% {
-      box-shadow:
-        0 0 0 3px var(--site-hook-ping-ring),
-        0 0 10px var(--site-hook-ping-glow),
-        var(--site-shadow-card-strong);
+    18% {
+      opacity: 1;
     }
-    45% {
-      box-shadow:
-        0 0 0 7px var(--site-hook-ping-ring-soft),
-        0 0 6px var(--site-hook-ping-glow-soft),
-        var(--site-shadow-card-strong);
+    60% {
+      opacity: 0.45;
     }
     100% {
-      box-shadow:
-        0 0 0 0 var(--site-hook-ping-ring-idle),
-        0 0 0px var(--site-hook-ping-glow-idle),
-        var(--site-shadow-card);
+      opacity: 0;
     }
   }
 </style>
@@ -235,20 +253,20 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
     __bubHookFlowPageLoadBound?: boolean;
   };
 
-  /* Layout constants (mirror Astro frontmatter) */
-  const RX = 305;
-  const LX = 95;
+  /* Must mirror the frontmatter layout constants */
+  const RX = 296;
+  const LX = 104;
   const FIRST_Y = 44;
-  const SPACING = 62;
+  const SPACING = 72;
   const CX_MOBILE = 200;
 
-  const CYCLE_DUR = 7;
-  const TRAIL_LEAD = 0.018;
-  const FADE_ZONE = 0.06;
-  const NEAR_DIST_SQ = 36 * 36;
+  const CYCLE_DUR = 7; // seconds per loop
+  const REPEAT_DELAY_MS = 400; // pause between loops
+  const TRAIL_LEAD = 0.018; // trailing dot lag, as a fraction of path length
+  const FADE_ZONE = 0.06; // end fade, as a fraction of path length
+  const NEAR_DIST_SQ = 36 * 36; // node hit radius, squared
   const PATH_SAMPLE_COUNT = 560;
-  const HOOK_FRAME_MS = 1000 / 30;
-  const REPEAT_DELAY_MS = 400;
+  const TRAIL_DASH = 0.14; // must match the .hook-trail dasharray start
 
   type PathSample = {
     x: number;
@@ -257,11 +275,109 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
     nearest: number;
   };
 
-  /** Fade envelope: ramps in/out at path ends, 1.0 in the middle. */
+  /** 1 in the middle of the path, ramping to 0 at both ends. */
   function fade(v: number): number {
     if (v < FADE_ZONE) return v / FADE_ZONE;
     if (v > 1 - FADE_ZONE) return (1 - v) / FADE_ZONE;
     return 1;
+  }
+
+  type Pt = { x: number; y: number };
+
+  /* Samples the path with local Bezier math: getPointAtLength x561 blocks ~220ms */
+  function samplePath(d: string, nodes: Pt[]): PathSample[] {
+    const tokens = d.match(/[MLC]|-?\d*\.?\d+/g) ?? [];
+    const segs: { p0: Pt; c1: Pt; c2: Pt; p1: Pt }[] = [];
+    let cur: Pt = { x: 0, y: 0 };
+    let cmd = '';
+    let buf: number[] = [];
+
+    const push = () => {
+      if (cmd === 'M') {
+        cur = { x: buf[0], y: buf[1] };
+      } else if (cmd === 'L') {
+        const p1 = { x: buf[0], y: buf[1] };
+        segs.push({ p0: cur, c1: cur, c2: p1, p1 });
+        cur = p1;
+      } else if (cmd === 'C') {
+        const p1 = { x: buf[4], y: buf[5] };
+        segs.push({ p0: cur, c1: { x: buf[0], y: buf[1] }, c2: { x: buf[2], y: buf[3] }, p1 });
+        cur = p1;
+      }
+      buf = [];
+    };
+
+    for (const t of tokens) {
+      if (t === 'M' || t === 'L' || t === 'C') {
+        push();
+        cmd = t;
+      } else {
+        buf.push(Number(t));
+      }
+    }
+    push();
+
+    const SUB = 32;
+    const pts: Pt[] = [];
+    for (const s of segs) {
+      for (let i = 0; i <= SUB; i++) {
+        const t = i / SUB;
+        const mt = 1 - t;
+        const a = mt * mt * mt;
+        const b = 3 * mt * mt * t;
+        const c = 3 * mt * t * t;
+        const e = t * t * t;
+        pts.push({
+          x: a * s.p0.x + b * s.c1.x + c * s.c2.x + e * s.p1.x,
+          y: a * s.p0.y + b * s.c1.y + c * s.c2.y + e * s.p1.y,
+        });
+      }
+    }
+
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) {
+      cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+    }
+    const length = cum[cum.length - 1];
+
+    const out: PathSample[] = [];
+    let j = 0;
+    for (let i = 0; i <= PATH_SAMPLE_COUNT; i++) {
+      const v = i / PATH_SAMPLE_COUNT;
+      const target = v * length;
+      while (j < cum.length - 2 && cum[j + 1] < target) j++;
+      const f = (target - cum[j]) / (cum[j + 1] - cum[j] || 1);
+      const x = pts[j].x + (pts[j + 1].x - pts[j].x) * f;
+      const y = pts[j].y + (pts[j + 1].y - pts[j].y) * f;
+
+      let nearest = -1;
+      let bestSq = NEAR_DIST_SQ;
+      for (let k = 0; k < nodes.length; k++) {
+        const dx = x - nodes[k].x;
+        const dy = y - nodes[k].y;
+        const dSq = dx * dx + dy * dy;
+        if (dSq < bestSq) {
+          bestSq = dSq;
+          nearest = k;
+        }
+      }
+
+      out.push({ x, y, opacity: fade(v), nearest });
+    }
+    return out;
+  }
+
+  /* Tables outlive section re-entry and re-inits, so the work runs once per path */
+  const sampleCache = new Map<string, PathSample[]>();
+
+  function getSamples(d: string, nodes: Pt[]): PathSample[] {
+    const key = `${d}|${nodes.map((p) => `${p.x},${p.y}`).join(';')}`;
+    let samples = sampleCache.get(key);
+    if (!samples) {
+      samples = samplePath(d, nodes);
+      sampleCache.set(key, samples);
+    }
+    return samples;
   }
 
   function initHookFlow() {
@@ -311,7 +427,6 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
       ) as SVGPathElement | null;
 
       if (!svgPath || !trail) return;
-      const totalLen = svgPath.getTotalLength();
 
       const nodeCoords = nodeEls.map((el) => {
         const idx = Number(el.dataset.hookNode);
@@ -321,29 +436,23 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
         };
       });
 
-      const samples: PathSample[] = Array.from({ length: PATH_SAMPLE_COUNT + 1 }, (_, sampleIndex) => {
-        const v = sampleIndex / PATH_SAMPLE_COUNT;
-        const pt = svgPath.getPointAtLength(v * totalLen);
-        let nearest = -1;
-        let bestSq = NEAR_DIST_SQ;
+      const samples = getSamples(svgPath.getAttribute('d') ?? '', nodeCoords);
 
-        for (let i = 0; i < nodeCoords.length; i++) {
-          const dx = pt.x - nodeCoords[i].x;
-          const dy = pt.y - nodeCoords[i].y;
-          const dSq = dx * dx + dy * dy;
-          if (dSq < bestSq) {
-            bestSq = dSq;
-            nearest = i;
-          }
-        }
+      const cycleMs = CYCLE_DUR * 1000;
+      const loopMs = cycleMs + REPEAT_DELAY_MS;
+      const startedAt = performance.now();
+      let rafId = 0;
 
-        return {
-          x: pt.x,
-          y: pt.y,
-          opacity: fade(v),
-          nearest,
-        };
-      });
+      function setDotVisible(visible: boolean) {
+        const value = visible ? 'visible' : 'hidden';
+        dot!.style.visibility = value;
+        if (dotTrail) dotTrail.style.visibility = value;
+      }
+
+      function hideDot() {
+        dot!.style.opacity = '0';
+        if (dotTrail) dotTrail.style.opacity = '0';
+      }
 
       function highlightNode(idx: number) {
         if (idx === activeIdx) return;
@@ -351,16 +460,11 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
         nodeEls.forEach((el, i) => el.classList.toggle('active', i === idx));
       }
 
-      const cycleMs = CYCLE_DUR * 1000;
-      const loopMs = cycleMs + REPEAT_DELAY_MS;
-      const startedAt = performance.now();
+      function paint(now: number) {
+        const elapsed = (now - startedAt) % loopMs;
 
-      function updateFrame() {
-        const elapsed = (performance.now() - startedAt) % loopMs;
         if (elapsed > cycleMs) {
-          dot!.setAttribute('opacity', '0');
-          dotTrail?.setAttribute('opacity', '0');
-          trail!.style.opacity = '0';
+          hideDot();
           highlightNode(-1);
           return;
         }
@@ -369,36 +473,38 @@ const straightPathD = `M ${CX} ${-44} L ${CX} ${VB_H + 44}`;
         const sampleIndex = Math.min(PATH_SAMPLE_COUNT, Math.max(0, Math.round(v * PATH_SAMPLE_COUNT)));
         const sample = samples[sampleIndex];
 
-        dot!.setAttribute('cx', String(sample.x));
-        dot!.setAttribute('cy', String(sample.y));
-        dot!.setAttribute('opacity', String(sample.opacity));
-        dot!.setAttribute('visibility', 'visible');
+        dot!.style.transform = `translate(${sample.x}px, ${sample.y}px)`;
+        dot!.style.opacity = String(sample.opacity);
 
         if (dotTrail) {
           const trailIndex = Math.max(0, sampleIndex - Math.round(TRAIL_LEAD * PATH_SAMPLE_COUNT));
           const trailSample = samples[trailIndex];
-          dotTrail.setAttribute('cx', String(trailSample.x));
-          dotTrail.setAttribute('cy', String(trailSample.y));
-          dotTrail.setAttribute('opacity', String(sample.opacity * 0.35));
-          dotTrail.setAttribute('visibility', 'visible');
+          dotTrail.style.transform = `translate(${trailSample.x}px, ${trailSample.y}px)`;
+          dotTrail.style.opacity = String(sample.opacity * 0.35);
         }
 
-        trail!.style.strokeDashoffset = String(0.14 - v);
+        trail!.style.strokeDashoffset = String(TRAIL_DASH - v);
         trail!.style.opacity = String(sample.opacity * 0.35);
         highlightNode(sample.nearest);
       }
 
-      updateFrame();
-      const intervalId = window.setInterval(updateFrame, HOOK_FRAME_MS);
+      // rAF, not setInterval: vsync-aligned, and paused while the tab is hidden
+      function frame(now: number) {
+        rafId = requestAnimationFrame(frame);
+        paint(now);
+      }
+
+      setDotVisible(true);
+      trail.style.strokeDashoffset = String(TRAIL_DASH);
+      rafId = requestAnimationFrame(frame);
 
       stopAnim = () => {
-        window.clearInterval(intervalId);
-        dot!.setAttribute('opacity', '0');
-        dot!.setAttribute('visibility', 'hidden');
-        dotTrail?.setAttribute('opacity', '0');
-        dotTrail?.setAttribute('visibility', 'hidden');
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = 0;
+        hideDot();
+        setDotVisible(false);
         trail!.style.opacity = '0';
-        trail!.style.strokeDashoffset = '0.14';
+        trail!.style.strokeDashoffset = String(TRAIL_DASH);
         activeIdx = -1;
         nodeEls.forEach((el) => el.classList.remove('active'));
       };
