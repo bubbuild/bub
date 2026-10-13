@@ -29,7 +29,7 @@ from bub.core.events import (
 from bub.core.model import ChatModelClient, Model, ModelClient
 from bub.core.recorder import TapeRecorder
 from bub.core.system_prompt import PromptContext, PromptSection, SystemPrompt
-from bub.core.tape import Tape, TapeContext
+from bub.core.tape import Tape, TapeContext, session_tape_name
 from bub.core.tools import Tool, ToolContext, tool
 
 __all__ = [
@@ -65,5 +65,6 @@ __all__ = [
     "ToolContext",
     "default_tape_context",
     "events_from",
+    "session_tape_name",
     "tool",
 ]

@@ -23,7 +23,7 @@ from bub.core.context import default_tape_context
 from bub.core.events import ToolCall, ToolCallDecision, ToolCallResult
 from bub.core.sidecars import TapeSidecar
 from bub.core.store import TapeStore
-from bub.core.tape import TapeContext
+from bub.core.tape import TapeContext, session_tape_name
 from bub.core.tools import is_content_result, render_result
 from bub.envelope import Envelope, content_of, field_of
 from bub.environment import Environment
@@ -119,7 +119,7 @@ class BuiltinImpl:
         # Carry over per-session settings (model, reasoning effort, code mode) recorded
         # on the session tape. Only settings a prior turn actually recorded are set, so
         # a fresh/unknown session never inherits another session's choices.
-        state.update(await load_session_settings(agent.tape.session_tape(session_id, self.framework.workspace)))
+        state.update(await load_session_settings(agent.tape(session_tape_name(session_id, self.framework.workspace))))
         if model := field_of(message, "context", {}).get("model"):
             state["model"] = model
         if thread_id := field_of(message, "context", {}).get("thread_id"):

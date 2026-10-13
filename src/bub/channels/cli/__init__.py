@@ -38,7 +38,7 @@ from bub.channels.cli.terminal_output import (
 from bub.channels.cli.writers import MarkdownWriter
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
-from bub.core.tape import TapeInfo
+from bub.core.tape import TapeInfo, session_tape_name
 from bub.core.tools import REGISTRY, tool_call_reporter
 from bub.envelope import Envelope, field_of
 from bub.streaming import StreamEvent
@@ -235,7 +235,7 @@ class CliChannel(Interface):
             logger.remove()
 
     async def _refresh_tape_info(self) -> None:
-        tape = self._agent.tape.session_tape(self._message_template["session_id"], self._workspace)
+        tape = self._agent.tape(session_tape_name(self._message_template["session_id"], self._workspace))
         info = await tape.info()
         self._last_tape_info = info
 

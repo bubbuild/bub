@@ -171,12 +171,12 @@ handlers. The agent does not persist it; keep anything that must survive in your
 ```python
 stream = await agent.run(["Any news on A123?"], model=model, tape="customer-42", state={"user": "Ada"})
 
-tape = agent.tape.scoped("customer-42")
+tape = agent.tape("customer-42")
 messages = await tape.read_messages()  # The conversation as Republic messages.
 await tape.handoff(name="summary", state={"summary": "Ada asked about order A123."})
 ```
 
-`agent.tape` is the unscoped tape over the agent's store; `scoped(name)` addresses one conversation. By default the
+`agent.tape(name)` returns a conversation's tape for use outside runs; it writes to the store directly. By default the
 model context is the chat recorded since the tape's last anchor, so a `handoff()` starts a shorter context. When a
 call fails because the context is too long, the run hands off automatically once and retries the prompt.
 

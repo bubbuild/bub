@@ -9,6 +9,7 @@ import pytest
 
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.channels.message import ChannelMessage
+from bub.core.tape import session_tape_name
 from bub.framework import BubFramework
 from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
 from bub.streaming import AsyncStreamEvents, StreamEvent
@@ -42,9 +43,12 @@ class FakeAgent:
         self.tools = REGISTRY.copy()
         # A real in-memory async tape so load_state's recovery path runs against
         # the same store the tests write `model_switch` events to.
-        self.tape = tape if tape is not None else _fake_tape(home)
+        self.tapes = tape if tape is not None else _fake_tape(home)
         self.run_calls: list[tuple[str, str, dict[str, object]]] = []
         self.run_stream_calls: list[tuple[str, str, dict[str, object], str | None]] = []
+
+    def tape(self, name: str) -> Tape:
+        return self.tapes.scoped(name)
 
     async def run(self, *, session_id: str, prompt: str, state: dict[str, object]) -> str:
         self.run_calls.append((session_id, prompt, state))
@@ -133,7 +137,7 @@ async def test_load_state_and_save_state_manage_lifespan_and_context(tmp_path: P
 async def test_load_state_injects_model_recorded_on_session_tape(tmp_path: Path) -> None:
     """A model_switch event recorded on the session tape is restored into state on load."""
     _, impl, agent = _build_impl(tmp_path)
-    session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
+    session = agent.tape(session_tape_name("resolved-session", impl.framework.workspace))
     await session.append_event("model_switch", {"model": "openai:gpt-4o"})
 
     message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
@@ -146,7 +150,7 @@ async def test_load_state_injects_model_recorded_on_session_tape(tmp_path: Path)
 @pytest.mark.asyncio
 async def test_load_state_injects_reasoning_effort_recorded_on_session_tape(tmp_path: Path) -> None:
     _, impl, agent = _build_impl(tmp_path)
-    session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
+    session = agent.tape(session_tape_name("resolved-session", impl.framework.workspace))
     await session.append_event("reasoning_effort_switch", {"reasoning_effort": "high"})
 
     message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
@@ -159,7 +163,7 @@ async def test_load_state_injects_reasoning_effort_recorded_on_session_tape(tmp_
 @pytest.mark.asyncio
 async def test_load_state_injects_latest_code_mode_recorded_on_session_tape(tmp_path: Path) -> None:
     _, impl, agent = _build_impl(tmp_path)
-    session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
+    session = agent.tape(session_tape_name("resolved-session", impl.framework.workspace))
     await session.append_event("code_mode_switch", {"code_mode": True})
     await session.append_event("code_mode_switch", {"code_mode": False})
     message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
@@ -187,7 +191,7 @@ async def test_load_state_does_not_inject_model_for_unknown_session(tmp_path: Pa
 async def test_load_state_restores_latest_recorded_model(tmp_path: Path) -> None:
     """When several switches were recorded, the most recent one wins."""
     _, impl, agent = _build_impl(tmp_path)
-    session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
+    session = agent.tape(session_tape_name("resolved-session", impl.framework.workspace))
     await session.append_event("model_switch", {"model": "openai:gpt-4o"})
     await session.append_event("model_switch", {"model": "anthropic:claude-3"})
     message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")

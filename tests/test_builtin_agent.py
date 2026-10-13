@@ -16,6 +16,7 @@ from bub.builtin.settings import AgentSettings
 from bub.builtin.steering import InMemorySteeringInbox
 from bub.core import PromptContext, StepFinished
 from bub.core.context import default_tape_context
+from bub.core.tape import session_tape_name
 from bub.prompt import UserContent
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
@@ -53,7 +54,7 @@ def _make_agent() -> BubAgent:
     )
     with patch("bub.builtin.agent.load_settings", return_value=settings):
         agent = BubAgent(framework)
-    agent.__dict__["tape"] = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context())
+    agent.__dict__["_tapes"] = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context())
     return agent
 
 
@@ -166,7 +167,7 @@ async def test_agent_run_model_defaults_to_none(
 @pytest.mark.parametrize("continuation", ["custom continuation", None])
 async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state(continuation: str | None) -> None:
     agent = _make_agent()
-    tape = agent.tape.scoped("continuation")
+    tape = agent.tape("continuation")
     prompts: list[list[UserContent] | None] = []
     continuation_prompts: list[list[UserContent] | None] = []
     observed_usage: list[dict[str, Any] | None] = []
@@ -252,7 +253,7 @@ async def test_agent_run_injects_steering_messages_once_by_session(
         {"role": "user", "content": "second steer"},
         {"role": "user", "content": "hello"},
     ]
-    messages = await agent.tape.session_tape("user/s1", Path("/tmp")).read_messages()  # noqa: S108
+    messages = await agent.tape(session_tape_name("user/s1", Path("/tmp"))).read_messages()  # noqa: S108
     assert messages[-4:] == [
         republic.user("first steer"),
         republic.user("second steer"),

@@ -17,7 +17,7 @@ import bub.core as core
 from bub.builtin.commands import strip_command_prefix, validate_command_prefix
 from bub.builtin.settings import load_settings
 from bub.core.store import AsyncTapeStore, TapeStore
-from bub.core.tape import Tape
+from bub.core.tape import Tape, session_tape_name
 from bub.core.tools import REGISTRY, Tool, ToolContext, model_tools
 from bub.envelope import field_of
 from bub.framework import BubFramework
@@ -146,7 +146,7 @@ class BubAgent(core.Agent):
             model=self.settings.chat_model(
                 state.get("model") if model is None else model, reasoning_effort=state.get("reasoning_effort")
             ),
-            tape=self.tape.session_tape(session_id, workspace_from_state(state)).name,
+            tape=session_tape_name(session_id, workspace_from_state(state)),
             state=state,
             merge_back=not session_id.startswith("temp/"),
             metadata=metadata,

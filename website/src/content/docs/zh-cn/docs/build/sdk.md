@@ -165,12 +165,12 @@ fork，运行的流关闭时合并回去；传入 `merge_back=False` 则丢弃�
 ```python
 stream = await agent.run(["Any news on A123?"], model=model, tape="customer-42", state={"user": "Ada"})
 
-tape = agent.tape.scoped("customer-42")
+tape = agent.tape("customer-42")
 messages = await tape.read_messages()  # 以 Republic 消息表示的对话。
 await tape.handoff(name="summary", state={"summary": "Ada asked about order A123."})
 ```
 
-`agent.tape` 是基于 agent store、尚未指定名字的 tape；`scoped(name)` 指向一个对话。默认情况下模型上下文是该 tape
+`agent.tape(name)` 返回某个对话的 tape，供运行之外使用；它直接写入 store。默认情况下模型上下文是该 tape
 最近一个 anchor 之后记录的对话，因此 `handoff()` 会开始一个更短的上下文。如果某次调用因上下文过长而失败，运行会自动
 handoff 一次并重试该 prompt。
 

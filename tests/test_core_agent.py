@@ -96,7 +96,7 @@ async def test_core_agent_runs_tool_loop_and_emits_events(provider_service: Prov
         "StepFinished",
     ]
     # The run's fork merged back into the store's tape.
-    tape = agent.tape.scoped("session")
+    tape = agent.tape("session")
     roles = [message.role for message in await tape.read_messages()]
     assert roles[-4:] == ["user", "assistant", "tool", "assistant"]
     names = [entry.payload["name"] for entry in await tape.store.fetch_all(tape.query().kinds("event"))]
@@ -217,5 +217,5 @@ def test_store_function_is_resolved_on_first_tape_use() -> None:
 
     agent = Agent(store=resolve)
     assert calls == []
-    assert agent.tape is agent.tape
+    assert agent.tape("a").store is agent.tape("b").store
     assert calls == ["resolve"]

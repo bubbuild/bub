@@ -37,6 +37,7 @@ __all__ = [
     "UnavailableTapeStore",
     "build_messages",
     "is_async_tape_store",
+    "session_tape_name",
     "to_message",
     "to_messages",
     "utc_now",
@@ -282,6 +283,12 @@ class AnchorSummary:
     state: dict[str, object]
 
 
+def session_tape_name(session_id: str, workspace: Path) -> str:
+    """Return the tape name of a session in a workspace."""
+    workspace_hash = hashlib.md5(str(workspace.resolve()).encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+    return workspace_hash + "__" + hashlib.md5(session_id.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+
+
 @dataclass(frozen=True)
 class Tape:
     """Tape abstraction for recording agent interactions."""
@@ -498,11 +505,7 @@ class Tape:
             await self.append_event("sidecar.reset", reset_data, context=False)
 
     def session_tape(self, session_id: str, workspace: Path, context: TapeContext | None = None) -> Tape:
-        workspace_hash = hashlib.md5(str(workspace.resolve()).encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
-        tape_name = (
-            workspace_hash + "__" + hashlib.md5(session_id.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
-        )
-        return self.scoped(tape_name, context=context)
+        return self.scoped(session_tape_name(session_id, workspace), context=context)
 
     @contextlib.asynccontextmanager
     async def fork_tape(self, merge_back: bool = True) -> AsyncGenerator[Tape, None]:

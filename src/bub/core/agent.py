@@ -115,11 +115,8 @@ class Agent:
         self.system_prompt.remove(section)
 
     @cached_property
-    def tape(self) -> Tape:
-        """Unscoped tape over the agent's store; ``tape.scoped(name)`` addresses one conversation.
-
-        Built on first use, when a store given as a function is resolved.
-        """
+    def _tapes(self) -> Tape:
+        """Unscoped tape over the agent's store, built on first use, when a store function is resolved."""
         store: TapeStore | AsyncTapeStore | None
         if callable(self._store) and not hasattr(self._store, "append"):
             store = self._store()
@@ -131,6 +128,15 @@ class Agent:
             store = AsyncTapeStoreAdapter(store)
         return Tape(store, self._context, sidecars=self._sidecars)
 
+    def tape(self, name: str, *, state: TurnState | None = None) -> Tape:
+        """Return tape ``name`` in the agent's store, with ``state`` as its turn state.
+
+        Use it outside runs, for example to read a conversation or add an anchor; it
+        writes to the store directly. Runs work on a fork instead (see :meth:`session`).
+        """
+        tapes = self._tapes
+        return tapes.scoped(name, context=replace(tapes.context, state={} if state is None else state))
+
     @asynccontextmanager
     async def session(
         self, name: str, *, state: TurnState | None = None, merge_back: bool = True
@@ -139,9 +145,7 @@ class Agent:
 
         The fork merges back on exit unless ``merge_back`` is false.
         """
-        tapes = self.tape
-        scoped = tapes.scoped(name, context=replace(tapes.context, state={} if state is None else state))
-        async with scoped.fork_tape(merge_back=merge_back) as tape:
+        async with self.tape(name, state=state).fork_tape(merge_back=merge_back) as tape:
             await tape.ensure_bootstrap_anchor()
             yield tape
 

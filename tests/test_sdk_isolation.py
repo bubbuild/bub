@@ -7,6 +7,7 @@ from bub.builtin.codemode import run_code, set_code_mode
 from bub.builtin.model import BubModel
 from bub.builtin.tools import resolve_tool_names, run_subagent, show_help
 from bub.core import Agent as CoreAgent
+from bub.core.tape import session_tape_name
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.store import InMemoryTapeStore
@@ -78,7 +79,7 @@ async def test_prefixed_code_mode_command_is_restored_by_a_new_agent(
     store = InMemoryTapeStore()
     tools = [set_code_mode, run_code]
     agent = BubAgent(framework, tools=tools, tape_store=store, skill_dirs=[], command_prefix=prefix)
-    tape = agent.tape.session_tape("sdk", framework.workspace)
+    tape = agent.tape(session_tape_name("sdk", framework.workspace))
     await tape.append_event("code_mode_switch", {"code_mode": not enabled})
 
     stream = await agent.run_stream(session_id="sdk", prompt=f"{prefix}code_mode enable={str(enabled).lower()}")
@@ -114,7 +115,7 @@ async def test_prefixed_commands_render_structured_results(framework: BubFramewo
     output = "".join([event.data["delta"] async for event in stream if event.kind == "text"])
 
     assert output == "found"
-    tape = agent.tape.session_tape("sdk", framework.workspace)
+    tape = agent.tape(session_tape_name("sdk", framework.workspace))
     events = list(await tape.store.fetch_all(tape.query().kinds("event")))
     recorded = [entry.payload["data"] for entry in events if entry.payload.get("name") == "command"]
     assert len(recorded) == 1
@@ -129,12 +130,12 @@ async def test_sdk_recovers_only_its_store_and_honors_explicit_overrides(
     framework: BubFramework, monkeypatch: pytest.MonkeyPatch, has_saved_state: bool, override: bool
 ) -> None:
     builtin = framework.plugin_manager.get_plugin("builtin")
-    builtin_tape = builtin._get_agent().tape.session_tape("shared", framework.workspace)
+    builtin_tape = builtin._get_agent().tape(session_tape_name("shared", framework.workspace))
     await builtin_tape.append_event("model_switch", {"model": "test:other"})
     await builtin_tape.append_event("reasoning_effort_switch", {"reasoning_effort": "low"})
 
     agent = BubAgent(framework, tools=[], tape_store=InMemoryTapeStore(), skill_dirs=[])
-    tape = agent.tape.session_tape("shared", framework.workspace)
+    tape = agent.tape(session_tape_name("shared", framework.workspace))
     if has_saved_state:
         await tape.append_event("model_switch", {"model": "test:saved"})
         await tape.append_event("reasoning_effort_switch", {"reasoning_effort": "high"})
@@ -188,7 +189,7 @@ async def test_subagent_uses_parent_instance_tools(
     tool = Tool.from_callable(lambda: "found", name="sdk.lookup")
     agent = BubAgent(framework, tools=[tool, run_subagent], tape_store=InMemoryTapeStore(), skill_dirs=[])
     steps = capture_steps(monkeypatch)
-    tape: Tape = agent.tape.session_tape("parent", framework.workspace)
+    tape: Tape = agent.tape(session_tape_name("parent", framework.workspace))
     context = ToolContext(
         tape=tape,
         state={"_runtime_agent": agent, "session_id": "parent", "_runtime_workspace": str(framework.workspace)},
@@ -212,6 +213,6 @@ async def test_agent_created_before_running_uses_the_framework_store(framework: 
     agent = BubAgent(framework, tools=[], skill_dirs=[])
 
     async with framework.running():
-        await agent.tape.scoped("early").append_event("probe", {})
+        await agent.tape("early").append_event("probe", {})
 
     assert store.list_tapes() == ["early"]
