@@ -276,14 +276,14 @@ def approve(event: RefundRequested) -> None:
 `final` 事件结束的是一个模型步骤；把迭代器消费完才算结束整个运行（包括合并 tape fork）。请检查 error 事件并处理迭代中
 抛出的异常。流对象还提供 `error` 和 `usage`。
 
-如果在开始迭代后提前退出，请显式关闭迭代器：
+如果可能提前停止消费，请用 `aclosing` 关闭流，及时关闭模型流、tape fork 和 trace span。尚未开始迭代时也可以关闭：
 
 ```python
 from contextlib import aclosing
 
 stream = await agent.run(["Check order A123"], model=model, tape="customer-42")
-async with aclosing(stream.__aiter__()) as events:
-    async for event in events:
+async with aclosing(stream):
+    async for event in stream:
         print(event.kind, event.data)
 ```
 

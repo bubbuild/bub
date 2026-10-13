@@ -287,14 +287,15 @@ for example `await context.tape.append_event("order.looked_up", {...})` in the t
 the whole run, including merging its tape fork. Check error events and handle exceptions from iteration. The stream
 also exposes `error` and `usage`.
 
-For early exit from an iteration that has started, close its iterator explicitly:
+If you may stop consuming early, close the stream with `aclosing` so its model stream, tape fork, and trace span close
+promptly. Closing works before iteration starts too:
 
 ```python
 from contextlib import aclosing
 
 stream = await agent.run(["Check order A123"], model=model, tape="customer-42")
-async with aclosing(stream.__aiter__()) as events:
-    async for event in events:
+async with aclosing(stream):
+    async for event in stream:
         print(event.kind, event.data)
 ```
 
