@@ -48,7 +48,6 @@ MAX_AUTO_HANDOFF_RETRIES = 1
 
 E = TypeVar("E", bound=AgentEvent)
 T = TypeVar("T", bound=TapeEvent)
-S = TypeVar("S", bound=PromptSection)
 
 
 class Agent:
@@ -64,7 +63,7 @@ class Agent:
         tools: Tools the model may call, kept by name in ``tools``.
         system_prompt: System prompt sections: text, or functions of the step's
             :class:`PromptContext` (prompt, tools, tape, state, agent) returning text.
-            Add more with :meth:`add_system_prompt`.
+            Add more with ``agent.system_prompt.add``.
         context: How a tape's entries become model context; defaults to
             :func:`default_tape_context`, which replays the recorded chat.
         sidecars: Sidecar capabilities mounted on every tape.
@@ -109,18 +108,6 @@ class Agent:
         self.command_prefix = None if command_prefix is None else validate_command_prefix(command_prefix)
         self.events = EventBus()
         TapeRecorder().subscribe(self.events)
-
-    def add_system_prompt(self, section: S) -> S:
-        """Append a system prompt section and return it, so this also works as a decorator::
-
-        @agent.add_system_prompt
-        def tools(context: PromptContext) -> str: ...
-        """
-        return self.system_prompt.add(section)
-
-    def remove_system_prompt(self, section: PromptSection) -> None:
-        """Remove a system prompt section."""
-        self.system_prompt.remove(section)
 
     def tape(self, name: str, *, state: TurnState | None = None) -> Tape:
         """Return tape ``name`` in the agent's store, with ``state`` as its turn state.

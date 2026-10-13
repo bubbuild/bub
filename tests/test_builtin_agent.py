@@ -469,7 +469,7 @@ async def test_agent_sections_and_handlers_apply_after_builtin_ones(model_provid
     agent.framework.get_system_prompt.return_value = "<framework/>"
     statuses: list[str] = []
 
-    @agent.add_system_prompt
+    @agent.system_prompt.add
     def session(context: PromptContext) -> str:
         return f"<session>{context.state['session_id']}:{len(context.tools)}</session>"
 

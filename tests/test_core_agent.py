@@ -51,14 +51,14 @@ async def test_core_agent_runs_tool_loop_and_emits_events(provider_service: Prov
         model = _model(client)
         agent = Agent(store=store, tools=[read], system_prompt="Be brief.")
 
-        @agent.add_system_prompt
+        @agent.system_prompt.add
         def tools_section(context: PromptContext) -> str:
             prompts.append((context.prompt, context.state.get("user"), [tool.name for tool in context.tools]))
             assert context.model == "openai:test"
             assert context.available_tools == [read]
             return "Tools: " + ", ".join(tool.name for tool in context.tools)
 
-        @agent.add_system_prompt
+        @agent.system_prompt.add
         async def empty_section(context: PromptContext) -> None:
             return None
 
@@ -66,8 +66,8 @@ async def test_core_agent_runs_tool_loop_and_emits_events(provider_service: Prov
         def rewrite_path(event: BeforeToolCall) -> None:
             event.call = replace(event.call, arguments={"path": "README.md"})
 
-        assert agent.add_system_prompt("Removed section.") == "Removed section."
-        agent.remove_system_prompt("Removed section.")
+        assert agent.system_prompt.add("Removed section.") == "Removed section."
+        agent.system_prompt.remove("Removed section.")
         assert agent.system_prompt.sections == ("Be brief.", tools_section, empty_section)
         agent.events.on(AgentEvent, lambda event: seen.append(type(event).__name__))
         async with agent.run(

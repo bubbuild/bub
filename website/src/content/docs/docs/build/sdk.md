@@ -137,20 +137,20 @@ offered to the model with `_` instead (for example, `fs.read` becomes `fs_read`)
 
 The system prompt is an ordered list of sections, rendered for every model step and joined by blank lines.
 A section is text, or a sync or async function of a `PromptContext` returning text; an empty result or `None`
-skips the section. `agent.add_system_prompt(section)` appends a section and returns it, so it also works as a
-decorator; `agent.remove_system_prompt(section)` removes it.
+skips the section. `agent.system_prompt.add(section)` appends a section and returns it, so it also works as a
+decorator; `agent.system_prompt.remove(section)` removes it.
 
 ```python
 from bub.core import PromptContext
 
 
-@agent.add_system_prompt
+@agent.system_prompt.add
 def tool_list(context: PromptContext) -> str:
     names = ", ".join(tool.name for tool in context.tools)
     return f"Tools available in this step: {names}."
 
 
-@agent.add_system_prompt
+@agent.system_prompt.add
 async def customer(context: PromptContext) -> str | None:
     if (user := context.state.get("user")) is None:
         return None

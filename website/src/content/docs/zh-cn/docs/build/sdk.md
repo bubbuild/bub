@@ -132,20 +132,20 @@ agent.tools["remember"] = Tool.from_callable(remember, context=True)
 ## System prompt
 
 system prompt 是有序的 section 列表，每个模型步骤渲染一次，以空行连接。section 可以是文本，也可以是接收
-`PromptContext` 并返回文本的同步或异步函数；返回空串或 `None` 时跳过该 section。`agent.add_system_prompt(section)`
-追加一个 section 并返回它，因此也可以用作装饰器；`agent.remove_system_prompt(section)` 将其移除。
+`PromptContext` 并返回文本的同步或异步函数；返回空串或 `None` 时跳过该 section。`agent.system_prompt.add(section)`
+追加一个 section 并返回它，因此也可以用作装饰器；`agent.system_prompt.remove(section)` 将其移除。
 
 ```python
 from bub.core import PromptContext
 
 
-@agent.add_system_prompt
+@agent.system_prompt.add
 def tool_list(context: PromptContext) -> str:
     names = ", ".join(tool.name for tool in context.tools)
     return f"Tools available in this step: {names}."
 
 
-@agent.add_system_prompt
+@agent.system_prompt.add
 async def customer(context: PromptContext) -> str | None:
     if (user := context.state.get("user")) is None:
         return None

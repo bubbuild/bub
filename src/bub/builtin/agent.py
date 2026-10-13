@@ -30,7 +30,7 @@ class BubAgent(core.Agent):
     Adds commands, skills, code mode, deferred tools, steering and the
     ``continue_prompt`` hook to :class:`bub.core.Agent`. System prompt sections, in
     order: the framework's ``system_prompt`` hooks, code mode, deferred tools, skills,
-    then sections added with :meth:`add_system_prompt`. The framework's interception
+    then sections added with ``system_prompt.add``. The framework's interception
     hooks handle events before handlers added with ``events.on``.
 
     One instance serves any number of sessions: per-turn choices (model, allowed tools
