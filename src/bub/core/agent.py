@@ -128,7 +128,7 @@ class Agent:
     @asynccontextmanager
     async def session(
         self, name: str, *, state: TurnState | None = None, merge_back: bool = True
-    ) -> AsyncIterator[Tape]:
+    ) -> AsyncGenerator[Tape]:
         """Open a fork of tape ``name`` for one run, with ``state`` as its turn state.
 
         The fork merges back on exit unless ``merge_back`` is false.
@@ -148,7 +148,7 @@ class Agent:
         state: TurnState | None = None,
         merge_back: bool = True,
         metadata: dict[str, Any] | None = None,
-    ) -> AsyncIterator[AsyncStreamEvents]:
+    ) -> AsyncGenerator[AsyncStreamEvents]:
         """Run ``model`` on tape ``tape``; iterate the yielded stream to drive the loop.
 
         ::
@@ -473,7 +473,7 @@ class Agent:
         request: LlmCallRequest,
         tools: list[Tool],
         state: StreamState,
-    ) -> AsyncIterator[tuple[str, republic.Stream[Any], AsyncIterator[StreamEvent]]]:
+    ) -> AsyncGenerator[tuple[str, republic.Stream[Any], AsyncIterator[StreamEvent]]]:
         provider, _, model_id = request.model.partition(":")
         span = Span(
             f"chat {model_id or request.model}",

@@ -10,7 +10,7 @@ repeat until it answers) over components you supply: tools, system prompt sectio
 Republic model passed to each run. It reads no Bub settings and loads no plugins, so it embeds in any application.
 
 Bub's own runtime is built on the same kernel: `bub.builtin.BubAgent` adds settings, plugin hooks, skills,
-commands, and steering. See [Bub's agent](#bubs-agent) at the end of this page.
+commands, and steering.
 
 ## Install
 
@@ -386,47 +386,3 @@ Start with `uv run uvicorn app:app`. This example serializes all runs in one pro
 per-run state, so concurrent runs on different tapes are safe; serialize runs on the same tape with
 application-owned per-session locking. Multiple worker processes sharing a store need coordination across workers;
 a file write lock does not serialize a run.
-
-## Bub's agent
-
-`bub.builtin.BubAgent` is the core `Agent` configured the way Bub runs it: the model comes from Bub settings, system
-prompt and interception [hooks](/docs/build/hooks/) come from the framework's plugins, and it adds skills, commands,
-code mode, deferred tools, and steering. Use it when you want Bub's behavior rather than your own assembly:
-
-```python
-from pathlib import Path
-
-from bub import BubFramework
-from bub.builtin import BubAgent
-from bub.core.store import FileTapeStore
-
-framework = BubFramework()
-framework.load_builtin_hooks()  # Or load_hooks() to include installed plugins.
-async with framework.running():
-    agent = BubAgent(framework, tape_store=FileTapeStore(Path("sessions")), skill_dirs=[Path("skills")])
-    stream = await agent.run_stream(
-        session_id="customer-42",
-        prompt="Use $order-policy to check order A123.",
-        allowed_skills=["order-policy"],
-    )
-    async for event in stream:
-        ...
-```
-
-Configure the model through `BUB_MODEL`, `BUB_API_KEY`, and optionally `BUB_API_BASE`, or a configuration file; see
-[Configuration](/docs/reference/settings/). `run_stream()` loads the session's turn state through the framework,
-applies per-turn options, and then calls the core `start()` on the session's tape, so consume the returned stream
-fully or close it:
-
-- `tools=None` snapshots the global tool registry; `skill_dirs=None` searches project, user, and builtin skill roots.
-- `tape_store=None` uses the framework's store, which exists inside `framework.running()`; create the agent there.
-- `model` and `reasoning_effort` override the session's saved settings for one turn. `allowed_tools` and
-  `allowed_skills` narrow the agent's tools and skills for one turn.
-- A `session_id` starting with `temp/` runs on a fork that is not merged back.
-- A text prompt starting with the command prefix (`,` by default, or `command_prefix=`) runs a command: known
-  commands call the agent's tools directly, others run through its `bash` tool when available.
-
-`BubAgent` runs your sections and handlers after Bub's own, so `agent.add_system_prompt()` and `agent.events.on()`
-work the same. It passes each turn a `BubModel` built from settings: the configured or session model, its
-fallbacks and credentials, and the session's reasoning effort. For the complete message pipeline, including `build_prompt`, `save_state`, outbound rendering, and channel
-dispatch, use `BubFramework.process_inbound()`, which returns a `TurnResult`.

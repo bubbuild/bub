@@ -10,7 +10,6 @@ sidebar:
 它不读取 Bub 的 settings，也不加载插件，因此可以嵌入任何应用。
 
 Bub 自身的运行时也构建在这个内核之上：`bub.builtin.BubAgent` 在其上加入 settings、插件钩子、skills、命令和 steering。
-见本页末尾的 [Bub 的 agent](#bub-的-agent)。
 
 ## 安装
 
@@ -372,44 +371,3 @@ async def run_task(task: Task, request: Request):
 用 `uv run uvicorn app:app` 启动。这个示例在单进程内串行执行所有运行。agent 本身不保存任何运行级状态，因此不同 tape
 上的并发运行是安全的；同一 tape 上的运行请由应用自己按会话加锁串行。多个 worker 进程共享同一个 store 时需要跨进程协调；
 文件写锁并不能让一次运行串行化。
-
-## Bub 的 agent
-
-`bub.builtin.BubAgent` 是按 Bub 的方式配置好的 core `Agent`：模型来自 Bub settings，system prompt 和拦截
-[钩子](/zh-cn/docs/build/hooks/) 来自 framework 的插件，并加入 skills、命令、code mode、延迟加载工具和 steering。
-需要 Bub 的行为、而不是自己组装时使用它：
-
-```python
-from pathlib import Path
-
-from bub import BubFramework
-from bub.builtin import BubAgent
-from bub.core.store import FileTapeStore
-
-framework = BubFramework()
-framework.load_builtin_hooks()  # 或用 load_hooks() 同时加载已安装的插件。
-async with framework.running():
-    agent = BubAgent(framework, tape_store=FileTapeStore(Path("sessions")), skill_dirs=[Path("skills")])
-    stream = await agent.run_stream(
-        session_id="customer-42",
-        prompt="Use $order-policy to check order A123.",
-        allowed_skills=["order-policy"],
-    )
-    async for event in stream:
-        ...
-```
-
-通过 `BUB_MODEL`、`BUB_API_KEY` 以及可选的 `BUB_API_BASE` 或配置文件来配置模型；见 [配置](/zh-cn/docs/reference/settings/)。
-`run_stream()` 通过 framework 加载会话的 turn state，应用单轮选项，然后在该会话的 tape 上调用 core 的 `start()`，因此请把返回的流消费完或关闭：
-
-- `tools=None` 取全局工具注册表的快照；`skill_dirs=None` 搜索项目、用户和内置 skill 目录。
-- `tape_store=None` 使用 framework 的 store，它只在 `framework.running()` 之内存在；请在其中创建 agent。
-- `model` 和 `reasoning_effort` 在单轮内覆盖会话保存的设置。`allowed_tools` 和 `allowed_skills` 在单轮内收窄 agent 的工具和 skills。
-- 以 `temp/` 开头的 `session_id` 在不会合并回去的 fork 上运行。
-- 以命令前缀（默认 `,`，或通过 `command_prefix=` 指定）开头的文本 prompt 会作为命令执行：已知命令直接调用 agent 的工具，
-  其他命令在有 `bash` 工具时交给它执行。
-
-`BubAgent` 在 Bub 自己的 section 和处理器之后运行你添加的 section 和处理器，因此 `agent.add_system_prompt()` 和
-`agent.events.on()` 的用法相同。它为每个 turn 传入由 settings 构造的 `BubModel`：配置或会话指定的模型、其 fallback
-和凭据，以及会话的 reasoning effort。完整的消息管线（包括 `build_prompt`、`save_state`、出站渲染和 channel 分发）请使用
-返回 `TurnResult` 的 `BubFramework.process_inbound()`。
