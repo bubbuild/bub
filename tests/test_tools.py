@@ -8,6 +8,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from bub.core.events import AfterToolCall, BeforeToolCall, EventBus
+from bub.errors import BubError
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
 from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
@@ -103,7 +104,7 @@ async def test_tool_executor_logs_calls_without_context(monkeypatch: pytest.Monk
     monkeypatch.setattr(logger, "info", record)
     echo = Tool.from_callable(lambda value, context: value, name="tests.logged_tool", context=True)
 
-    execution = await ToolExecutor().execute_async([(echo, {"value": "hello"})], context=_context(tmp_path))
+    execution = await ToolExecutor().execute_many([(echo, {"value": "hello"})], context=_context(tmp_path))
 
     assert execution.tool_results == ["hello"]
     assert len(messages) == 2
@@ -133,7 +134,7 @@ async def test_tool_executor_logs_failures(monkeypatch: pytest.MonkeyPatch) -> N
     def failing_tool() -> str:
         raise RuntimeError("boom")
 
-    execution = await ToolExecutor().execute_async([(Tool.from_callable(failing_tool), {})])
+    execution = await ToolExecutor().execute_many([(Tool.from_callable(failing_tool), {})])
 
     assert execution.error is not None
     ((message, exception),) = errors
@@ -153,7 +154,7 @@ async def test_tool_executor_logs_arguments_changed_by_handlers(monkeypatch: pyt
         event.call = replace(event.call, arguments={"value": "rewritten"})
 
     echo = Tool.from_callable(lambda value: value, name="tests.echo")
-    await ToolExecutor(events).execute_async([(echo, {"value": "original"})])
+    await ToolExecutor(events).execute_many([(echo, {"value": "original"})])
 
     assert messages[0] == 'tool.call.start name=tests.echo { value="rewritten" }'
 
@@ -219,7 +220,7 @@ async def test_executor_render_option_decides_result_format(
         renderer=lambda result: f"count={result['count']}",
     )
 
-    execution = await ToolExecutor(render=render).execute_async(
+    execution = await ToolExecutor(render=render).execute_many(
         [(structured, {})], context=_context(tmp_path, code_mode=code_mode)
     )
 
@@ -239,7 +240,7 @@ async def test_executor_passes_tool_context_to_context_tools_and_hooks(tmp_path)
         return {"code_mode": context.code_mode}
 
     context = _context(tmp_path, code_mode=True)
-    execution = await ToolExecutor(events, render=False).execute_async(
+    execution = await ToolExecutor(events, render=False).execute_many(
         [(Tool.from_callable(mode, context=True), {})], context=context
     )
 
@@ -249,13 +250,33 @@ async def test_executor_passes_tool_context_to_context_tools_and_hooks(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_executor_execute_returns_the_result_or_raises_the_tool_error() -> None:
+    events = EventBus()
+    finished: list[AfterToolCall] = []
+    events.on(AfterToolCall, finished.append)
+    executor = ToolExecutor(events, render=False)
+
+    def failing_tool() -> str:
+        raise RuntimeError("boom")
+
+    assert await executor.execute(Tool.from_callable(lambda value: {"value": value}, name="echo"), {"value": 1}) == {
+        "value": 1
+    }
+    with pytest.raises(BubError, match="Tool 'failing_tool' execution failed") as raised:
+        await executor.execute(Tool.from_callable(failing_tool), {})
+
+    assert isinstance(raised.value.__cause__, RuntimeError)
+    assert [event.call.tool for event in finished] == ["echo", "failing_tool"]
+
+
+@pytest.mark.asyncio
 async def test_executor_reports_renderer_failures_as_tool_errors(tmp_path) -> None:
     def broken_renderer(_result: object) -> str:
         raise KeyError("missing")
 
     broken = Tool(name="tests.broken_renderer", handler=lambda: {}, renderer=broken_renderer)
 
-    execution = await ToolExecutor().execute_async([(broken, {})], context=_context(tmp_path))
+    execution = await ToolExecutor().execute_many([(broken, {})], context=_context(tmp_path))
 
     assert execution.error is not None
     assert execution.tool_results[0]["message"] == "Tool 'tests.broken_renderer' execution failed."

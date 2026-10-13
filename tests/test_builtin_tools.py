@@ -378,7 +378,7 @@ async def test_bash_non_zero_exit_is_returned_as_tool_error(tmp_path) -> None:
     command = _python_shell("import sys; print('boom'); sys.exit(7)")
     executor = ToolExecutor()
 
-    result = await executor.execute_async([(bash, {"command": command})], context=_tool_context(tmp_path))
+    result = await executor.execute_many([(bash, {"command": command})], context=_tool_context(tmp_path))
 
     assert result.error is not None
     assert result.error.kind is ErrorKind.TOOL

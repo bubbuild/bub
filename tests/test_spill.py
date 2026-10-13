@@ -79,7 +79,7 @@ async def _read_page(
     count: int = 1,
     from_end: bool = False,
 ) -> str:
-    execution = await _spill_executor().execute_async(
+    execution = await _spill_executor().execute_many(
         [(spill_read, {"handle": handle, "cursor": cursor, "count": count, "from_end": from_end})],
         context=context,
     )
@@ -97,7 +97,7 @@ async def test_oversized_result_is_bounded_and_readable_across_merge(tmp_path: P
     async with root.fork_tape() as tape:
         context = _spill_context(tape=tape, run_id="run-1")
         tool = Tool(name="large", handler=lambda: output)
-        execution = await _spill_executor().execute_async([(tool, {})], context=context)
+        execution = await _spill_executor().execute_many([(tool, {})], context=context)
 
         ref = execution.tool_results[0]
         assert isinstance(ref, str)
@@ -145,7 +145,7 @@ async def test_spill_configuration_preserves_results_that_should_not_be_spilled(
     async with root.fork_tape() as tape:
         context = _spill_context(tape=tape, run_id="run-1")
         small_results = ["tiny", {"value": "tiny"}, ["tiny"]]
-        small = await _spill_executor().execute_async(
+        small = await _spill_executor().execute_many(
             [
                 (Tool(name=f"small-{index}", handler=lambda result=result: result), {})
                 for index, result in enumerate(small_results)
@@ -158,13 +158,13 @@ async def test_spill_configuration_preserves_results_that_should_not_be_spilled(
         def fail() -> None:
             raise RuntimeError("small failure")
 
-        small_error = await _spill_executor().execute_async([(Tool(name="failing", handler=fail), {})], context=context)
+        small_error = await _spill_executor().execute_many([(Tool(name="failing", handler=fail), {})], context=context)
         assert small_error.error is not None
         assert small_error.tool_results == [small_error.error.as_dict()]
 
     disabled = _root_tape(tmp_path, parent, threshold=0).scoped("disabled")
     async with disabled.fork_tape() as tape:
-        execution = await _spill_executor().execute_async(
+        execution = await _spill_executor().execute_many(
             [(Tool(name="large", handler=lambda: "x" * 20_000), {})],
             context=_spill_context(tape=tape, run_id="run-2"),
         )
@@ -178,7 +178,7 @@ async def test_oversized_structured_result_is_spilled_as_json(tmp_path: Path, ou
 
     async with root.fork_tape() as tape:
         context = _spill_context(tape=tape, run_id="run-1")
-        execution = await _spill_executor().execute_async(
+        execution = await _spill_executor().execute_many(
             [(Tool(name="structured", handler=lambda: output), {})], context=context
         )
 
@@ -206,7 +206,7 @@ async def test_spill_runs_after_other_result_hooks(tmp_path: Path) -> None:
     root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
 
     async with root.fork_tape() as tape:
-        execution = await executor.execute_async(
+        execution = await executor.execute_many(
             [(Tool(name="expanded", handler=lambda: "small"), {})],
             context=_spill_context(tape=tape, run_id="run-1"),
         )
@@ -247,7 +247,7 @@ async def test_failure_replacement_is_used_for_spill_check(
     async with root.fork_tape() as tape:
         context = _spill_context(tape=tape, run_id="run-1")
         context.state["_runtime_tool_names"] = ("bash", SPILL_READ_MODEL_NAME)
-        execution = await executor.execute_async([(Tool(name="bash", handler=fail), {})], context=context)
+        execution = await executor.execute_many([(Tool(name="bash", handler=fail), {})], context=context)
 
         assert execution.error is not None
         result = execution.tool_results[0]
@@ -270,7 +270,7 @@ async def test_oversized_tool_error_is_spilled_and_remains_a_failure(tmp_path: P
 
     async with root.fork_tape() as tape:
         context = _spill_context(tape=tape, run_id="run-1")
-        execution = await _spill_executor().execute_async([(Tool(name="failing", handler=fail), {})], context=context)
+        execution = await _spill_executor().execute_many([(Tool(name="failing", handler=fail), {})], context=context)
 
         assert execution.error is not None
         ref = execution.tool_results[0]
@@ -290,7 +290,7 @@ async def test_temporary_fork_discards_spilled_content(tmp_path: Path) -> None:
 
     async with root.fork_tape(merge_back=False) as tape:
         context = _spill_context(tape=tape, run_id="run-1")
-        execution = await _spill_executor().execute_async(
+        execution = await _spill_executor().execute_many(
             [(Tool(name="large", handler=lambda: "x" * 20_000), {})], context=context
         )
         handle = _handle_from_ref(execution.tool_results[0])
@@ -325,7 +325,7 @@ async def test_tape_archive_preserves_spilled_results_and_clears_the_session(tmp
     await root.ensure_bootstrap_anchor()
 
     async with root.fork_tape() as tape:
-        execution = await _spill_executor().execute_async(
+        execution = await _spill_executor().execute_many(
             [(Tool(name="large", handler=lambda: "archived output\n" * 5000), {})],
             context=_spill_context(tape=tape, run_id="run-1"),
         )
@@ -365,7 +365,7 @@ async def test_code_mode_results_stay_structured_and_are_not_spilled(tmp_path: P
     async with root.fork_tape() as tape:
         context = _spill_context(tape=tape, run_id="run-1", code_mode=True)
         executor = ToolExecutor(_spill_events(), render=False)
-        execution = await executor.execute_async(
+        execution = await executor.execute_many(
             [(Tool(name="structured", handler=lambda: output), {})], context=context
         )
 
@@ -426,7 +426,7 @@ async def test_result_spill_requires_reader_in_current_model_tools(
 async def test_result_spill_without_tool_availability_keeps_full_output(tmp_path: Path) -> None:
     root = _root_tape(tmp_path, InMemoryTapeStore())
     output = "x" * 20_000
-    execution = await _spill_executor().execute_async(
+    execution = await _spill_executor().execute_many(
         [(Tool(name="large", handler=lambda: output), {})], context=ToolContext(tape=root)
     )
 
@@ -444,7 +444,7 @@ async def test_spill_bounds_text_of_content_results_and_keeps_media(tmp_path: Pa
     root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
 
     async with root.fork_tape() as tape:
-        execution = await _spill_executor().execute_async(
+        execution = await _spill_executor().execute_many(
             [(Tool(name="run_code", handler=lambda: content_result(["x" * 20_000, image])), {})],
             context=_spill_context(tape=tape, run_id="run-1"),
         )

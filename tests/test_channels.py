@@ -1356,7 +1356,7 @@ async def test_cli_tool_renderer_finishes_before_next_model_output() -> None:
         events.append("tool-body")
         return "done"
 
-    execution = await ToolExecutor(bus).execute_async([(Tool.from_callable(ordered_tool), {})])
+    execution = await ToolExecutor(bus).execute_many([(Tool.from_callable(ordered_tool), {})])
     await presenter.write(lambda: events.append("next-model-text"))
 
     assert execution.tool_results == ["done"]
@@ -1385,7 +1385,7 @@ async def test_cli_tool_renderer_shows_the_error_the_tool_raised() -> None:
     def failing_tool() -> str:
         raise RuntimeError("boom")
 
-    await ToolExecutor(bus).execute_async([(Tool.from_callable(failing_tool), {})])
+    await ToolExecutor(bus).execute_many([(Tool.from_callable(failing_tool), {})])
 
     assert [(type(error), str(error)) for error in errors] == [(RuntimeError, "boom")]
 

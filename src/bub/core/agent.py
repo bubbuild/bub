@@ -303,12 +303,8 @@ class Agent:
             else:
                 command_tool = self.tools[name]
                 arguments = parse_command_args(tokens).bind(list(command_tool.parameters.get("properties", {})))
-            execution = await ToolExecutor(self.events, render=False).execute_async(
-                [(command_tool, arguments)], context=context
-            )
-            if execution.error is not None:
-                raise execution.error  # noqa: TRY301
-            output = command_tool.render(execution.tool_results[0])
+            result = await ToolExecutor(self.events, render=False).execute(command_tool, arguments, context=context)
+            output = command_tool.render(result)
         except Exception as exc:
             status = "error"
             output = f"{exc!s}"
@@ -459,7 +455,7 @@ class Agent:
             yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
             turn_state["_runtime_tool_names"] = tuple(tool_map)
             context = ToolContext(tape=tape, run_id=run_id, state=turn_state, events=self.events)
-            execution = await ToolExecutor(events=self.events).execute_async(
+            execution = await ToolExecutor(events=self.events).execute_many(
                 tool_invocations,
                 context=context,
                 call_ids=[call.id for call in tool_calls],

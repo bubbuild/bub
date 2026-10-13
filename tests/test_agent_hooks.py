@@ -156,7 +156,7 @@ class TestToolExecutorIntegration:
                 return ToolCallDecision.deny("blocked by policy")
 
         executor = ToolExecutor(make_hooks(Deny()).subscribe())
-        execution = await executor.execute_async([(self.tool(), {"cmd": "rm -rf /"})])
+        execution = await executor.execute_many([(self.tool(), {"cmd": "rm -rf /"})])
         assert execution.error is not None
         assert "blocked by policy" in execution.error.message
         assert execution.tool_results[0]["message"] == "blocked by policy"
@@ -169,7 +169,7 @@ class TestToolExecutorIntegration:
                 return ToolCallDecision.replace("cached result")
 
         executor = ToolExecutor(make_hooks(Replace()).subscribe())
-        execution = await executor.execute_async([(self.tool(), {"cmd": "ls"})])
+        execution = await executor.execute_many([(self.tool(), {"cmd": "ls"})])
         assert execution.error is None
         assert execution.tool_results == ["cached result"]
 
@@ -186,8 +186,8 @@ class TestToolExecutorIntegration:
             raise ValueError("nope")
 
         executor = ToolExecutor(make_hooks(Observe()).subscribe())
-        await executor.execute_async([(self.tool(), {"cmd": "ls"})])
-        await executor.execute_async([(Tool(name="bad", handler=failing, description="", parameters={}), {"cmd": "x"})])
+        await executor.execute_many([(self.tool(), {"cmd": "ls"})])
+        await executor.execute_many([(Tool(name="bad", handler=failing, description="", parameters={}), {"cmd": "x"})])
         assert observed[0].result == "ran:ls"
         assert observed[0].error is None
         assert isinstance(observed[1].error, BubError)  # original error object, kind/details preserved
@@ -203,7 +203,7 @@ class TestToolExecutorIntegration:
                     result.result = f"bounded:{result.result}"
 
         executor = ToolExecutor(make_hooks(BoundResult()).subscribe())
-        execution = await executor.execute_async([(self.tool(), {"cmd": "ls"})])
+        execution = await executor.execute_many([(self.tool(), {"cmd": "ls"})])
 
         assert execution.tool_results == ["bounded:ran:ls"]
 
@@ -215,12 +215,12 @@ class TestToolExecutorIntegration:
                 return ToolCallDecision.proceed(arguments={"cmd": "safe-ls"})
 
         executor = ToolExecutor(make_hooks(Rewrite()).subscribe())
-        execution = await executor.execute_async([(self.tool(), {"cmd": "rm"})])
+        execution = await executor.execute_many([(self.tool(), {"cmd": "rm"})])
         assert execution.tool_results == ["ran:safe-ls"]
 
     @pytest.mark.asyncio
     async def test_no_hooks_keeps_current_behavior(self) -> None:
-        execution = await ToolExecutor().execute_async([(self.tool(), {"cmd": "ls"})])
+        execution = await ToolExecutor().execute_many([(self.tool(), {"cmd": "ls"})])
         assert execution.tool_results == ["ran:ls"]
 
 
@@ -418,9 +418,7 @@ class TestToolCancellation:
 
         executor = ToolExecutor(make_hooks(Observe()).subscribe())
         task = asyncio.create_task(
-            executor.execute_async([
-                (Tool(name="block", handler=blocking, description="", parameters={}), {"cmd": "x"})
-            ])
+            executor.execute_many([(Tool(name="block", handler=blocking, description="", parameters={}), {"cmd": "x"})])
         )
         await started.wait()
         task.cancel()

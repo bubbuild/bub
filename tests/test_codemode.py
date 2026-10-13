@@ -196,7 +196,7 @@ async def test_run_code_rejects_positional_tool_arguments(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_run_code_requires_code_mode(tmp_path: Path) -> None:
-    execution = await ToolExecutor().execute_async([(run_code, {"code": "print(1)"})], context=_context(tmp_path))
+    execution = await ToolExecutor().execute_many([(run_code, {"code": "print(1)"})], context=_context(tmp_path))
 
     assert execution.error is not None
     assert execution.error.message == "Code mode is not enabled for this run."

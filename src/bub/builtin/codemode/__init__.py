@@ -351,10 +351,7 @@ def _code_tool_caller(
         tool_item = tools_by_name.get(name)
         if tool_item is None:
             raise BubError(ErrorKind.INVALID_INPUT, f"unknown tool: tools.{name}")
-        execution = await executor.execute_async([(tool_item, arguments)], context=code_context)
-        if execution.error is not None:
-            raise execution.error
-        return encode_value(execution.tool_results[0])
+        return encode_value(await executor.execute(tool_item, arguments, context=code_context))
 
     return call_tool
 

@@ -293,7 +293,21 @@ class ToolExecutor:
         self._events = events
         self._render = render
 
-    async def execute_async(
+    async def execute(
+        self,
+        tool: Tool,
+        arguments: dict[str, Any],
+        *,
+        context: ToolContext | None = None,
+        call_id: str | None = None,
+    ) -> Any:
+        """Execute one tool call and return its result; raise its ``BubError`` when it fails."""
+        result = await self._trace_tool_response(tool, arguments, context, call_id)
+        if isinstance(result, _FailedToolResult):
+            raise result.error
+        return result
+
+    async def execute_many(
         self,
         invocations: Sequence[tuple[Tool, dict[str, Any]]],
         *,

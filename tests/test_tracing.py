@@ -278,7 +278,7 @@ async def test_failed_tool_records_effective_result_and_original_failure(spans: 
             result.result = "bounded failure"
 
     agent.framework.plugin_manager.register(Policy())
-    execution = await ToolExecutor(agent.framework.get_agent_hooks().subscribe()).execute_async(
+    execution = await ToolExecutor(agent.framework.get_agent_hooks().subscribe()).execute_many(
         [(Tool(name="denied", handler=lambda: pytest.fail("must not run")), {})],
         context=ToolContext(agent.tape("tools"), "run-1"),
         call_ids=["denied-1"],
@@ -329,7 +329,7 @@ async def main():
     span = tracing.Span('noop')
     assert not span.recording
     with span.activate():
-        result = await ToolExecutor().execute_async([(Tool(name='echo', handler=lambda: 'ok'), {})])
+        result = await ToolExecutor().execute_many([(Tool(name='echo', handler=lambda: 'ok'), {})])
         assert result.tool_results == ['ok']
     span.end()
     assert tracing.correlation() == {}
