@@ -49,10 +49,10 @@ class CliRenderer:
         mid = "[grey](steering)[/] " if steering else ""
         self.console.print(f"[dim][bold]{prompt}[/]{mid}{text}[/]", new_line_start=True)
 
-    def tool_call_start(self, *, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
-        self.console.print(Text(_format_tool_call(name, args, kwargs), style="magenta"), new_line_start=True)
+    def tool_call_start(self, *, name: str, kwargs: dict[str, Any]) -> None:
+        self.console.print(Text(_format_tool_call(name, kwargs), style="magenta"), new_line_start=True)
 
-    def tool_call_success(self, *, name: str, result: Any, elapsed_ms: float) -> None:
+    def tool_call_success(self, *, name: str, elapsed_ms: float) -> None:
         self._tool_status(f"completed in {elapsed_ms:.0f} ms", style="green")
 
     def tool_call_error(self, *, name: str, error: BaseException, elapsed_ms: float) -> None:
@@ -89,8 +89,8 @@ class CliRenderer:
         self.console.print(Text(f"  ⎿ {label}", style=style), highlight=False)
 
 
-def _format_tool_call(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
-    params = _format_tool_params(args, kwargs)
+def _format_tool_call(name: str, kwargs: dict[str, Any]) -> str:
+    params = [f"{key}: {_format_tool_value(value)}" for key, value in kwargs.items()]
     if not params:
         return f"● {name}()"
 
@@ -100,15 +100,6 @@ def _format_tool_call(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) 
 
     body = "\n".join(f"  {param}," for param in params)
     return _truncate(f"● {name}(\n{body}\n)", max_chars=MAX_TOOL_CALL_CHARS)
-
-
-def _format_tool_params(args: tuple[Any, ...], kwargs: dict[str, Any]) -> list[str]:
-    params: list[str] = []
-    for index, value in enumerate(args, start=1):
-        params.append(f"arg{index}: {_format_tool_value(value)}")
-    for key, value in kwargs.items():
-        params.append(f"{key}: {_format_tool_value(value)}")
-    return params
 
 
 def _format_tool_payload(payload: Any, *, max_chars: int = MAX_TOOL_PAYLOAD_CHARS) -> str:

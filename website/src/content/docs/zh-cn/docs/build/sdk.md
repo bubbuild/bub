@@ -179,7 +179,7 @@ handoff 一次并重试该 prompt。
 ## 命令
 
 设置了 `command_prefix` 后，以该前缀开头的文本 prompt 会作为命令执行，而不走 agent loop，也不会调用模型。`name args...`
-直接调用名为 `name` 的工具，先传位置参数，再传 `key=value` 参数；其他命令在 agent 有 `bash` 工具时交给它执行。输出作为
+调用名为 `name` 的工具，先传位置参数（按顺序对应工具的参数），再传 `key=value` 参数；其他命令在 agent 有 `bash` 工具时交给它执行。输出作为
 本次运行的 text 和 `final` 事件返回；同时发出 `CommandFinished` 事件报告这次命令，tape 会将其记录为 `command` 事件。
 
 ```python
@@ -191,7 +191,8 @@ async with agent.run([",lookup_order order_id=A123"], model=model, tape="custome
 ```
 
 首尾空白会被忽略，且只去掉一个前缀；只有前缀时会抛出 `ValueError`。前缀必须非空且不含空白。带媒体的 prompt 不会作为命令。
-命令直接调用工具，不经过模型调用，也不产生工具事件，因此 `BeforeToolCall` 处理器对它们不生效。
+命令调用工具时和模型调用工具一样发出 `BeforeToolCall` 和 `AfterToolCall`，因此工具处理器同样作用于它们；其
+`ToolContext` 的 `command` 为真。
 `agent.run_command(tape, line)` 可以在已打开的 tape 上直接执行命令。
 
 ## 事件

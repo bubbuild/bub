@@ -27,6 +27,7 @@ from bub.core import (
     ToolCallDecision,
 )
 from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.errors import BubError
 from tests.model_fakes import ProviderService, chat_events, sse, tool_events
 
 
@@ -242,6 +243,34 @@ async def test_commands_are_disabled_without_a_prefix(provider_service: Provider
 
     assert events[-1].data == {"ok": True, "text": "model answer"}
     assert provider_service.body()["messages"][-1] == {"role": "user", "content": ",echo"}
+
+
+@pytest.mark.asyncio
+async def test_command_tool_calls_emit_tool_events_that_can_deny_them() -> None:
+    def greet(name: str, punctuation: str = "!") -> str:
+        return f"hello {name}{punctuation}"
+
+    agent = Agent(tools=[Tool.from_callable(greet, name="greet")], command_prefix="/")
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    @agent.events.on(BeforeToolCall)
+    def deny_bob(event: BeforeToolCall) -> None:
+        calls.append((event.call.tool, event.call.arguments))
+        if event.call.arguments["name"] == "bob":
+            event.decision = ToolCallDecision.deny("no bob")
+
+    model = republic.get_model("openai:never-called", api_key="test")
+    async with agent.run(["/greet ada ?"], model=model, tape="commands") as stream:
+        events = [event async for event in stream]
+    assert events[-1].data == {"text": "hello ada?", "ok": True}
+
+    with pytest.raises(BubError, match="no bob"):
+        async with agent.run(["/greet bob"], model=model, tape="commands") as stream:
+            [event async for event in stream]
+    with pytest.raises(ValueError, match="at most 2 positional arguments"):
+        async with agent.run(["/greet ada ? extra"], model=model, tape="commands") as stream:
+            [event async for event in stream]
+    assert calls == [("greet", {"name": "ada", "punctuation": "?"}), ("greet", {"name": "bob"})]
 
 
 @pytest.mark.asyncio

@@ -336,12 +336,14 @@ class BuiltinImpl:
 
         When the model invokes a tool outside the current model-facing tool set,
         replace it with a guidance ``tool_result`` so the model can re-issue a
-        valid call on the next step.
+        valid call on the next step. Commands run the agent's tools directly and are left alone.
         """
         from bub.builtin.codemode import CODE_TOOLS_STATE_KEY
         from bub.builtin.tools import TOOL_DESCRIBE_TOOL_NAME
         from bub.core.tools import model_tools
 
+        if call.context is not None and call.context.command:
+            return None
         agent = self._get_agent(state)
 
         agent_tools = model_tools(agent.tools.values())
@@ -381,8 +383,9 @@ class BuiltinImpl:
         from bub.builtin.spill import SPILL_READ_MODEL_NAME, SPILL_SIDECAR_NAME, SpillStore
 
         tape = state.get("_runtime_tape")
-        # Results of calls from run_code are structured values for the code, not model-facing text.
-        if tape is None or (call.context is not None and call.context.code_mode):
+        # Results of calls from run_code are structured values for the code, and results of
+        # commands go to the user; neither is model-facing text.
+        if tape is None or (call.context is not None and (call.context.code_mode or call.context.command)):
             return
         if SPILL_READ_MODEL_NAME not in state.get("_runtime_tool_names", ()):
             return

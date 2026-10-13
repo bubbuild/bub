@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shlex
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 
@@ -29,6 +30,15 @@ def strip_command_prefix(text: str, prefix: str) -> str | None:
 class CommandArgs:
     positional: list[str]
     kwargs: dict[str, str]
+
+    def bind(self, names: Sequence[str]) -> dict[str, str]:
+        """Return all arguments by name, naming the positional ones after ``names`` in order."""
+        if len(self.positional) > len(names):
+            raise ValueError(f"expected at most {len(names)} positional arguments, got {len(self.positional)}")
+        arguments = dict(zip(names, self.positional, strict=False))
+        if repeated := arguments.keys() & self.kwargs.keys():
+            raise ValueError(f"argument '{sorted(repeated)[0]}' given both positionally and by keyword")
+        return {**arguments, **self.kwargs}
 
 
 def parse_command(line: str) -> tuple[str, list[str]]:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import sys
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Iterable, Mapping, Sequence
@@ -281,34 +280,35 @@ class Agent:
     async def run_command(self, tape: Tape, line: str) -> str:
         """Run a command on ``tape`` and return its rendered output; record it as a ``command`` event.
 
-        ``name args...`` calls the tool ``name`` directly with positional and then
-        ``key=value`` arguments. Any other line runs through the ``bash`` tool when the
-        agent has one. Commands call tools without model calls or tool events; the outcome
-        is reported as a ``CommandFinished`` event.
+        ``name args...`` calls the tool ``name`` with positional and then ``key=value``
+        arguments, positional ones taking the tool's parameters in order. Any other line runs
+        through the ``bash`` tool when the agent has one. Commands call tools without model
+        calls, emitting tool events; the outcome is reported as a ``CommandFinished`` event.
         """
         if not line:
             raise ValueError("empty command")
         name, tokens = parse_command(line)
         start = time.monotonic()
-        context = ToolContext(tape=tape, run_id="run_command", state=tape.context.state, events=self.events)
+        context = ToolContext(
+            tape=tape, run_id="run_command", state=tape.context.state, command=True, events=self.events
+        )
         output = ""
         status = "ok"
         try:
             if name not in self.tools:
                 if "bash" not in self.tools:
                     raise ValueError("bash tool is not available")  # noqa: TRY301
-                bash_tool = self.tools["bash"]
-                output = bash_tool.render(await bash_tool.run(context=context, command=line))
+                command_tool = self.tools["bash"]
+                arguments = {"command": line}
             else:
                 command_tool = self.tools[name]
-                args = parse_command_args(tokens)
-                kwargs: dict[str, Any] = dict(args.kwargs)
-                if command_tool.context:
-                    kwargs["context"] = context
-                result = command_tool.run(*args.positional, **kwargs)
-                if inspect.isawaitable(result):
-                    result = await result
-                output = command_tool.render(result)
+                arguments = parse_command_args(tokens).bind(list(command_tool.parameters.get("properties", {})))
+            execution = await ToolExecutor(self.events, render=False).execute_async(
+                [(command_tool, arguments)], context=context
+            )
+            if execution.error is not None:
+                raise execution.error  # noqa: TRY301
+            output = command_tool.render(execution.tool_results[0])
         except Exception as exc:
             status = "error"
             output = f"{exc!s}"

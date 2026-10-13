@@ -39,8 +39,9 @@ from bub.channels.cli.writers import MarkdownWriter
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
 from bub.core.commands import strip_command_prefix
+from bub.core.events import AfterToolCall, BeforeToolCall, EventBus
 from bub.core.tape import TapeInfo, session_tape_name
-from bub.core.tools import REGISTRY, tool_call_reporter
+from bub.core.tools import REGISTRY
 from bub.envelope import Envelope, field_of
 from bub.streaming import StreamEvent
 
@@ -184,22 +185,30 @@ class _StreamPrinter:
         await self._presenter.write(lambda: self._console.print(*args, **kwargs))
 
 
-class _CliToolCallReporter:
+class _CliToolCallRenderer:
     def __init__(self, renderer: CliRenderer, presenter: TerminalPresenter) -> None:
         self._renderer = renderer
         self._presenter = presenter
 
-    async def start(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
-        await self._presenter.write(lambda: self._renderer.tool_call_start(name=name, args=args, kwargs=kwargs))
+    def subscribe(self, events: EventBus) -> None:
+        events.on(BeforeToolCall, self.on_before_tool_call)
+        events.on(AfterToolCall, self.on_after_tool_call)
 
-    async def success(self, name: str, result: object, elapsed_ms: float) -> None:
-        await self._presenter.write(
-            lambda: self._renderer.tool_call_success(name=name, result=result, elapsed_ms=elapsed_ms)
-        )
+    async def on_before_tool_call(self, event: BeforeToolCall) -> None:
+        call = event.call
+        await self._presenter.write(lambda: self._renderer.tool_call_start(name=call.tool, kwargs=call.arguments))
 
-    async def error(self, name: str, error: BaseException, elapsed_ms: float) -> None:
+    async def on_after_tool_call(self, event: AfterToolCall) -> None:
+        result = event.result
+        if result.error is None:
+            await self._presenter.write(
+                lambda: self._renderer.tool_call_success(name=result.tool, elapsed_ms=result.duration_ms)
+            )
+            return
+        # Show the exception the tool raised rather than the executor's wrapping error.
+        error = result.error.__cause__ or result.error
         await self._presenter.write(
-            lambda: self._renderer.tool_call_error(name=name, error=error, elapsed_ms=elapsed_ms)
+            lambda: self._renderer.tool_call_error(name=result.tool, error=error, elapsed_ms=result.duration_ms)
         )
 
 
@@ -233,7 +242,9 @@ class CliChannel(Interface):
     @cached_property
     def _agent(self) -> BubAgent:
         """The agent, created on first use, inside the framework's lifespan."""
-        return self._get_agent()
+        agent = self._get_agent()
+        _CliToolCallRenderer(self._renderer, self._presenter).subscribe(agent.events)
+        return agent
 
     @cached_property
     def _prompt(self) -> PromptSession[str]:
@@ -397,12 +408,11 @@ class CliChannel(Interface):
         self._stream_printer = printer
         self._invalidate_prompt()
         try:
-            with tool_call_reporter(_CliToolCallReporter(self._renderer, self._presenter)):
-                async for event in stream:
-                    if event.kind == "usage":
-                        self._update_token_speed(event.data)
-                    if await printer.render(event):
-                        yield event
+            async for event in stream:
+                if event.kind == "usage":
+                    self._update_token_speed(event.data)
+                if await printer.render(event):
+                    yield event
         finally:
             try:
                 await printer.finish()

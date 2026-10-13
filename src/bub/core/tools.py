@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import contextvars
 import inspect
 import json
 import time
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal, Protocol, get_args, get_type_hints, overload
+from typing import Any, Literal, get_args, get_type_hints, overload
 
 import republic
 from loguru import logger
@@ -27,7 +25,8 @@ class ToolContext:
 
     ``code_mode`` is true when the tool is invoked from model-written code rather than
     as a direct model tool call. Whether the result is rendered to text is decided by the
-    ``ToolExecutor`` running the call, not by this flag. ``events`` is the bus of the agent
+    ``ToolExecutor`` running the call, not by this flag. ``command`` is true when the tool
+    runs as a command prompt rather than for the model. ``events`` is the bus of the agent
     running the call, for tools that execute further tool calls.
     """
 
@@ -35,6 +34,7 @@ class ToolContext:
     run_id: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
     code_mode: bool = False
+    command: bool = False
     events: EventBus | None = field(default=None, repr=False, compare=False)
 
 
@@ -201,8 +201,12 @@ class Tool:
         if self.exposure not in get_args(ToolExposure):
             raise ValueError(f"Tool '{self.name}' has unknown exposure {self.exposure!r}.")
 
-    def run(self, *args: Any, **kwargs: Any) -> Any:
-        return self.handler(*args, **kwargs)
+    async def run(self, *args: Any, **kwargs: Any) -> Any:
+        """Call the handler, awaiting its result when it is awaitable."""
+        result = self.handler(*args, **kwargs)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
 
     def render(self, result: Any) -> str:
         """Render a structured result of this tool as plain text for the model."""
@@ -274,33 +278,6 @@ class ToolExecution:
 class _FailedToolResult:
     error: BubError
     result: Any = None
-
-
-class ToolCallReporter(Protocol):
-    def start(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Awaitable[None] | None: ...
-
-    def success(self, name: str, result: Any, elapsed_ms: float) -> Awaitable[None] | None: ...
-
-    def error(self, name: str, error: BaseException, elapsed_ms: float) -> Awaitable[None] | None: ...
-
-
-_TOOL_CALL_REPORTER: contextvars.ContextVar[ToolCallReporter | None] = contextvars.ContextVar(
-    "bub_tool_call_reporter", default=None
-)
-
-
-@contextlib.contextmanager
-def tool_call_reporter(reporter: ToolCallReporter):
-    token = _TOOL_CALL_REPORTER.set(reporter)
-    try:
-        yield
-    finally:
-        _TOOL_CALL_REPORTER.reset(token)
-
-
-async def _await_report(report: Awaitable[None] | None) -> None:
-    if report is not None:
-        await report
 
 
 class ToolExecutor:
@@ -423,12 +400,18 @@ class ToolExecutor:
         if short_circuit is not None:
             return short_circuit()
 
+        _log_tool_call(call)
+        invoked = time.monotonic()
         try:
             result = await self._invoke_normalized(tool_obj, call, context)
         except BubError as exc:
+            elapsed_ms = (time.monotonic() - invoked) * 1000
+            logger.opt(exception=exc).error("tool.call.error name={} elapsed_time={:.2f}ms", tool_name, elapsed_ms)
             outcome = await self._fire_after_tool_call(call, hook_state, started, error=exc)
             return _FailedToolResult(error=exc, result=outcome.result)
         else:
+            elapsed_ms = (time.monotonic() - invoked) * 1000
+            logger.info("tool.call.success name={} elapsed_time={:.2f}ms", tool_name, elapsed_ms)
             outcome = await self._fire_after_tool_call(call, hook_state, started, result=result)
             return outcome.result
 
@@ -515,42 +498,6 @@ class ToolExecutor:
 REGISTRY: dict[str, Tool] = {}
 
 
-def _add_logging(tool: Tool) -> Tool:
-    handler = tool.handler
-
-    async def wrapped(*args, **kwargs):
-        call_kwargs = kwargs.copy()
-        if tool.context:
-            call_kwargs.pop("context", None)
-        reporter = _TOOL_CALL_REPORTER.get()
-        if reporter is None:
-            _log_tool_call(tool.name, args, call_kwargs)
-        else:
-            await _await_report(reporter.start(tool.name, args, call_kwargs))
-        start = time.monotonic()
-
-        try:
-            result = handler(*args, **kwargs)
-            if inspect.isawaitable(result):
-                result = await result
-        except Exception as exc:
-            elapsed_time = (time.monotonic() - start) * 1000
-            if reporter is None:
-                logger.exception("tool.call.error name={} elapsed_time={:.2f}ms", tool.name, elapsed_time)
-            else:
-                await _await_report(reporter.error(tool.name, exc, elapsed_time))
-            raise
-        else:
-            elapsed_time = (time.monotonic() - start) * 1000
-            if reporter is None:
-                logger.info("tool.call.success name={} elapsed_time={:.2f}ms", tool.name, elapsed_time)
-            else:
-                await _await_report(reporter.success(tool.name, result, elapsed_time))
-            return result
-
-    return replace(tool, handler=wrapped)
-
-
 def _shorten_text(text: str, width: int = 30, placeholder: str = "...") -> str:
     if len(text) <= width:
         return text
@@ -578,16 +525,10 @@ def _render_value(value: Any) -> str:
     return rendered
 
 
-def _log_tool_call(name: str, args: Any, kwargs: dict[str, Any]) -> None:
-    params: list[str] = []
-
-    for value in args:
-        params.append(_render_value(value))
-    for key, value in kwargs.items():
-        rendered = _render_value(value)
-        params.append(f"{key}={rendered}")
+def _log_tool_call(call: ToolCall) -> None:
+    params = [f"{key}={_render_value(value)}" for key, value in call.arguments.items()]
     params_str = f" {{ {', '.join(params)} }}" if params else ""
-    logger.info("tool.call.start name={}{}", name, params_str)
+    logger.info("tool.call.start name={}{}", call.tool, params_str)
 
 
 @overload
@@ -670,9 +611,8 @@ def tool(
                 renderer=renderer,
                 deferred=deferred,
             )
-        tool_instance = _add_logging(result)
-        REGISTRY[tool_instance.name] = tool_instance
-        return tool_instance
+        REGISTRY[result.name] = result
+        return result
 
     if func is None:
         return decorator

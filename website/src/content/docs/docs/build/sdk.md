@@ -186,8 +186,8 @@ call fails because the context is too long, the run hands off automatically once
 ## Commands
 
 With `command_prefix` set, a text prompt starting with the prefix runs as a command instead of the agent loop: no
-model is called. `name args...` calls the tool `name` directly, with positional arguments followed by `key=value`
-arguments; any other command line runs through the agent's `bash` tool when it has one. The output is the run's
+model is called. `name args...` calls the tool `name`, with positional arguments, which take the tool's parameters
+in order, followed by `key=value` arguments; any other command line runs through the agent's `bash` tool when it has one. The output is the run's
 text and `final` event, and a `CommandFinished` event reports the command, which the tape records as a `command`
 event.
 
@@ -200,9 +200,9 @@ async with agent.run([",lookup_order order_id=A123"], model=model, tape="custome
 ```
 
 Leading and trailing whitespace is ignored and exactly one prefix is removed; a bare prefix raises `ValueError`.
-Prefixes must be non-empty and contain no whitespace. Prompts with media are never commands. Commands call tools
-without model calls or tool events, so `BeforeToolCall` handlers do not apply to them. `agent.run_command(tape, line)`
-runs a command on an open tape directly.
+Prefixes must be non-empty and contain no whitespace. Prompts with media are never commands. Command tool calls emit
+`BeforeToolCall` and `AfterToolCall` like model tool calls, so tool handlers apply to them; their `ToolContext` has
+`command` set. `agent.run_command(tape, line)` runs a command on an open tape directly.
 
 ## Events
 
