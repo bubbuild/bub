@@ -3,6 +3,7 @@ import contextlib
 import math
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from datetime import datetime
+from functools import cached_property
 from hashlib import md5
 from pathlib import Path
 from time import monotonic
@@ -209,9 +210,9 @@ class CliChannel(Interface):
     _stop_event: asyncio.Event
     _initial_prompt: str | None = None
 
-    def __init__(self, on_receive: MessageHandler, agent: BubAgent) -> None:
+    def __init__(self, on_receive: MessageHandler, get_agent: Callable[[], BubAgent], workspace: Path) -> None:
         self._on_receive = on_receive
-        self._agent = agent
+        self._get_agent = get_agent
         self._message_template = {
             "chat_id": "cli_chat",
             "channel": self.name,
@@ -227,8 +228,16 @@ class CliChannel(Interface):
         self._presenter = TerminalPresenter()
         self._last_tape_info: TapeInfo | None = None
         self._last_token_speed: float | None = None
-        self._workspace = self._agent.framework.workspace
-        self._prompt = self._build_prompt(self._workspace)
+        self._workspace = workspace
+
+    @cached_property
+    def _agent(self) -> BubAgent:
+        """The agent, created on first use, inside the framework's lifespan."""
+        return self._get_agent()
+
+    @cached_property
+    def _prompt(self) -> PromptSession[str]:
+        return self._build_prompt(self._workspace)
 
     def _suppress_logs(self) -> None:
         with contextlib.suppress(ValueError):

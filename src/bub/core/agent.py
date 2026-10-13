@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import sys
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterable, Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Iterable, Mapping, Sequence
 from contextlib import AsyncExitStack, aclosing, asynccontextmanager
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
-from functools import cached_property
 from json import JSONDecodeError
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 
 import republic
 from loguru import logger
@@ -59,8 +58,7 @@ class Agent:
 
     Args:
         store: Tape store holding conversations; each run works on one named tape in it.
-            A function returning the store (or None) is called when the agent first uses
-            its tapes. Defaults to an in-memory store.
+            Defaults to an in-memory store.
         tools: Tools the model may call, kept by name in ``tools``.
         system_prompt: System prompt sections: text, or functions of the step's
             :class:`PromptContext` (prompt, tools, tape, state, agent) returning text.
@@ -84,7 +82,7 @@ class Agent:
     def __init__(
         self,
         *,
-        store: TapeStore | AsyncTapeStore | Callable[[], TapeStore | AsyncTapeStore | None] | None = None,
+        store: TapeStore | AsyncTapeStore | None = None,
         tools: Iterable[Tool] = (),
         system_prompt: SystemPrompt | PromptSection | Iterable[PromptSection] = (),
         context: TapeContext | None = None,
@@ -92,11 +90,15 @@ class Agent:
         max_steps: int = sys.maxsize,
         name: str = "agent",
     ) -> None:
-        self._store = store
         self.tools = {tool.name: tool for tool in tools}
         self.system_prompt = SystemPrompt.of(system_prompt)
-        self._context = context or default_tape_context()
-        self._sidecars = tuple(sidecars)
+        if store is None:
+            store = InMemoryTapeStore()
+        self._tapes = Tape(
+            store if is_async_tape_store(store) else AsyncTapeStoreAdapter(store),
+            context or default_tape_context(),
+            sidecars=tuple(sidecars),
+        )
         self.max_steps = max_steps
         self.name = name
         self.events = EventBus()
@@ -113,20 +115,6 @@ class Agent:
     def remove_system_prompt(self, section: PromptSection) -> None:
         """Remove a system prompt section."""
         self.system_prompt.remove(section)
-
-    @cached_property
-    def _tapes(self) -> Tape:
-        """Unscoped tape over the agent's store, built on first use, when a store function is resolved."""
-        store: TapeStore | AsyncTapeStore | None
-        if callable(self._store) and not hasattr(self._store, "append"):
-            store = self._store()
-        else:
-            store = cast("TapeStore | AsyncTapeStore | None", self._store)
-        if store is None:
-            store = InMemoryTapeStore()
-        if not is_async_tape_store(store):
-            store = AsyncTapeStoreAdapter(store)
-        return Tape(store, self._context, sidecars=self._sidecars)
 
     def tape(self, name: str, *, state: TurnState | None = None) -> Tape:
         """Return tape ``name`` in the agent's store, with ``state`` as its turn state.

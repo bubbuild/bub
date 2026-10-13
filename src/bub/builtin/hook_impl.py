@@ -235,10 +235,10 @@ class BuiltinImpl:
         from bub.channels.cli import CliChannel
         from bub.channels.telegram import TelegramChannel
 
-        agent = self._get_agent()
+        # Channels are created before framework.running(); the agent is created on first use.
         return [
-            TelegramChannel(on_receive=message_handler, command_prefix=agent.command_prefix),
-            CliChannel(on_receive=message_handler, agent=agent),
+            TelegramChannel(on_receive=message_handler, command_prefix=load_settings().command_prefix),
+            CliChannel(on_receive=message_handler, get_agent=self._get_agent, workspace=self.framework.workspace),
         ]
 
     @hookimpl

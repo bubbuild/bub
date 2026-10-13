@@ -78,7 +78,7 @@ continues the conversation stored under `sessions/`.
 
 | `Agent(...)` parameter | Behavior                                                                                                         |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `store`                | A `TapeStore` or `AsyncTapeStore`, or a function returning one, called when the agent first uses its tapes. Defaults to `InMemoryTapeStore()`. |
+| `store`                | A `TapeStore` or `AsyncTapeStore`. Defaults to `InMemoryTapeStore()`.                                           |
 | `tools`                | `Tool` objects the model may call, kept by name in `agent.tools`.                                                |
 | `system_prompt`        | One system prompt section or a list of them; see [System prompt](#system-prompt).                                |
 | `context`              | A `TapeContext` choosing which tape entries become model context. Defaults to `default_tape_context()`.          |
@@ -398,9 +398,8 @@ from bub.core.store import FileTapeStore
 
 framework = BubFramework()
 framework.load_builtin_hooks()  # Or load_hooks() to include installed plugins.
-agent = BubAgent(framework, tape_store=FileTapeStore(Path("sessions")), skill_dirs=[Path("skills")])
-
 async with framework.running():
+    agent = BubAgent(framework, tape_store=FileTapeStore(Path("sessions")), skill_dirs=[Path("skills")])
     stream = await agent.run_stream(
         session_id="customer-42",
         prompt="Use $order-policy to check order A123.",
@@ -415,8 +414,7 @@ Configure the model through `BUB_MODEL`, `BUB_API_KEY`, and optionally `BUB_API_
 applies per-turn options, and then calls the core `run()` on the session's tape:
 
 - `tools=None` snapshots the global tool registry; `skill_dirs=None` searches project, user, and builtin skill roots.
-- `tape_store=None` uses the framework's store, looked up when the agent first uses its tapes; enter
-  `framework.running()` before that.
+- `tape_store=None` uses the framework's store, which exists inside `framework.running()`; create the agent there.
 - `model` and `reasoning_effort` override the session's saved settings for one turn. `allowed_tools` and
   `allowed_skills` narrow the agent's tools and skills for one turn.
 - A `session_id` starting with `temp/` runs on a fork that is not merged back.

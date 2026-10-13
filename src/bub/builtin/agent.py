@@ -60,10 +60,9 @@ class BubAgent(core.Agent):
                 interception hooks, and optional shared resources.
             tools: Tools available to this instance. None snapshots the global
                 registry; an empty collection disables tools.
-            tape_store: Explicit store, preferred over the framework's active
-                store, which is looked up when the agent first uses its tapes (enter
-                ``framework.running()`` before that). Without either, the agent uses an
-                in-memory store.
+            tape_store: Explicit store, preferred over the framework's active store.
+                Create the agent inside ``framework.running()`` to use the latter.
+                Without either, the agent uses an in-memory store.
             skill_dirs: Skill roots in precedence order. None uses project, user,
                 and builtin discovery; an empty collection disables discovery.
             command_prefix: Non-empty prefix without whitespace. None uses the
@@ -79,7 +78,7 @@ class BubAgent(core.Agent):
         self.framework = framework
         self.skill_dirs = skill_dirs
         super().__init__(
-            store=framework.get_tape_store if tape_store is None else tape_store,
+            store=framework.get_tape_store() if tape_store is None else tape_store,
             tools=REGISTRY.values() if tools is None else tools,
             system_prompt=[self._hook_prompt, self._code_mode_prompt, self._deferred_tools_prompt, self._skills_prompt],
             context=framework.build_tape_context(),

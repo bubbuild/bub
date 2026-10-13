@@ -201,7 +201,7 @@ async def test_subagent_uses_parent_instance_tools(
 
 
 @pytest.mark.asyncio
-async def test_agent_created_before_running_uses_the_framework_store(framework: BubFramework) -> None:
+async def test_builtin_channels_create_the_agent_with_the_running_store(framework: BubFramework) -> None:
     store = InMemoryTapeStore()
 
     class StorePlugin:
@@ -210,9 +210,9 @@ async def test_agent_created_before_running_uses_the_framework_store(framework: 
             return store
 
     framework.plugin_manager.register(StorePlugin(), name="store")
-    agent = BubAgent(framework, tools=[], skill_dirs=[])
+    cli = framework.get_channels(lambda message: None)["cli"]  # Channels exist before running().
 
     async with framework.running():
-        await agent.tape("early").append_event("probe", {})
+        await cli._agent.tape("early").append_event("probe", {})  # type: ignore[attr-defined]
 
     assert store.list_tapes() == ["early"]

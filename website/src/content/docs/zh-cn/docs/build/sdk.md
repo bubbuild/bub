@@ -77,7 +77,7 @@ if __name__ == "__main__":
 
 | `Agent(...)` 参数 | 行为                                                                                                   |
 | ----------------- | ------------------------------------------------------------------------------------------------------ |
-| `store`           | `TapeStore` 或 `AsyncTapeStore`，也可以是返回 store 的函数，在 agent 首次使用 tape 时调用。默认 `InMemoryTapeStore()`。 |
+| `store`           | `TapeStore` 或 `AsyncTapeStore`。默认 `InMemoryTapeStore()`。                                          |
 | `tools`           | 模型可调用的 `Tool` 对象，按名字保存在 `agent.tools` 中。                                             |
 | `system_prompt`   | 一个或一组 system prompt section；见 [System prompt](#system-prompt)。                                  |
 | `context`         | 决定哪些 tape 条目进入模型上下文的 `TapeContext`。默认 `default_tape_context()`。                    |
@@ -385,9 +385,8 @@ from bub.core.store import FileTapeStore
 
 framework = BubFramework()
 framework.load_builtin_hooks()  # 或用 load_hooks() 同时加载已安装的插件。
-agent = BubAgent(framework, tape_store=FileTapeStore(Path("sessions")), skill_dirs=[Path("skills")])
-
 async with framework.running():
+    agent = BubAgent(framework, tape_store=FileTapeStore(Path("sessions")), skill_dirs=[Path("skills")])
     stream = await agent.run_stream(
         session_id="customer-42",
         prompt="Use $order-policy to check order A123.",
@@ -401,7 +400,7 @@ async with framework.running():
 `run_stream()` 通过 framework 加载会话的 turn state，应用单轮选项，然后在该会话的 tape 上调用 core 的 `run()`：
 
 - `tools=None` 取全局工具注册表的快照；`skill_dirs=None` 搜索项目、用户和内置 skill 目录。
-- `tape_store=None` 使用 framework 的 store，在 agent 首次使用 tape 时获取；在此之前请先进入 `framework.running()`。
+- `tape_store=None` 使用 framework 的 store，它只在 `framework.running()` 之内存在；请在其中创建 agent。
 - `model` 和 `reasoning_effort` 在单轮内覆盖会话保存的设置。`allowed_tools` 和 `allowed_skills` 在单轮内收窄 agent 的工具和 skills。
 - 以 `temp/` 开头的 `session_id` 在不会合并回去的 fork 上运行。
 - 以命令前缀（默认 `,`，或通过 `command_prefix=` 指定）开头的文本 prompt 会作为命令执行：已知命令直接调用 agent 的工具，

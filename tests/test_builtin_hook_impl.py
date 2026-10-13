@@ -342,9 +342,10 @@ def test_provide_channels_returns_cli_and_telegram(tmp_path: Path, monkeypatch: 
     class DummyCliChannel:
         name = "cli"
 
-        def __init__(self, on_receive, agent) -> None:
+        def __init__(self, on_receive, *, get_agent, workspace: Path) -> None:
             self.on_receive = on_receive
-            self.agent = agent
+            self.get_agent = get_agent
+            self.workspace = workspace
 
     class DummyTelegramChannel:
         name = "telegram"
@@ -370,7 +371,8 @@ def test_provide_channels_returns_cli_and_telegram(tmp_path: Path, monkeypatch: 
     assert [channel.name for channel in channels] == ["telegram", "cli"]
     assert channels[0].on_receive is message_handler
     assert channels[1].on_receive is message_handler
-    assert channels[1].agent is agent
+    assert channels[1].get_agent() is agent
+    assert channels[1].workspace == impl.framework.workspace
 
 
 @pytest.mark.asyncio

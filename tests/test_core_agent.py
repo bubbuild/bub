@@ -25,7 +25,7 @@ from bub.core import (
     Tool,
     ToolCallDecision,
 )
-from bub.core.store import InMemoryTapeStore
+from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from tests.model_fakes import ProviderService, chat_events, sse, tool_events
 
 
@@ -207,15 +207,9 @@ def test_core_does_not_depend_on_settings_or_plugins() -> None:
             assert not [name for name in names if name.startswith(forbidden)], f"{path.name} imports {names}"
 
 
-def test_store_function_is_resolved_on_first_tape_use() -> None:
-    calls: list[str] = []
+def test_tapes_share_the_agent_store() -> None:
     store = InMemoryTapeStore()
+    agent = Agent(store=store)
 
-    def resolve() -> InMemoryTapeStore:
-        calls.append("resolve")
-        return store
-
-    agent = Agent(store=resolve)
-    assert calls == []
     assert agent.tape("a").store is agent.tape("b").store
-    assert calls == ["resolve"]
+    assert isinstance(Agent().tape("a").store, AsyncTapeStoreAdapter)
