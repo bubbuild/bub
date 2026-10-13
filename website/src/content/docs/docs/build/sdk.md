@@ -58,14 +58,14 @@ async def main() -> None:
     agent = create_agent()
     # Any Republic "provider:model" spec. The key comes from REPUBLIC_OPENAI_API_KEY.
     async with republic.get_model("openai:gpt-5-mini") as model:
-        stream = await agent.run(
+        async with agent.run(
             ["Where is order A123?"], model=model, options={"max_tokens": 4096}, tape="customer-42"
-        )
-        async for event in stream:
-            if event.kind == "text":
-                print(event.data.get("delta", ""), end="", flush=True)
-            elif event.kind == "error":
-                raise RuntimeError(str(event.data.get("message", "Agent failed")))
+        ) as stream:
+            async for event in stream:
+                if event.kind == "text":
+                    print(event.data.get("delta", ""), end="", flush=True)
+                elif event.kind == "error":
+                    raise RuntimeError(str(event.data.get("message", "Agent failed")))
         print()
 
 
@@ -94,7 +94,8 @@ runs that use it. Credentials and endpoints are Republic client options:
 
 ```python
 model = republic.get_model("openai:gpt-5-mini", api_key="...", api_base="https://example.test/v1")
-stream = await agent.run(prompt, model=model, options={"max_tokens": 4096, "temperature": 0.2}, tape="t")
+async with agent.run(prompt, model=model, options={"max_tokens": 4096, "temperature": 0.2}, tape="t") as stream:
+    ...
 ```
 
 `options` are `republic.ChatOptions` sent with every model call of the run; the loop adds the step's tools.
@@ -169,7 +170,8 @@ closes; pass `merge_back=False` to discard it.
 handlers. The agent does not persist it; keep anything that must survive in your application or on the tape.
 
 ```python
-stream = await agent.run(["Any news on A123?"], model=model, tape="customer-42", state={"user": "Ada"})
+async with agent.run(["Any news on A123?"], model=model, tape="customer-42", state={"user": "Ada"}) as stream:
+    ...
 
 tape = agent.tape("customer-42")
 messages = await tape.read_messages()  # The conversation as Republic messages.
@@ -282,22 +284,23 @@ for example `await context.tape.append_event("order.looked_up", {...})` in the t
 
 ## Streams and lifecycle
 
-`run()` is awaited first, then its result is iterated. Events include `text`, `reasoning`, `tool_call`,
-`tool_result`, `usage`, `error`, and `final`. A `final` event finishes a model step; exhaust the iterator to finish
-the whole run, including merging its tape fork. Check error events and handle exceptions from iteration. The stream
-also exposes `error` and `usage`.
+`agent.run()` is an async context manager: entering it starts the run, and the stream it yields drives the loop as you
+iterate. Events include `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, and `final`. A `final`
+event finishes a model step; the run ends when the stream is exhausted. Check error events and handle exceptions from
+iteration. The stream also exposes `error` and `usage`.
 
-If you may stop consuming early, close the stream with `aclosing` so its model stream, tape fork, and trace span close
-promptly. Closing works before iteration starts too:
+Leaving the block closes the stream, even after an early `break` or an exception: the model stream stops, the tape
+fork merges back, and the trace span ends.
 
 ```python
-from contextlib import aclosing
-
-stream = await agent.run(["Check order A123"], model=model, tape="customer-42")
-async with aclosing(stream):
+async with agent.run(["Check order A123"], model=model, tape="customer-42") as stream:
     async for event in stream:
-        print(event.kind, event.data)
+        if event.kind == "tool_call":
+            break  # The run stops here; what it recorded so far is kept.
 ```
+
+To hand the stream to other code, such as a framework that consumes it later, use `await agent.start(...)` with the
+same arguments. It returns the stream without closing it; whoever consumes it must exhaust it or call `aclose()`.
 
 An empty prompt yields an `error: empty prompt` result without opening the tape. Runs are traced as
 `invoke_agent {name}` spans when tracing is configured; see [Observability](/docs/tutorials/observability/).
@@ -366,14 +369,14 @@ class Task(BaseModel):
 async def run_task(task: Task, request: Request):
     state = request.app.state
     async with state.turn_lock:
-        stream = await state.agent.run([task.prompt], model=state.model, tape=task.session_id)
         parts: list[str] = []
         error: str | None = None
-        async for event in stream:
-            if event.kind == "text":
-                parts.append(str(event.data.get("delta", "")))
-            elif event.kind == "error":
-                error = str(event.data.get("message", "Agent failed"))
+        async with state.agent.run([task.prompt], model=state.model, tape=task.session_id) as stream:
+            async for event in stream:
+                if event.kind == "text":
+                    parts.append(str(event.data.get("delta", "")))
+                elif event.kind == "error":
+                    error = str(event.data.get("message", "Agent failed"))
         if error is not None:
             raise HTTPException(status_code=502, detail=error)
         return {"session_id": task.session_id, "output": "".join(parts)}
@@ -412,7 +415,8 @@ async with framework.running():
 
 Configure the model through `BUB_MODEL`, `BUB_API_KEY`, and optionally `BUB_API_BASE`, or a configuration file; see
 [Configuration](/docs/reference/settings/). `run_stream()` loads the session's turn state through the framework,
-applies per-turn options, and then calls the core `run()` on the session's tape:
+applies per-turn options, and then calls the core `start()` on the session's tape, so consume the returned stream
+fully or close it:
 
 - `tools=None` snapshots the global tool registry; `skill_dirs=None` searches project, user, and builtin skill roots.
 - `tape_store=None` uses the framework's store, which exists inside `framework.running()`; create the agent there.

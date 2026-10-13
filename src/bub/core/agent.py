@@ -137,6 +137,7 @@ class Agent:
             await tape.ensure_bootstrap_anchor()
             yield tape
 
+    @asynccontextmanager
     async def run(
         self,
         prompt: list[UserContent],
@@ -147,8 +148,38 @@ class Agent:
         state: TurnState | None = None,
         merge_back: bool = True,
         metadata: dict[str, Any] | None = None,
+    ) -> AsyncIterator[AsyncStreamEvents]:
+        """Run ``model`` on tape ``tape``; iterate the yielded stream to drive the loop.
+
+        ::
+
+            async with agent.run(prompt, model=model, tape="session") as stream:
+                async for event in stream:
+                    ...
+
+        Leaving the block closes the stream, even after an early exit: the tape fork
+        merges back and the trace span ends. See :meth:`start` for the parameters.
+        """
+        stream = await self.start(
+            prompt, model=model, options=options, tape=tape, state=state, merge_back=merge_back, metadata=metadata
+        )
+        async with aclosing(stream):
+            yield stream
+
+    async def start(
+        self,
+        prompt: list[UserContent],
+        *,
+        model: Model,
+        options: Mapping[str, Any] | None = None,
+        tape: str,
+        state: TurnState | None = None,
+        merge_back: bool = True,
+        metadata: dict[str, Any] | None = None,
     ) -> AsyncStreamEvents:
-        """Start a run of ``model`` on tape ``tape`` and return its stream; consume it to drive the loop.
+        """Start a run of ``model`` on tape ``tape`` and return its stream; the caller must close it.
+
+        Prefer :meth:`run`; use this to hand the stream to code that consumes and closes it.
 
         ``options`` are ``republic.ChatOptions`` (such as ``max_tokens`` or ``temperature``)
         sent with every model call of the run.

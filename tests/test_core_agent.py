@@ -68,10 +68,10 @@ async def test_core_agent_runs_tool_loop_and_emits_events(provider_service: Prov
         agent.remove_system_prompt("Removed section.")
         assert agent.system_prompt.sections == ("Be brief.", tools_section, empty_section)
         agent.events.on(AgentEvent, lambda event: seen.append(type(event).__name__))
-        stream = await agent.run(
+        async with agent.run(
             ["What is this file?"], model=model, options={"max_tokens": 64}, tape="session", state={"user": "ada"}
-        )
-        events = [event async for event in stream]
+        ) as stream:
+            events = [event async for event in stream]
 
     assert events[-1].data == {"ok": True, "text": "It is a readme."}
     first, second = provider_service.body(0), provider_service.body(1)
@@ -127,8 +127,8 @@ async def test_before_events_short_circuit_remaining_handlers(provider_service: 
             BeforeLlmCall, lambda event: setattr(event, "decision", LlmCallDecision.finish("budget exhausted"))
         )
         agent.events.on(AfterLlmCall, lambda event: later.append("after"))
-        stream = await agent.run(["again"], model=model, tape="budget")
-        events = [event async for event in stream]
+        async with agent.run(["again"], model=model, tape="budget") as stream:
+            events = [event async for event in stream]
 
     assert events[-1].data == {"ok": True, "text": "budget exhausted"}
     assert later == ["llm", "llm"]
@@ -171,9 +171,9 @@ async def test_core_agent_stops_at_max_steps(provider_service: ProviderService) 
         agent.events.on(StepFinished, lambda event: statuses.append(event.status))
         agent.events.on(RunStarted, lambda event: statuses.append(f"model={event.model}"))
         agent.events.on(AfterToolCall, lambda event: statuses.append(f"tool={event.result.result}"))
-        stream = await agent.run(["loop"], model=model, tape="steps")
         with pytest.raises(RuntimeError, match="max_steps_reached=1"):
-            [event async for event in stream]
+            async with agent.run(["loop"], model=model, tape="steps") as stream:
+                [event async for event in stream]
     assert statuses == ["model=openai:test", "tool=ok", "continue"]
 
 
@@ -187,8 +187,8 @@ async def test_redirected_call_reuses_the_provider_of_a_republic_model(provider_
         def reroute(event: BeforeLlmCall) -> None:
             event.request = replace(event.request, model="openai:other")
 
-        stream = await agent.run(["hi"], model=_model(client), tape="redirect")
-        events = [event async for event in stream]
+        async with agent.run(["hi"], model=_model(client), tape="redirect") as stream:
+            events = [event async for event in stream]
 
     assert events[-1].data == {"ok": True, "text": "done"}
     assert provider_service.body()["model"] == "other"
@@ -213,3 +213,19 @@ def test_tapes_share_the_agent_store() -> None:
 
     assert agent.tape("a").store is agent.tape("b").store
     assert isinstance(Agent().tape("a").store, AsyncTapeStoreAdapter)
+
+
+@pytest.mark.asyncio
+async def test_leaving_run_early_closes_the_stream_and_merges_the_fork(provider_service: ProviderService) -> None:
+    provider_service.reply(sse(chat_events("hello there")))
+    async with provider_service.client() as client:
+        agent = Agent()
+        async with agent.run(["hi"], model=_model(client), tape="early") as stream:
+            async for event in stream:
+                if event.kind == "text":
+                    break
+
+    messages = await agent.tape("early").read_messages()
+    assert [message.role for message in messages] == []
+    names = [entry.payload["name"] for entry in await agent.tape("early").store.fetch_all(agent.tape("early").query())]
+    assert "loop.start" in names

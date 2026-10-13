@@ -58,14 +58,14 @@ async def main() -> None:
     agent = create_agent()
     # 任意 Republic "provider:model"。API key 从 REPUBLIC_OPENAI_API_KEY 读取。
     async with republic.get_model("openai:gpt-5-mini") as model:
-        stream = await agent.run(
+        async with agent.run(
             ["Where is order A123?"], model=model, options={"max_tokens": 4096}, tape="customer-42"
-        )
-        async for event in stream:
-            if event.kind == "text":
-                print(event.data.get("delta", ""), end="", flush=True)
-            elif event.kind == "error":
-                raise RuntimeError(str(event.data.get("message", "Agent failed")))
+        ) as stream:
+            async for event in stream:
+                if event.kind == "text":
+                    print(event.data.get("delta", ""), end="", flush=True)
+                elif event.kind == "error":
+                    raise RuntimeError(str(event.data.get("message", "Agent failed")))
         print()
 
 
@@ -93,7 +93,8 @@ chat model 即可；它的生命周期归你管理，请在使用它的运行外
 
 ```python
 model = republic.get_model("openai:gpt-5-mini", api_key="...", api_base="https://example.test/v1")
-stream = await agent.run(prompt, model=model, options={"max_tokens": 4096, "temperature": 0.2}, tape="t")
+async with agent.run(prompt, model=model, options={"max_tokens": 4096, "temperature": 0.2}, tape="t") as stream:
+    ...
 ```
 
 `options` 是随本次运行每次模型调用发送的 `republic.ChatOptions`；循环会加入本步的工具。`BeforeLlmCall`
@@ -163,7 +164,8 @@ fork，运行的流关闭时合并回去；传入 `merge_back=False` 则丢弃�
 需要保留的内容请放在你的应用中或写到 tape 上。
 
 ```python
-stream = await agent.run(["Any news on A123?"], model=model, tape="customer-42", state={"user": "Ada"})
+async with agent.run(["Any news on A123?"], model=model, tape="customer-42", state={"user": "Ada"}) as stream:
+    ...
 
 tape = agent.tape("customer-42")
 messages = await tape.read_messages()  # 以 Republic 消息表示的对话。
@@ -272,20 +274,21 @@ def approve(event: RefundRequested) -> None:
 
 ## 流式事件与生命周期
 
-先 await `run()`，再迭代其结果。事件包括 `text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error` 和 `final`。
-`final` 事件结束的是一个模型步骤；把迭代器消费完才算结束整个运行（包括合并 tape fork）。请检查 error 事件并处理迭代中
-抛出的异常。流对象还提供 `error` 和 `usage`。
+`agent.run()` 是一个异步上下文管理器：进入时开始运行，产出的流在迭代时驱动循环。事件包括 `text`、`reasoning`、`tool_call`、
+`tool_result`、`usage`、`error` 和 `final`。`final` 事件结束的是一个模型步骤；流被消费完时整个运行结束。请检查 error
+事件并处理迭代中抛出的异常。流对象还提供 `error` 和 `usage`。
 
-如果可能提前停止消费，请用 `aclosing` 关闭流，及时关闭模型流、tape fork 和 trace span。尚未开始迭代时也可以关闭：
+离开 `async with` 块时会关闭流，提前 `break` 或抛出异常时也一样：模型流停止、tape fork 合并回去、trace span 结束。
 
 ```python
-from contextlib import aclosing
-
-stream = await agent.run(["Check order A123"], model=model, tape="customer-42")
-async with aclosing(stream):
+async with agent.run(["Check order A123"], model=model, tape="customer-42") as stream:
     async for event in stream:
-        print(event.kind, event.data)
+        if event.kind == "tool_call":
+            break  # 运行在这里停止，已记录的内容会保留。
 ```
+
+如果要把流交给其他代码（例如稍后才消费它的框架），用相同参数调用 `await agent.start(...)`。它返回流但不负责关闭；
+消费方必须把它消费完或调用 `aclose()`。
 
 空 prompt 会直接得到 `error: empty prompt`，不会打开 tape。配置了 tracing 时，运行会记录为 `invoke_agent {name}` span；
 见 [Observability](/zh-cn/docs/tutorials/observability/)。
@@ -353,14 +356,14 @@ class Task(BaseModel):
 async def run_task(task: Task, request: Request):
     state = request.app.state
     async with state.turn_lock:
-        stream = await state.agent.run([task.prompt], model=state.model, tape=task.session_id)
         parts: list[str] = []
         error: str | None = None
-        async for event in stream:
-            if event.kind == "text":
-                parts.append(str(event.data.get("delta", "")))
-            elif event.kind == "error":
-                error = str(event.data.get("message", "Agent failed"))
+        async with state.agent.run([task.prompt], model=state.model, tape=task.session_id) as stream:
+            async for event in stream:
+                if event.kind == "text":
+                    parts.append(str(event.data.get("delta", "")))
+                elif event.kind == "error":
+                    error = str(event.data.get("message", "Agent failed"))
         if error is not None:
             raise HTTPException(status_code=502, detail=error)
         return {"session_id": task.session_id, "output": "".join(parts)}
@@ -397,7 +400,7 @@ async with framework.running():
 ```
 
 通过 `BUB_MODEL`、`BUB_API_KEY` 以及可选的 `BUB_API_BASE` 或配置文件来配置模型；见 [配置](/zh-cn/docs/reference/settings/)。
-`run_stream()` 通过 framework 加载会话的 turn state，应用单轮选项，然后在该会话的 tape 上调用 core 的 `run()`：
+`run_stream()` 通过 framework 加载会话的 turn state，应用单轮选项，然后在该会话的 tape 上调用 core 的 `start()`，因此请把返回的流消费完或关闭：
 
 - `tools=None` 取全局工具注册表的快照；`skill_dirs=None` 搜索项目、用户和内置 skill 目录。
 - `tape_store=None` 使用 framework 的 store，它只在 `framework.running()` 之内存在；请在其中创建 agent。

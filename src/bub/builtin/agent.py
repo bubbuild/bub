@@ -118,7 +118,7 @@ class BubAgent(core.Agent):
                 Command execution uses the instance's tools directly.
             reasoning_effort: Per-turn override of the value in state.
 
-        Loads the turn state and runs the turn with :meth:`run` on the session's tape.
+        Loads the turn state and starts the turn with :meth:`start` on the session's tape.
         Consume the stream to completion to finish execution and tape merging. A
         ``final`` event ends a model step, not necessarily the whole turn. The returned
         object exposes ``error`` and ``usage``; execution can also raise exceptions. This
@@ -139,7 +139,7 @@ class BubAgent(core.Agent):
                 "allowed_skills": list(allowed_skills) if allowed_skills else None,
                 "allowed_tools": list(allowed_tools) if allowed_tools else None,
             }
-        return await self.run(
+        return await self.start(
             content,
             # The turn's model and reasoning effort apply until the next turn.
             model=self.settings.chat_model(
