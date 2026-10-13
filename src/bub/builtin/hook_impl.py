@@ -10,9 +10,8 @@ import typer
 from loguru import logger
 
 from bub import inquirer as bub_inquirer
-from bub.builtin.agent import Agent
+from bub.builtin.agent import BubAgent
 from bub.builtin.commands import strip_command_prefix
-from bub.builtin.context import default_tape_context
 from bub.builtin.onboarding import collect_model_config
 from bub.builtin.settings import load_session_settings, load_settings
 from bub.builtin.steering import InMemorySteeringInbox
@@ -20,19 +19,20 @@ from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem
+from bub.core.context import default_tape_context
+from bub.core.events import ToolCall, ToolCallDecision, ToolCallResult
+from bub.core.sidecars import TapeSidecar
+from bub.core.store import TapeStore
+from bub.core.tape import TapeContext
+from bub.core.tools import is_content_result, render_result
 from bub.envelope import Envelope, content_of, field_of
 from bub.environment import Environment
 from bub.errors import BubError
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
-from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
 from bub.model_selection import ModelChoice, ModelOptions
 from bub.prompt import UserContent
-from bub.sidecars import TapeSidecar
-from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents
-from bub.tape import TapeContext
-from bub.tools import is_content_result, render_result
 from bub.turn import TurnState
 
 AGENTS_FILE_NAME = "AGENTS.md"
@@ -66,13 +66,13 @@ class BuiltinImpl:
         from bub.builtin import codemode, spill, tools  # noqa: F401
 
         self.framework = framework
-        self._agent: Agent | None = None
+        self._agent: BubAgent | None = None
 
-    def _get_agent(self, state: TurnState | None = None) -> Agent:
+    def _get_agent(self, state: TurnState | None = None) -> BubAgent:
         if state and "_runtime_agent" in state:
-            return cast("Agent", state["_runtime_agent"])
+            return cast("BubAgent", state["_runtime_agent"])
         if self._agent is None:
-            self._agent = Agent(self.framework)
+            self._agent = BubAgent(self.framework)
         return self._agent
 
     @staticmethod
@@ -295,7 +295,7 @@ class BuiltinImpl:
     @hookimpl
     def provide_tape_store(self) -> TapeStore:
         import bub
-        from bub.store import FileTapeStore
+        from bub.core.store import FileTapeStore
 
         return FileTapeStore(directory=bub.home / "tapes")
 
@@ -340,7 +340,7 @@ class BuiltinImpl:
         """
         from bub.builtin.codemode import CODE_TOOLS_STATE_KEY
         from bub.builtin.tools import TOOL_DESCRIBE_TOOL_NAME
-        from bub.tools import model_tools
+        from bub.core.tools import model_tools
 
         agent = self._get_agent(state)
 

@@ -1,20 +1,8 @@
-"""Contracts for tapes mounted beside a session tape."""
+"""Compatibility alias for :mod:`bub.core.sidecars`."""
 
-from __future__ import annotations
+import sys
 
-from typing import Protocol
+from bub.core import sidecars as _module
+from bub.core.sidecars import *  # noqa: F403
 
-SIDECAR_TAPE_MARKER = "__sidecar__"
-
-
-class TapeSidecar(Protocol):
-    """A named capability backed by a sibling tape."""
-
-    @property
-    def name(self) -> str: ...
-
-
-def sidecar_tape_name(owner: str, sidecar: str) -> str:
-    """Return the physical tape name for a mounted sidecar."""
-
-    return f"{owner}{SIDECAR_TAPE_MARKER}{sidecar}"
+sys.modules[__name__] = _module

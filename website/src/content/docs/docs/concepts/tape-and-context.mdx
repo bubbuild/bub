@@ -54,7 +54,7 @@ The builtin spill plugin mounts a `SpillStore` through `provide_tape_sidecar`, r
 
 The main tape keeps a bounded preview and an opaque handle instead of the complete result. The `spill.read` tool reads a bounded page by handle and cursor, including pages counted from the end. Content explicitly returned by `spill.read` is recorded as a normal bounded tool result. `spill.read` has `exposure="direct"`, so it returns plain text and stays directly callable in code mode instead of being routed through `run_code`.
 
-The sidecar follows the session tape through forks, merges, archive, and reset, but remains a separate tape and is never scanned while constructing the main context. It can also be archived or reset independently with `Tape.archive_sidecar("spill")` and `Tape.reset_sidecar("spill")`. When reset requests an archive, Bub preserves the sidecar if that archive fails.
+The sidecar follows the session tape through forks, merges, archive, and reset, but remains a separate tape and is never scanned while constructing the main context. It can also be reset independently with `Tape.reset_sidecar("spill")`, or archived with `bub.builtin.archive.archive_sidecar(tape, "spill", directory)`. When `tape.reset` requests an archive, Bub preserves the sidecar if that archive fails.
 
 Spill configuration belongs to the sidecar plugin: use `spill.threshold` in `config.yml` or `BUB_SPILL_THRESHOLD` in the environment. Setting it to `0` stops new writes without unmounting the sidecar, so existing handles remain readable and tape lifecycle operations still include it.
 

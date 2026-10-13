@@ -8,12 +8,12 @@ from typing import Any
 
 import republic
 
-from bub.tape import TapeContext, TapeEntry, to_message
-from bub.tools import result_content
+from bub.core.tape import TapeContext, TapeEntry, to_message
+from bub.core.tools import result_content
 
 
 def default_tape_context() -> TapeContext:
-    """Return the default context selection for Bub."""
+    """Return a context that replays the chat recorded by the agent loop, tool calls included, since the last anchor."""
 
     return TapeContext(select=_select_messages)
 

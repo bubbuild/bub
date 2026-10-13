@@ -6,7 +6,7 @@ import pytest
 from loguru import logger
 from pydantic import BaseModel
 
-from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
+from bub.core.events import AfterToolCall, BeforeToolCall, EventBus
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
 from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool, tool_call_reporter
@@ -191,7 +191,7 @@ async def test_tool_direct_call_registers_wrapped_instance_in_registry() -> None
 
 
 def _context(tmp_path, *, code_mode: bool = False) -> ToolContext:
-    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
     return ToolContext(tape=tape, run_id="run-1", code_mode=code_mode)
 
 
@@ -249,19 +249,15 @@ async def test_executor_render_option_decides_result_format(
 async def test_executor_passes_tool_context_to_context_tools_and_hooks(tmp_path) -> None:
     seen: dict[str, Any] = {}
 
-    class RecordingHooks:
-        async def before_tool_call(self, call: ToolCall, state: dict[str, Any]) -> tuple[ToolCall, ToolCallDecision]:
-            seen["before"] = call.context
-            return call, ToolCallDecision.proceed()
-
-        async def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict[str, Any]) -> None:
-            seen["after"] = (call.context, result.result)
+    events = EventBus()
+    events.on(BeforeToolCall, lambda event: seen.update(before=event.call.context))
+    events.on(AfterToolCall, lambda event: seen.update(after=(event.call.context, event.result.result)))
 
     def mode(*, context: ToolContext) -> dict[str, bool]:
         return {"code_mode": context.code_mode}
 
     context = _context(tmp_path, code_mode=True)
-    execution = await ToolExecutor(hooks=RecordingHooks(), render=False).execute_async(  # type: ignore[arg-type]
+    execution = await ToolExecutor(events, render=False).execute_async(
         [(Tool.from_callable(mode, context=True), {})], context=context
     )
 

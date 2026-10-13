@@ -25,7 +25,7 @@ from rich.text import Text
 from rich.tree import Tree
 
 import bub
-from bub.builtin.agent import Agent
+from bub.builtin.agent import BubAgent
 from bub.builtin.commands import strip_command_prefix
 from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.base import Interface
@@ -38,10 +38,10 @@ from bub.channels.cli.terminal_output import (
 from bub.channels.cli.writers import MarkdownWriter
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
+from bub.core.tape import TapeInfo
+from bub.core.tools import REGISTRY, tool_call_reporter
 from bub.envelope import Envelope, field_of
 from bub.streaming import StreamEvent
-from bub.tape import TapeInfo
-from bub.tools import REGISTRY, tool_call_reporter
 
 _GENERATION_SPINNER: str = SPINNERS["dots"]["frames"]  # type: ignore[assignment]
 _PROMPT_REFRESH_INTERVAL: float = SPINNERS["dots"]["interval"] / 1000.0  # type: ignore[operator]
@@ -209,7 +209,7 @@ class CliChannel(Interface):
     _stop_event: asyncio.Event
     _initial_prompt: str | None = None
 
-    def __init__(self, on_receive: MessageHandler, agent: Agent) -> None:
+    def __init__(self, on_receive: MessageHandler, agent: BubAgent) -> None:
         self._on_receive = on_receive
         self._agent = agent
         self._message_template = {

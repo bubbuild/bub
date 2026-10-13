@@ -19,11 +19,10 @@ import republic
 from bub.builtin.codemode.republic_bridge import REPUBLIC_CALL_PREFIX, RepublicSession, decode_value, encode_value
 from bub.builtin.environment import environment_from_state
 from bub.builtin.settings import set_session_setting
+from bub.core.tools import Tool, ToolContext, ToolExecutor, content_result, model_tools, tool
 from bub.environment import CallTool, CodeFailed
 from bub.errors import BubError, ErrorKind
-from bub.hooks.interception import AgentHooks
 from bub.prompt import UserContent
-from bub.tools import Tool, ToolContext, ToolExecutor, content_result, model_tools, tool
 
 RUN_CODE_TOOL_NAME = "run_code"
 CODE_MODE_STATE_KEY = "code_mode"
@@ -341,10 +340,8 @@ def _code_tool_caller(
     tools_by_name: dict[str, Tool], context: ToolContext, republic_session: RepublicSession
 ) -> CallTool:
     """Serve the code's ``tools.<name>`` and ``republic`` calls."""
-    agent = context.state.get("_runtime_agent")
-    hooks: AgentHooks | None = getattr(getattr(agent, "model_runner", None), "hooks", None)
     # Code consumes structured results, so this executor does not render them to text.
-    executor = ToolExecutor(hooks=hooks, render=False)
+    executor = ToolExecutor(context.events, render=False)
     code_context = replace(context, code_mode=True)
 
     async def call_tool(name: str, arguments: dict[str, Any]) -> Any:

@@ -30,7 +30,6 @@ class RecordingLifespan:
 
 def _fake_tape(home: Path) -> Tape:
     return Tape(
-        archive_path=home / "tapes",
         store=AsyncTapeStoreAdapter(InMemoryTapeStore()),
         context=TapeContext(),
     )

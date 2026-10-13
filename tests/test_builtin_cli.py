@@ -409,7 +409,7 @@ def test_run_help_uses_the_configured_prefix(
     framework.workspace = tmp_path
     framework.load_builtin_hooks()
     monkeypatch.setattr(
-        "bub.builtin.model_runner.ModelRunner.run",
+        "bub.core.agent.Agent.run_once",
         lambda *args, **kwargs: pytest.fail("help must not invoke the model"),
     )
 

@@ -54,7 +54,7 @@ builtin spill 插件通过 `provide_tape_sidecar` 挂载 `SpillStore`、注册 `
 
 主 tape 只保留有界预览和 opaque handle，不保存完整结果。`spill.read` 工具按 handle 与 cursor 有界读取，也支持从末尾开始读取。由 `spill.read` 明确返回的内容会作为普通的有界 tool result 记录。`spill.read` 的 `exposure` 是 `"direct"`，因此返回纯文本，并且在 code mode 下仍然直接可调用，而不必经过 `run_code`。
 
-sidecar 与 session tape 一起参与 fork、merge、archive 和 reset，但始终是独立 tape，构造主 context 时不会扫描它。也可以通过 `Tape.archive_sidecar("spill")` 和 `Tape.reset_sidecar("spill")` 单独 archive 或 reset sidecar。当 reset 要求先 archive 时，如果 archive 失败，Bub 会保留 sidecar。
+sidecar 与 session tape 一起参与 fork、merge、archive 和 reset，但始终是独立 tape，构造主 context 时不会扫描它。也可以通过 `Tape.reset_sidecar("spill")` 单独 reset sidecar，或通过 `bub.builtin.archive.archive_sidecar(tape, "spill", directory)` 单独 archive。当 `tape.reset` 要求先 archive 时，如果 archive 失败，Bub 会保留 sidecar。
 
 spill 配置归 sidecar 插件自己所有：在 `config.yml` 使用 `spill.threshold`，或设置环境变量 `BUB_SPILL_THRESHOLD`。设为 `0` 只停止新写入，不会卸载 sidecar，因此已有 handle 仍可读取，tape 生命周期操作也仍会包含它。
 

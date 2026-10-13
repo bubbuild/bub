@@ -3,9 +3,46 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 import httpx2
+
+from bub.builtin.settings import AgentSettings
+from bub.core import Agent as CoreAgent
+from bub.hooks.interception import PluginAgentHooks
+from bub.prompt import UserContent
+from bub.streaming import AsyncStreamEvents
+from bub.tape import Tape
+from bub.tools import Tool
+
+
+class StepRunner:
+    """Run one model step through the core agent, assembled from settings like the builtin agent."""
+
+    def __init__(self, settings: AgentSettings, hooks: PluginAgentHooks | None = None) -> None:
+        self.settings = settings
+        self.hooks = hooks
+
+    def run(
+        self,
+        *,
+        tape: Tape,
+        model: str,
+        tools: Sequence[Tool],
+        system_prompt: str | None,
+        prompt: list[UserContent] | None,
+        steering_messages: list[list[UserContent]] | None = None,
+    ) -> AsyncStreamEvents:
+        class Agent(CoreAgent):
+            async def pending_messages(self, tape: Tape) -> list[list[UserContent]]:
+                return steering_messages or []
+
+        chat_model = self.settings.chat_model(model, reasoning_effort=tape.context.state.get("reasoning_effort"))
+        agent = Agent(store=tape.store, tools=tools, system_prompt=system_prompt or ())
+        if self.hooks is not None:
+            self.hooks.subscribe(agent.events)
+        return agent.run_once(prompt, model=chat_model, tape=tape)
 
 
 def sse(events: list[Any]) -> httpx2.Response:
