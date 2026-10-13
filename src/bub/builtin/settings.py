@@ -12,8 +12,8 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from bub import Settings, __version__, config, ensure_config
-from bub.builtin.commands import validate_command_prefix
 from bub.builtin.model import BubModel, ModelCandidate
+from bub.core.commands import validate_command_prefix
 
 if TYPE_CHECKING:
     from bub.core.tape import Tape

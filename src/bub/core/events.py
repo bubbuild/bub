@@ -171,6 +171,21 @@ class StepFinished(TapeEvent):
 
 
 @dataclass(kw_only=True)
+class CommandFinished(TapeEvent):
+    """A command prompt ran (see ``Agent.run_command``), with ``status`` ``ok`` or ``error``.
+
+    ``line`` is the command without its prefix, ``name`` the command name, and ``output``
+    the rendered result or the error message.
+    """
+
+    line: str
+    name: str
+    status: str
+    elapsed_ms: int
+    output: str
+
+
+@dataclass(kw_only=True)
 class BeforeLlmCall(TapeEvent):
     """An LLM call is about to be sent.
 

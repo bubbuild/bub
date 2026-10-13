@@ -85,6 +85,7 @@ continues the conversation stored under `sessions/`.
 | `sidecars`             | `TapeSidecar` capabilities mounted on every tape.                                                                |
 | `max_steps`            | Maximum model calls in one run.                                                                                  |
 | `name`                 | Agent name reported in `invoke_agent` traces. Defaults to `"agent"`.                                             |
+| `command_prefix`       | Prefix marking command prompts, such as `","`; see [Commands](#commands). `None` (the default) disables commands. |
 
 ## Models
 
@@ -182,6 +183,27 @@ await tape.handoff(name="summary", state={"summary": "Ada asked about order A123
 model context is the chat recorded since the tape's last anchor, so a `handoff()` starts a shorter context. When a
 call fails because the context is too long, the run hands off automatically once and retries the prompt.
 
+## Commands
+
+With `command_prefix` set, a text prompt starting with the prefix runs as a command instead of the agent loop: no
+model is called. `name args...` calls the tool `name` directly, with positional arguments followed by `key=value`
+arguments; any other command line runs through the agent's `bash` tool when it has one. The output is the run's
+text and `final` event, and a `CommandFinished` event reports the command, which the tape records as a `command`
+event.
+
+```python
+agent = Agent(tools=[Tool.from_callable(lookup_order)], command_prefix=",")
+
+async with agent.run([",lookup_order order_id=A123"], model=model, tape="customer-42") as stream:
+    async for event in stream:
+        print(event.kind, event.data)  # text, then final, with the tool's rendered result.
+```
+
+Leading and trailing whitespace is ignored and exactly one prefix is removed; a bare prefix raises `ValueError`.
+Prefixes must be non-empty and contain no whitespace. Prompts with media are never commands. Commands call tools
+without model calls or tool events, so `BeforeToolCall` handlers do not apply to them. `agent.run_command(tape, line)`
+runs a command on an open tape directly.
+
 ## Events
 
 The loop reports its progress as events from `bub.core.events`; register handlers to observe or steer it.
@@ -213,6 +235,7 @@ agent.events.on(StepFinished, lambda event: print("step", event.step, event.stat
 | `BeforeToolCall`               | Before each tool call                                    | replace `event.call` to change arguments, or set `ToolCallDecision.replace(result)` / `deny(message)` |
 | `AfterToolCall`                | After each tool call, including denied and replaced ones | assign `event.result.result` to change what the model sees                      |
 | `ChatCompleted`                | A step's exchange is ready to record                     | observe                                                                         |
+| `CommandFinished`              | A command prompt ran (see [Commands](#commands))         | observe the command, status, and output                                         |
 
 `agent.events.on(EventType, handler)` registers a sync or async handler and returns it; `@agent.events.on(EventType)`
 does the same as a decorator, and `agent.events.off(EventType, handler)` removes it. A handler for `AgentEvent` receives every event.

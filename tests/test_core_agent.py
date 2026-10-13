@@ -17,6 +17,7 @@ from bub.core import (
     BeforeLlmCall,
     BeforeToolCall,
     ChatCompleted,
+    CommandFinished,
     EventBus,
     LlmCallDecision,
     PromptContext,
@@ -229,3 +230,48 @@ async def test_leaving_run_early_closes_the_stream_and_merges_the_fork(provider_
     assert [message.role for message in messages] == []
     names = [entry.payload["name"] for entry in await agent.tape("early").store.fetch_all(agent.tape("early").query())]
     assert "loop.start" in names
+
+
+@pytest.mark.asyncio
+async def test_commands_are_disabled_without_a_prefix(provider_service: ProviderService) -> None:
+    provider_service.reply(sse(chat_events("model answer")))
+    async with provider_service.client() as client:
+        agent = Agent(tools=[Tool.from_callable(lambda: "tool ran", name="echo")])
+        async with agent.run([",echo"], model=_model(client), tape="plain") as stream:
+            events = [event async for event in stream]
+
+    assert events[-1].data == {"ok": True, "text": "model answer"}
+    assert provider_service.body()["messages"][-1] == {"role": "user", "content": ",echo"}
+
+
+@pytest.mark.asyncio
+async def test_command_prompt_calls_the_tool_without_the_model() -> None:
+    def greet(name: str, *, punctuation: str = "!") -> str:
+        return f"hello {name}{punctuation}"
+
+    agent = Agent(tools=[Tool.from_callable(greet, name="greet")], command_prefix="/")
+    finished: list[CommandFinished] = []
+    agent.events.on(CommandFinished, finished.append)
+    model = republic.get_model("openai:never-called", api_key="test")
+    async with agent.run(["  /greet ada punctuation=?"], model=model, tape="commands") as stream:
+        events = [event async for event in stream]
+
+    assert [(event.kind, event.data) for event in events] == [
+        ("text", {"delta": "hello ada?"}),
+        ("final", {"text": "hello ada?", "ok": True}),
+    ]
+    tape = agent.tape("commands")
+    (command,) = [
+        entry.payload["data"]
+        for entry in await tape.store.fetch_all(tape.query().kinds("event"))
+        if entry.payload["name"] == "command"
+    ]
+    assert (command["name"], command["status"], command["output"]) == ("greet", "ok", "hello ada?")
+
+    with pytest.raises(ValueError, match="bash tool is not available"):
+        async with agent.run(["/unknown"], model=model, tape="commands") as stream:
+            [event async for event in stream]
+    assert [(event.line, event.name, event.status, event.output) for event in finished] == [
+        ("greet ada punctuation=?", "greet", "ok", "hello ada?"),
+        ("unknown", "unknown", "error", "bash tool is not available"),
+    ]

@@ -7,7 +7,7 @@ from typing import Any
 
 import republic
 
-from bub.core.events import ChatCompleted, EventBus, RunStarted, StepFinished, StepStarted
+from bub.core.events import ChatCompleted, CommandFinished, EventBus, RunStarted, StepFinished, StepStarted
 from bub.prompt import UserContent
 
 
@@ -23,6 +23,7 @@ class TapeRecorder:
         events.on(StepStarted, self.on_step_started)
         events.on(StepFinished, self.on_step_finished)
         events.on(ChatCompleted, self.on_chat_completed)
+        events.on(CommandFinished, self.on_command_finished)
 
     async def on_run_started(self, event: RunStarted) -> None:
         await event.tape.append_event(
@@ -39,6 +40,19 @@ class TapeRecorder:
             payload["error"] = event.error
         payload["date"] = datetime.now(UTC).isoformat()
         await event.tape.append_event("loop.step", payload)
+
+    async def on_command_finished(self, event: CommandFinished) -> None:
+        await event.tape.append_event(
+            "command",
+            {
+                "raw": event.line,
+                "name": event.name,
+                "status": event.status,
+                "elapsed_ms": event.elapsed_ms,
+                "output": event.output,
+                "date": datetime.now(UTC).isoformat(),
+            },
+        )
 
     async def on_chat_completed(self, event: ChatCompleted) -> None:
         await event.tape.record_chat(

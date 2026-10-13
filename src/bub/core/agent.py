@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import sys
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Iterable, Mapping, Sequence
@@ -15,12 +16,14 @@ import republic
 from loguru import logger
 from republic.events import Completed, ReasoningDelta, RefusalDelta, TextDelta, ToolCallReady
 
+from bub.core.commands import parse_command, parse_command_args, strip_command_prefix, validate_command_prefix
 from bub.core.context import default_tape_context
 from bub.core.events import (
     AfterLlmCall,
     AgentEvent,
     BeforeLlmCall,
     ChatCompleted,
+    CommandFinished,
     EventBus,
     LlmCallRequest,
     LlmCallResult,
@@ -68,6 +71,8 @@ class Agent:
         sidecars: Sidecar capabilities mounted on every tape.
         max_steps: Maximum model calls in one run.
         name: Agent name, reported in ``invoke_agent`` traces.
+        command_prefix: When set, a text prompt starting with it runs as a command
+            (see :meth:`run_command`) instead of the agent loop. None disables commands.
 
     The loop reports its progress as events (:mod:`bub.core.events`) on ``events``;
     register handlers with ``agent.events.on``. A :class:`TapeRecorder`, registered first,
@@ -89,6 +94,7 @@ class Agent:
         sidecars: Sequence[TapeSidecar] = (),
         max_steps: int = sys.maxsize,
         name: str = "agent",
+        command_prefix: str | None = None,
     ) -> None:
         self.tools = {tool.name: tool for tool in tools}
         self.system_prompt = SystemPrompt.of(system_prompt)
@@ -101,6 +107,7 @@ class Agent:
         )
         self.max_steps = max_steps
         self.name = name
+        self.command_prefix = None if command_prefix is None else validate_command_prefix(command_prefix)
         self.events = EventBus()
         TapeRecorder().subscribe(self.events)
 
@@ -233,7 +240,16 @@ class Agent:
         options: Mapping[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> AsyncStreamEvents:
-        """Start a run of ``model`` on an already open tape; the caller owns the tape's lifecycle."""
+        """Start a run of ``model`` on an already open tape; the caller owns the tape's lifecycle.
+
+        A command prompt (see :meth:`command_line`) runs as a command instead, without calling the model.
+        """
+        if (line := self.command_line(prompt)) is not None:
+            result = await self.run_command(tape, line)
+            return events_from([
+                StreamEvent("text", {"delta": result}),
+                StreamEvent("final", {"text": result, "ok": True}),
+            ])
         client = model_client(model)
         await self._emit(RunStarted, tape, model=client.spec, prompt=prompt, metadata=dict(metadata or {}))
         state = StreamState()
@@ -255,6 +271,55 @@ class Agent:
         return AsyncStreamEvents(
             self._run_once(tape, model_client(model), dict(options or {}), prompt, state), state=state
         )
+
+    def command_line(self, prompt: list[UserContent]) -> str | None:
+        """Return the command of a text prompt starting with the command prefix, or None."""
+        if self.command_prefix is None or len(prompt) != 1 or not isinstance(prompt[0], str):
+            return None
+        return strip_command_prefix(prompt[0], self.command_prefix)
+
+    async def run_command(self, tape: Tape, line: str) -> str:
+        """Run a command on ``tape`` and return its rendered output; record it as a ``command`` event.
+
+        ``name args...`` calls the tool ``name`` directly with positional and then
+        ``key=value`` arguments. Any other line runs through the ``bash`` tool when the
+        agent has one. Commands call tools without model calls or tool events; the outcome
+        is reported as a ``CommandFinished`` event.
+        """
+        if not line:
+            raise ValueError("empty command")
+        name, tokens = parse_command(line)
+        start = time.monotonic()
+        context = ToolContext(tape=tape, run_id="run_command", state=tape.context.state, events=self.events)
+        output = ""
+        status = "ok"
+        try:
+            if name not in self.tools:
+                if "bash" not in self.tools:
+                    raise ValueError("bash tool is not available")  # noqa: TRY301
+                bash_tool = self.tools["bash"]
+                output = bash_tool.render(await bash_tool.run(context=context, command=line))
+            else:
+                command_tool = self.tools[name]
+                args = parse_command_args(tokens)
+                kwargs: dict[str, Any] = dict(args.kwargs)
+                if command_tool.context:
+                    kwargs["context"] = context
+                result = command_tool.run(*args.positional, **kwargs)
+                if inspect.isawaitable(result):
+                    result = await result
+                output = command_tool.render(result)
+        except Exception as exc:
+            status = "error"
+            output = f"{exc!s}"
+            raise
+        else:
+            return output
+        finally:
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            await self._emit(
+                CommandFinished, tape, line=line, name=name, status=status, elapsed_ms=elapsed_ms, output=output
+            )
 
     async def prepare_tools(self, tape: Tape, prompt: list[UserContent] | None) -> list[Tool]:
         """Return the model-facing tools for the next model call."""

@@ -27,7 +27,6 @@ from rich.tree import Tree
 
 import bub
 from bub.builtin.agent import BubAgent
-from bub.builtin.commands import strip_command_prefix
 from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.base import Interface
 from bub.channels.cli.ansi_bridge import render_to_ansi
@@ -39,6 +38,7 @@ from bub.channels.cli.terminal_output import (
 from bub.channels.cli.writers import MarkdownWriter
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
+from bub.core.commands import strip_command_prefix
 from bub.core.tape import TapeInfo, session_tape_name
 from bub.core.tools import REGISTRY, tool_call_reporter
 from bub.envelope import Envelope, field_of

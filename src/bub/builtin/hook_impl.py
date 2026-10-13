@@ -11,7 +11,6 @@ from loguru import logger
 
 from bub import inquirer as bub_inquirer
 from bub.builtin.agent import BubAgent
-from bub.builtin.commands import strip_command_prefix
 from bub.builtin.onboarding import collect_model_config
 from bub.builtin.settings import load_session_settings, load_settings
 from bub.builtin.steering import InMemorySteeringInbox
@@ -19,6 +18,7 @@ from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem
+from bub.core.commands import strip_command_prefix
 from bub.core.context import default_tape_context
 from bub.core.events import ToolCall, ToolCallDecision, ToolCallResult
 from bub.core.sidecars import TapeSidecar

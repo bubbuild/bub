@@ -5,7 +5,7 @@
 Core code lives under `src/`:
 
 - `src/bub/__main__.py`: Typer CLI entrypoint.
-- `src/bub/core/`: agent kernel with no settings or plugin dependencies: agent loop over a tape store (`agent.py`), model protocol and Republic chat model adapter (`model.py`), agent events and their bus (`events.py`), the tape recorder handler (`recorder.py`), system prompt sections (`system_prompt.py`), tools, tape, store, and tape context.
+- `src/bub/core/`: agent kernel with no settings or plugin dependencies: agent loop over a tape store (`agent.py`), model protocol and Republic chat model adapter (`model.py`), agent events and their bus (`events.py`), the tape recorder handler (`recorder.py`), system prompt sections (`system_prompt.py`), command prompts (`commands.py`), tools, tape, store, and tape context.
 - `src/bub/framework.py`: turn orchestration and outbound routing.
 - `src/bub/hooks/`: hook specifications, execution helpers, and interception contracts.
 - `src/bub/channels/`: channel bases, routing contracts, admission policy, and lifecycle manager.

@@ -83,6 +83,7 @@ if __name__ == "__main__":
 | `sidecars`        | 挂载到每条 tape 上的 `TapeSidecar` 能力。                                                               |
 | `max_steps`       | 一次运行中最多的模型调用次数。                                                                          |
 | `name`            | 在 `invoke_agent` trace 中上报的 agent 名称。默认 `"agent"`。                                          |
+| `command_prefix`  | 标记命令 prompt 的前缀，例如 `","`；见 [命令](#命令)。默认 `None`，即不启用命令。                       |
 
 ## 模型
 
@@ -175,6 +176,24 @@ await tape.handoff(name="summary", state={"summary": "Ada asked about order A123
 最近一个 anchor 之后记录的对话，因此 `handoff()` 会开始一个更短的上下文。如果某次调用因上下文过长而失败，运行会自动
 handoff 一次并重试该 prompt。
 
+## 命令
+
+设置了 `command_prefix` 后，以该前缀开头的文本 prompt 会作为命令执行，而不走 agent loop，也不会调用模型。`name args...`
+直接调用名为 `name` 的工具，先传位置参数，再传 `key=value` 参数；其他命令在 agent 有 `bash` 工具时交给它执行。输出作为
+本次运行的 text 和 `final` 事件返回；同时发出 `CommandFinished` 事件报告这次命令，tape 会将其记录为 `command` 事件。
+
+```python
+agent = Agent(tools=[Tool.from_callable(lookup_order)], command_prefix=",")
+
+async with agent.run([",lookup_order order_id=A123"], model=model, tape="customer-42") as stream:
+    async for event in stream:
+        print(event.kind, event.data)  # 依次是 text 和 final，内容为工具渲染后的结果。
+```
+
+首尾空白会被忽略，且只去掉一个前缀；只有前缀时会抛出 `ValueError`。前缀必须非空且不含空白。带媒体的 prompt 不会作为命令。
+命令直接调用工具，不经过模型调用，也不产生工具事件，因此 `BeforeToolCall` 处理器对它们不生效。
+`agent.run_command(tape, line)` 可以在已打开的 tape 上直接执行命令。
+
 ## 事件
 
 循环通过 `bub.core.events` 中的事件报告进度；注册处理器即可观察或干预它。
@@ -206,6 +225,7 @@ agent.events.on(StepFinished, lambda event: print("step", event.step, event.stat
 | `BeforeToolCall`               | 每次工具调用之前                     | 替换 `event.call` 以修改参数，或设置 `ToolCallDecision.replace(result)` / `deny(message)`        |
 | `AfterToolCall`                | 每次工具调用之后，包括被拒绝和被替换的调用 | 赋值 `event.result.result` 以改变模型看到的结果                                           |
 | `ChatCompleted`                | 一个步骤的对话已可记录               | 观察                                                                                             |
+| `CommandFinished`              | 一个命令 prompt 执行完毕（见 [命令](#命令)） | 观察命令、状态和输出                                                                       |
 
 `agent.events.on(EventType, handler)` 注册同步或异步处理器并返回它；`@agent.events.on(EventType)` 以装饰器形式完成同样的注册，
 `agent.events.off(EventType, handler)` 将其移除。为 `AgentEvent` 注册的处理器接收所有事件。处理器按注册顺序执行；

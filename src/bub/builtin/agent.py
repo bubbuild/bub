@@ -3,27 +3,20 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import re
-import shlex
-import time
-from collections.abc import Collection, Mapping
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from collections.abc import Collection
 from pathlib import Path
-from typing import Any
 
 import bub.core as core
-from bub.builtin.commands import strip_command_prefix, validate_command_prefix
 from bub.builtin.settings import load_settings
 from bub.core.store import AsyncTapeStore, TapeStore
 from bub.core.tape import Tape, session_tape_name
-from bub.core.tools import REGISTRY, Tool, ToolContext, model_tools
+from bub.core.tools import REGISTRY, Tool, model_tools
 from bub.envelope import field_of
 from bub.framework import BubFramework
 from bub.prompt import LegacyPrompt, UserContent, prompt_text, to_content
 from bub.skills import discover_skills, render_skills_prompt
-from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
+from bub.streaming import AsyncStreamEvents, StreamState
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
 
@@ -43,6 +36,8 @@ class BubAgent(core.Agent):
     One instance serves any number of sessions: per-turn choices (model, allowed tools
     and skills) live in the turn state.
     """
+
+    command_prefix: str
 
     def __init__(
         self,
@@ -72,9 +67,6 @@ class BubAgent(core.Agent):
         lifecycle of an explicitly supplied store.
         """
         self.settings = load_settings()
-        self.command_prefix = validate_command_prefix(
-            self.settings.command_prefix if command_prefix is None else command_prefix
-        )
         self.framework = framework
         self.skill_dirs = skill_dirs
         super().__init__(
@@ -85,6 +77,7 @@ class BubAgent(core.Agent):
             sidecars=framework.get_tape_sidecars(),
             max_steps=self.settings.max_steps,
             name="bub",
+            command_prefix=self.settings.command_prefix if command_prefix is None else command_prefix,
         )
         framework.get_agent_hooks().subscribe(self.events)
 
@@ -133,7 +126,7 @@ class BubAgent(core.Agent):
             state["reasoning_effort"] = reasoning_effort
         state.setdefault("session_id", session_id)
         metadata = None
-        if self._command_line(content) is None:
+        if self.command_line(content) is None:
             self._scope_turn(state, allowed_skills=allowed_skills, allowed_tools=allowed_tools)
             metadata = {
                 "allowed_skills": list(allowed_skills) if allowed_skills else None,
@@ -150,73 +143,6 @@ class BubAgent(core.Agent):
             merge_back=not session_id.startswith("temp/"),
             metadata=metadata,
         )
-
-    async def run_on(
-        self,
-        tape: Tape,
-        prompt: list[UserContent],
-        *,
-        model: core.Model,
-        options: Mapping[str, Any] | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> AsyncStreamEvents:
-        """Run a command prompt as a command, and any other prompt through the agent loop."""
-        if (line := self._command_line(prompt)) is None:
-            return await super().run_on(tape, prompt, model=model, options=options, metadata=metadata)
-        result = await self._run_command(tape, line=line)
-        return core.events_from([
-            StreamEvent("text", {"delta": result}),
-            StreamEvent("final", {"text": result, "ok": True}),
-        ])
-
-    def _command_line(self, prompt: list[UserContent]) -> str | None:
-        if len(prompt) == 1 and isinstance(prompt[0], str):
-            return strip_command_prefix(prompt[0], self.command_prefix)
-        return None
-
-    async def _run_command(self, tape: Tape, *, line: str) -> str:
-        if not line:
-            raise ValueError("empty command")
-
-        tools = self.tools
-        name, arg_tokens = _parse_internal_command(line)
-        start = time.monotonic()
-        context = ToolContext(tape=tape, run_id="run_command", state=tape.context.state, events=self.events)
-        output = ""
-        status = "ok"
-        try:
-            if name not in tools:
-                if "bash" not in tools:
-                    raise ValueError("bash tool is not available")  # noqa: TRY301
-                bash_tool = tools["bash"]
-                output = bash_tool.render(await bash_tool.run(context=context, command=line))
-            else:
-                command_tool = tools[name]
-                args = _parse_args(arg_tokens)
-                if command_tool.context:
-                    args.kwargs["context"] = context
-                result = command_tool.run(*args.positional, **args.kwargs)
-                if inspect.isawaitable(result):
-                    result = await result
-                output = command_tool.render(result)
-        except Exception as exc:
-            status = "error"
-            output = f"{exc!s}"
-            raise
-        else:
-            return output
-        finally:
-            elapsed_ms = int((time.monotonic() - start) * 1000)
-
-            event_payload = {
-                "raw": line,
-                "name": name,
-                "status": status,
-                "elapsed_ms": elapsed_ms,
-                "output": output,
-                "date": datetime.now(UTC).isoformat(),
-            }
-            await tape.append_event("command", event_payload)
 
     def _scope_turn(
         self, state: TurnState, *, allowed_skills: Collection[str] | None, allowed_tools: Collection[str] | None
@@ -337,33 +263,3 @@ class BubAgent(core.Agent):
 
 def _deferred_tools(tools: list[Tool]) -> list[Tool]:
     return [tool for tool in tools if tool.deferred and tool.exposure in ("auto", "direct")]
-
-
-@dataclass(frozen=True)
-class Args:
-    positional: list[str]
-    kwargs: dict[str, Any]
-
-
-def _parse_internal_command(line: str) -> tuple[str, list[str]]:
-    body = line.strip()
-    words = shlex.split(body)
-    if not words:
-        return "", []
-    return words[0], words[1:]
-
-
-def _parse_args(args_tokens: list[str]) -> Args:
-    positional: list[str] = []
-    kwargs: dict[str, str] = {}
-    first_kwarg = False
-    for token in args_tokens:
-        if "=" in token:
-            key, value = token.split("=", 1)
-            kwargs[key] = value
-            first_kwarg = True
-        elif first_kwarg:
-            raise ValueError(f"positional argument '{token}' cannot appear after keyword arguments")
-        else:
-            positional.append(token)
-    return Args(positional=positional, kwargs=kwargs)
