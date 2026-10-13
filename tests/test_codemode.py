@@ -9,7 +9,7 @@ import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, TypedDict
+from typing import Any, ClassVar, TypedDict
 
 import pytest
 from pydantic import BaseModel, Field
@@ -450,3 +450,291 @@ async def test_run_code_maps_code_and_runtime_failures_from_the_environment(tmp_
         await run_code.run(code="print(1)", context=context)
     assert runtime_error.value.message == "runtime crashed"
     assert runtime_error.value.details == {"output": "partial\n", "stderr": "boom"}
+
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\nfake"
+
+
+def test_stub_declares_media_tools_and_documents_republic() -> None:
+    from bub.builtin.codemode import attach_image
+
+    stub = render_tool_stub([attach_image])
+
+    ast.parse(stub)
+    assert "import republic" in stub
+    assert "async def attach_image(*, image: republic.Image | str) -> str:" in stub
+    assert "republic.get_model(spec: str | None = None) -> ChatModel" in stub
+    assert "republic.get_embedding_model(spec: str) -> EmbeddingModel" in stub
+    assert "republic.get_decision_model(spec: str) -> DecisionModel" in stub
+    assert "model.stream(prompt, **options) -> Stream" in stub
+
+
+@pytest.mark.asyncio
+async def test_run_code_attaches_media_to_its_result(tmp_path: Path) -> None:
+    import republic
+
+    from bub.builtin.codemode import attach_audio, attach_image, attach_video
+    from bub.tools import result_content
+
+    (tmp_path / "charts").mkdir()
+    (tmp_path / "charts" / "chart.png").write_bytes(PNG_BYTES)
+    code = (
+        "print(await tools.attach_image(image='charts/chart.png'))\n"
+        "await tools.attach_audio(audio='https://example.com/a.mp3')\n"
+        "await tools.attach_video(video=republic.Video('video/mp4', data=b'mp4'))\n"
+    )
+    tools = [attach_image, attach_audio, attach_video]
+
+    result = await run_code.run(
+        code=code, context=_context(tmp_path, tools, **{ENVIRONMENT_STATE_KEY: LocalEnvironment(tmp_path)})
+    )
+
+    assert result_content(result) == [
+        "The image is attached to the run_code result.\n",
+        republic.Image("image/png", data=PNG_BYTES),
+        republic.Audio("audio/mpeg", url="https://example.com/a.mp3"),
+        republic.Video("video/mp4", data=b"mp4"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_code_reports_media_that_cannot_be_loaded(tmp_path: Path) -> None:
+    from bub.builtin.codemode import attach_image
+
+    code = (
+        "for source in ('missing.png', 'notes'):\n"
+        "    try:\n"
+        "        await tools.attach_image(image=source)\n"
+        "    except Exception as exc:\n"
+        "        print(exc)\n"
+    )
+
+    output = await run_code.run(
+        code=code, context=_context(tmp_path, [attach_image], **{ENVIRONMENT_STATE_KEY: LocalEnvironment(tmp_path)})
+    )
+
+    lines = output.splitlines()
+    assert lines[0].startswith("[invalid_input] Cannot load the image: [Errno 2]")
+    assert lines[1] == "[invalid_input] Cannot load the image: cannot guess the media type of 'notes'"
+
+
+@pytest.mark.asyncio
+async def test_media_tools_only_work_inside_run_code(tmp_path: Path) -> None:
+    import republic
+
+    from bub.builtin.codemode import attach_image
+
+    with pytest.raises(BubError, match="can only be called from run_code"):
+        await attach_image.run(image=republic.Image("image/png", data=PNG_BYTES), context=_context(tmp_path))
+
+
+def test_media_tool_results_become_multimodal_tool_messages(tmp_path: Path) -> None:
+    import republic
+
+    from bub.builtin.context import default_tape_context
+    from bub.tape import TapeEntry
+    from bub.tools import content_result
+
+    image = republic.Image("image/png", data=PNG_BYTES)
+    entries = [
+        TapeEntry.tool_call([{"id": "call-1", "name": "run_code", "arguments": "{}"}]),
+        TapeEntry.tool_result([content_result(["printed", image])]),
+    ]
+    context = default_tape_context()
+
+    messages = context.select(entries, context)  # type: ignore[misc]
+
+    assert messages[-1].parts == (republic.Text("printed"), image)
+
+
+class _FakeChatModel:
+    calls: ClassVar[list[tuple[str, dict[str, Any], Any, Any]]] = []
+
+    def __init__(self, spec: str, kwargs: dict[str, Any]) -> None:
+        self.spec, self.kwargs = spec, kwargs
+
+    async def __aenter__(self) -> _FakeChatModel:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        return None
+
+    async def chat(self, messages: Any, **options: Any) -> Any:
+        import republic
+
+        self.calls.append((self.spec, self.kwargs, messages, options))
+        message = republic.assistant("a chart")
+        return SimpleNamespace(
+            text=message.text,
+            reasoning="",
+            refusal=None,
+            finish_reason="stop",
+            model="gpt-x-1",
+            token_usage=republic.TokenUsage(input_tokens=3, output_tokens=2),
+            message=message,
+        )
+
+    async def embed_many(self, texts: list[str], *, dimensions: int | None = None) -> Any:
+        import republic
+
+        return republic.EmbeddingResponse([[float(len(text))] for text in texts], model="embed-1")
+
+    async def decide(self, state: Any, *, questions: dict[str, Any]) -> Any:
+        from republic.decisions import DecisionResponse, NoulAnswer
+
+        self.calls.append((self.spec, self.kwargs, state, questions))
+        return DecisionResponse({key: NoulAnswer(0.9) for key in questions})
+
+
+@pytest.mark.asyncio
+async def test_run_code_republic_models_are_served_by_bub_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import republic
+    from republic.decisions import Noul
+
+    from bub.builtin.codemode import republic_bridge
+    from bub.builtin.settings import AgentSettings
+
+    _FakeChatModel.calls = []
+    for getter in ("get_model", "get_embedding_model", "get_decision_model"):
+        monkeypatch.setattr(republic_bridge.republic, getter, lambda spec, **kwargs: _FakeChatModel(spec, kwargs))
+    agent = SimpleNamespace(settings=AgentSettings(model="openai:gpt-x", api_key="sk-test"))
+    (tmp_path / "chart.png").write_bytes(PNG_BYTES)
+    code = (
+        "import republic\n"
+        "from republic.decisions import Noul\n"
+        "model = republic.get_model()\n"
+        f"chart = republic.Image('image/png', data=open({str(tmp_path / 'chart.png')!r}, 'rb').read())\n"
+        "prompt = republic.user('Describe', chart)\n"
+        "reply = await model.chat([prompt], max_tokens=10)\n"
+        "print(reply.text, reply.finish_reason, reply.token_usage.output_tokens, reply.message.role)\n"
+        "emb = await republic.get_embedding_model('openai:embed').embed_many(['ab', 'abc'])\n"
+        "print(emb.vectors, emb.vector)\n"
+        "decision = await republic.get_decision_model('openai:judge').decide('x', questions={'ok': Noul('fine?')})\n"
+        "print(decision.ok.noul, decision.answers['ok'].type)\n"
+    )
+
+    output = await run_code.run(code=code, context=_context(tmp_path, [], _runtime_agent=agent, model="openai:gpt-y"))
+
+    assert output == "a chart stop 2 assistant\n[[2.0], [3.0]] [2.0]\n0.9 noul\n"
+    (chat_spec, chat_kwargs, messages, options), (decide_spec, _, state, questions) = _FakeChatModel.calls
+    assert chat_spec == "openai:gpt-y"
+    assert chat_kwargs["api_key"] == "sk-test"
+    assert messages == [republic.user("Describe", republic.Image("image/png", data=PNG_BYTES))]
+    assert options == {"max_tokens": 10}
+    assert (decide_spec, state, questions) == ("openai:judge", "x", {"ok": Noul("fine?")})
+
+
+@pytest.mark.asyncio
+async def test_run_code_republic_errors_raise_in_code(tmp_path: Path) -> None:
+    code = (
+        "try:\n"
+        "    await republic.get_model().chat('hi')\n"
+        "except Exception as exc:\n"
+        "    print(type(exc).__name__, exc)\n"
+    )
+
+    output = await run_code.run(code=code, context=_context(tmp_path, []))
+
+    assert output == "BubError [invalid_input] Republic models need a running Bub agent.\n"
+
+
+class _FakeStream:
+    closed: ClassVar[list[bool]] = []
+
+    def __init__(self, chunks: list[str]) -> None:
+        self.chunks = chunks
+
+    async def __aenter__(self) -> _FakeStream:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        self.closed.append(True)
+
+    async def __aiter__(self) -> Any:
+        import republic
+        from republic.events import Completed, TextDelta, UsageDelta
+
+        for chunk in self.chunks:
+            if chunk == "boom":
+                raise RuntimeError("connection lost")
+            yield TextDelta(chunk)
+            await asyncio.sleep(0)
+        yield UsageDelta(republic.TokenUsage(output_tokens=len(self.chunks)))
+        message = republic.assistant("".join(self.chunks))
+        yield Completed(republic.Response(message, token_usage=republic.TokenUsage(output_tokens=len(self.chunks))))
+
+
+class _FakeStreamingModel:
+    async def __aenter__(self) -> _FakeStreamingModel:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        return None
+
+    def stream(self, messages: Any, **options: Any) -> _FakeStream:
+        return _FakeStream(messages[-1].text.split())
+
+
+def _patch_streaming_model(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    from bub.builtin.codemode import republic_bridge
+    from bub.builtin.settings import AgentSettings
+
+    _FakeStream.closed = []
+    monkeypatch.setattr(republic_bridge.republic, "get_model", lambda spec, **kwargs: _FakeStreamingModel())
+    return SimpleNamespace(settings=AgentSettings(model="openai:gpt-x", api_key="sk-test"))
+
+
+@pytest.mark.asyncio
+async def test_run_code_streams_republic_chat_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = _patch_streaming_model(monkeypatch)
+    code = (
+        "from republic.events import Completed, TextDelta, UsageDelta\n"
+        "async with republic.get_model().stream('a b c', max_tokens=5) as stream:\n"
+        "    async for event in stream:\n"
+        "        if isinstance(event, TextDelta):\n"
+        "            print(event.chunk, end='|')\n"
+        "        elif isinstance(event, UsageDelta):\n"
+        "            print('usage', event.usage.output_tokens, end='|')\n"
+        "        elif isinstance(event, Completed):\n"
+        "            print('done', end='|')\n"
+        "print()\n"
+        "print(stream.text, stream.token_usage.output_tokens, stream.response.message.role)\n"
+    )
+
+    output = await run_code.run(code=code, context=_context(tmp_path, [], _runtime_agent=agent))
+
+    assert output == "a|b|c|usage 3|done|\nabc 3 assistant\n"
+    assert _FakeStream.closed == [True]
+
+
+@pytest.mark.asyncio
+async def test_run_code_stream_errors_raise_after_received_events(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    agent = _patch_streaming_model(monkeypatch)
+    code = (
+        "try:\n"
+        "    async with republic.get_model().stream('a boom') as stream:\n"
+        "        async for event in stream:\n"
+        "            print(event.chunk)\n"
+        "except Exception as exc:\n"
+        "    print(type(exc).__name__, exc)\n"
+    )
+
+    output = await run_code.run(code=code, context=_context(tmp_path, [], _runtime_agent=agent))
+
+    assert output == "a\nBubError [tool] republic.stream_next failed: RuntimeError: connection lost\n"
+    assert _FakeStream.closed == [True]
+
+
+@pytest.mark.asyncio
+async def test_run_code_closes_streams_the_code_left_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = _patch_streaming_model(monkeypatch)
+    code = "stream = await republic.get_model().stream('a b').__aenter__()\nprint('opened')\n"
+
+    output = await run_code.run(code=code, context=_context(tmp_path, [], _runtime_agent=agent))
+
+    assert output == "opened\n"
+    assert _FakeStream.closed == [True]
