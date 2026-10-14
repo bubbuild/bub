@@ -80,7 +80,7 @@ continues the conversation stored under `sessions/`.
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `model`                | Default model of runs not given one; see [Models](#models). `None` (the default) requires each run to give one.   |
 | `store`                | A `TapeStore` or `AsyncTapeStore`. Defaults to `InMemoryTapeStore()`.                                             |
-| `tools`                | `Tool` objects the model may call, kept by name in `agent.tools`.                                                 |
+| `tools`                | `Tool` objects the model may call, kept by name in `agent.tools`, and Republic built-in tools such as `republic.tools.WebSearch()` that the provider runs itself, kept in `agent.builtin_tools` and sent with every model call. |
 | `system_prompt`        | One system prompt section or a list of them; see [System prompt](#system-prompt).                                 |
 | `context`              | A `TapeContext` choosing which tape entries become model context. Defaults to `default_tape_context()`.           |
 | `sidecars`             | `TapeSidecar` capabilities mounted on every tape.                                                                 |

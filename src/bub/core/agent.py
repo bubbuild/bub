@@ -14,6 +14,7 @@ from typing import Any, TypeVar
 import republic
 from loguru import logger
 from republic.events import Completed, ReasoningDelta, RefusalDelta, TextDelta, ToolCallReady
+from republic.tools import BuiltinTool
 
 from bub.core.commands import parse_command, parse_command_args, strip_command_prefix, validate_command_prefix
 from bub.core.context import default_tape_context
@@ -61,7 +62,9 @@ class Agent:
         model: Default model of runs not given one; None requires each run to give one.
         store: Tape store holding conversations; each run works on one named tape in it.
             Defaults to an in-memory store.
-        tools: Tools the model may call, kept by name in ``tools``.
+        tools: Tools the model may call. Bub tools are kept by name in ``tools``;
+            ``republic.tools`` built-in tools, which the provider runs itself, are kept in
+            ``builtin_tools`` and sent with every model call.
         system_prompt: System prompt sections: text, or functions of the step's
             :class:`PromptContext` (prompt, tools, tape, state, agent) returning text.
             Add more with ``agent.system_prompt.add``.
@@ -88,7 +91,7 @@ class Agent:
         *,
         model: Model | None = None,
         store: TapeStore | AsyncTapeStore | None = None,
-        tools: Iterable[Tool] = (),
+        tools: Iterable[Tool | BuiltinTool] = (),
         system_prompt: SystemPrompt | PromptSection | Iterable[PromptSection] = (),
         context: TapeContext | None = None,
         sidecars: Sequence[TapeSidecar] = (),
@@ -97,7 +100,13 @@ class Agent:
         command_prefix: str | None = None,
     ) -> None:
         self.model = model
-        self.tools = {tool.name: tool for tool in tools}
+        self.tools: dict[str, Tool] = {}
+        self.builtin_tools: list[BuiltinTool] = []
+        for tool in tools:
+            if isinstance(tool, Tool):
+                self.tools[tool.name] = tool
+            else:
+                self.builtin_tools.append(tool)
         self.system_prompt = SystemPrompt.of(system_prompt)
         if store is None:
             store = InMemoryTapeStore()
@@ -561,7 +570,10 @@ class Agent:
         try:
             call_options = {
                 **options,
-                "tools": [republic.Tool(item.name, item.description, item.parameters) for item in tools],
+                "tools": [
+                    *(republic.Tool(item.name, item.description, item.parameters) for item in tools),
+                    *self.builtin_tools,
+                ],
             }
             if request.max_tokens is not None:
                 call_options["max_tokens"] = request.max_tokens
