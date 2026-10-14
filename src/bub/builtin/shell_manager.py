@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import contextlib
 import uuid
 from collections.abc import AsyncIterator
@@ -228,8 +229,12 @@ class ShellManager:
         shell: ManagedShell,
         stream: asyncio.StreamReader,
     ) -> None:
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         while chunk := await stream.read(4096):
-            shell.output_chunks.append(chunk.decode("utf-8", errors="replace"))
+            if text := decoder.decode(chunk):
+                shell.output_chunks.append(text)
+        if text := decoder.decode(b"", final=True):
+            shell.output_chunks.append(text)
 
 
 shell_manager = ShellManager()

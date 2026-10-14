@@ -319,3 +319,29 @@ async def test_lifespan_cleans_remaining_shells_after_a_reader_fails() -> None:
             await asyncio.gather(reader, return_exceptions=True)
     assert all(shell.returncode is not None for shell in shells)
     assert manager._shells == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+@pytest.mark.parametrize("character", ["é", "中", "😀"])
+async def test_shell_preserves_utf8_across_read_boundaries(stream: str, character: str) -> None:
+    payload = b"a" * 4095 + character.encode("utf-8")
+    manager = ShellManager()
+    async with manager.lifespan():
+        shell = await manager.start(cmd=_python(f"import sys; sys.{stream}.buffer.write({payload!r})"), cwd=None)
+        async with asyncio.timeout(5):
+            await manager.wait_closed(shell.shell_id)
+        assert shell.returncode == 0
+        assert shell.output == payload.decode("utf-8")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [b"", b"valid\xfftext", b"incomplete\xf0\x9f"])
+async def test_shell_replaces_invalid_or_incomplete_utf8(payload: bytes) -> None:
+    manager = ShellManager()
+    async with manager.lifespan():
+        shell = await manager.start(cmd=_python(f"import sys; sys.stdout.buffer.write({payload!r})"), cwd=None)
+        async with asyncio.timeout(5):
+            await manager.wait_closed(shell.shell_id)
+        assert shell.returncode == 0
+        assert shell.output == payload.decode("utf-8", errors="replace")
