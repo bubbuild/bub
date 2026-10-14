@@ -59,7 +59,7 @@ async def main() -> None:
     # Any Republic "provider:model" spec. The key comes from REPUBLIC_OPENAI_API_KEY.
     async with republic.get_model("openai:gpt-5-mini") as model:
         async with agent.run(
-            ["Where is order A123?"], model=model, options={"max_tokens": 4096}, tape="customer-42"
+            "Where is order A123?", model=model, options={"max_tokens": 4096}, tape="customer-42"
         ) as stream:
             async for event in stream:
                 if event.kind == "text":
@@ -76,15 +76,15 @@ if __name__ == "__main__":
 Run it with `REPUBLIC_OPENAI_API_KEY=... uv run python sdk_example.py`. Running it again with the same `tape`
 continues the conversation stored under `sessions/`.
 
-| `Agent(...)` parameter | Behavior                                                                                                         |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `store`                | A `TapeStore` or `AsyncTapeStore`. Defaults to `InMemoryTapeStore()`.                                           |
-| `tools`                | `Tool` objects the model may call, kept by name in `agent.tools`.                                                |
-| `system_prompt`        | One system prompt section or a list of them; see [System prompt](#system-prompt).                                |
-| `context`              | A `TapeContext` choosing which tape entries become model context. Defaults to `default_tape_context()`.          |
-| `sidecars`             | `TapeSidecar` capabilities mounted on every tape.                                                                |
-| `max_steps`            | Maximum model calls in one run.                                                                                  |
-| `name`                 | Agent name reported in `invoke_agent` traces. Defaults to `"agent"`.                                             |
+| `Agent(...)` parameter | Behavior                                                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `store`                | A `TapeStore` or `AsyncTapeStore`. Defaults to `InMemoryTapeStore()`.                                             |
+| `tools`                | `Tool` objects the model may call, kept by name in `agent.tools`.                                                 |
+| `system_prompt`        | One system prompt section or a list of them; see [System prompt](#system-prompt).                                 |
+| `context`              | A `TapeContext` choosing which tape entries become model context. Defaults to `default_tape_context()`.           |
+| `sidecars`             | `TapeSidecar` capabilities mounted on every tape.                                                                 |
+| `max_steps`            | Maximum model calls in one run.                                                                                   |
+| `name`                 | Agent name reported in `invoke_agent` traces. Defaults to `"agent"`.                                              |
 | `command_prefix`       | Prefix marking command prompts, such as `","`; see [Commands](#commands). `None` (the default) disables commands. |
 
 ## Models
@@ -171,7 +171,7 @@ closes; pass `merge_back=False` to discard it.
 handlers. The agent does not persist it; keep anything that must survive in your application or on the tape.
 
 ```python
-async with agent.run(["Any news on A123?"], model=model, tape="customer-42", state={"user": "Ada"}) as stream:
+async with agent.run("Any news on A123?", model=model, tape="customer-42", state={"user": "Ada"}) as stream:
     ...
 
 tape = agent.tape("customer-42")
@@ -194,7 +194,7 @@ event.
 ```python
 agent = Agent(tools=[Tool.from_callable(lookup_order)], command_prefix=",")
 
-async with agent.run([",lookup_order order_id=A123"], model=model, tape="customer-42") as stream:
+async with agent.run(",lookup_order order_id=A123", model=model, tape="customer-42") as stream:
     async for event in stream:
         print(event.kind, event.data)  # text, then final, with the tool's rendered result.
 ```
@@ -226,16 +226,16 @@ async def audit(event: AfterToolCall) -> None:
 agent.events.on(StepFinished, lambda event: print("step", event.step, event.status))
 ```
 
-| Event                          | When                                                     | Handlers may                                                                    |
-| ------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `RunStarted`                   | A run begins                                             | observe the model spec, prompt, and run metadata                                |
-| `StepStarted` / `StepFinished` | A model step begins / ends with a status                 | observe                                                                         |
+| Event                          | When                                                     | Handlers may                                                                                                                     |
+| ------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `RunStarted`                   | A run begins                                             | observe the model spec, prompt, and run metadata                                                                                 |
+| `StepStarted` / `StepFinished` | A model step begins / ends with a status                 | observe                                                                                                                          |
 | `BeforeLlmCall`                | Before each model call                                   | replace `event.request` (model, messages, `max_tokens`), or set `event.decision = LlmCallDecision.finish(text)` to skip the call |
-| `AfterLlmCall`                 | After each completed or failed model call                | observe text, tool calls, usage, and errors                                     |
-| `BeforeToolCall`               | Before each tool call                                    | replace `event.call` to change arguments, or set `ToolCallDecision.replace(result)` / `deny(message)` |
-| `AfterToolCall`                | After each tool call, including denied and replaced ones | assign `event.result.result` to change what the model sees                      |
-| `ChatCompleted`                | A step's exchange is ready to record                     | observe                                                                         |
-| `CommandFinished`              | A command prompt ran (see [Commands](#commands))         | observe the command, status, and output                                         |
+| `AfterLlmCall`                 | After each completed or failed model call                | observe text, tool calls, usage, and errors                                                                                      |
+| `BeforeToolCall`               | Before each tool call                                    | replace `event.call` to change arguments, or set `ToolCallDecision.replace(result)` / `deny(message)`                            |
+| `AfterToolCall`                | After each tool call, including denied and replaced ones | assign `event.result.result` to change what the model sees                                                                       |
+| `ChatCompleted`                | A step's exchange is ready to record                     | observe                                                                                                                          |
+| `CommandFinished`              | A command prompt ran (see [Commands](#commands))         | observe the command, status, and output                                                                                          |
 
 `agent.events.on(EventType, handler)` registers a sync or async handler and returns it; `@agent.events.on(EventType)`
 does the same as a decorator, and `agent.events.off(EventType, handler)` removes it. A handler for `AgentEvent` receives every event.
@@ -316,7 +316,7 @@ Leaving the block closes the stream, even after an early `break` or an exception
 fork merges back, and the trace span ends.
 
 ```python
-async with agent.run(["Check order A123"], model=model, tape="customer-42") as stream:
+async with agent.run("Check order A123", model=model, tape="customer-42") as stream:
     async for event in stream:
         if event.kind == "tool_call":
             break  # The run stops here; what it recorded so far is kept.

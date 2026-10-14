@@ -58,7 +58,7 @@ async def main() -> None:
     # 任意 Republic "provider:model"。API key 从 REPUBLIC_OPENAI_API_KEY 读取。
     async with republic.get_model("openai:gpt-5-mini") as model:
         async with agent.run(
-            ["Where is order A123?"], model=model, options={"max_tokens": 4096}, tape="customer-42"
+            "Where is order A123?", model=model, options={"max_tokens": 4096}, tape="customer-42"
         ) as stream:
             async for event in stream:
                 if event.kind == "text":
@@ -74,16 +74,16 @@ if __name__ == "__main__":
 
 用 `REPUBLIC_OPENAI_API_KEY=... uv run python sdk_example.py` 运行。使用同一个 `tape` 再次运行，会继续保存在 `sessions/` 下的对话。
 
-| `Agent(...)` 参数 | 行为                                                                                                   |
-| ----------------- | ------------------------------------------------------------------------------------------------------ |
-| `store`           | `TapeStore` 或 `AsyncTapeStore`。默认 `InMemoryTapeStore()`。                                          |
-| `tools`           | 模型可调用的 `Tool` 对象，按名字保存在 `agent.tools` 中。                                             |
-| `system_prompt`   | 一个或一组 system prompt section；见 [System prompt](#system-prompt)。                                  |
-| `context`         | 决定哪些 tape 条目进入模型上下文的 `TapeContext`。默认 `default_tape_context()`。                    |
-| `sidecars`        | 挂载到每条 tape 上的 `TapeSidecar` 能力。                                                               |
-| `max_steps`       | 一次运行中最多的模型调用次数。                                                                          |
-| `name`            | 在 `invoke_agent` trace 中上报的 agent 名称。默认 `"agent"`。                                          |
-| `command_prefix`  | 标记命令 prompt 的前缀，例如 `","`；见 [命令](#命令)。默认 `None`，即不启用命令。                       |
+| `Agent(...)` 参数 | 行为                                                                              |
+| ----------------- | --------------------------------------------------------------------------------- |
+| `store`           | `TapeStore` 或 `AsyncTapeStore`。默认 `InMemoryTapeStore()`。                     |
+| `tools`           | 模型可调用的 `Tool` 对象，按名字保存在 `agent.tools` 中。                         |
+| `system_prompt`   | 一个或一组 system prompt section；见 [System prompt](#system-prompt)。            |
+| `context`         | 决定哪些 tape 条目进入模型上下文的 `TapeContext`。默认 `default_tape_context()`。 |
+| `sidecars`        | 挂载到每条 tape 上的 `TapeSidecar` 能力。                                         |
+| `max_steps`       | 一次运行中最多的模型调用次数。                                                    |
+| `name`            | 在 `invoke_agent` trace 中上报的 agent 名称。默认 `"agent"`。                     |
+| `command_prefix`  | 标记命令 prompt 的前缀，例如 `","`；见 [命令](#命令)。默认 `None`，即不启用命令。 |
 
 ## 模型
 
@@ -164,7 +164,7 @@ fork，运行的流关闭时合并回去；传入 `merge_back=False` 则丢弃�
 需要保留的内容请放在你的应用中或写到 tape 上。
 
 ```python
-async with agent.run(["Any news on A123?"], model=model, tape="customer-42", state={"user": "Ada"}) as stream:
+async with agent.run("Any news on A123?", model=model, tape="customer-42", state={"user": "Ada"}) as stream:
     ...
 
 tape = agent.tape("customer-42")
@@ -185,7 +185,7 @@ handoff 一次并重试该 prompt。
 ```python
 agent = Agent(tools=[Tool.from_callable(lookup_order)], command_prefix=",")
 
-async with agent.run([",lookup_order order_id=A123"], model=model, tape="customer-42") as stream:
+async with agent.run(",lookup_order order_id=A123", model=model, tape="customer-42") as stream:
     async for event in stream:
         print(event.kind, event.data)  # 依次是 text 和 final，内容为工具渲染后的结果。
 ```
@@ -217,16 +217,16 @@ async def audit(event: AfterToolCall) -> None:
 agent.events.on(StepFinished, lambda event: print("step", event.step, event.status))
 ```
 
-| 事件                           | 时机                                 | 处理器可以                                                                                       |
-| ------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `RunStarted`                   | 一次运行开始                         | 观察模型 spec、prompt 和运行 metadata                                                            |
-| `StepStarted` / `StepFinished` | 一个模型步骤开始 / 以某个状态结束    | 观察                                                                                             |
-| `BeforeLlmCall`                | 每次模型调用之前                     | 替换 `event.request`（模型、消息、`max_tokens`），或设置 `event.decision = LlmCallDecision.finish(text)` 跳过调用 |
-| `AfterLlmCall`                 | 每次模型调用完成或失败之后           | 观察文本、工具调用、用量和错误                                                                   |
-| `BeforeToolCall`               | 每次工具调用之前                     | 替换 `event.call` 以修改参数，或设置 `ToolCallDecision.replace(result)` / `deny(message)`        |
-| `AfterToolCall`                | 每次工具调用之后，包括被拒绝和被替换的调用 | 赋值 `event.result.result` 以改变模型看到的结果                                           |
-| `ChatCompleted`                | 一个步骤的对话已可记录               | 观察                                                                                             |
-| `CommandFinished`              | 一个命令 prompt 执行完毕（见 [命令](#命令)） | 观察命令、状态和输出                                                                       |
+| 事件                           | 时机                                         | 处理器可以                                                                                                        |
+| ------------------------------ | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `RunStarted`                   | 一次运行开始                                 | 观察模型 spec、prompt 和运行 metadata                                                                             |
+| `StepStarted` / `StepFinished` | 一个模型步骤开始 / 以某个状态结束            | 观察                                                                                                              |
+| `BeforeLlmCall`                | 每次模型调用之前                             | 替换 `event.request`（模型、消息、`max_tokens`），或设置 `event.decision = LlmCallDecision.finish(text)` 跳过调用 |
+| `AfterLlmCall`                 | 每次模型调用完成或失败之后                   | 观察文本、工具调用、用量和错误                                                                                    |
+| `BeforeToolCall`               | 每次工具调用之前                             | 替换 `event.call` 以修改参数，或设置 `ToolCallDecision.replace(result)` / `deny(message)`                         |
+| `AfterToolCall`                | 每次工具调用之后，包括被拒绝和被替换的调用   | 赋值 `event.result.result` 以改变模型看到的结果                                                                   |
+| `ChatCompleted`                | 一个步骤的对话已可记录                       | 观察                                                                                                              |
+| `CommandFinished`              | 一个命令 prompt 执行完毕（见 [命令](#命令)） | 观察命令、状态和输出                                                                                              |
 
 `agent.events.on(EventType, handler)` 注册同步或异步处理器并返回它；`@agent.events.on(EventType)` 以装饰器形式完成同样的注册，
 `agent.events.off(EventType, handler)` 将其移除。为 `AgentEvent` 注册的处理器接收所有事件。处理器按注册顺序执行；
@@ -301,7 +301,7 @@ def approve(event: RefundRequested) -> None:
 离开 `async with` 块时会关闭流，提前 `break` 或抛出异常时也一样：模型流停止、tape fork 合并回去、trace span 结束。
 
 ```python
-async with agent.run(["Check order A123"], model=model, tape="customer-42") as stream:
+async with agent.run("Check order A123", model=model, tape="customer-42") as stream:
     async for event in stream:
         if event.kind == "tool_call":
             break  # 运行在这里停止，已记录的内容会保留。
@@ -321,12 +321,12 @@ async with agent.run(["Check order A123"], model=model, tape="customer-42") as s
 
 继承 `Agent` 可以改变每一步的准备方式。每个方法都会收到本次运行的 tape，其 `context.state` 就是 turn state：
 
-| 方法                                   | 默认行为   | 用途                                       |
-| -------------------------------------- | ---------- | ------------------------------------------ |
-| `prepare_tools(tape, prompt)`          | 全部工具   | 选择下一步模型可见的工具。                 |
-| `pending_messages(tape)`               | 无         | 返回运行期间到达的用户消息。               |
-| `has_pending_messages(tape)`           | `False`    | 有消息等待时让运行再继续一步。             |
-| `continue_prompt(tape, prompt, state)` | `None`     | 在工具调用后返回下一步的用户消息。         |
+| 方法                                   | 默认行为 | 用途                               |
+| -------------------------------------- | -------- | ---------------------------------- |
+| `prepare_tools(tape, prompt)`          | 全部工具 | 选择下一步模型可见的工具。         |
+| `pending_messages(tape)`               | 无       | 返回运行期间到达的用户消息。       |
+| `has_pending_messages(tape)`           | `False`  | 有消息等待时让运行再继续一步。     |
+| `continue_prompt(tape, prompt, state)` | `None`   | 在工具调用后返回下一步的用户消息。 |
 
 ```python
 from bub.core import Tape

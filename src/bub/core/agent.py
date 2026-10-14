@@ -133,7 +133,7 @@ class Agent:
     @asynccontextmanager
     async def run(
         self,
-        prompt: list[UserContent],
+        prompt: str | list[UserContent],
         *,
         model: Model,
         options: Mapping[str, Any] | None = None,
@@ -161,7 +161,7 @@ class Agent:
 
     async def start(
         self,
-        prompt: list[UserContent],
+        prompt: str | list[UserContent],
         *,
         model: Model,
         options: Mapping[str, Any] | None = None,
@@ -195,6 +195,8 @@ class Agent:
             },
         )
         stack = AsyncExitStack()
+        if isinstance(prompt, str):
+            prompt = [prompt]
         try:
             with span.activate():
                 span.messages("gen_ai.input.messages", [republic.user(*prompt)])
