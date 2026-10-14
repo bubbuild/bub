@@ -27,7 +27,7 @@
     "astro-mermaid": "^2.1.0",
     "clsx": "^2.1.1",
     "mermaid": "^11.17.2",
-    "motion": "^13.4.5",
+    "motion": "^14.1.0",
     "satori": "^0.33.5",
     "sharp": "^0.35.5",
     "tailwind-merge": "^3.7.0"
