@@ -265,6 +265,26 @@ async def test_runs_call_the_agent_model_unless_given_one(provider_service: Prov
 
 
 @pytest.mark.asyncio
+async def test_builtin_tools_are_sent_with_function_tools(provider_service: ProviderService) -> None:
+    provider_service.reply(sse(chat_events("searched")))
+    ping = Tool.from_callable(lambda: "pong", name="ping")
+    native = republic.tools.NativeTool("chat", {"type": "custom_search"})
+
+    async with provider_service.client() as client:
+        agent = Agent(model=_model(client), tools=[ping, republic.tools.WebSearch(), native])
+        async with agent.run("search", tape="builtin") as stream:
+            events = [event async for event in stream]
+
+    assert events[-1].data == {"ok": True, "text": "searched"}
+    assert list(agent.tools) == ["ping"]
+    assert agent.builtin_tools == [republic.tools.WebSearch(), native]
+    body = provider_service.body()
+    assert body["tools"][0]["function"]["name"] == "ping"
+    assert body["tools"][1] == {"type": "custom_search"}
+    assert "web_search_options" in body
+
+
+@pytest.mark.asyncio
 async def test_runs_without_a_model_raise_unless_they_are_commands() -> None:
     agent = Agent(tools=[Tool.from_callable(lambda: "pong", name="ping")], command_prefix="/")
 

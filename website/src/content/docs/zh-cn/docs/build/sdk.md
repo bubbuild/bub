@@ -78,7 +78,7 @@ if __name__ == "__main__":
 | ----------------- | --------------------------------------------------------------------------------- |
 | `model`           | 未传入模型的运行所用的默认模型；见 [模型](#模型)。默认 `None`，即每次运行都需传入。 |
 | `store`           | `TapeStore` 或 `AsyncTapeStore`。默认 `InMemoryTapeStore()`。                     |
-| `tools`           | 模型可调用的 `Tool` 对象，按名字保存在 `agent.tools` 中。                         |
+| `tools`           | 模型可调用的 `Tool` 对象，按名字保存在 `agent.tools` 中；也可传入由 provider 自行执行的 Republic 内置工具（如 `republic.tools.WebSearch()`），保存在 `agent.builtin_tools` 中，随每次模型调用发送。 |
 | `system_prompt`   | 一个或一组 system prompt section；见 [System prompt](#system-prompt)。            |
 | `context`         | 决定哪些 tape 条目进入模型上下文的 `TapeContext`。默认 `default_tape_context()`。 |
 | `sidecars`        | 挂载到每条 tape 上的 `TapeSidecar` 能力。                                         |
