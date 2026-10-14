@@ -1,8 +1,8 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "bub",
-  // The newest date the pinned `wrangler` binary can actually run. Going past it
-  // breaks `pnpm dev` / `pnpm preview`; see DEPLOYMENT.md before moving this.
+  // Must not be newer than the `workerd` bundled with the pinned `wrangler`, or
+  // `pnpm dev` / `pnpm preview` refuse to start.
   "compatibility_date": "2026-10-13",
   "observability": {
     "enabled": false,
