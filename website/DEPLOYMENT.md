@@ -46,6 +46,10 @@ server state. The generated Worker should have only the `ASSETS` binding, with
 no automatically provisioned `SESSION` KV namespace. Verify this with
 `pnpm wrangler versions upload --dry-run` after building.
 
+`compatibility_date` stops one day before `2026-08-04`, where Cloudflare starts
+enabling the `nodejs_compat` flags for every Worker and the upload grows. To
+cross that line, check the size with `pnpm exec wrangler deploy --dry-run`.
+
 GitHub repo stats are snapshotted during `pnpm build` into
 `src/data/github-snapshot.ts`. The Worker does not call the GitHub API at
 runtime, so `GITHUB_TOKEN` only needs to exist as a build secret.
