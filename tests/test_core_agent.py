@@ -246,6 +246,38 @@ async def test_commands_are_disabled_without_a_prefix(provider_service: Provider
 
 
 @pytest.mark.asyncio
+async def test_runs_call_the_agent_model_unless_given_one(provider_service: ProviderService) -> None:
+    provider_service.reply(sse(chat_events("default answer")))
+    provider_service.reply(sse(chat_events("override answer")))
+
+    async with provider_service.client() as client:
+        default = republic.get_model("openai:default", http_client=client, api_format="chat", api_key="test")
+        override = republic.get_model("openai:override", http_client=client, api_format="chat", api_key="test")
+        agent = Agent(model=default)
+        async with agent.run("hello", tape="plain") as stream:
+            default_events = [event async for event in stream]
+        async with agent.run("again", model=override, tape="plain") as stream:
+            override_events = [event async for event in stream]
+
+    assert default_events[-1].data == {"ok": True, "text": "default answer"}
+    assert override_events[-1].data == {"ok": True, "text": "override answer"}
+    assert [provider_service.body(index)["model"] for index in (0, 1)] == ["default", "override"]
+
+
+@pytest.mark.asyncio
+async def test_runs_without_a_model_raise_unless_they_are_commands() -> None:
+    agent = Agent(tools=[Tool.from_callable(lambda: "pong", name="ping")], command_prefix="/")
+
+    async with agent.run("/ping", tape="plain") as stream:
+        events = [event async for event in stream]
+    assert events[-1].data == {"text": "pong", "ok": True}
+
+    with pytest.raises(ValueError, match="no model to run"):
+        async with agent.run("hello", tape="plain") as stream:
+            [event async for event in stream]
+
+
+@pytest.mark.asyncio
 async def test_command_tool_calls_emit_tool_events_that_can_deny_them() -> None:
     def greet(name: str, punctuation: str = "!") -> str:
         return f"hello {name}{punctuation}"

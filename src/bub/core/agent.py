@@ -1,4 +1,4 @@
-"""Agent loop over tools, a system prompt and a tape store, calling the model given to each run."""
+"""Agent loop over tools, a system prompt and a tape store, calling its model or the one given to a run."""
 
 from __future__ import annotations
 
@@ -53,11 +53,12 @@ T = TypeVar("T", bound=TapeEvent)
 class Agent:
     """Run the agent loop: call the model, execute its tool calls, repeat until it answers.
 
-    The agent owns no configuration, model or session: each run is given the model to
-    call, a ``republic.ChatModel`` or a :class:`~bub.core.model.ModelClient`, and its
-    generation options. The agent is assembled from its components:
+    The agent owns no configuration or session. A run calls the model given to it, or
+    else the agent's ``model``: a ``republic.ChatModel`` or a
+    :class:`~bub.core.model.ModelClient`. The agent is assembled from its components:
 
     Args:
+        model: Default model of runs not given one; None requires each run to give one.
         store: Tape store holding conversations; each run works on one named tape in it.
             Defaults to an in-memory store.
         tools: Tools the model may call, kept by name in ``tools``.
@@ -85,6 +86,7 @@ class Agent:
     def __init__(
         self,
         *,
+        model: Model | None = None,
         store: TapeStore | AsyncTapeStore | None = None,
         tools: Iterable[Tool] = (),
         system_prompt: SystemPrompt | PromptSection | Iterable[PromptSection] = (),
@@ -94,6 +96,7 @@ class Agent:
         name: str = "agent",
         command_prefix: str | None = None,
     ) -> None:
+        self.model = model
         self.tools = {tool.name: tool for tool in tools}
         self.system_prompt = SystemPrompt.of(system_prompt)
         if store is None:
@@ -135,18 +138,18 @@ class Agent:
         self,
         prompt: str | list[UserContent],
         *,
-        model: Model,
+        model: Model | None = None,
         options: Mapping[str, Any] | None = None,
         tape: str,
         state: TurnState | None = None,
         merge_back: bool = True,
         metadata: dict[str, Any] | None = None,
     ) -> AsyncGenerator[AsyncStreamEvents]:
-        """Run ``model`` on tape ``tape``; iterate the yielded stream to drive the loop.
+        """Run ``model``, or the agent's model, on tape ``tape``; iterate the yielded stream to drive the loop.
 
         ::
 
-            async with agent.run(prompt, model=model, tape="session") as stream:
+            async with agent.run(prompt, tape="session") as stream:
                 async for event in stream:
                     ...
 
@@ -163,16 +166,19 @@ class Agent:
         self,
         prompt: str | list[UserContent],
         *,
-        model: Model,
+        model: Model | None = None,
         options: Mapping[str, Any] | None = None,
         tape: str,
         state: TurnState | None = None,
         merge_back: bool = True,
         metadata: dict[str, Any] | None = None,
     ) -> AsyncStreamEvents:
-        """Start a run of ``model`` on tape ``tape`` and return its stream; the caller must close it.
+        """Start a run on tape ``tape`` and return its stream; the caller must close it.
 
         Prefer :meth:`run`; use this to hand the stream to code that consumes and closes it.
+
+        The run calls ``model``, or the agent's ``model`` when it is None; a run that
+        calls a model without either raises ``ValueError``.
 
         ``options`` are ``republic.ChatOptions`` (such as ``max_tokens`` or ``temperature``)
         sent with every model call of the run.
@@ -224,11 +230,11 @@ class Agent:
         tape: Tape,
         prompt: list[UserContent],
         *,
-        model: Model,
+        model: Model | None = None,
         options: Mapping[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> AsyncStreamEvents:
-        """Start a run of ``model`` on an already open tape; the caller owns the tape's lifecycle.
+        """Start a run on an already open tape; the caller owns the tape's lifecycle.
 
         A command prompt (see :meth:`command_line`) runs as a command instead, without calling the model.
         """
@@ -238,7 +244,7 @@ class Agent:
                 StreamEvent("text", {"delta": result}),
                 StreamEvent("final", {"text": result, "ok": True}),
             ])
-        client = model_client(model)
+        client = self._model_client(model)
         await self._emit(RunStarted, tape, model=client.spec, prompt=prompt, metadata=dict(metadata or {}))
         state = StreamState()
         return AsyncStreamEvents(self._run_steps(tape, client, dict(options or {}), prompt, state), state=state)
@@ -247,18 +253,25 @@ class Agent:
         self,
         prompt: list[UserContent] | None,
         *,
-        model: Model,
+        model: Model | None = None,
         options: Mapping[str, Any] | None = None,
         tape: Tape,
     ) -> AsyncStreamEvents:
-        """Make one call to ``model`` on an open tape and execute the tool calls it returns.
+        """Make one call to ``model``, or the agent's model, on an open tape and execute the tool calls it returns.
 
         ``prompt`` is the new user message; ``None`` continues the existing conversation.
         """
         state = StreamState()
         return AsyncStreamEvents(
-            self._run_once(tape, model_client(model), dict(options or {}), prompt, state), state=state
+            self._run_once(tape, self._model_client(model), dict(options or {}), prompt, state), state=state
         )
+
+    def _model_client(self, model: Model | None) -> ModelClient:
+        if model is None:
+            model = self.model
+        if model is None:
+            raise ValueError("no model to run: pass model to the run or to the agent")
+        return model_client(model)
 
     def command_line(self, prompt: list[UserContent]) -> str | None:
         """Return the command of a text prompt starting with the command prefix, or None."""

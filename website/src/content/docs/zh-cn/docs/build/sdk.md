@@ -6,7 +6,7 @@ sidebar:
 ---
 
 `bub.core` 是 Bub 的 agent 内核。它的 `Agent` 运行 agent loop（调用模型、执行模型请求的工具、重复直到模型给出回答），
-所用的组件都由你提供：工具、system prompt section 和 tape store，以及每次运行时传入的 Republic 模型。
+所用的组件都由你提供：工具、system prompt section 和 tape store，以及传给 agent 或每次运行的 Republic 模型。
 它不读取 Bub 的 settings，也不加载插件，因此可以嵌入任何应用。
 
 Bub 自身的运行时也构建在这个内核之上：`bub.builtin.BubAgent` 在其上加入 settings、插件钩子、skills、命令和 steering。
@@ -76,6 +76,7 @@ if __name__ == "__main__":
 
 | `Agent(...)` 参数 | 行为                                                                              |
 | ----------------- | --------------------------------------------------------------------------------- |
+| `model`           | 未传入模型的运行所用的默认模型；见 [模型](#模型)。默认 `None`，即每次运行都需传入。 |
 | `store`           | `TapeStore` 或 `AsyncTapeStore`。默认 `InMemoryTapeStore()`。                     |
 | `tools`           | 模型可调用的 `Tool` 对象，按名字保存在 `agent.tools` 中。                         |
 | `system_prompt`   | 一个或一组 system prompt section；见 [System prompt](#system-prompt)。            |
@@ -87,13 +88,18 @@ if __name__ == "__main__":
 
 ## 模型
 
-每次运行调用传入的模型，因此同一个 agent 可以用不同模型服务不同的运行。传入 `republic.get_model()` 得到的 Republic
+每次运行调用传入的模型，未传入时调用 agent 的 `model`，因此同一个 agent 可以用不同模型服务不同的运行；两者都没有时，
+需要调用模型的运行会抛出 `ValueError`。传入 `republic.get_model()` 得到的 Republic
 chat model 即可；它的生命周期归你管理，请在使用它的运行外层用 `async with` 打开（或自行关闭）。凭据和端点属于 Republic
 的客户端参数：
 
 ```python
 model = republic.get_model("openai:gpt-5-mini", api_key="...", api_base="https://example.test/v1")
 async with agent.run(prompt, model=model, options={"max_tokens": 4096, "temperature": 0.2}, tape="t") as stream:
+    ...
+
+agent = Agent(model=model)  # 未传入模型的运行调用它
+async with agent.run(prompt, tape="t") as stream:
     ...
 ```
 

@@ -7,7 +7,7 @@ sidebar:
 
 `bub.core` is Bub's agent kernel. Its `Agent` runs the agent loop (call the model, execute the tools it asks for,
 repeat until it answers) over components you supply: tools, system prompt sections, and a tape store, plus the
-Republic model passed to each run. It reads no Bub settings and loads no plugins, so it embeds in any application.
+Republic model it calls, given to the agent or to each run. It reads no Bub settings and loads no plugins, so it embeds in any application.
 
 Bub's own runtime is built on the same kernel: `bub.builtin.BubAgent` adds settings, plugin hooks, skills,
 commands, and steering.
@@ -78,6 +78,7 @@ continues the conversation stored under `sessions/`.
 
 | `Agent(...)` parameter | Behavior                                                                                                          |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `model`                | Default model of runs not given one; see [Models](#models). `None` (the default) requires each run to give one.   |
 | `store`                | A `TapeStore` or `AsyncTapeStore`. Defaults to `InMemoryTapeStore()`.                                             |
 | `tools`                | `Tool` objects the model may call, kept by name in `agent.tools`.                                                 |
 | `system_prompt`        | One system prompt section or a list of them; see [System prompt](#system-prompt).                                 |
@@ -89,13 +90,18 @@ continues the conversation stored under `sessions/`.
 
 ## Models
 
-A run calls the model it is given, so one agent can serve runs with different models. Pass a Republic chat model
-from `republic.get_model()`; its lifecycle belongs to you, so open it with `async with` (or close it) around the
-runs that use it. Credentials and endpoints are Republic client options:
+A run calls the model it is given, or else the agent's `model`, so one agent can serve runs with different models;
+a run that calls a model without either raises `ValueError`. Pass a Republic chat model from `republic.get_model()`;
+its lifecycle belongs to you, so open it with `async with` (or close it) around the runs that use it. Credentials and
+endpoints are Republic client options:
 
 ```python
 model = republic.get_model("openai:gpt-5-mini", api_key="...", api_base="https://example.test/v1")
 async with agent.run(prompt, model=model, options={"max_tokens": 4096, "temperature": 0.2}, tape="t") as stream:
+    ...
+
+agent = Agent(model=model)  # runs not given a model call this one
+async with agent.run(prompt, tape="t") as stream:
     ...
 ```
 
