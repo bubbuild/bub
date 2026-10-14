@@ -46,9 +46,23 @@ server state. The generated Worker should have only the `ASSETS` binding, with
 no automatically provisioned `SESSION` KV namespace. Verify this with
 `pnpm wrangler versions upload --dry-run` after building.
 
-`compatibility_date` stops one day before `2026-08-04`, where Cloudflare starts
-enabling the `nodejs_compat` flags for every Worker and the upload grows. To
-cross that line, check the size with `pnpm exec wrangler deploy --dry-run`.
+`compatibility_date` is `2026-10-13`, one day behind the current date. Cloudflare
+advises setting it as close to the current date as possible, but the local
+toolchain sets the ceiling: `wrangler` bundles the `workerd` binary, and a date
+newer than that binary supports makes `pnpm dev` and `pnpm preview` refuse to
+start with `This Worker requires compatibility date X, but the newest date
+supported by this server binary is Y`. With `wrangler` 4.149.0 (`workerd`
+1.20261006.1) the newest usable date is `2026-10-13`; `2026-10-14` fails. Bump
+`wrangler` before moving the date forward.
+
+Crossing `2026-08-04` enables `nodejs_compat` and `nodejs_compat_v2` for every
+Worker, so the `node:` builtins imported by the SSR bundle resolve at runtime
+instead of throwing. It does not change the upload size here: the Astro adapter
+emits `no_bundle: true`, so Wrangler never bundles the Worker and never injects
+the `unenv` polyfills the Node.js compatibility docs describe. Re-checked with
+`pnpm exec wrangler deploy --dry-run` on a single build across every date from
+`2026-08-03` through `2026-10-14`: byte-identical output, 557 modules, same
+gzip size. Keep using that command to re-check the size.
 
 GitHub repo stats are snapshotted during `pnpm build` into
 `src/data/github-snapshot.ts`. The Worker does not call the GitHub API at
