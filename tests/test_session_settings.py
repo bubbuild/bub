@@ -11,7 +11,7 @@ from bub.tools import ToolContext
 
 
 def _context(tmp_path: Path) -> ToolContext:
-    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("session")
+    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("session")
     return ToolContext(tape=tape, run_id="run-1", state={})
 
 

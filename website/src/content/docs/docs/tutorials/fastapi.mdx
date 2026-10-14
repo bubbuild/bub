@@ -1,0 +1,126 @@
+---
+title: Serve a Bub agent with FastAPI
+description: Expose a bub.core agent over HTTP with FastAPI, with one conversation per session.
+sidebar:
+  order: 7
+---
+
+This tutorial serves an agent built from `bub.core` as an HTTP API. Each request names a session; requests with
+the same session continue one conversation, stored as a tape on disk.
+
+You need Python 3.12+ and an API key for a model provider. The example uses OpenAI through
+[Republic](https://github.com/bubbuild/republic); any Republic `provider:model` spec works.
+
+## Install
+
+```bash
+uv init bub-api && cd bub-api
+uv add bub fastapi uvicorn
+```
+
+## Write the app
+
+Save this as `app.py`:
+
+```python
+import asyncio
+from collections import defaultdict
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import republic
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
+
+from bub.core import Agent, Tool
+from bub.core.store import FileTapeStore
+
+
+async def lookup_order(order_id: str) -> dict[str, str]:
+    """Look up the status of an order."""
+    # Replace this demonstration response with your application's order service.
+    return {"order_id": order_id, "status": "shipped"}
+
+
+def create_agent() -> Agent:
+    return Agent(
+        store=FileTapeStore(Path(__file__).resolve().parent / "sessions"),
+        tools=[Tool.from_callable(lookup_order)],
+        system_prompt=[
+            "You are an order assistant. Reply directly to the user.",
+            "Use lookup_order to check order status before answering.",
+        ],
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # The key comes from REPUBLIC_OPENAI_API_KEY.
+    async with republic.get_model("openai:gpt-5-mini") as model:
+        app.state.agent = create_agent()
+        app.state.model = model
+        app.state.session_locks = defaultdict(asyncio.Lock)
+        yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+class Task(BaseModel):
+    session_id: str
+    prompt: str
+
+
+@app.post("/tasks")
+async def run_task(task: Task, request: Request):
+    state = request.app.state
+    # Runs on one session's tape must not overlap; different sessions run concurrently.
+    async with state.session_locks[task.session_id]:
+        parts: list[str] = []
+        error: str | None = None
+        async with state.agent.run([task.prompt], model=state.model, tape=task.session_id) as stream:
+            async for event in stream:
+                if event.kind == "text":
+                    parts.append(str(event.data.get("delta", "")))
+                elif event.kind == "error":
+                    error = str(event.data.get("message", "Agent failed"))
+        if error is not None:
+            raise HTTPException(status_code=502, detail=error)
+        return {"session_id": task.session_id, "output": "".join(parts)}
+```
+
+The lifespan opens the Republic model once and closes it on shutdown. The agent keeps no per-run state, so one
+instance serves every request; each run works on a fork of the session's tape that merges back when the
+`async with agent.run(...)` block exits, even if the run fails.
+
+## Run it
+
+```bash
+REPUBLIC_OPENAI_API_KEY=... uv run uvicorn app:app
+```
+
+In another terminal, start a conversation and continue it with the same `session_id`:
+
+```bash
+curl -s localhost:8000/tasks -H 'content-type: application/json' \
+  -d '{"session_id": "customer-42", "prompt": "Where is order A123?"}'
+
+curl -s localhost:8000/tasks -H 'content-type: application/json' \
+  -d '{"session_id": "customer-42", "prompt": "And when did it ship?"}'
+```
+
+The second answer can refer to the first because both runs read the `customer-42` tape under `sessions/`.
+
+## Before deploying
+
+- `session_locks` grows with every session; evict idle locks in a long-running service.
+- The locks only serialize runs inside one process. Multiple worker processes sharing a store need coordination
+  across workers, such as a lock in your database; a file write lock does not serialize a run.
+- `FileTapeStore` suits one host. Use a database-backed store, as in
+  [Persist tapes in SQLite with SQLAlchemy](/docs/tutorials/tapestore-sqlalchemy/), when several hosts share
+  sessions.
+
+## Next steps
+
+- Add tools, system prompt sections, and event handlers: read the [Python SDK](/docs/build/sdk/) guide.
+- Trace requests end to end: read [Observe Bub with tapes, Phoenix, and Logfire](/docs/tutorials/observability/).

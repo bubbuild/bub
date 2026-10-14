@@ -8,14 +8,13 @@ import httpx2
 import pytest
 from pydantic import ValidationError
 
-from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import DEFAULT_MODEL, AgentSettings, load_settings
 from bub.builtin.spill import SpillSettings
 from bub.configure import ensure_config
 from bub.prompt import to_content
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
-from tests.model_fakes import ProviderService, chat_events, sse
+from tests.model_fakes import ProviderService, StepRunner, chat_events, sse
 
 
 def _settings_with_env(env: dict[str, str]) -> AgentSettings:
@@ -187,10 +186,10 @@ model: openrouter:openrouter/free
 
 
 async def _run(settings: AgentSettings, tmp_path: Path) -> str:
-    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("settings")
+    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("settings")
     events = [
         event
-        async for event in ModelRunner(settings).run(
+        async for event in StepRunner(settings).run(
             tape=tape, model=settings.model, tools=[], system_prompt=None, prompt=to_content("Hello")
         )
     ]
@@ -365,3 +364,18 @@ def test_model_clients_identify_as_bub() -> None:
     assert provider.headers["User-Agent"] == f"bub/{bub.__version__}"
     custom = AgentSettings(api_key="sk-test", client_args={"headers": {"User-Agent": "mine", "X-Team": "a"}})
     assert custom.model_client_kwargs("openai")["headers"] == {"User-Agent": "mine", "X-Team": "a"}
+
+
+def test_bub_model_resolves_custom_providers_and_default_fallbacks() -> None:
+    from bub.builtin.model import BubModel
+
+    model = BubModel(
+        "relay:gpt", fallbacks=["OpenAI:mini"], providers={"relay": "openai"}, client_options=lambda name: {"n": name}
+    )
+
+    assert [(c.provider, c.model_id, c.provider_name) for c in model.candidates()] == [
+        ("openai", "gpt", "relay"),
+        ("openai", "mini", None),
+    ]
+    assert [c.name for c in model.candidates("anthropic:claude")] == ["anthropic:claude"]
+    assert model.client_kwargs("relay") == {"n": "relay"}

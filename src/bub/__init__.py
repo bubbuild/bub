@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from bub.configure import Settings, config, ensure_config
+from bub.core.tools import tool
 from bub.framework import DEFAULT_HOME, BubFramework
 from bub.hooks import hookimpl
-from bub.tools import tool
 
 __all__ = [
     "BubFramework",

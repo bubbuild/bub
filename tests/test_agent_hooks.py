@@ -11,15 +11,14 @@ import pytest
 import republic
 from republic.errors import StreamIncompleteError
 
-from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
 from bub.errors import BubError
 from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
 from bub.hooks.interception import (
-    AgentHooks,
     LlmCallDecision,
     LlmCallRequest,
     LlmCallResult,
+    PluginAgentHooks,
     ToolCall,
     ToolCallDecision,
     ToolCallResult,
@@ -29,15 +28,15 @@ from bub.prompt import to_content
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
 from bub.tools import Tool, ToolExecutor
-from tests.model_fakes import ProviderService, sse
+from tests.model_fakes import ProviderService, StepRunner, sse
 
 
-def make_hooks(*plugins: Any) -> AgentHooks:
+def make_hooks(*plugins: Any) -> PluginAgentHooks:
     pm = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
     pm.add_hookspecs(BubHookSpecs)
     for plugin in plugins:
         pm.register(plugin)
-    return AgentHooks(HookRuntime(pm))
+    return PluginAgentHooks(HookRuntime(pm))
 
 
 def request() -> LlmCallRequest:
@@ -156,8 +155,8 @@ class TestToolExecutorIntegration:
             def before_tool_call(self, call: ToolCall, state: dict) -> ToolCallDecision:
                 return ToolCallDecision.deny("blocked by policy")
 
-        executor = ToolExecutor(hooks=make_hooks(Deny()))
-        execution = await executor.execute_async([(self.tool(), {"cmd": "rm -rf /"})])
+        executor = ToolExecutor(make_hooks(Deny()).subscribe())
+        execution = await executor.execute_many([(self.tool(), {"cmd": "rm -rf /"})])
         assert execution.error is not None
         assert "blocked by policy" in execution.error.message
         assert execution.tool_results[0]["message"] == "blocked by policy"
@@ -169,8 +168,8 @@ class TestToolExecutorIntegration:
             def before_tool_call(self, call: ToolCall, state: dict) -> ToolCallDecision:
                 return ToolCallDecision.replace("cached result")
 
-        executor = ToolExecutor(hooks=make_hooks(Replace()))
-        execution = await executor.execute_async([(self.tool(), {"cmd": "ls"})])
+        executor = ToolExecutor(make_hooks(Replace()).subscribe())
+        execution = await executor.execute_many([(self.tool(), {"cmd": "ls"})])
         assert execution.error is None
         assert execution.tool_results == ["cached result"]
 
@@ -186,9 +185,9 @@ class TestToolExecutorIntegration:
         def failing(cmd: str) -> str:
             raise ValueError("nope")
 
-        executor = ToolExecutor(hooks=make_hooks(Observe()))
-        await executor.execute_async([(self.tool(), {"cmd": "ls"})])
-        await executor.execute_async([(Tool(name="bad", handler=failing, description="", parameters={}), {"cmd": "x"})])
+        executor = ToolExecutor(make_hooks(Observe()).subscribe())
+        await executor.execute_many([(self.tool(), {"cmd": "ls"})])
+        await executor.execute_many([(Tool(name="bad", handler=failing, description="", parameters={}), {"cmd": "x"})])
         assert observed[0].result == "ran:ls"
         assert observed[0].error is None
         assert isinstance(observed[1].error, BubError)  # original error object, kind/details preserved
@@ -203,8 +202,8 @@ class TestToolExecutorIntegration:
                 if isinstance(result.result, str):
                     result.result = f"bounded:{result.result}"
 
-        executor = ToolExecutor(hooks=make_hooks(BoundResult()))
-        execution = await executor.execute_async([(self.tool(), {"cmd": "ls"})])
+        executor = ToolExecutor(make_hooks(BoundResult()).subscribe())
+        execution = await executor.execute_many([(self.tool(), {"cmd": "ls"})])
 
         assert execution.tool_results == ["bounded:ran:ls"]
 
@@ -215,13 +214,13 @@ class TestToolExecutorIntegration:
             def before_tool_call(self, call: ToolCall, state: dict) -> ToolCallDecision:
                 return ToolCallDecision.proceed(arguments={"cmd": "safe-ls"})
 
-        executor = ToolExecutor(hooks=make_hooks(Rewrite()))
-        execution = await executor.execute_async([(self.tool(), {"cmd": "rm"})])
+        executor = ToolExecutor(make_hooks(Rewrite()).subscribe())
+        execution = await executor.execute_many([(self.tool(), {"cmd": "rm"})])
         assert execution.tool_results == ["ran:safe-ls"]
 
     @pytest.mark.asyncio
     async def test_no_hooks_keeps_current_behavior(self) -> None:
-        execution = await ToolExecutor().execute_async([(self.tool(), {"cmd": "ls"})])
+        execution = await ToolExecutor().execute_many([(self.tool(), {"cmd": "ls"})])
         assert execution.tool_results == ["ran:ls"]
 
 
@@ -268,14 +267,14 @@ class TestBeforeLlmCallFinish:
 class TestModelRunnerHookIntegration:
     """Regression tests for PR #255 review findings (effective request, exactly-once)."""
 
-    def _runner_and_tape(self, hooks: AgentHooks, tmp_path: Path, api_format: str | None = None):
-        runner = ModelRunner(
+    def _runner_and_tape(self, hooks: PluginAgentHooks, tmp_path: Path, api_format: str | None = None):
+        runner = StepRunner(
             AgentSettings(
                 model="openai:orig", max_tokens=100, client_args={"api_format": api_format} if api_format else {}
             ),
             hooks=hooks,
         )
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("t1")
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("t1")
         return runner, tape
 
     @pytest.mark.asyncio
@@ -417,11 +416,9 @@ class TestToolCancellation:
             await asyncio.Event().wait()  # blocks until cancelled
             return "unreachable"
 
-        executor = ToolExecutor(hooks=make_hooks(Observe()))
+        executor = ToolExecutor(make_hooks(Observe()).subscribe())
         task = asyncio.create_task(
-            executor.execute_async([
-                (Tool(name="block", handler=blocking, description="", parameters={}), {"cmd": "x"})
-            ])
+            executor.execute_many([(Tool(name="block", handler=blocking, description="", parameters={}), {"cmd": "x"})])
         )
         await started.wait()
         task.cancel()

@@ -17,18 +17,18 @@ from loguru import logger
 from bub import configure
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import ChannelRouter, MessageHandler
+from bub.core.sidecars import TapeSidecar
+from bub.core.store import AsyncTapeStore, TapeStore
+from bub.core.tape import Tape, TapeContext
 from bub.envelope import Envelope, content_of, field_of, unpack_batch
 from bub.environment import ENVIRONMENT_STATE_KEY, Environment
 from bub.errors import BubError, ErrorKind
-from bub.hooks.interception import AgentHooks
+from bub.hooks.interception import PluginAgentHooks
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.model_selection import ModelOptions
 from bub.prompt import UserContent, to_content, to_legacy_prompt
-from bub.sidecars import TapeSidecar
-from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import StreamState
-from bub.tape import Tape, TapeContext
 from bub.turn import TurnResult, TurnState
 from bub.utils import maybe_context_manager
 
@@ -60,7 +60,7 @@ class BubFramework:
         self._plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
         self._plugin_manager.add_hookspecs(BubHookSpecs)
         self._hook_runtime = HookRuntime(self._plugin_manager)
-        self._agent_hooks = AgentHooks(self._hook_runtime)
+        self._agent_hooks = PluginAgentHooks(self._hook_runtime)
         self._plugin_status: dict[str, PluginStatus] = {}
         self._channel_router: ChannelRouter | None = None
         self._tape_store: TapeStore | AsyncTapeStore | None = None
@@ -471,7 +471,7 @@ class BubFramework:
         """Return the inbox acquired by ``running()``, or None when unavailable."""
         return self._steering_inbox
 
-    def get_agent_hooks(self) -> AgentHooks:
+    def get_agent_hooks(self) -> PluginAgentHooks:
         """Return the model and tool interception adapter for this framework's hooks."""
         return self._agent_hooks
 

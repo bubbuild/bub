@@ -84,9 +84,9 @@ The default observer (`BuiltinImpl.on_error`) sends an error envelope through `d
 `BuiltinImpl` (registered as `builtin`) implements every hook above with sensible defaults:
 
 - `resolve_session` — uses the envelope's `session_id` if present, otherwise `f"{channel}:{chat_id}"`.
-- `load_state` — opens the inbound's optional `lifespan`, seeds `session_id` and an internal `_runtime_agent`.
-- `build_prompt` — handles comma commands (`,help`, `,skill`, ...), wraps text with timestamp and context, and emits multimodal parts when media is attached.
-- `run_model` / `run_model_stream` — delegate to `Agent.run` / `Agent.run_stream`, the [Republic](https://github.com/bubbuild/republic)-backed loop with tool use and auto-handoff (see [Tape and context](/docs/concepts/tape-and-context/)).
+- `load_state` — opens the inbound's optional `lifespan`, seeds `session_id` and an internal `_runtime_agent`, and restores session settings (model, reasoning effort, code mode) recorded on the session tape.
+- `build_prompt` — marks command prompts (`,help`, `,skill`, ...) and passes them through unchanged for the agent to run, wraps other text with timestamp and context, and emits multimodal parts when media is attached.
+- `run_model_stream` — runs the turn with `BubAgent.run_stream()`, built on the `bub.core` agent loop with [Republic](https://github.com/bubbuild/republic) models, tool use, commands, and auto-handoff (see [Tape and context](/docs/concepts/tape-and-context/)). The builtin plugin does not implement `run_model`; non-streaming callers get the collected text through the adapter described above.
 - `save_state` — closes the per-message lifespan with the captured exception info.
 - `render_outbound` — wraps `model_output` into one `ChannelMessage` carrying the inbound's routing fields.
 - `dispatch_outbound` — forwards through the bound `ChannelRouter`.

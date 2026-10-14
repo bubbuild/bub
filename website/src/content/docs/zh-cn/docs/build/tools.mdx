@@ -109,7 +109,7 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 REGISTRY: dict[str, Tool] = {}
 ```
 
-每一次 `@tool` 调用都会在**导入时**修改这个字典。`Agent(tools=None)` 在创建时取得其快照，之后导入的工具不会自动更新已有 Agent。可直接向实例的 `Agent.tools` 添加工具，标记 `deferred=True` 即可[按需加载](#按需加载工具)。
+每一次 `@tool` 调用都会在**导入时**修改这个字典。`BubAgent(tools=None)` 在创建时取得其快照，之后导入的工具不会自动更新已有 Agent。可直接向实例的 `BubAgent.tools` 添加工具，标记 `deferred=True` 即可[按需加载](#按需加载工具)。
 
 ## 在插件里导入工具模块
 

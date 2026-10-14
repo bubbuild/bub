@@ -9,6 +9,7 @@ import pytest
 
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.channels.message import ChannelMessage
+from bub.core.tape import session_tape_name
 from bub.framework import BubFramework
 from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
 from bub.streaming import AsyncStreamEvents, StreamEvent
@@ -30,7 +31,6 @@ class RecordingLifespan:
 
 def _fake_tape(home: Path) -> Tape:
     return Tape(
-        archive_path=home / "tapes",
         store=AsyncTapeStoreAdapter(InMemoryTapeStore()),
         context=TapeContext(),
     )
@@ -43,9 +43,12 @@ class FakeAgent:
         self.tools = REGISTRY.copy()
         # A real in-memory async tape so load_state's recovery path runs against
         # the same store the tests write `model_switch` events to.
-        self.tape = tape if tape is not None else _fake_tape(home)
+        self.tapes = tape if tape is not None else _fake_tape(home)
         self.run_calls: list[tuple[str, str, dict[str, object]]] = []
         self.run_stream_calls: list[tuple[str, str, dict[str, object], str | None]] = []
+
+    def tape(self, name: str) -> Tape:
+        return self.tapes.scoped(name)
 
     async def run(self, *, session_id: str, prompt: str, state: dict[str, object]) -> str:
         self.run_calls.append((session_id, prompt, state))
@@ -134,7 +137,7 @@ async def test_load_state_and_save_state_manage_lifespan_and_context(tmp_path: P
 async def test_load_state_injects_model_recorded_on_session_tape(tmp_path: Path) -> None:
     """A model_switch event recorded on the session tape is restored into state on load."""
     _, impl, agent = _build_impl(tmp_path)
-    session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
+    session = agent.tape(session_tape_name("resolved-session", impl.framework.workspace))
     await session.append_event("model_switch", {"model": "openai:gpt-4o"})
 
     message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
@@ -147,7 +150,7 @@ async def test_load_state_injects_model_recorded_on_session_tape(tmp_path: Path)
 @pytest.mark.asyncio
 async def test_load_state_injects_reasoning_effort_recorded_on_session_tape(tmp_path: Path) -> None:
     _, impl, agent = _build_impl(tmp_path)
-    session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
+    session = agent.tape(session_tape_name("resolved-session", impl.framework.workspace))
     await session.append_event("reasoning_effort_switch", {"reasoning_effort": "high"})
 
     message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
@@ -160,7 +163,7 @@ async def test_load_state_injects_reasoning_effort_recorded_on_session_tape(tmp_
 @pytest.mark.asyncio
 async def test_load_state_injects_latest_code_mode_recorded_on_session_tape(tmp_path: Path) -> None:
     _, impl, agent = _build_impl(tmp_path)
-    session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
+    session = agent.tape(session_tape_name("resolved-session", impl.framework.workspace))
     await session.append_event("code_mode_switch", {"code_mode": True})
     await session.append_event("code_mode_switch", {"code_mode": False})
     message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
@@ -188,7 +191,7 @@ async def test_load_state_does_not_inject_model_for_unknown_session(tmp_path: Pa
 async def test_load_state_restores_latest_recorded_model(tmp_path: Path) -> None:
     """When several switches were recorded, the most recent one wins."""
     _, impl, agent = _build_impl(tmp_path)
-    session = agent.tape.session_tape("resolved-session", impl.framework.workspace)
+    session = agent.tape(session_tape_name("resolved-session", impl.framework.workspace))
     await session.append_event("model_switch", {"model": "openai:gpt-4o"})
     await session.append_event("model_switch", {"model": "anthropic:claude-3"})
     message = ChannelMessage(session_id="session", channel="cli", chat_id="room", content="hello")
@@ -339,9 +342,10 @@ def test_provide_channels_returns_cli_and_telegram(tmp_path: Path, monkeypatch: 
     class DummyCliChannel:
         name = "cli"
 
-        def __init__(self, on_receive, agent) -> None:
+        def __init__(self, on_receive, *, get_agent, workspace: Path) -> None:
             self.on_receive = on_receive
-            self.agent = agent
+            self.get_agent = get_agent
+            self.workspace = workspace
 
     class DummyTelegramChannel:
         name = "telegram"
@@ -367,7 +371,8 @@ def test_provide_channels_returns_cli_and_telegram(tmp_path: Path, monkeypatch: 
     assert [channel.name for channel in channels] == ["telegram", "cli"]
     assert channels[0].on_receive is message_handler
     assert channels[1].on_receive is message_handler
-    assert channels[1].agent is agent
+    assert channels[1].get_agent() is agent
+    assert channels[1].workspace == impl.framework.workspace
 
 
 @pytest.mark.asyncio

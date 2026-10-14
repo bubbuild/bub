@@ -1,47 +1,43 @@
-"""Runtime engine to process prompts with Republic."""
+"""Bub's agent: the core agent configured by settings and the framework's hooks."""
 
 from __future__ import annotations
 
 import asyncio
-import inspect
 import re
-import shlex
-import time
-from collections.abc import AsyncGenerator, AsyncIterator, Collection, Iterable
-from contextlib import AsyncExitStack, aclosing
-from dataclasses import dataclass, replace
-from datetime import UTC, datetime
-from functools import cached_property
+from collections.abc import Collection
 from pathlib import Path
-from typing import Any
 
-import republic
-from loguru import logger
-
-from bub.builtin.commands import strip_command_prefix, validate_command_prefix
-from bub.builtin.model_runner import (
-    ModelRunner,
-    is_context_length_error,
-)
+import bub.core as core
 from bub.builtin.settings import load_settings
+from bub.core.store import AsyncTapeStore, TapeStore
+from bub.core.tape import Tape, session_tape_name
+from bub.core.tools import REGISTRY, Tool, model_tools
 from bub.envelope import field_of
 from bub.framework import BubFramework
 from bub.prompt import LegacyPrompt, UserContent, prompt_text, to_content
 from bub.skills import discover_skills, render_skills_prompt
-from bub.store import AsyncTapeStore, AsyncTapeStoreAdapter, InMemoryTapeStore, TapeStore, is_async_tape_store
-from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
-from bub.tape import Tape
-from bub.tools import REGISTRY, Tool, ToolContext, model_tools
-from bub.tracing import Span, current_span
+from bub.streaming import AsyncStreamEvents, StreamState
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
 
 HINT_RE = re.compile(r"\$([A-Za-z0-9_.-]+)")
-MAX_AUTO_HANDOFF_RETRIES = 1
+ALLOWED_SKILLS_STATE_KEY = "allowed_skills"
 
 
-class Agent:
-    """Agent that processes prompts using hooks, tools, tape, and Republic."""
+class BubAgent(core.Agent):
+    """Bub's agent: the core loop configured by settings and the framework's hooks.
+
+    Adds commands, skills, code mode, deferred tools, steering and the
+    ``continue_prompt`` hook to :class:`bub.core.Agent`. System prompt sections, in
+    order: the framework's ``system_prompt`` hooks, code mode, deferred tools, skills,
+    then sections added with ``system_prompt.add``. The framework's interception
+    hooks handle events before handlers added with ``events.on``.
+
+    One instance serves any number of sessions: per-turn choices (model, allowed tools
+    and skills) live in the turn state.
+    """
+
+    command_prefix: str
 
     def __init__(
         self,
@@ -52,15 +48,16 @@ class Agent:
         skill_dirs: Collection[Path] | None = None,
         command_prefix: str | None = None,
     ) -> None:
-        """Create a builtin agent with instance-specific tools, skills, and storage.
+        """Create a Bub agent with instance-specific tools, skills, and storage.
 
         Args:
             framework: Configured hook runtime supplying prompts, tape context,
                 interception hooks, and optional shared resources.
             tools: Tools available to this instance. None snapshots the global
                 registry; an empty collection disables tools.
-            tape_store: Explicit store, preferred over the framework's active
-                store. Without either, the agent uses an in-memory store.
+            tape_store: Explicit store, preferred over the framework's active store.
+                Create the agent inside ``framework.running()`` to use the latter.
+                Without either, the agent uses an in-memory store.
             skill_dirs: Skill roots in precedence order. None uses project, user,
                 and builtin discovery; an empty collection disables discovery.
             command_prefix: Non-empty prefix without whitespace. None uses the
@@ -70,48 +67,19 @@ class Agent:
         lifecycle of an explicitly supplied store.
         """
         self.settings = load_settings()
-        self.command_prefix = validate_command_prefix(
-            self.settings.command_prefix if command_prefix is None else command_prefix
-        )
         self.framework = framework
-        self.tools = {tool.name: tool for tool in tools} if tools is not None else REGISTRY.copy()
-        self.tape_store = tape_store
         self.skill_dirs = skill_dirs
-        self.model_runner = ModelRunner(self.settings, hooks=framework.get_agent_hooks())
-
-    @cached_property
-    def tape(self) -> Tape:
-        """Return the lazily constructed, cached tape factory for this agent.
-
-        Select the explicit store, active framework store, or an in-memory fallback,
-        in that order. Adapt synchronous stores and use hook-provided context and
-        sidecars. Archive files use ``bub.home / 'tapes'`` independently of the store.
-        """
-        import bub
-
-        tape_store: TapeStore | AsyncTapeStore | None
-        if self.tape_store is not None:
-            tape_store = self.tape_store
-        else:
-            tape_store = self.framework.get_tape_store()
-            if tape_store is None:
-                tape_store = InMemoryTapeStore()
-        if not is_async_tape_store(tape_store):
-            tape_store = AsyncTapeStoreAdapter(tape_store)
-        return Tape(
-            bub.home / "tapes",
-            tape_store,
-            self.framework.build_tape_context(),
-            sidecars=self.framework.get_tape_sidecars(),
+        super().__init__(
+            store=framework.get_tape_store() if tape_store is None else tape_store,
+            tools=REGISTRY.values() if tools is None else tools,
+            system_prompt=[self._hook_prompt, self._code_mode_prompt, self._deferred_tools_prompt, self._skills_prompt],
+            context=framework.build_tape_context(),
+            sidecars=framework.get_tape_sidecars(),
+            max_steps=self.settings.max_steps,
+            name="bub",
+            command_prefix=self.settings.command_prefix if command_prefix is None else command_prefix,
         )
-
-    @staticmethod
-    def _events_from_iterable(iterable: Iterable) -> AsyncStreamEvents:
-        async def generator() -> AsyncIterator:
-            for item in iterable:
-                yield item
-
-        return AsyncStreamEvents(generator())
+        framework.get_agent_hooks().subscribe(self.events)
 
     async def run_stream(
         self,
@@ -143,294 +111,145 @@ class Agent:
                 Command execution uses the instance's tools directly.
             reasoning_effort: Per-turn override of the value in state.
 
-        Consume the stream to completion to finish execution and tape merging.
-        A ``final`` event ends a model step, not necessarily the whole turn.
-        The returned object exposes ``error`` and ``usage``; execution can also
-        raise exceptions. This method does not render or dispatch outbound messages,
-        call save-state hooks, or serialize concurrent turns in the same session.
+        Loads the turn state and starts the turn with :meth:`start` on the session's tape.
+        Consume the stream to completion to finish execution and tape merging. A
+        ``final`` event ends a model step, not necessarily the whole turn. The returned
+        object exposes ``error`` and ``usage``; execution can also raise exceptions. This
+        method does not render or dispatch outbound messages, call save-state hooks, or
+        serialize concurrent turns in the same session.
         """
-        span = Span(
-            "invoke_agent bub",
-            {
-                "gen_ai.operation.name": "invoke_agent",
-                "gen_ai.agent.name": "bub",
-                "gen_ai.conversation.id": session_id,
-            },
-        )
-        stack = AsyncExitStack()
-        try:
-            with span.activate():
-                content = to_content(prompt)
-                span.messages("gen_ai.input.messages", [republic.user(*content)])
-                if not any(content):
-                    events = self._events_from_iterable([
-                        StreamEvent("text", {"delta": "error: empty prompt"}),
-                        StreamEvent("final", {"text": "error: empty prompt", "ok": False}),
-                    ])
-                else:
-                    if state is None:
-                        state = await self.framework.build_state({"_runtime_agent": self}, session_id)
-                    state["_runtime_agent"] = self
-                    if model is None:
-                        model = state.get("model")
-                    if reasoning_effort is not None:
-                        state["reasoning_effort"] = reasoning_effort
-                    state.setdefault("session_id", session_id)
-                    tape = self.tape.session_tape(
-                        session_id, workspace_from_state(state), context=replace(self.tape.context, state=state)
-                    )
-                    # Keep the tape fork open until the stream closes, even if it is never consumed.
-                    tape = await stack.enter_async_context(
-                        tape.fork_tape(merge_back=not session_id.startswith("temp/"))
-                    )
-                    await tape.ensure_bootstrap_anchor()
-                    command = (
-                        strip_command_prefix(content[0], self.command_prefix)
-                        if len(content) == 1 and isinstance(content[0], str)
-                        else None
-                    )
-                    if command is not None:
-                        result = await self._run_command(tape=tape, line=command)
-                        events = self._events_from_iterable([
-                            StreamEvent("text", {"delta": result}),
-                            StreamEvent("final", {"text": result, "ok": True}),
-                        ])
-                    else:
-                        events = await self._agent_loop(
-                            tape=tape,
-                            prompt=content,
-                            model=model,
-                            allowed_skills=allowed_skills,
-                            allowed_tools=allowed_tools,
-                        )
-        except BaseException as exc:
-            span.fail(exc)
-            try:
-                with span.activate():
-                    await stack.aclose()
-            finally:
-                span.end()
-            raise
-        return AsyncStreamEvents(
-            self._trace_events(events, span),
-            state=events._state,
-            on_close=stack.aclose,
-            span=span,
-        )
-
-    @staticmethod
-    async def _trace_events(events: AsyncStreamEvents, span: Span) -> AsyncGenerator[StreamEvent, None]:
-        messages: list[dict[str, Any]] = []
-        text: list[str] = []
-        calls: list[dict[str, Any]] = []
-        try:
-            async with aclosing(events):
-                async for event in events:
-                    if span.recording:
-                        if event.kind == "text":
-                            text.append(str(event.data.get("delta", "")))
-                        elif event.kind == "tool_call":
-                            calls = event.data.get("tool_calls", [])
-                            messages.append({"role": "assistant", "content": "".join(text), "tool_calls": calls})
-                            text.clear()
-                        elif event.kind == "tool_result":
-                            for call, result in zip(calls, event.data.get("tool_results", []), strict=False):
-                                messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
-                        elif event.kind == "error":
-                            span.fail(RuntimeError(str(event.data.get("message", "agent failed"))))
-                    yield event
-        finally:
-            if text:
-                messages.append({"role": "assistant", "content": "".join(text)})
-            span.messages("gen_ai.output.messages", messages)
-
-    async def _run_command(self, tape: Tape, *, line: str) -> str:
-        if not line:
-            raise ValueError("empty command")
-
-        name, arg_tokens = _parse_internal_command(line)
-        start = time.monotonic()
-        context = ToolContext(tape=tape, run_id="run_command", state=tape.context.state)
-        output = ""
-        status = "ok"
-        try:
-            if name not in self.tools:
-                if "bash" not in self.tools:
-                    raise ValueError("bash tool is not available")  # noqa: TRY301
-                bash_tool = self.tools["bash"]
-                output = bash_tool.render(await bash_tool.run(context=context, command=line))
-            else:
-                command_tool = self.tools[name]
-                args = _parse_args(arg_tokens)
-                if command_tool.context:
-                    args.kwargs["context"] = context
-                result = command_tool.run(*args.positional, **args.kwargs)
-                if inspect.isawaitable(result):
-                    result = await result
-                output = command_tool.render(result)
-        except Exception as exc:
-            status = "error"
-            output = f"{exc!s}"
-            raise
-        else:
-            return output
-        finally:
-            elapsed_ms = int((time.monotonic() - start) * 1000)
-
-            event_payload = {
-                "raw": line,
-                "name": name,
-                "status": status,
-                "elapsed_ms": elapsed_ms,
-                "output": output,
-                "date": datetime.now(UTC).isoformat(),
-            }
-            await tape.append_event("command", event_payload)
-
-    async def _agent_loop(
-        self,
-        *,
-        tape: Tape,
-        prompt: list[UserContent],
-        model: str | None = None,
-        allowed_skills: Collection[str] | None = None,
-        allowed_tools: Collection[str] | None = None,
-    ) -> AsyncStreamEvents:
-        next_prompt = prompt
-        display_model = model or self.settings.model
-        await tape.append_event(
-            "loop.start",
-            {
-                "model": display_model,
-                "prompt": _prompt_payload(prompt),
+        content = to_content(prompt)
+        if state is None:
+            state = await self.framework.build_state({"_runtime_agent": self}, session_id)
+        state["_runtime_agent"] = self
+        if reasoning_effort is not None:
+            state["reasoning_effort"] = reasoning_effort
+        state.setdefault("session_id", session_id)
+        metadata = None
+        if self.command_line(content) is None:
+            self._scope_turn(state, allowed_skills=allowed_skills, allowed_tools=allowed_tools)
+            metadata = {
                 "allowed_skills": list(allowed_skills) if allowed_skills else None,
                 "allowed_tools": list(allowed_tools) if allowed_tools else None,
-            },
-        )
-        state = StreamState()
-        iterator = self._stream_events_with_auto_handoff(
-            tape=tape,
-            prompt=next_prompt,
+            }
+        return await self.start(
+            content,
+            # The turn's model and reasoning effort apply until the next turn.
+            model=self.settings.chat_model(
+                state.get("model") if model is None else model, reasoning_effort=state.get("reasoning_effort")
+            ),
+            tape=session_tape_name(session_id, workspace_from_state(state)),
             state=state,
-            model=model,
-            allowed_skills=allowed_skills,
-            allowed_tools=allowed_tools,
+            merge_back=not session_id.startswith("temp/"),
+            metadata=metadata,
         )
-        return AsyncStreamEvents(iterator, state=state)
 
-    async def _stream_events_with_auto_handoff(
-        self,
-        tape: Tape,
-        prompt: list[UserContent],
-        state: StreamState,
-        model: str | None = None,
-        allowed_skills: Collection[str] | None = None,
-        allowed_tools: Collection[str] | None = None,
-    ) -> AsyncGenerator[StreamEvent, None]:
-        auto_handoff_remaining = MAX_AUTO_HANDOFF_RETRIES
-        display_model = model or self.settings.model
-        next_prompt: list[UserContent] | None = prompt
-        for step in range(1, self.settings.max_steps + 1):
-            start = time.monotonic()
-            should_continue = False
-            logger.info("loop.step step={} tape={} model={}", step, tape.name, display_model)
-            await tape.append_event(
-                "loop.step.start",
-                {"step": step, "prompt": None if next_prompt is None else _prompt_payload(next_prompt)},
-            )
-            try:
-                output = await self._run_once(
-                    tape=tape,
-                    prompt=next_prompt,
-                    model=model,
-                    allowed_skills=allowed_skills,
-                    allowed_tools=allowed_tools,
-                )
-                async with aclosing(output):
-                    async for event in output:
-                        yield event
-                        if event.kind == "error":
-                            elapsed_ms = int((time.monotonic() - start) * 1000)
-                            await tape.append_event(
-                                "loop.step",
-                                {
-                                    "step": step,
-                                    "elapsed_ms": elapsed_ms,
-                                    "status": "error",
-                                    "error": event.data.get("message", ""),
-                                    "date": datetime.now(UTC).isoformat(),
-                                },
-                            )
-                        elif event.kind == "final":
-                            should_continue = bool(event.data.get("tool_calls") or event.data.get("tool_results"))
-            except Exception as exc:
-                error_message = f"{exc!s}"
-                elapsed_ms = int((time.monotonic() - start) * 1000)
-                if auto_handoff_remaining > 0 and is_context_length_error(error_message):
-                    auto_handoff_remaining -= 1
-                    logger.warning(
-                        "auto_handoff: context length exceeded, performing automatic handoff. tape={} step={}",
-                        tape.name,
-                        step,
-                    )
-                    await tape.handoff(
-                        name="auto_handoff/context_overflow",
-                        state={"reason": "context_length_exceeded", "error": error_message},
-                    )
-                    await tape.append_event(
-                        "loop.step",
-                        {
-                            "step": step,
-                            "elapsed_ms": elapsed_ms,
-                            "status": "auto_handoff",
-                            "error": error_message,
-                            "date": datetime.now(UTC).isoformat(),
-                        },
-                    )
-                    next_prompt = prompt
-                    continue
+    def _scope_turn(
+        self, state: TurnState, *, allowed_skills: Collection[str] | None, allowed_tools: Collection[str] | None
+    ) -> None:
+        """Record the turn's allowed skills and tools in state; unknown tool names raise ``ValueError``."""
+        from bub.builtin.tools import ALLOWED_TOOLS_STATE_KEY, resolve_tool_names
 
-                await tape.append_event(
-                    "loop.step",
-                    {
-                        "step": step,
-                        "elapsed_ms": elapsed_ms,
-                        "status": "error",
-                        "error": error_message,
-                        "date": datetime.now(UTC).isoformat(),
-                    },
-                )
-                raise
+        if allowed_tools is None:
+            state.pop(ALLOWED_TOOLS_STATE_KEY, None)
+        else:
+            state[ALLOWED_TOOLS_STATE_KEY] = sorted(resolve_tool_names(allowed_tools, all_names=self.tools))
+        if allowed_skills is None:
+            state.pop(ALLOWED_SKILLS_STATE_KEY, None)
+        else:
+            state[ALLOWED_SKILLS_STATE_KEY] = list({name.casefold() for name in allowed_skills})
 
-            state.error = output.error
-            state.usage = output.usage
-            elapsed_ms = int((time.monotonic() - start) * 1000)
-            should_continue = should_continue or self._has_steering_messages(tape.context.state)
-            if not should_continue:
-                await tape.append_event(
-                    "loop.step",
-                    {
-                        "step": step,
-                        "elapsed_ms": elapsed_ms,
-                        "status": "ok",
-                        "date": datetime.now(UTC).isoformat(),
-                    },
-                )
-                return
+    async def prepare_tools(self, tape: Tape, prompt: list[UserContent] | None) -> list[Tool]:
+        from bub.builtin.codemode import CODE_TOOLS_STATE_KEY
+        from bub.builtin.tools import TOOL_DESCRIBE_TOOL_NAME, loaded_tool_names, tool_describe
 
-            continuation = await self.framework.continue_prompt(prompt=next_prompt, tape=tape, state=state)
-            next_prompt = None if continuation is None else [continuation]
-            await tape.append_event(
-                "loop.step",
-                {
-                    "step": step,
-                    "elapsed_ms": elapsed_ms,
-                    "status": "continue",
-                    "date": datetime.now(UTC).isoformat(),
-                },
-            )
+        state = tape.context.state
+        # Code mode sees every allowed tool, deferred ones included; deferral applies to model-facing tools.
+        tools, code_tools = self._split_code_mode(state)
+        if code_tools is None:
+            state.pop(CODE_TOOLS_STATE_KEY, None)
+        else:
+            state[CODE_TOOLS_STATE_KEY] = model_tools(code_tools)
+        # ``tool.describe`` is exposed exactly when a deferred tool remains, since it is the only way to load one.
+        direct = [tool for tool in tools if not tool.deferred and tool.name != TOOL_DESCRIBE_TOOL_NAME]
+        deferred = {tool.name: tool for tool in _deferred_tools(tools)}
+        if deferred:
+            direct.append(self.tools.get(TOOL_DESCRIBE_TOOL_NAME, tool_describe))
+            direct.extend(deferred[name] for name in await loaded_tool_names(tape) if name in deferred)
+        return model_tools(direct)
 
-        raise RuntimeError(f"max_steps_reached={self.settings.max_steps}")
+    async def pending_messages(self, tape: Tape) -> list[list[UserContent]]:
+        state = tape.context.state
+        steering_inbox = self.framework.get_steering_inbox()
+        envelopes = await steering_inbox.drain_messages(state) if steering_inbox else []
+        return list(
+            await asyncio.gather(*[
+                self.framework.build_prompt(message, session_id=field_of(message, "session_id"), state=state)
+                for message in envelopes
+            ])
+        )
+
+    def has_pending_messages(self, tape: Tape) -> bool:
+        steering_inbox = self.framework.get_steering_inbox()
+        return bool(steering_inbox and steering_inbox.message_count(tape.context.state) > 0)
+
+    async def continue_prompt(
+        self, tape: Tape, prompt: list[UserContent] | None, state: StreamState
+    ) -> list[UserContent] | None:
+        continuation = await self.framework.continue_prompt(prompt=prompt, tape=tape, state=state)
+        return None if continuation is None else [continuation]
+
+    def _turn_tools(self, state: TurnState) -> list[Tool]:
+        """Return the tools allowed in this turn, direct and deferred alike."""
+        from bub.builtin.tools import ALLOWED_TOOLS_STATE_KEY
+
+        if (allowed := state.get(ALLOWED_TOOLS_STATE_KEY)) is None:
+            return list(self.tools.values())
+        return [tool for name, tool in self.tools.items() if name in allowed]
+
+    def _split_code_mode(self, state: TurnState) -> tuple[list[Tool], list[Tool] | None]:
+        """Return the tools left to the model and, in code mode, the tools callable only from code.
+
+        Code mode is a session setting (``state["code_mode"]``, switched by the ``code_mode``
+        command) and applies only when ``run_code`` is among the allowed tools: the model then
+        sees ``direct`` tools, and ``auto`` and ``code`` tools are callable only from code. Outside
+        code mode, ``code`` tools are dropped.
+        """
+        from bub.builtin.codemode import CODE_MODE_STATE_KEY, RUN_CODE_TOOL_NAME
+
+        tools = self._turn_tools(state)
+        direct_tools = [tool for tool in tools if tool.name != RUN_CODE_TOOL_NAME]
+        if not state.get(CODE_MODE_STATE_KEY) or len(direct_tools) == len(tools):
+            return [tool for tool in direct_tools if tool.exposure != "code"], None
+        code_tools = [tool for tool in direct_tools if tool.exposure in ("auto", "code")]
+        return [tool for tool in tools if tool.exposure == "direct"], code_tools
+
+    def _hook_prompt(self, context: core.PromptContext) -> str:
+        return self.framework.get_system_prompt(prompt=context.prompt, state=context.state)
+
+    @staticmethod
+    def _code_mode_prompt(context: core.PromptContext) -> str | None:
+        from bub.builtin.codemode import CODE_TOOLS_STATE_KEY, render_code_mode_prompt, write_tool_stub
+
+        state = context.state
+        if (code_tools := state.get(CODE_TOOLS_STATE_KEY)) is None:
+            return None
+        stub_path = write_tool_stub(
+            code_tools, session_id=str(state.get("session_id", "")), workspace=workspace_from_state(state)
+        )
+        return render_code_mode_prompt(stub_path)
+
+    def _deferred_tools_prompt(self, context: core.PromptContext) -> str:
+        from bub.builtin.tools import render_deferred_tools_prompt
+
+        tools, _ = self._split_code_mode(context.state)
+        return render_deferred_tools_prompt(_deferred_tools(tools))
+
+    def _skills_prompt(self, context: core.PromptContext) -> str:
+        allowed = context.state.get(ALLOWED_SKILLS_STATE_KEY)
+        return self._load_skills_prompt(
+            prompt_text(context.prompt), workspace_from_state(context.state), None if allowed is None else set(allowed)
+        )
 
     def _load_skills_prompt(self, prompt: str, workspace: Path, allowed_skills: set[str] | None = None) -> str:
         skill_index = {
@@ -441,183 +260,6 @@ class Agent:
         expanded_skills = set(HINT_RE.findall(prompt)) & set(skill_index.keys())
         return render_skills_prompt(list(skill_index.values()), expanded_skills=expanded_skills)
 
-    async def _run_once(
-        self,
-        *,
-        tape: Tape,
-        prompt: list[UserContent] | None,
-        model: str | None = None,
-        allowed_tools: Collection[str] | None = None,
-        allowed_skills: Collection[str] | None = None,
-    ) -> AsyncStreamEvents:
-        if allowed_skills is not None:
-            allowed_skills = {name.casefold() for name in allowed_skills}
-            tape.context.state["allowed_skills"] = list(allowed_skills)
-        return await self._run_once_stream(
-            tape=tape,
-            prompt=prompt,
-            model=model,
-            allowed_skills=allowed_skills,
-            tools=self._allowed_tools(tape, allowed_tools),
-        )
 
-    def _allowed_tools(self, tape: Tape, allowed_tools: Collection[str] | None) -> list[Tool]:
-        """Filter direct and deferred tools alike by ``allowed_tools`` and record the scope in state."""
-        from bub.builtin.tools import ALLOWED_TOOLS_STATE_KEY, resolve_tool_names
-
-        state = tape.context.state
-        if allowed_tools is None:
-            state.pop(ALLOWED_TOOLS_STATE_KEY, None)
-            return list(self.tools.values())
-        allowed = resolve_tool_names(allowed_tools, all_names=self.tools)
-        state[ALLOWED_TOOLS_STATE_KEY] = sorted(allowed)
-        return [tool for name, tool in self.tools.items() if name in allowed]
-
-    async def _prepare_deferred_tools(self, tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
-        """Return direct tools followed by deferred tools loaded on the tape, plus the deferred tools prompt.
-
-        ``tool.describe`` is exposed exactly when a deferred tool remains, since it is the only way to load one.
-        """
-        from bub.builtin.tools import (
-            TOOL_DESCRIBE_TOOL_NAME,
-            loaded_tool_names,
-            render_deferred_tools_prompt,
-            tool_describe,
-        )
-
-        direct = [tool for tool in tools if not tool.deferred and tool.name != TOOL_DESCRIBE_TOOL_NAME]
-        deferred = {tool.name: tool for tool in tools if tool.deferred and tool.exposure in ("auto", "direct")}
-        if not deferred:
-            return direct, ""
-        direct.append(self.tools.get(TOOL_DESCRIBE_TOOL_NAME, tool_describe))
-        loaded = [deferred[name] for name in await loaded_tool_names(tape) if name in deferred]
-        return [*direct, *loaded], render_deferred_tools_prompt(deferred.values())
-
-    async def _run_once_stream(
-        self,
-        *,
-        tape: Tape,
-        prompt: list[UserContent] | None,
-        model: str | None,
-        allowed_skills: set[str] | None,
-        tools: list[Tool],
-    ) -> AsyncStreamEvents:
-        # Code mode sees every allowed tool, deferred ones included; deferral applies to model-facing tools.
-        tools, code_mode_prompt = await self._prepare_code_mode(tools, tape)
-        tools, deferred_prompt = await self._prepare_deferred_tools(tools, tape)
-        system_prompt = self._system_prompt(
-            prompt or [],
-            state=tape.context.state,
-            allowed_skills=allowed_skills,
-            tools_prompt="\n\n".join(block for block in (code_mode_prompt, deferred_prompt) if block),
-        )
-        resolved_model = model or self.settings.model
-
-        model_tools_for_call = model_tools(tools)
-        if (span := current_span()) and span.recording:
-            span.set(**{
-                "gen_ai.tool.definitions": [tool.to_schema() | {"type": "function"} for tool in model_tools_for_call]
-            })
-        steering_inbox = self.framework.get_steering_inbox()
-        steering_envelopes = await steering_inbox.drain_messages(tape.context.state) if steering_inbox else []
-        steering_messages: list[list[UserContent]] = list(
-            await asyncio.gather(*[
-                self.framework.build_prompt(
-                    message, session_id=field_of(message, "session_id"), state=tape.context.state
-                )
-                for message in steering_envelopes
-            ])
-        )
-        return self.model_runner.run(
-            tape=tape,
-            model=resolved_model,
-            tools=model_tools_for_call,
-            system_prompt=system_prompt,
-            prompt=prompt,
-            steering_messages=steering_messages,
-        )
-
-    async def _prepare_code_mode(self, tools: list[Tool], tape: Tape) -> tuple[list[Tool], str]:
-        """Split tools for code mode and return model-facing tools and the stub prompt.
-
-        Code mode is a session setting (``state["code_mode"]``, switched by the ``code_mode``
-        command) and applies only when ``run_code`` is among the allowed tools: the model then
-        sees ``direct`` tools, and ``auto`` and ``code`` tools are callable only from code. Outside
-        code mode, ``code`` tools are dropped.
-        """
-        from bub.builtin.codemode import (
-            CODE_MODE_STATE_KEY,
-            CODE_TOOLS_STATE_KEY,
-            RUN_CODE_TOOL_NAME,
-            render_code_mode_prompt,
-            write_tool_stub,
-        )
-
-        state = tape.context.state
-        direct_tools = [tool for tool in tools if tool.name != RUN_CODE_TOOL_NAME]
-        if not state.get(CODE_MODE_STATE_KEY) or len(direct_tools) == len(tools):
-            state.pop(CODE_TOOLS_STATE_KEY, None)
-            return [tool for tool in direct_tools if tool.exposure != "code"], ""
-
-        code_tools = [tool for tool in direct_tools if tool.exposure in ("auto", "code")]
-        state[CODE_TOOLS_STATE_KEY] = model_tools(code_tools)
-        stub_path = write_tool_stub(
-            code_tools, session_id=str(state.get("session_id", "")), workspace=workspace_from_state(state)
-        )
-        return [tool for tool in tools if tool.exposure == "direct"], render_code_mode_prompt(stub_path)
-
-    def _system_prompt(
-        self,
-        prompt: list[UserContent],
-        state: TurnState,
-        allowed_skills: set[str] | None = None,
-        tools_prompt: str = "",
-    ) -> str:
-        blocks: list[str] = []
-        if result := self.framework.get_system_prompt(prompt=prompt, state=state):
-            blocks.append(result)
-        if tools_prompt:
-            blocks.append(tools_prompt)
-        workspace = workspace_from_state(state)
-        if skills_prompt := self._load_skills_prompt(prompt_text(prompt), workspace, allowed_skills):
-            blocks.append(skills_prompt)
-        return "\n\n".join(blocks)
-
-    def _has_steering_messages(self, state: TurnState) -> bool:
-        steering_inbox = self.framework.get_steering_inbox()
-        return bool(steering_inbox and steering_inbox.message_count(state) > 0)
-
-
-@dataclass(frozen=True)
-class Args:
-    positional: list[str]
-    kwargs: dict[str, Any]
-
-
-def _parse_internal_command(line: str) -> tuple[str, list[str]]:
-    body = line.strip()
-    words = shlex.split(body)
-    if not words:
-        return "", []
-    return words[0], words[1:]
-
-
-def _parse_args(args_tokens: list[str]) -> Args:
-    positional: list[str] = []
-    kwargs: dict[str, str] = {}
-    first_kwarg = False
-    for token in args_tokens:
-        if "=" in token:
-            key, value = token.split("=", 1)
-            kwargs[key] = value
-            first_kwarg = True
-        elif first_kwarg:
-            raise ValueError(f"positional argument '{token}' cannot appear after keyword arguments")
-        else:
-            positional.append(token)
-    return Args(positional=positional, kwargs=kwargs)
-
-
-def _prompt_payload(content: list[UserContent]) -> object:
-    """Serialize prompt content for tape events."""
-    return republic.user(*content).to_dict().get("content")
+def _deferred_tools(tools: list[Tool]) -> list[Tool]:
+    return [tool for tool in tools if tool.deferred and tool.exposure in ("auto", "direct")]

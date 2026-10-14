@@ -1331,9 +1331,10 @@ async def test_terminal_presenter_redraw_wait_stops_when_prompt_finishes(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_cli_tool_reporter_finishes_before_next_model_output() -> None:
-    from bub.channels.cli import _CliToolCallReporter
-    from bub.tools import REGISTRY, tool, tool_call_reporter
+async def test_cli_tool_renderer_finishes_before_next_model_output() -> None:
+    from bub.channels.cli import _CliToolCallRenderer
+    from bub.core.events import EventBus
+    from bub.tools import Tool, ToolExecutor
 
     events: list[str] = []
 
@@ -1348,23 +1349,45 @@ async def test_cli_tool_reporter_finishes_before_next_model_output() -> None:
         tool_call_error=lambda **kwargs: events.append("tool-error"),
     )
     presenter = OrderedPresenter()
-    reporter = _CliToolCallReporter(renderer, presenter)  # type: ignore[arg-type]
-    tool_name = "tests.cli_ordered_tool"
-    REGISTRY.pop(tool_name, None)
+    bus = EventBus()
+    _CliToolCallRenderer(renderer, presenter).subscribe(bus)  # type: ignore[arg-type]
 
-    @tool(name=tool_name)
     def ordered_tool() -> str:
         events.append("tool-body")
         return "done"
 
-    try:
-        with tool_call_reporter(reporter):
-            assert await ordered_tool.run() == "done"
-        await presenter.write(lambda: events.append("next-model-text"))
-    finally:
-        REGISTRY.pop(tool_name, None)
+    execution = await ToolExecutor(bus).execute_many([(Tool.from_callable(ordered_tool), {})])
+    await presenter.write(lambda: events.append("next-model-text"))
 
+    assert execution.tool_results == ["done"]
     assert events == ["tool-start", "tool-body", "tool-success", "next-model-text"]
+
+
+@pytest.mark.asyncio
+async def test_cli_tool_renderer_shows_the_error_the_tool_raised() -> None:
+    from bub.channels.cli import _CliToolCallRenderer
+    from bub.core.events import EventBus
+    from bub.tools import Tool, ToolExecutor
+
+    errors: list[BaseException] = []
+
+    class Presenter:
+        async def write(self, function) -> None:
+            function()
+
+    renderer = SimpleNamespace(
+        tool_call_start=lambda **kwargs: None,
+        tool_call_error=lambda **kwargs: errors.append(kwargs["error"]),
+    )
+    bus = EventBus()
+    _CliToolCallRenderer(renderer, Presenter()).subscribe(bus)  # type: ignore[arg-type]
+
+    def failing_tool() -> str:
+        raise RuntimeError("boom")
+
+    await ToolExecutor(bus).execute_many([(Tool.from_callable(failing_tool), {})])
+
+    assert [(type(error), str(error)) for error in errors] == [(RuntimeError, "boom")]
 
 
 @pytest.mark.asyncio

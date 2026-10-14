@@ -1,123 +1,41 @@
-"""Contracts and execution semantics for agent-loop interception hooks."""
+"""Pluggy adapter turning agent-loop events into interception hook calls."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Literal
+from dataclasses import replace
+from typing import Any
 
-import republic
 from loguru import logger
 
+from bub.core.events import (
+    AfterLlmCall,
+    AfterToolCall,
+    BeforeLlmCall,
+    BeforeToolCall,
+    EventBus,
+    LlmCallDecision,
+    LlmCallRequest,
+    LlmCallResult,
+    ToolCall,
+    ToolCallDecision,
+    ToolCallResult,
+)
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.turn import TurnState
 
-if TYPE_CHECKING:
-    from bub.tools import ToolContext
+__all__ = [
+    "LlmCallDecision",
+    "LlmCallRequest",
+    "LlmCallResult",
+    "PluginAgentHooks",
+    "ToolCall",
+    "ToolCallDecision",
+    "ToolCallResult",
+]
 
 
-@dataclass(frozen=True)
-class LlmCallRequest:
-    """Outgoing agent-loop LLM request exposed to interception hooks.
-
-    Hooks may return a modified copy (``dataclasses.replace``) to change the
-    model or messages (``republic.Message`` objects) for this call. Tool objects are not exposed;
-    ``tool_names`` is observational and altering the toolset is out of scope.
-    """
-
-    run_id: str
-    model: str
-    messages: list[republic.Message]
-    tool_names: tuple[str, ...] = ()
-    max_tokens: int | None = None
-
-
-@dataclass(frozen=True)
-class LlmCallResult:
-    """Terminal outcome of one LLM call exposed to interception hooks.
-
-    For streaming completions this is the fully accumulated final state, not
-    a per-chunk view. ``error`` is the original raised exception (and other
-    fields are best effort) when the call failed. Cancellation and consumer
-    close are not observed.
-    """
-
-    run_id: str
-    text: str | None = None
-    tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    usage: dict[str, Any] | None = None
-    error: Exception | None = None
-    duration_ms: int = 0
-
-
-@dataclass(frozen=True)
-class LlmCallDecision:
-    """Short-circuit verdict returned by a ``before_llm_call`` hook."""
-
-    action: Literal["finish"] = "finish"
-    text: str = ""
-
-    @classmethod
-    def finish(cls, text: str) -> LlmCallDecision:
-        """Skip the provider call and emit ``text`` as its final output."""
-
-        return cls(action="finish", text=text)
-
-
-@dataclass(frozen=True)
-class ToolCall:
-    """One tool invocation exposed to interception hooks.
-
-    ``context`` is the ``ToolContext`` the call runs with, when one is available; for
-    example, ``context.code_mode`` marks calls made from model-written code (``run_code``).
-    """
-
-    run_id: str
-    tool: str
-    arguments: dict[str, Any]
-    context: ToolContext | None = field(default=None, repr=False, compare=False)
-
-
-@dataclass(frozen=True)
-class ToolCallDecision:
-    """Verdict returned by a ``before_tool_call`` hook.
-
-    ``proceed`` continues with optional argument changes. ``replace`` skips
-    the handler and uses the supplied result. ``deny`` skips the handler and
-    surfaces the supplied message as a tool error.
-    """
-
-    action: Literal["proceed", "replace", "deny"] = "proceed"
-    arguments: dict[str, Any] | None = None
-    result: Any = None
-    message: str | None = None
-
-    @classmethod
-    def proceed(cls, arguments: dict[str, Any] | None = None) -> ToolCallDecision:
-        return cls(action="proceed", arguments=arguments)
-
-    @classmethod
-    def replace(cls, result: Any) -> ToolCallDecision:
-        return cls(action="replace", result=result)
-
-    @classmethod
-    def deny(cls, message: str) -> ToolCallDecision:
-        return cls(action="deny", message=message)
-
-
-@dataclass
-class ToolCallResult:
-    """Terminal outcome exposed to hooks; model-facing results may be replaced in place."""
-
-    run_id: str
-    tool: str
-    arguments: dict[str, Any]
-    result: Any = None
-    error: Exception | None = None
-    duration_ms: int = 0
-
-
-class AgentHooks:
-    """Fault-isolated executor for agent-loop interception hooks.
+class PluginAgentHooks:
+    """Fault-isolated adapter running the framework's pluggy interception hooks for agent events.
 
     Blocking a tool call is only possible through a returned
     :class:`ToolCallDecision`; an exception inside ``before_tool_call`` is
@@ -126,6 +44,27 @@ class AgentHooks:
 
     def __init__(self, runtime: HookRuntime) -> None:
         self._runtime = runtime
+
+    def subscribe(self, events: EventBus | None = None) -> EventBus:
+        """Handle an agent's ``Before/After*Call`` events with the plugin hooks; return the bus."""
+        events = EventBus() if events is None else events
+        events.on(BeforeLlmCall, self._on_before_llm_call)
+        events.on(AfterLlmCall, self._on_after_llm_call)
+        events.on(BeforeToolCall, self._on_before_tool_call)
+        events.on(AfterToolCall, self._on_after_tool_call)
+        return events
+
+    async def _on_before_llm_call(self, event: BeforeLlmCall) -> None:
+        event.request, event.decision = await self.before_llm_call(event.request, event.state)
+
+    async def _on_after_llm_call(self, event: AfterLlmCall) -> None:
+        await self.after_llm_call(event.request, event.result, event.state)
+
+    async def _on_before_tool_call(self, event: BeforeToolCall) -> None:
+        event.call, event.decision = await self.before_tool_call(event.call, event.state)
+
+    async def _on_after_tool_call(self, event: AfterToolCall) -> None:
+        await self.after_tool_call(event.call, event.result, event.state)
 
     async def before_llm_call(
         self, request: LlmCallRequest, state: TurnState

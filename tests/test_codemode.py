@@ -23,9 +23,10 @@ from bub.builtin.codemode import (
     write_tool_stub,
 )
 from bub.builtin.environment import LocalEnvironment, LocalProcess
+from bub.core.events import BeforeToolCall, EventBus
 from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, CodeFailed
 from bub.errors import BubError, ErrorKind
-from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
+from bub.hooks.interception import ToolCallDecision
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
 from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
@@ -52,11 +53,13 @@ def get_order(order_id: str, include_items: bool = False, *, context: ToolContex
     return {"id": order_id, "total": 12.5}
 
 
-def _context(tmp_path: Path, tools: list[Tool] | None = None, **state: Any) -> ToolContext:
-    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+def _context(
+    tmp_path: Path, tools: list[Tool] | None = None, *, events: EventBus | None = None, **state: Any
+) -> ToolContext:
+    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
     if tools is not None:
         state[CODE_TOOLS_STATE_KEY] = model_tools(tools)
-    return ToolContext(tape=tape, run_id="run-1", state=state)
+    return ToolContext(tape=tape, run_id="run-1", state=state, events=events)
 
 
 def test_stub_declares_keyword_only_functions_with_types_and_docs() -> None:
@@ -149,22 +152,18 @@ async def test_run_code_returns_printed_output_and_calls_tools_in_code_mode(tmp_
 async def test_run_code_routes_tool_calls_through_hooks(tmp_path: Path) -> None:
     calls: list[tuple[str, bool]] = []
 
-    class Hooks:
-        async def before_tool_call(self, call: ToolCall, state: dict[str, Any]) -> tuple[ToolCall, ToolCallDecision]:
-            calls.append((call.tool, call.context is not None and call.context.code_mode))
-            if call.tool == "blocked":
-                return call, ToolCallDecision.deny("not allowed")
-            return call, ToolCallDecision.proceed()
+    def before_tool_call(event: BeforeToolCall) -> None:
+        calls.append((event.call.tool, event.call.context is not None and event.call.context.code_mode))
+        if event.call.tool == "blocked":
+            event.decision = ToolCallDecision.deny("not allowed")
 
-        async def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict[str, Any]) -> None:
-            return None
-
-    agent = type("FakeAgent", (), {"model_runner": type("Runner", (), {"hooks": Hooks()})()})()
+    events = EventBus()
+    events.on(BeforeToolCall, before_tool_call)
     order_tool = Tool.from_callable(get_order, name="orders.get", context=True)
     blocked = Tool.from_callable(lambda: "secret", name="blocked")
     code = "try:\n    await tools.blocked()\nexcept Exception as exc:\n    print(type(exc).__name__, exc)\n"
 
-    output = await run_code.run(code=code, context=_context(tmp_path, [order_tool, blocked], _runtime_agent=agent))
+    output = await run_code.run(code=code, context=_context(tmp_path, [order_tool, blocked], events=events))
 
     assert output == "BubError [tool] not allowed\n"
     assert calls == [("blocked", True)]
@@ -197,7 +196,7 @@ async def test_run_code_rejects_positional_tool_arguments(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_run_code_requires_code_mode(tmp_path: Path) -> None:
-    execution = await ToolExecutor().execute_async([(run_code, {"code": "print(1)"})], context=_context(tmp_path))
+    execution = await ToolExecutor().execute_many([(run_code, {"code": "print(1)"})], context=_context(tmp_path))
 
     assert execution.error is not None
     assert execution.error.message == "Code mode is not enabled for this run."
@@ -389,17 +388,13 @@ class _InProcessEnvironment(LocalEnvironment):
 async def test_run_code_delegates_to_the_environment_code_runtime(tmp_path: Path) -> None:
     calls: list[tuple[str, bool]] = []
 
-    class Hooks:
-        async def before_tool_call(self, call: ToolCall, state: dict[str, Any]) -> tuple[ToolCall, ToolCallDecision]:
-            calls.append((call.tool, call.context is not None and call.context.code_mode))
-            if call.tool == "blocked":
-                return call, ToolCallDecision.deny("not allowed")
-            return call, ToolCallDecision.proceed()
+    def before_tool_call(event: BeforeToolCall) -> None:
+        calls.append((event.call.tool, event.call.context is not None and event.call.context.code_mode))
+        if event.call.tool == "blocked":
+            event.decision = ToolCallDecision.deny("not allowed")
 
-        async def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict[str, Any]) -> None:
-            return None
-
-    agent = type("FakeAgent", (), {"model_runner": type("Runner", (), {"hooks": Hooks()})()})()
+    events = EventBus()
+    events.on(BeforeToolCall, before_tool_call)
     order_tool = Tool.from_callable(get_order, name="orders.get", context=True)
     blocked = Tool.from_callable(lambda: "secret", name="blocked")
     code = (
@@ -408,7 +403,7 @@ async def test_run_code_delegates_to_the_environment_code_runtime(tmp_path: Path
         "try:\n    await tools.blocked()\nexcept Exception as exc:\n    print(exc)\n"
     )
     context = _context(
-        tmp_path, [order_tool, blocked], _runtime_agent=agent, **{ENVIRONMENT_STATE_KEY: _InProcessEnvironment()}
+        tmp_path, [order_tool, blocked], events=events, **{ENVIRONMENT_STATE_KEY: _InProcessEnvironment()}
     )
 
     output = await run_code.run(code=code, context=context)
@@ -531,7 +526,7 @@ async def test_media_tools_only_work_inside_run_code(tmp_path: Path) -> None:
 def test_media_tool_results_become_multimodal_tool_messages(tmp_path: Path) -> None:
     import republic
 
-    from bub.builtin.context import default_tape_context
+    from bub.core.context import default_tape_context
     from bub.tape import TapeEntry
     from bub.tools import content_result
 

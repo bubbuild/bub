@@ -1,88 +1,70 @@
 ---
 title: Python SDK
-description: 在 Python 应用中嵌入 Bub，自定义工具、提示词、skills 和会话存储。
+description: 在 Python 应用中嵌入 Bub 的 agent loop，使用你自己的模型、工具、提示词和会话存储。
 sidebar:
   order: 0
 ---
 
-使用 `bub.builtin.Agent` 在应用内运行 builtin agent loop。
-`BubFramework` 提供配置和 hooks，`Agent` 使用指定的工具与存储执行任务。
+`bub.core` 是 Bub 的 agent 内核。它的 `Agent` 运行 agent loop（调用模型、执行模型请求的工具、重复直到模型给出回答），
+所用的组件都由你提供：工具、system prompt section 和 tape store，以及传给 agent 或每次运行的 Republic 模型。
+它不读取 Bub 的 settings，也不加载插件，因此可以嵌入任何应用。
 
-## 安装与配置
+Bub 自身的运行时也构建在这个内核之上：`bub.builtin.BubAgent` 在其上加入 settings、插件钩子、skills、命令和 steering。
 
-在 Python 3.12+ 项目中安装：
+## 安装
+
+在 Python 3.12+ 项目中安装 Bub：
 
 ```bash
 uv add bub
 ```
 
-通过 `BUB_MODEL`、`BUB_API_KEY` 和可选的 `BUB_API_BASE`，或配置文件设置模型与凭据。
-详见[配置参考](/zh-cn/docs/reference/settings/)。本文描述当前源码接口；
-请使用包含这些接口的版本，或直接安装当前源码。
+下文描述的是当前源码中的 API；请使用包含这些接口的发布版本，或安装当前源码。
 
 ## 创建 Agent
 
-将下面的示例保存为 `sdk_example.py`：
+将以下内容保存为 `sdk_example.py`：
 
 ```python
 import asyncio
 from pathlib import Path
 
-from bub import BubFramework, hookimpl
-from bub.builtin import Agent
-from bub.builtin.hook_impl import BuiltinImpl
-from bub.builtin.tools import skill_describe
-from bub.store import FileTapeStore
-from bub.tools import Tool
+import republic
 
-
-class SystemPrompts:
-    def __init__(self, prompts: list[str]) -> None:
-        self.prompts = tuple(prompts)
-
-    @hookimpl
-    def system_prompt(self, prompt, state) -> str:
-        return "\n\n".join(self.prompts)
+from bub.core import Agent, Tool
+from bub.core.store import FileTapeStore
 
 
 async def lookup_order(order_id: str) -> dict[str, str]:
     """Look up the status of an order."""
-    # Replace this demonstration response with your application's order service.
+    # 将这个演示返回值替换为你应用中的订单服务。
     return {"order_id": order_id, "status": "shipped"}
 
 
-def create_agent() -> tuple[BubFramework, Agent]:
+def create_agent() -> Agent:
     root = Path(__file__).resolve().parent
-    framework = BubFramework(config_file=root / "config.yml")
-    framework.workspace = root
-    framework.plugin_manager.register(
-        SystemPrompts([
+    return Agent(
+        store=FileTapeStore(root / "sessions"),
+        tools=[Tool.from_callable(lookup_order)],
+        system_prompt=[
             "You are an order assistant. Reply directly to the user.",
             "Use lookup_order to check order status before answering.",
-        ]),
-        name="system_prompts",
+        ],
     )
-    agent = Agent(
-        framework,
-        tools=[Tool.from_callable(lookup_order), skill_describe],
-        skill_dirs=[root / "skills"],
-        tape_store=FileTapeStore(root / "sessions"),
-    )
-    return framework, agent
 
 
 async def main() -> None:
-    framework, agent = create_agent()
-    async with framework.running():
-        stream = await agent.run_stream(
-            session_id="customer-42",
-            prompt="Where is order A123?",
-        )
-        async for event in stream:
-            if event.kind == "text":
-                print(event.data.get("delta", ""), end="", flush=True)
-            elif event.kind == "error":
-                raise RuntimeError(str(event.data.get("message", "Agent failed")))
+    agent = create_agent()
+    # 任意 Republic "provider:model"。API key 从 REPUBLIC_OPENAI_API_KEY 读取。
+    async with republic.get_model("openai:gpt-5-mini") as model:
+        async with agent.run(
+            "Where is order A123?", model=model, options={"max_tokens": 4096}, tape="customer-42"
+        ) as stream:
+            async for event in stream:
+                if event.kind == "text":
+                    print(event.data.get("delta", ""), end="", flush=True)
+                elif event.kind == "error":
+                    raise RuntimeError(str(event.data.get("message", "Agent failed")))
         print()
 
 
@@ -90,168 +72,278 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-配置好模型后，运行 `uv run python sdk_example.py`。
-`config.yml` 不存在时也可以运行，环境变量配置仍然生效。
-示例中的订单查询返回演示数据，接入应用时请替换为实际服务。
+用 `REPUBLIC_OPENAI_API_KEY=... uv run python sdk_example.py` 运行。使用同一个 `tape` 再次运行，会继续保存在 `sessions/` 下的对话。
 
-`SystemPrompts` 覆盖 builtin 的系统提示方法，并继承其他 builtin hooks。
-只注册这一个实例即可；这个示例中不要再调用 `load_builtin_hooks()` 或 `load_hooks()`。
-系统提示 hooks 会累加，单独新增一个 prompt hook 会保留默认 builtin 的 channel 指令和工作区 `AGENTS.md` 内容。
+| `Agent(...)` 参数 | 行为                                                                              |
+| ----------------- | --------------------------------------------------------------------------------- |
+| `model`           | 未传入模型的运行所用的默认模型；见 [模型](#模型)。默认 `None`，即每次运行都需传入。 |
+| `store`           | `TapeStore` 或 `AsyncTapeStore`。默认 `InMemoryTapeStore()`。                     |
+| `tools`           | 模型可调用的 `Tool` 对象，按名字保存在 `agent.tools` 中。                         |
+| `system_prompt`   | 一个或一组 system prompt section；见 [System prompt](#system-prompt)。            |
+| `context`         | 决定哪些 tape 条目进入模型上下文的 `TapeContext`。默认 `default_tape_context()`。 |
+| `sidecars`        | 挂载到每条 tape 上的 `TapeSidecar` 能力。                                         |
+| `max_steps`       | 一次运行中最多的模型调用次数。                                                    |
+| `name`            | 在 `invoke_agent` trace 中上报的 agent 名称。默认 `"agent"`。                     |
+| `command_prefix`  | 标记命令 prompt 的前缀，例如 `","`；见 [命令](#命令)。默认 `None`，即不启用命令。 |
 
-如需 Bub 标准默认行为，创建 framework 后调用 `framework.load_builtin_hooks()`。
-需要自动加载 `bub` entry-point group 下已安装的插件时，使用 `load_hooks()`。
+## 模型
 
-## 工具、Skills 与会话
-
-| 参数                     | 行为                                                                                             |
-| ------------------------ | ------------------------------------------------------------------------------------------------ |
-| `tools=[...]`            | 接受 `Tool` 对象。`Tool.from_callable()` 从类型注解生成 schema，从 docstring 获取描述。          |
-| `tools=None`             | 构造时复制全局工具注册表。`tools=[]` 禁用工具。                                                  |
-| `skill_dirs=[Path(...)]` | 仅搜索这些目录，按顺序处理，同名 skill 使用第一个。                                              |
-| `skill_dirs=None`        | 搜索项目、用户和 builtin 目录。`skill_dirs=[]` 禁用发现。                                        |
-| `tape_store=...`         | 使用传入的 `TapeStore` 或 `AsyncTapeStore`。`FileTapeStore(path)` 将会话 tape 持久化到指定目录。 |
-| `tape_store=None`        | 使用 framework 当前的 store；没有活动 store 时使用实例独立的内存存储。                           |
-| `command_prefix="::"`  | 覆盖当前 Agent 的命令前缀。`None` 使用 `BUB_COMMAND_PREFIX` / YAML `command_prefix`，默认 `,`。 |
-
-与 `@tool` 不同，`Tool.from_callable()` 不会把工具注册到全局表。
-模型需要按需读取 skill 正文时，将 `skill_describe` 加入工具集合。
-Skills 提供指令，不会自动授予 shell 或文件系统工具。
-
-每个 skill 单独放在一个目录中：
-
-```text
-skills/
-└── order-policy/
-    └── SKILL.md
-```
-
-```markdown
----
-name: order-policy
-description: Rules for answering order-status questions.
----
-Check the order service before giving a delivery status.
-```
-
-在相同 workspace 和 store 中复用 `session_id` 可以继续对话，新对话使用新 ID。
-以 `temp/` 开头的会话运行在 fork 中，不会合并回父 tape。
-归档和 builtin sidecar 的路径仍由 Bub 配置决定，独立于 `FileTapeStore` 的目录。
-
-每轮调用可以缩小实例能力范围，并覆盖已保存的模型设置：
+每次运行调用传入的模型，未传入时调用 agent 的 `model`，因此同一个 agent 可以用不同模型服务不同的运行；两者都没有时，
+需要调用模型的运行会抛出 `ValueError`。传入 `republic.get_model()` 得到的 Republic
+chat model 即可；它的生命周期归你管理，请在使用它的运行外层用 `async with` 打开（或自行关闭）。凭据和端点属于 Republic
+的客户端参数：
 
 ```python
-stream = await agent.run_stream(
-    session_id="customer-42",
-    prompt="Use $order-policy to check order A123.",
-    allowed_tools=["lookup_order", "skill"],
-    allowed_skills=["order-policy"],
-    model="provider:model-id",  # Replace with your configured provider/model.
-    reasoning_effort="high",  # Use a value supported by that model.
-)
+model = republic.get_model("openai:gpt-5-mini", api_key="...", api_base="https://example.test/v1")
+async with agent.run(prompt, model=model, options={"max_tokens": 4096, "temperature": 0.2}, tape="t") as stream:
+    ...
+
+agent = Agent(model=model)  # 未传入模型的运行调用它
+async with agent.run(prompt, tape="t") as stream:
+    ...
 ```
 
-必须消费返回的 stream。`allowed_tools` 支持工具原名和模型别名，例如 `fs.read` 与 `fs_read`。
-显式 `model` 和 `reasoning_effort` 优先于已保存设置；示例中的模型标识需要替换成实际模型，
-reasoning effort 也需使用该模型支持的值。
-通常省略 `state`，由 framework 自动加载；传入字典会跳过加载，并在执行中修改该字典。
+`options` 是随本次运行每次模型调用发送的 `republic.ChatOptions`；循环会加入本步的工具。`BeforeLlmCall`
+处理器可以把一次调用重定向到其他 `provider:model`：同一 provider 的模型复用运行模型的客户端，其他 provider
+使用从 Republic 环境变量配置的客户端。
 
-字符串 prompt 去掉首尾空白后，以 Agent 命令前缀（默认 `,`）开头时会被解释为命令。
-前缀不能为空或包含空白字符。执行时只去掉一次前缀；只有前缀时抛出 `ValueError`。
-覆盖前缀后，旧前缀开头的文本按普通输入处理；多模态 prompt 列表不会被识别为命令。
-已知命令直接调用实例工具，未知命令交给实例的 `bash` 工具执行（需有该工具）。
-直接命令不经过模型和工具拦截 hooks，也不受 agent loop 的 `allowed_tools` 过滤限制。
+如果需要自己的策略，例如 fallback、按 provider 的凭据或整次调用的超时，可以改为传入实现 `bub.core.ModelClient`
+的对象：提供 `spec`（默认的 `provider:model`）、默认 `max_tokens`（或 `None`），以及
+`open_stream(messages, spec=..., options=...)`——一个产出 provider 名称和 `republic.Stream` 的异步上下文管理器。
+Bub 自己的 `bub.builtin.model.BubModel` 就是这样的客户端。
+
+## 工具
+
+`Tool.from_callable()` 从类型注解生成参数 schema，从 docstring 生成描述，不会注册到全局。`bub.core` 中的
+`@tool` 装饰器生成同样的 `Tool`，同时把它加入 Bub 的全局注册表，Bub 自己的 agent 会取其快照。
+
+以 `context=True` 创建的工具会收到 `ToolContext`，其中包含本次运行的 `tape`、turn `state`、`run_id` 和事件总线：
+
+```python
+from bub.core import ToolContext
+
+
+def remember(note: str, *, context: ToolContext) -> str:
+    """Remember a note for this conversation."""
+    context.state.setdefault("notes", []).append(note)
+    return "noted"
+
+
+agent.tools["remember"] = Tool.from_callable(remember, context=True)
+```
+
+工具出错时，错误会作为工具结果返回给模型，而不会结束运行。名字中带 `.` 的工具会以 `_` 替换后提供给模型
+（例如 `fs.read` 变为 `fs_read`）。
+
+## System prompt
+
+system prompt 是有序的 section 列表，每个模型步骤渲染一次，以空行连接。section 可以是文本，也可以是接收
+`PromptContext` 并返回文本的同步或异步函数；返回空串或 `None` 时跳过该 section。`agent.system_prompt.add(section)`
+追加一个 section 并返回它，因此也可以用作装饰器；`agent.system_prompt.remove(section)` 将其移除。
+
+```python
+from bub.core import PromptContext
+
+
+@agent.system_prompt.add
+def tool_list(context: PromptContext) -> str:
+    names = ", ".join(tool.name for tool in context.tools)
+    return f"Tools available in this step: {names}."
+
+
+@agent.system_prompt.add
+async def customer(context: PromptContext) -> str | None:
+    if (user := context.state.get("user")) is None:
+        return None
+    return f"You are talking to {user}."
+```
+
+context 包含本步的 `prompt`（工具调用后继续时为空）、本步模型可见的 `tools`、本步 `model` 的 `provider:model`、
+本次运行的 `tape` 与 `state`，以及 `agent`（并提供 `available_tools` 快捷属性）。
+
+## 会话与 tape
+
+每次运行使用 agent store 中以 `tape=` 命名的 tape。复用同一个名字即可继续对话；新对话使用新名字。运行写入的是该 tape 的
+fork，运行的流关闭时合并回去；传入 `merge_back=False` 则丢弃。
+
+`state=` 是本次运行可修改的 turn state：一个由 system prompt section、工具和事件处理器共享的字典。agent 不会持久化它；
+需要保留的内容请放在你的应用中或写到 tape 上。
+
+```python
+async with agent.run("Any news on A123?", model=model, tape="customer-42", state={"user": "Ada"}) as stream:
+    ...
+
+tape = agent.tape("customer-42")
+messages = await tape.read_messages()  # 以 Republic 消息表示的对话。
+await tape.handoff(name="summary", state={"summary": "Ada asked about order A123."})
+```
+
+`agent.tape(name)` 返回某个对话的 tape，供运行之外使用；它直接写入 store。默认情况下模型上下文是该 tape
+最近一个 anchor 之后记录的对话，因此 `handoff()` 会开始一个更短的上下文。如果某次调用因上下文过长而失败，运行会自动
+handoff 一次并重试该 prompt。
+
+## 命令
+
+设置了 `command_prefix` 后，以该前缀开头的文本 prompt 会作为命令执行，而不走 agent loop，也不会调用模型。`name args...`
+调用名为 `name` 的工具，先传位置参数（按顺序对应工具的参数），再传 `key=value` 参数；其他命令在 agent 有 `bash` 工具时交给它执行。输出作为
+本次运行的 text 和 `final` 事件返回；同时发出 `CommandFinished` 事件报告这次命令，tape 会将其记录为 `command` 事件。
+
+```python
+agent = Agent(tools=[Tool.from_callable(lookup_order)], command_prefix=",")
+
+async with agent.run(",lookup_order order_id=A123", model=model, tape="customer-42") as stream:
+    async for event in stream:
+        print(event.kind, event.data)  # 依次是 text 和 final，内容为工具渲染后的结果。
+```
+
+首尾空白会被忽略，且只去掉一个前缀；只有前缀时会抛出 `ValueError`。前缀必须非空且不含空白。带媒体的 prompt 不会作为命令。
+命令调用工具时和模型调用工具一样发出 `BeforeToolCall` 和 `AfterToolCall`，因此工具处理器同样作用于它们；其
+`ToolContext` 的 `command` 为真。
+`agent.run_command(tape, line)` 可以在已打开的 tape 上直接执行命令。
+
+## 事件
+
+循环通过 `bub.core.events` 中的事件报告进度；注册处理器即可观察或干预它。
+
+```python
+from bub.core import AfterToolCall, BeforeToolCall, StepFinished, ToolCallDecision
+
+
+@agent.events.on(BeforeToolCall)
+def guard(event: BeforeToolCall) -> None:
+    if event.call.tool == "lookup_order" and not event.call.arguments.get("order_id"):
+        event.decision = ToolCallDecision.deny("order_id is required")
+
+
+@agent.events.on(AfterToolCall)
+async def audit(event: AfterToolCall) -> None:
+    print("tool", event.call.tool, event.result.duration_ms, "ms")
+
+
+agent.events.on(StepFinished, lambda event: print("step", event.step, event.status))
+```
+
+| 事件                           | 时机                                         | 处理器可以                                                                                                        |
+| ------------------------------ | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `RunStarted`                   | 一次运行开始                                 | 观察模型 spec、prompt 和运行 metadata                                                                             |
+| `StepStarted` / `StepFinished` | 一个模型步骤开始 / 以某个状态结束            | 观察                                                                                                              |
+| `BeforeLlmCall`                | 每次模型调用之前                             | 替换 `event.request`（模型、消息、`max_tokens`），或设置 `event.decision = LlmCallDecision.finish(text)` 跳过调用 |
+| `AfterLlmCall`                 | 每次模型调用完成或失败之后                   | 观察文本、工具调用、用量和错误                                                                                    |
+| `BeforeToolCall`               | 每次工具调用之前                             | 替换 `event.call` 以修改参数，或设置 `ToolCallDecision.replace(result)` / `deny(message)`                         |
+| `AfterToolCall`                | 每次工具调用之后，包括被拒绝和被替换的调用   | 赋值 `event.result.result` 以改变模型看到的结果                                                                   |
+| `ChatCompleted`                | 一个步骤的对话已可记录                       | 观察                                                                                                              |
+| `CommandFinished`              | 一个命令 prompt 执行完毕（见 [命令](#命令)） | 观察命令、状态和输出                                                                                              |
+
+`agent.events.on(EventType, handler)` 注册同步或异步处理器并返回它；`@agent.events.on(EventType)` 以装饰器形式完成同样的注册，
+`agent.events.off(EventType, handler)` 将其移除。为 `AgentEvent` 注册的处理器接收所有事件。处理器按注册顺序执行；
+在 `Before*` 事件上设置 decision 会停止向后续处理器分发。处理器抛出的异常会传给本次运行。
+
+每个事件都带有本次运行的 `state`；循环事件还带有它的 `tape`。记录本身也是一个处理器：最先注册的 `TapeRecorder`
+把对话和 `loop.*` 事件写入本次运行的 tape。
+
+### 自定义事件
+
+可以定义自己的事件，让工具、处理器和应用通过同一条事件总线协作。事件是继承 `AgentEvent` 的 keyword-only dataclass
+（继承 `TapeEvent` 则还会携带本次运行的 `tape`）。用 `await events.emit(event)` 发出事件：它会把事件分发给为该类型或其
+父类型注册的处理器，并返回该事件。在工具中，本次运行的事件总线是 `context.events`：
+
+```python
+from dataclasses import dataclass
+
+from bub.core import AgentEvent, ToolContext
+
+
+@dataclass(kw_only=True)
+class OrderLookedUp(AgentEvent):
+    order_id: str
+    status: str
+
+
+@dataclass(kw_only=True)
+class RefundRequested(AgentEvent):
+    order_id: str
+    approved: bool | None = None
+
+    @property
+    def stopped(self) -> bool:
+        # 一旦有处理器做出决定，后续处理器就不再执行。
+        return self.approved is not None
+
+
+async def lookup_order(order_id: str, *, context: ToolContext) -> dict[str, str]:
+    """Look up the status of an order and whether it can be refunded."""
+    result = {"order_id": order_id, "status": "shipped"}
+    if context.events is not None:  # 工具在 agent 之外运行时为 None。
+        await context.events.emit(OrderLookedUp(state=context.state, **result))
+        request = await context.events.emit(RefundRequested(state=context.state, order_id=order_id))
+        result["refundable"] = str(bool(request.approved))
+    return result
+
+
+agent.tools["lookup_order"] = Tool.from_callable(lookup_order, context=True)
+
+
+@agent.events.on(OrderLookedUp)
+async def notify(event: OrderLookedUp) -> None:
+    print("order", event.order_id, "is", event.status, "for", event.state.get("user"))
+
+
+@agent.events.on(RefundRequested)
+def approve(event: RefundRequested) -> None:
+    event.approved = event.state.get("user") == "Ada"
+```
+
+每个事件都带有发出它的那次运行的 `state`，因此请传入 `context.state`（在其他处理器中则传 `event.state`）。处理器可以修改
+可变事件，发出方从返回的事件中读取结果；覆盖 `stopped` 可以在某个处理器做出决定后停止分发。应用也可以直接用
+`await agent.events.emit(...)` 发出事件。自定义事件不会写入 tape；需要记录时，请在处理器中自行追加，例如在工具里调用
+`await context.tape.append_event("order.looked_up", {...})`，或使用 `TapeEvent` 并在处理器中调用 `event.tape.append_event(...)`。
 
 ## 流式事件与生命周期
 
-先 `await run_stream()`，再迭代其返回值。事件包括 `text`、`reasoning`、`tool_call`、
-`tool_result`、`usage`、`error` 和 `final`。
-`final` 表示一次模型步骤结束，整个 turn 需要等到迭代完成。
-调用方应检查 error 事件并处理迭代抛出的异常。stream 对象还提供 `error` 和 `usage` 属性。
+`agent.run()` 是一个异步上下文管理器：进入时开始运行，产出的流在迭代时驱动循环。事件包括 `text`、`reasoning`、`tool_call`、
+`tool_result`、`usage`、`error` 和 `final`。`final` 事件结束的是一个模型步骤；流被消费完时整个运行结束。请检查 error
+事件并处理迭代中抛出的异常。流对象还提供 `error` 和 `usage`。
 
-如果要提前退出已经开始的迭代，显式关闭迭代器：
-
-```python
-from contextlib import aclosing
-
-stream = await agent.run_stream(session_id="customer-42", prompt="Check order A123")
-async with aclosing(stream.__aiter__()) as events:
-    async for event in events:
-        print(event.kind, event.data)
-```
-
-所有 turn 完成之前，保持 `framework.running()` 开启。
-在进入生命周期前访问 Agent 缓存的 `tape`，可能使其绑定到内存 fallback。
-显式注入的 store 由应用管理生命周期。
-`Agent` 本身不是异步上下文管理器，当前也没有 `run()` 便捷方法。
-
-## 接入 FastAPI
-
-运行 `uv add fastapi uvicorn` 安装服务依赖，然后在 `sdk_example.py` 旁保存 `app.py`：
+离开 `async with` 块时会关闭流，提前 `break` 或抛出异常时也一样：模型流停止、tape fork 合并回去、trace span 结束。
 
 ```python
-import asyncio
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
-
-from sdk_example import create_agent
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    framework, agent = create_agent()
-    async with framework.running():
-        app.state.agent = agent
-        app.state.turn_lock = asyncio.Lock()
-        yield
-
-
-app = FastAPI(lifespan=lifespan)
-
-
-class Task(BaseModel):
-    session_id: str
-    prompt: str
-
-
-@app.post("/tasks")
-async def run_task(task: Task, request: Request):
-    async with request.app.state.turn_lock:
-        stream = await request.app.state.agent.run_stream(
-            session_id=task.session_id,
-            prompt=task.prompt,
-        )
-        parts: list[str] = []
-        error: str | None = None
-        async for event in stream:
-            if event.kind == "text":
-                parts.append(str(event.data.get("delta", "")))
-            elif event.kind == "error":
-                error = str(event.data.get("message", "Agent failed"))
-        if error is not None:
-            raise HTTPException(status_code=502, detail=error)
-        return {"session_id": task.session_id, "output": "".join(parts)}
+async with agent.run("Check order A123", model=model, tape="customer-42") as stream:
+    async for event in stream:
+        if event.kind == "tool_call":
+            break  # 运行在这里停止，已记录的内容会保留。
 ```
 
-使用 `uv run uvicorn app:app` 启动。这个示例在单进程内串行执行所有 turn。
-需要不同会话并行时，可以由应用维护带清理机制的按会话锁。
-多个 worker 共享 store 时需要跨进程协调，文件写锁并不能保证整个 turn 串行执行。
+如果要把流交给其他代码（例如稍后才消费它的框架），用相同参数调用 `await agent.start(...)`。它返回流但不负责关闭；
+消费方必须把它消费完或调用 `aclose()`。
 
-## Agent 与完整消息管线
+空 prompt 会直接得到 `error: empty prompt`，不会打开 tape。配置了 tracing 时，运行会记录为 `invoke_agent {name}` span；
+见 [Observability](/zh-cn/docs/tutorials/observability/)。
 
-对于普通 prompt，`Agent.run_stream()` 会运行 builtin loop，以及模型和工具拦截 hooks。
-它不会调用 `build_prompt`、`save_state`、outbound 渲染或 channel 分发，
-也不会选择插件替换的 `run_model` 实现。输出由应用消费。
+如果要在自己管理的 tape 上驱动循环，用 `agent.session(name, state=...)` 打开它，再调用
+`agent.run_on(tape, prompt, model=model)`；只跑一个模型步骤时用 `agent.run_once(prompt, model=model, tape=tape)`。
+两者都接受 `options`。
 
-需要完整消息管线或模型执行插件时，使用 `BubFramework.process_inbound()`。
-它返回包含 `model_output`、`state` 和 `outbounds` 的 `TurnResult`；
-`stream_output=True` 会通过绑定的 channel router 路由流式输出，但最终仍返回完整结果。
-扩展点详见 [Hooks](/zh-cn/docs/build/hooks/)。
+## 定制循环
 
-自定义 channel 必须在把命令交给 channel manager 前设置 `ChannelMessage.kind="command"`，
-才能跳过缓冲和活跃窗口过滤。缓冲层不再根据开头的逗号推断命令。
-使用 builtin Agent 时，消息内容仍需保留配置的前缀，供 Agent 执行命令。
+继承 `Agent` 可以改变每一步的准备方式。每个方法都会收到本次运行的 tape，其 `context.state` 就是 turn state：
 
-配置加载仍是进程级的，应在应用启动时统一配置。
-工具、skills 和 store 按实例隔离，不代表配置文件和环境变量也按实例隔离。
+| 方法                                   | 默认行为 | 用途                               |
+| -------------------------------------- | -------- | ---------------------------------- |
+| `prepare_tools(tape, prompt)`          | 全部工具 | 选择下一步模型可见的工具。         |
+| `pending_messages(tape)`               | 无       | 返回运行期间到达的用户消息。       |
+| `has_pending_messages(tape)`           | `False`  | 有消息等待时让运行再继续一步。     |
+| `continue_prompt(tape, prompt, state)` | `None`   | 在工具调用后返回下一步的用户消息。 |
+
+```python
+from bub.core import Tape
+
+
+class TriageAgent(Agent):
+    async def prepare_tools(self, tape: Tape, prompt):
+        tools = await super().prepare_tools(tape, prompt)
+        if tape.context.state.get("read_only"):
+            tools = [tool for tool in tools if tool.name == "lookup_order"]
+        return tools
+```
+
+要通过 HTTP 提供 agent 服务，请参阅 [用 FastAPI 提供 Bub agent 服务](/zh-cn/docs/tutorials/fastapi/)。

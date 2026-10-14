@@ -3,6 +3,7 @@ import contextlib
 import math
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from datetime import datetime
+from functools import cached_property
 from hashlib import md5
 from pathlib import Path
 from time import monotonic
@@ -25,8 +26,7 @@ from rich.text import Text
 from rich.tree import Tree
 
 import bub
-from bub.builtin.agent import Agent
-from bub.builtin.commands import strip_command_prefix
+from bub.builtin.agent import BubAgent
 from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.base import Interface
 from bub.channels.cli.ansi_bridge import render_to_ansi
@@ -38,10 +38,12 @@ from bub.channels.cli.terminal_output import (
 from bub.channels.cli.writers import MarkdownWriter
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
+from bub.core.commands import strip_command_prefix
+from bub.core.events import AfterToolCall, BeforeToolCall, EventBus
+from bub.core.tape import TapeInfo, session_tape_name
+from bub.core.tools import REGISTRY
 from bub.envelope import Envelope, field_of
 from bub.streaming import StreamEvent
-from bub.tape import TapeInfo
-from bub.tools import REGISTRY, tool_call_reporter
 
 _GENERATION_SPINNER: str = SPINNERS["dots"]["frames"]  # type: ignore[assignment]
 _PROMPT_REFRESH_INTERVAL: float = SPINNERS["dots"]["interval"] / 1000.0  # type: ignore[operator]
@@ -183,22 +185,30 @@ class _StreamPrinter:
         await self._presenter.write(lambda: self._console.print(*args, **kwargs))
 
 
-class _CliToolCallReporter:
+class _CliToolCallRenderer:
     def __init__(self, renderer: CliRenderer, presenter: TerminalPresenter) -> None:
         self._renderer = renderer
         self._presenter = presenter
 
-    async def start(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
-        await self._presenter.write(lambda: self._renderer.tool_call_start(name=name, args=args, kwargs=kwargs))
+    def subscribe(self, events: EventBus) -> None:
+        events.on(BeforeToolCall, self.on_before_tool_call)
+        events.on(AfterToolCall, self.on_after_tool_call)
 
-    async def success(self, name: str, result: object, elapsed_ms: float) -> None:
-        await self._presenter.write(
-            lambda: self._renderer.tool_call_success(name=name, result=result, elapsed_ms=elapsed_ms)
-        )
+    async def on_before_tool_call(self, event: BeforeToolCall) -> None:
+        call = event.call
+        await self._presenter.write(lambda: self._renderer.tool_call_start(name=call.tool, kwargs=call.arguments))
 
-    async def error(self, name: str, error: BaseException, elapsed_ms: float) -> None:
+    async def on_after_tool_call(self, event: AfterToolCall) -> None:
+        result = event.result
+        if result.error is None:
+            await self._presenter.write(
+                lambda: self._renderer.tool_call_success(name=result.tool, elapsed_ms=result.duration_ms)
+            )
+            return
+        # Show the exception the tool raised rather than the executor's wrapping error.
+        error = result.error.__cause__ or result.error
         await self._presenter.write(
-            lambda: self._renderer.tool_call_error(name=name, error=error, elapsed_ms=elapsed_ms)
+            lambda: self._renderer.tool_call_error(name=result.tool, error=error, elapsed_ms=result.duration_ms)
         )
 
 
@@ -209,9 +219,9 @@ class CliChannel(Interface):
     _stop_event: asyncio.Event
     _initial_prompt: str | None = None
 
-    def __init__(self, on_receive: MessageHandler, agent: Agent) -> None:
+    def __init__(self, on_receive: MessageHandler, get_agent: Callable[[], BubAgent], workspace: Path) -> None:
         self._on_receive = on_receive
-        self._agent = agent
+        self._get_agent = get_agent
         self._message_template = {
             "chat_id": "cli_chat",
             "channel": self.name,
@@ -227,15 +237,25 @@ class CliChannel(Interface):
         self._presenter = TerminalPresenter()
         self._last_tape_info: TapeInfo | None = None
         self._last_token_speed: float | None = None
-        self._workspace = self._agent.framework.workspace
-        self._prompt = self._build_prompt(self._workspace)
+        self._workspace = workspace
+
+    @cached_property
+    def _agent(self) -> BubAgent:
+        """The agent, created on first use, inside the framework's lifespan."""
+        agent = self._get_agent()
+        _CliToolCallRenderer(self._renderer, self._presenter).subscribe(agent.events)
+        return agent
+
+    @cached_property
+    def _prompt(self) -> PromptSession[str]:
+        return self._build_prompt(self._workspace)
 
     def _suppress_logs(self) -> None:
         with contextlib.suppress(ValueError):
             logger.remove()
 
     async def _refresh_tape_info(self) -> None:
-        tape = self._agent.tape.session_tape(self._message_template["session_id"], self._workspace)
+        tape = self._agent.tape(session_tape_name(self._message_template["session_id"], self._workspace))
         info = await tape.info()
         self._last_tape_info = info
 
@@ -388,12 +408,11 @@ class CliChannel(Interface):
         self._stream_printer = printer
         self._invalidate_prompt()
         try:
-            with tool_call_reporter(_CliToolCallReporter(self._renderer, self._presenter)):
-                async for event in stream:
-                    if event.kind == "usage":
-                        self._update_token_speed(event.data)
-                    if await printer.render(event):
-                        yield event
+            async for event in stream:
+                if event.kind == "usage":
+                    self._update_token_speed(event.data)
+                if await printer.render(event):
+                    yield event
         finally:
             try:
                 await printer.finish()
