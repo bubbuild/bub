@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import pytest
 from loguru import logger
 from pydantic import BaseModel
 
-from bub.hooks.interception import ToolCall, ToolCallDecision, ToolCallResult
+from bub.core.events import AfterToolCall, BeforeToolCall, EventBus
+from bub.errors import BubError
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
-from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool, tool_call_reporter
+from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
 
 
 class EchoInput(BaseModel):
@@ -93,87 +95,68 @@ async def test_tool_decorator_command_exposure_keeps_direct_calls() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_wrapper_logs_and_omits_context_from_log_payload(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool_name = "tests.async_tool"
-    REGISTRY.pop(tool_name, None)
+async def test_tool_executor_logs_calls_without_context(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     messages: list[str] = []
 
     def record(message: str, *args: Any, **kwargs: Any) -> None:
         messages.append(message.format(*args, **kwargs))
 
     monkeypatch.setattr(logger, "info", record)
+    echo = Tool.from_callable(lambda value, context: value, name="tests.logged_tool", context=True)
 
-    @tool(name=tool_name, description="Async test tool", context=True)
-    async def async_tool(value: str, context: object) -> str:
-        return f"{value}:{context}"
+    execution = await ToolExecutor().execute_many([(echo, {"value": "hello"})], context=_context(tmp_path))
 
-    result = await async_tool.run("hello", context="ctx")
-
-    assert result == "hello:ctx"
-    assert REGISTRY[tool_name] is async_tool
+    assert execution.tool_results == ["hello"]
     assert len(messages) == 2
-    assert messages[0] == 'tool.call.start name=tests.async_tool { "hello" }'
-    assert messages[1].startswith("tool.call.success name=tests.async_tool elapsed_time=")
+    assert messages[0] == 'tool.call.start name=tests.logged_tool { value="hello" }'
+    assert messages[1].startswith("tool.call.success name=tests.logged_tool elapsed_time=")
 
 
 @pytest.mark.asyncio
-async def test_tool_wrapper_logs_failures_before_reraising(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool_name = "tests.failing_tool"
-    REGISTRY.pop(tool_name, None)
-    errors: list[str] = []
+async def test_tool_executor_logs_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    errors: list[tuple[str, BaseException | None]] = []
 
-    def record_exception(message: str, *args: Any, **kwargs: Any) -> None:
-        errors.append(message.format(*args, **kwargs))
+    class Recorder:
+        def __init__(self, exception: BaseException | None = None) -> None:
+            self.exception = exception
 
-    monkeypatch.setattr(logger, "exception", record_exception)
+        def opt(self, *, exception: BaseException | None = None) -> Recorder:
+            return Recorder(exception)
 
-    @tool(name=tool_name)
+        def info(self, message: str, *args: Any) -> None:
+            pass
+
+        def error(self, message: str, *args: Any) -> None:
+            errors.append((message.format(*args), self.exception))
+
+    monkeypatch.setattr("bub.core.tools.logger", Recorder())
+
     def failing_tool() -> str:
         raise RuntimeError("boom")
 
-    with pytest.raises(RuntimeError, match="boom"):
-        await failing_tool.run()
+    execution = await ToolExecutor().execute_many([(Tool.from_callable(failing_tool), {})])
 
-    assert len(errors) == 1
-    assert errors[0].startswith("tool.call.error name=tests.failing_tool elapsed_time=")
+    assert execution.error is not None
+    ((message, exception),) = errors
+    assert message.startswith("tool.call.error name=failing_tool elapsed_time=")
+    assert exception is execution.error
+    assert isinstance(exception.__cause__, RuntimeError)
 
 
 @pytest.mark.asyncio
-async def test_tool_wrapper_uses_reporter_instead_of_logs(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool_name = "tests.reported_tool"
-    REGISTRY.pop(tool_name, None)
-    logged: list[str] = []
-    reported: list[tuple[str, str, Any]] = []
+async def test_tool_executor_logs_arguments_changed_by_handlers(monkeypatch: pytest.MonkeyPatch) -> None:
+    messages: list[str] = []
+    monkeypatch.setattr(logger, "info", lambda message, *args: messages.append(message.format(*args)))
+    events = EventBus()
 
-    def record_log(message: str, *args: Any, **kwargs: Any) -> None:
-        logged.append(message.format(*args, **kwargs))
+    @events.on(BeforeToolCall)
+    def rewrite(event: BeforeToolCall) -> None:
+        event.call = replace(event.call, arguments={"value": "rewritten"})
 
-    class Reporter:
-        def start(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
-            reported.append(("start", name, {"args": args, "kwargs": kwargs}))
+    echo = Tool.from_callable(lambda value: value, name="tests.echo")
+    await ToolExecutor(events).execute_many([(echo, {"value": "original"})])
 
-        def success(self, name: str, result: Any, elapsed_ms: float) -> None:
-            reported.append(("success", name, {"result": result, "elapsed_ms": elapsed_ms}))
-
-        def error(self, name: str, error: BaseException, elapsed_ms: float) -> None:
-            reported.append(("error", name, {"error": error, "elapsed_ms": elapsed_ms}))
-
-    monkeypatch.setattr(logger, "info", record_log)
-    monkeypatch.setattr(logger, "exception", record_log)
-
-    @tool(name=tool_name)
-    def reported_tool(value: str) -> str:
-        return value.upper()
-
-    with tool_call_reporter(Reporter()):
-        result = await reported_tool.run("hello")
-
-    assert result == "HELLO"
-    assert logged == []
-    assert reported[0] == ("start", tool_name, {"args": ("hello",), "kwargs": {}})
-    assert reported[1][0] == "success"
-    assert reported[1][1] == tool_name
-    assert reported[1][2]["result"] == "HELLO"
+    assert messages[0] == 'tool.call.start name=tests.echo { value="rewritten" }'
 
 
 @pytest.mark.asyncio
@@ -191,7 +174,7 @@ async def test_tool_direct_call_registers_wrapped_instance_in_registry() -> None
 
 
 def _context(tmp_path, *, code_mode: bool = False) -> ToolContext:
-    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
     return ToolContext(tape=tape, run_id="run-1", code_mode=code_mode)
 
 
@@ -237,7 +220,7 @@ async def test_executor_render_option_decides_result_format(
         renderer=lambda result: f"count={result['count']}",
     )
 
-    execution = await ToolExecutor(render=render).execute_async(
+    execution = await ToolExecutor(render=render).execute_many(
         [(structured, {})], context=_context(tmp_path, code_mode=code_mode)
     )
 
@@ -249,19 +232,15 @@ async def test_executor_render_option_decides_result_format(
 async def test_executor_passes_tool_context_to_context_tools_and_hooks(tmp_path) -> None:
     seen: dict[str, Any] = {}
 
-    class RecordingHooks:
-        async def before_tool_call(self, call: ToolCall, state: dict[str, Any]) -> tuple[ToolCall, ToolCallDecision]:
-            seen["before"] = call.context
-            return call, ToolCallDecision.proceed()
-
-        async def after_tool_call(self, call: ToolCall, result: ToolCallResult, state: dict[str, Any]) -> None:
-            seen["after"] = (call.context, result.result)
+    events = EventBus()
+    events.on(BeforeToolCall, lambda event: seen.update(before=event.call.context))
+    events.on(AfterToolCall, lambda event: seen.update(after=(event.call.context, event.result.result)))
 
     def mode(*, context: ToolContext) -> dict[str, bool]:
         return {"code_mode": context.code_mode}
 
     context = _context(tmp_path, code_mode=True)
-    execution = await ToolExecutor(hooks=RecordingHooks(), render=False).execute_async(  # type: ignore[arg-type]
+    execution = await ToolExecutor(events, render=False).execute_many(
         [(Tool.from_callable(mode, context=True), {})], context=context
     )
 
@@ -271,13 +250,33 @@ async def test_executor_passes_tool_context_to_context_tools_and_hooks(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_executor_execute_returns_the_result_or_raises_the_tool_error() -> None:
+    events = EventBus()
+    finished: list[AfterToolCall] = []
+    events.on(AfterToolCall, finished.append)
+    executor = ToolExecutor(events, render=False)
+
+    def failing_tool() -> str:
+        raise RuntimeError("boom")
+
+    assert await executor.execute(Tool.from_callable(lambda value: {"value": value}, name="echo"), {"value": 1}) == {
+        "value": 1
+    }
+    with pytest.raises(BubError, match="Tool 'failing_tool' execution failed") as raised:
+        await executor.execute(Tool.from_callable(failing_tool), {})
+
+    assert isinstance(raised.value.__cause__, RuntimeError)
+    assert [event.call.tool for event in finished] == ["echo", "failing_tool"]
+
+
+@pytest.mark.asyncio
 async def test_executor_reports_renderer_failures_as_tool_errors(tmp_path) -> None:
     def broken_renderer(_result: object) -> str:
         raise KeyError("missing")
 
     broken = Tool(name="tests.broken_renderer", handler=lambda: {}, renderer=broken_renderer)
 
-    execution = await ToolExecutor().execute_async([(broken, {})], context=_context(tmp_path))
+    execution = await ToolExecutor().execute_many([(broken, {})], context=_context(tmp_path))
 
     assert execution.error is not None
     assert execution.tool_results[0]["message"] == "Tool 'tests.broken_renderer' execution failed."

@@ -4,7 +4,7 @@ from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 
-from bub.tape import TapeEntry
+from bub.core.tape import TapeEntry
 from bub.turn import TurnState
 
 

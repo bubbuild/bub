@@ -9,15 +9,14 @@ import pytest
 import republic
 from republic.errors import APIStatusError, StreamIncompleteError
 
-from bub.builtin.context import default_tape_context
-from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
+from bub.core.context import default_tape_context
 from bub.errors import BubError, ErrorKind
 from bub.prompt import to_content
 from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
 from bub.tape import Tape, TapeContext, TapeEntry
 from bub.tools import Tool
-from tests.model_fakes import ProviderService, chat_events, sse, tool_events
+from tests.model_fakes import ProviderService, StepRunner, chat_events, sse, tool_events
 
 
 @pytest.mark.asyncio
@@ -42,8 +41,8 @@ async def test_model_call_closes_its_owned_client(
         provider_service.reply(sse(chat_events() if outcome == "success" else chat_events()[:-1]))
         if outcome == "incomplete":
             error = StreamIncompleteError
-    runner = ModelRunner(AgentSettings(client_args={"api_format": "chat", "max_retries": 0}))
-    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("owned")
+    runner = StepRunner(AgentSettings(client_args={"api_format": "chat", "max_retries": 0}))
+    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("owned")
     with pytest.raises(error) if error is not None else nullcontext():
         events = [
             event
@@ -64,8 +63,8 @@ async def test_unknown_tool_returns_an_error_result(tmp_path: Path, provider_ser
         )
     )
     async with provider_service.client() as client:
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("unknown")
+        runner = StepRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("unknown")
         events = [
             event
             async for event in runner.run(
@@ -98,8 +97,8 @@ async def test_tool_turn_replays_after_tape_reload(
     provider_service.reply(sse(chat_events("Compared.")))
     tools = [Tool(name="inspect", handler=lambda: "files found"), Tool(name="compare", handler=lambda: "bytes differ")]
     async with provider_service.client() as client:
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
-        root = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("turn")
+        runner = StepRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        root = Tape(AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("turn")
         async with root.fork_tape() as tape:
             await tape.ensure_bootstrap_anchor()
             events = [
@@ -112,7 +111,7 @@ async def test_tool_turn_replays_after_tape_reload(
                     prompt=to_content("Compare the outputs."),
                 )
             ]
-        reopened = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("turn")
+        reopened = Tape(AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("turn")
         follow_up = [
             event
             async for event in runner.run(
@@ -147,8 +146,8 @@ async def test_tool_turn_replays_after_tape_reload(
 async def test_continuation_sends_steering_without_a_prompt(tmp_path: Path, provider_service: ProviderService) -> None:
     provider_service.reply(sse(chat_events()))
     async with provider_service.client() as client:
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context()).scoped("steering")
+        runner = StepRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context()).scoped("steering")
         await tape.ensure_bootstrap_anchor()
         events = [
             event
@@ -172,8 +171,8 @@ async def test_tool_result_without_its_call_in_context_is_still_sent(
 ) -> None:
     provider_service.reply(sse(chat_events()))
     async with provider_service.client() as client:
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("orphan")
+        runner = StepRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("orphan")
         await tape.store.append(
             tape.name,
             TapeEntry.message({"role": "tool", "tool_call_id": "call-1", "name": "inspect", "content": "Ready"}),
@@ -202,8 +201,8 @@ async def test_invalid_tool_arguments_do_not_execute_the_handler(
     )
     invoked = []
     async with provider_service.client() as client:
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("invalid")
+        runner = StepRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("invalid")
         with pytest.raises(BubError) as exc:
             _ = [
                 event
@@ -226,8 +225,8 @@ async def test_streaming_reports_usage_and_records_it_in_tape(
 ) -> None:
     provider_service.reply(sse(chat_events()))
     async with provider_service.client() as client:
-        runner = ModelRunner(AgentSettings(max_tokens=100, client_args={"http_client": client, "api_format": "chat"}))
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("usage")
+        runner = StepRunner(AgentSettings(max_tokens=100, client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("usage")
         events = [
             event
             async for event in runner.run(
@@ -256,10 +255,10 @@ async def test_anthropic_request_enables_caching_and_generation_options(
         ])
     )
     async with provider_service.client() as client:
-        runner = ModelRunner(
+        runner = StepRunner(
             AgentSettings(max_tokens=100, client_args={"http_client": client}, completion_args={"temperature": 0.2})
         )
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("cache")
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("cache")
         events = [
             event
             async for event in runner.run(
@@ -278,7 +277,7 @@ async def test_session_reasoning_and_runtime_options_override_completion_default
 ) -> None:
     provider_service.reply(sse(chat_events()))
     async with provider_service.client() as client:
-        runner = ModelRunner(
+        runner = StepRunner(
             AgentSettings(
                 client_args={
                     "http_client": client,
@@ -294,7 +293,6 @@ async def test_session_reasoning_and_runtime_options_override_completion_default
             )
         )
         tape = Tape(
-            tmp_path,
             AsyncTapeStoreAdapter(InMemoryTapeStore()),
             TapeContext(anchor=None, state={"reasoning_effort": "high"}),
         ).scoped("reasoning")
@@ -321,14 +319,13 @@ async def test_wire_reasoning_follows_republic_extra_body_precedence(
 ) -> None:
     provider_service.reply(sse(chat_events()))
     async with provider_service.client() as client:
-        runner = ModelRunner(
+        runner = StepRunner(
             AgentSettings(
                 client_args={"http_client": client, "api_format": "chat", "extra_body": {"reasoning_effort": "low"}},
                 completion_args={"extra_body": {"reasoning_effort": request_reasoning} if request_reasoning else {}},
             )
         )
         tape = Tape(
-            tmp_path,
             AsyncTapeStoreAdapter(InMemoryTapeStore()),
             TapeContext(anchor=None, state={"reasoning_effort": "high"}),
         ).scoped("wire-reasoning")
@@ -360,8 +357,8 @@ async def test_truncated_stream_never_executes_tools(tmp_path: Path, provider_se
     )
     invoked = []
     async with provider_service.client() as client:
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("truncated")
+        runner = StepRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("truncated")
         with pytest.raises(republic.errors.StreamIncompleteError):
             _ = [
                 event
@@ -411,8 +408,8 @@ async def test_provider_state_is_replayed_only_to_its_api_format_after_reload(
         )
     )
     async with provider_service.client() as client:
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client}))
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("metadata")
+        runner = StepRunner(AgentSettings(client_args={"http_client": client}))
+        tape = Tape(AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("metadata")
         await tape.ensure_bootstrap_anchor()
         tools = [Tool(name="lookup", handler=lambda: "lookup result")]
         _ = [
@@ -421,9 +418,7 @@ async def test_provider_state_is_replayed_only_to_its_api_format_after_reload(
                 tape=tape, model="google:model-one", tools=tools, system_prompt=None, prompt=to_content("lookup")
             )
         ]
-        reopened = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped(
-            "metadata"
-        )
+        reopened = Tape(AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("metadata")
         if next_model.startswith("openai:"):
             runner.settings.client_args["api_format"] = "chat"
         events = [
@@ -448,10 +443,10 @@ async def test_named_tool_choice_is_sent_to_anthropic(tmp_path: Path, provider_s
         ])
     )
     async with provider_service.client() as client:
-        runner = ModelRunner(
+        runner = StepRunner(
             AgentSettings(client_args={"http_client": client}, completion_args={"tool_choice": republic.Tool("echo")})
         )
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("choice")
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("choice")
         _ = [
             event
             async for event in runner.run(

@@ -108,7 +108,7 @@ The `REGISTRY` lives in [`bub.tools`](https://github.com/bubbuild/bub/blob/main/
 REGISTRY: dict[str, Tool] = {}
 ```
 
-Every `@tool` call mutates this dict at **import time**. `Agent(tools=None)` snapshots it when created; later imports do not update existing agents. Add tools to an instance's `Agent.tools`, and mark them `deferred=True` to [load them on demand](#load-tools-on-demand).
+Every `@tool` call mutates this dict at **import time**. `BubAgent(tools=None)` snapshots it when created; later imports do not update existing agents. Add tools to an instance's `BubAgent.tools`, and mark them `deferred=True` to [load them on demand](#load-tools-on-demand).
 
 ## Import the tools module from your plugin
 

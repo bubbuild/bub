@@ -60,7 +60,7 @@ class RecordingEnvironment(LocalEnvironment):
 
 
 def _context(tmp_path: Path, environment: Environment) -> ToolContext:
-    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
     return ToolContext(
         tape=tape, run_id="run", state={"_runtime_workspace": str(tmp_path), ENVIRONMENT_STATE_KEY: environment}
     )

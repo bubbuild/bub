@@ -1,0 +1,124 @@
+---
+title: 用 FastAPI 提供 Bub agent 服务
+description: 用 FastAPI 把 bub.core agent 暴露为 HTTP API，每个会话对应一段对话。
+sidebar:
+  order: 7
+---
+
+本教程把基于 `bub.core` 构建的 agent 作为 HTTP API 提供服务。每个请求都指定一个会话；同一会话的请求会延续同一段对话，
+对话以 tape 的形式保存在磁盘上。
+
+你需要 Python 3.12+ 和某个模型提供方的 API key。示例通过 [Republic](https://github.com/bubbuild/republic) 使用 OpenAI；
+任何 Republic `provider:model` 都可以。
+
+## 安装
+
+```bash
+uv init bub-api && cd bub-api
+uv add bub fastapi uvicorn
+```
+
+## 编写应用
+
+将以下内容保存为 `app.py`：
+
+```python
+import asyncio
+from collections import defaultdict
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import republic
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
+
+from bub.core import Agent, Tool
+from bub.core.store import FileTapeStore
+
+
+async def lookup_order(order_id: str) -> dict[str, str]:
+    """Look up the status of an order."""
+    # 将这个演示返回值替换为你应用中的订单服务。
+    return {"order_id": order_id, "status": "shipped"}
+
+
+def create_agent() -> Agent:
+    return Agent(
+        store=FileTapeStore(Path(__file__).resolve().parent / "sessions"),
+        tools=[Tool.from_callable(lookup_order)],
+        system_prompt=[
+            "You are an order assistant. Reply directly to the user.",
+            "Use lookup_order to check order status before answering.",
+        ],
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # API key 从 REPUBLIC_OPENAI_API_KEY 读取。
+    async with republic.get_model("openai:gpt-5-mini") as model:
+        app.state.agent = create_agent()
+        app.state.model = model
+        app.state.session_locks = defaultdict(asyncio.Lock)
+        yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+class Task(BaseModel):
+    session_id: str
+    prompt: str
+
+
+@app.post("/tasks")
+async def run_task(task: Task, request: Request):
+    state = request.app.state
+    # 同一会话 tape 上的运行不能重叠；不同会话可以并发运行。
+    async with state.session_locks[task.session_id]:
+        parts: list[str] = []
+        error: str | None = None
+        async with state.agent.run([task.prompt], model=state.model, tape=task.session_id) as stream:
+            async for event in stream:
+                if event.kind == "text":
+                    parts.append(str(event.data.get("delta", "")))
+                elif event.kind == "error":
+                    error = str(event.data.get("message", "Agent failed"))
+        if error is not None:
+            raise HTTPException(status_code=502, detail=error)
+        return {"session_id": task.session_id, "output": "".join(parts)}
+```
+
+lifespan 只打开一次 Republic 模型，并在服务关闭时关闭它。agent 不保存任何运行级状态，因此一个实例即可服务所有请求；
+每次运行使用该会话 tape 的 fork，离开 `async with agent.run(...)` 块时合并回去，运行失败时也是如此。
+
+## 运行
+
+```bash
+REPUBLIC_OPENAI_API_KEY=... uv run uvicorn app:app
+```
+
+在另一个终端中开始一段对话，再用同一个 `session_id` 继续：
+
+```bash
+curl -s localhost:8000/tasks -H 'content-type: application/json' \
+  -d '{"session_id": "customer-42", "prompt": "Where is order A123?"}'
+
+curl -s localhost:8000/tasks -H 'content-type: application/json' \
+  -d '{"session_id": "customer-42", "prompt": "And when did it ship?"}'
+```
+
+第二次回答可以引用第一次的内容，因为两次运行读取的都是 `sessions/` 下的 `customer-42` tape。
+
+## 部署之前
+
+- `session_locks` 会随会话数量增长；长期运行的服务需要清理空闲的锁。
+- 这些锁只能让同一进程内的运行串行。多个 worker 进程共享同一个 store 时需要跨进程协调，例如使用数据库中的锁；
+  文件写锁并不能让一次运行串行化。
+- `FileTapeStore` 适合单机。多台主机共享会话时，请使用基于数据库的 store，参见
+  [使用 SQLAlchemy 将 tape 持久化到 SQLite](/zh-cn/docs/tutorials/tapestore-sqlalchemy/)。
+
+## 下一步
+
+- 添加工具、system prompt section 和事件处理器：阅读 [Python SDK](/zh-cn/docs/build/sdk/)。
+- 端到端追踪请求：阅读 [使用 tape、Phoenix 与 Logfire 观察 Bub](/zh-cn/docs/tutorials/observability/)。

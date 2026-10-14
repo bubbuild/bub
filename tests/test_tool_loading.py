@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from bub.builtin.agent import Agent
+from bub.builtin.agent import BubAgent
 from bub.framework import BubFramework
 from bub.tools import Tool
 from tests.model_fakes import ProviderService
@@ -65,7 +65,7 @@ async def test_deferred_tool_is_loaded_through_tool_describe_and_persists_on_tap
             {"role": "assistant", "content": "Again"},
         ],
     )
-    agent = Agent(framework, tools=[direct, supplied, other], skill_dirs=[])
+    agent = BubAgent(framework, tools=[direct, supplied, other], skill_dirs=[])
 
     stream = await agent.run_stream(session_id="loading", prompt="Greet Ada.", model="openrouter:test-model")
     events = [event async for event in stream]
@@ -101,7 +101,7 @@ async def test_allowed_tools_filter_covers_direct_and_deferred_tools(
             {"role": "assistant", "content": "done"},
         ],
     )
-    agent = Agent(framework, tools=[direct, denied, allowed_deferred, denied_deferred], skill_dirs=[])
+    agent = BubAgent(framework, tools=[direct, denied, allowed_deferred, denied_deferred], skill_dirs=[])
 
     stream = await agent.run_stream(
         session_id="allowed",
@@ -128,7 +128,7 @@ async def test_tool_describe_is_hidden_without_deferred_tools(
 
     direct = Tool.from_callable(lambda: "direct", name="direct")
     requests = _scripted_provider(provider_transport, [{"role": "assistant", "content": "done"}])
-    agent = Agent(framework, tools=[direct, tool_describe], skill_dirs=[])
+    agent = BubAgent(framework, tools=[direct, tool_describe], skill_dirs=[])
 
     stream = await agent.run_stream(session_id="plain", prompt="Hi.", model="openrouter:test-model")
     _ = [event async for event in stream]
@@ -147,7 +147,7 @@ async def test_calling_unloaded_deferred_tool_returns_load_guidance(
         provider_transport,
         [_tool_call("lookup", "provider_lookup", {}), {"role": "assistant", "content": "done"}],
     )
-    agent = Agent(framework, tools=[supplied], skill_dirs=[])
+    agent = BubAgent(framework, tools=[supplied], skill_dirs=[])
 
     stream = await agent.run_stream(session_id="unloaded", prompt="Look up.", model="openrouter:test-model")
     _ = [event async for event in stream]
@@ -166,7 +166,7 @@ async def test_code_mode_exposes_deferred_tools_to_code_without_loading(
     direct = Tool.from_callable(lambda: "direct", name="direct")
     supplied = Tool.from_callable(lambda: "lookup", name="provider.lookup", deferred=True)
     requests = _scripted_provider(provider_transport, [{"role": "assistant", "content": "done"}])
-    agent = Agent(framework, tools=[direct, supplied, run_code], skill_dirs=[])
+    agent = BubAgent(framework, tools=[direct, supplied, run_code], skill_dirs=[])
     state: dict[str, Any] = {"code_mode": True, "_runtime_workspace": str(tmp_path)}
 
     stream = await agent.run_stream(session_id="code", prompt="Hi.", model="openrouter:test-model", state=state)
@@ -190,7 +190,7 @@ async def test_code_exposure_tools_are_hidden_from_the_model_outside_code_mode(
         provider_transport,
         [_tool_call("secret", "secret", {}), {"role": "assistant", "content": "done"}],
     )
-    agent = Agent(framework, tools=[direct, code_tool, deferred_code_tool, tool_describe], skill_dirs=[])
+    agent = BubAgent(framework, tools=[direct, code_tool, deferred_code_tool, tool_describe], skill_dirs=[])
 
     stream = await agent.run_stream(session_id="plain", prompt="Hi.", model="openrouter:test-model")
     _ = [event async for event in stream]
@@ -210,7 +210,7 @@ async def test_code_exposure_tools_are_exposed_to_code_in_code_mode(
     direct = Tool.from_callable(lambda: "direct", name="direct")
     code_tool = Tool.from_callable(lambda: "secret", name="secret", exposure="code")
     requests = _scripted_provider(provider_transport, [{"role": "assistant", "content": "done"}])
-    agent = Agent(framework, tools=[direct, code_tool, run_code], skill_dirs=[])
+    agent = BubAgent(framework, tools=[direct, code_tool, run_code], skill_dirs=[])
     state: dict[str, Any] = {"code_mode": True, "_runtime_workspace": str(tmp_path)}
 
     stream = await agent.run_stream(session_id="code", prompt="Hi.", model="openrouter:test-model", state=state)
@@ -232,7 +232,7 @@ async def test_tool_describe_does_not_describe_code_exposure_tools(
         provider_transport,
         [_tool_call("describe", "tool_describe", {"names": ["secret"]}), {"role": "assistant", "content": "done"}],
     )
-    agent = Agent(framework, tools=[deferred, code_tool, tool_describe], skill_dirs=[])
+    agent = BubAgent(framework, tools=[deferred, code_tool, tool_describe], skill_dirs=[])
 
     stream = await agent.run_stream(session_id="describe", prompt="Hi.", model="openrouter:test-model")
     _ = [event async for event in stream]

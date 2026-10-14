@@ -44,7 +44,7 @@ class ChannelSettings(Settings):
     stream_output: bool = Field(default=False, description="Whether to stream model output to channels in real-time.")
 
 
-# A tool call runs as a child task of ToolExecutor.execute_async's own asyncio.gather(),
+# A tool call runs as a child task of ToolExecutor.execute_many's own asyncio.gather(),
 # so asyncio.current_task() inside one is not the _run_message task quit() needs to
 # spare. This contextvar, set once per turn, survives that gather boundary.
 _owning_task: contextvars.ContextVar[asyncio.Task | None] = contextvars.ContextVar(

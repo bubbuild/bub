@@ -1,3 +1,6 @@
-from .agent import Agent
+from .agent import BubAgent
 
-__all__ = ["Agent"]
+Agent = BubAgent
+"""Deprecated alias of :class:`BubAgent`."""
+
+__all__ = ["Agent", "BubAgent"]

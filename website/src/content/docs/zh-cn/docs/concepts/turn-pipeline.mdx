@@ -84,9 +84,9 @@ hook 运行时会在两者间互相适配：若插件只实现 `run_model_stream
 `BuiltinImpl`（注册名 `builtin`）以合理默认实现上述每个 hook：
 
 - `resolve_session` — 优先使用 envelope 的 `session_id`，否则 `f"{channel}:{chat_id}"`。
-- `load_state` — 打开 inbound 的可选 `lifespan`，初始化 `session_id` 与内部 `_runtime_agent`。
-- `build_prompt` — 处理 comma 命令（`,help`、`,skill` 等），用时间戳与上下文包裹文本，并在附带媒体时输出多模态片段。
-- `run_model` / `run_model_stream` — 分别委托给 `Agent.run` / `Agent.run_stream`，即由 [Republic](https://github.com/bubbuild/republic) 支撑、带 tool 使用与 auto-handoff 的循环（见 [Tape and context](/zh-cn/docs/concepts/tape-and-context/)）。
+- `load_state` — 打开 inbound 的可选 `lifespan`，初始化 `session_id` 与内部 `_runtime_agent`，并恢复 session tape 上记录的会话设置（模型、reasoning effort、code mode）。
+- `build_prompt` — 标记命令 prompt（`,help`、`,skill` 等）并原样传给 agent 执行，用时间戳与上下文包裹其他文本，并在附带媒体时输出多模态片段。
+- `run_model_stream` — 通过 `BubAgent.run_stream()` 运行 turn，它构建在 `bub.core` 的 agent loop 之上，使用 [Republic](https://github.com/bubbuild/republic) 模型，支持工具调用、命令和 auto-handoff（见 [Tape and context](/zh-cn/docs/concepts/tape-and-context/)）。builtin 插件不实现 `run_model`；非流式调用方通过上文描述的适配获得拼接后的文本。
 - `save_state` — 用捕获的异常信息关闭 per-message lifespan。
 - `render_outbound` — 将 `model_output` 包装为携带 inbound 路由字段的 `ChannelMessage`。
 - `dispatch_outbound` — 转发到绑定的 `ChannelRouter`。

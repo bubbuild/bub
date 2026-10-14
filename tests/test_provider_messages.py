@@ -9,17 +9,16 @@ from pathlib import Path
 import httpx2
 import pytest
 
-from bub.builtin.context import default_tape_context
-from bub.builtin.model_runner import ModelRunner
 from bub.builtin.settings import AgentSettings
 from bub.channels.message import ChannelMessage, MediaItem
+from bub.core.context import default_tape_context
 from bub.errors import BubError, ErrorKind
 from bub.framework import BubFramework
 from bub.prompt import to_content
 from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
 from bub.tape import Tape, TapeContext
 from bub.tools import Tool
-from tests.model_fakes import ProviderService, chat_events, sse
+from tests.model_fakes import ProviderService, StepRunner, chat_events, sse
 
 
 @pytest.mark.asyncio
@@ -53,8 +52,8 @@ async def test_channel_media_reaches_gemini_and_survives_tape_reload(
             sse([{"candidates": [{"content": {"parts": [{"text": "ready"}]}, "finishReason": "STOP"}]}])
         )
     async with provider_service.client() as client:
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client}))
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("media")
+        runner = StepRunner(AgentSettings(client_args={"http_client": client}))
+        tape = Tape(AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("media")
         await tape.ensure_bootstrap_anchor()
         events = [
             event
@@ -62,9 +61,7 @@ async def test_channel_media_reaches_gemini_and_survives_tape_reload(
                 tape=tape, model="google:test", tools=[], system_prompt=None, prompt=to_content(prompt)
             )
         ]
-        reopened = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped(
-            "media"
-        )
+        reopened = Tape(AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("media")
         follow_up = [
             event
             async for event in runner.run(
@@ -104,8 +101,8 @@ async def test_consumer_close_releases_the_request_and_respects_client_ownership
         client_args = {"api_format": "chat"}
         if external_client:
             client_args["http_client"] = client
-        runner = ModelRunner(AgentSettings(client_args=client_args))
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("cancel")
+        runner = StepRunner(AgentSettings(client_args=client_args))
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("cancel")
         events = runner.run(tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("hello"))
         assert (await anext(events)).data == {"delta": "first"}
         await events.aclose()
@@ -120,12 +117,12 @@ async def test_primary_success_does_not_require_an_available_fallback(
 ) -> None:
     provider_service.reply(sse(chat_events()))
     async with provider_service.client() as client:
-        runner = ModelRunner(
+        runner = StepRunner(
             AgentSettings(
                 fallback_models=["not-installed:test"], client_args={"http_client": client, "api_format": "chat"}
             )
         )
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("fallback")
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("fallback")
         events = [
             event
             async for event in runner.run(
@@ -160,10 +157,8 @@ async def test_fresh_process_replays_tool_signatures_to_the_provider(
         ])
     )
     async with provider_service.client() as client:
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client}))
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped(
-            "persisted"
-        )
+        runner = StepRunner(AgentSettings(client_args={"http_client": client}))
+        tape = Tape(AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("persisted")
         await tape.ensure_bootstrap_anchor()
         _ = [
             event
@@ -179,8 +174,8 @@ async def test_fresh_process_replays_tool_signatures_to_the_provider(
 import asyncio, json, sys
 from pathlib import Path
 import httpx2
-from bub.builtin.context import default_tape_context
-from bub.builtin.model_runner import ModelRunner
+from bub.core.context import default_tape_context
+from tests.model_fakes import StepRunner
 from bub.builtin.settings import AgentSettings
 from bub.store import FileTapeStore, AsyncTapeStoreAdapter
 from bub.tape import Tape
@@ -192,8 +187,8 @@ async def main():
         return httpx2.Response(200, headers={"content-type": "text/event-stream"}, text="data: " + json.dumps(event) + "\\n\\n")
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
         directory = Path(sys.argv[1])
-        tape = Tape(directory, AsyncTapeStoreAdapter(FileTapeStore(directory)), default_tape_context()).scoped("persisted")
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client}))
+        tape = Tape(AsyncTapeStoreAdapter(FileTapeStore(directory)), default_tape_context()).scoped("persisted")
+        runner = StepRunner(AgentSettings(client_args={"http_client": client}))
         events = [event async for event in runner.run(tape=tape, model="google:test", tools=[], system_prompt=None, prompt=["Continue."])]
     print(json.dumps({"request": bodies[0], "result": events[-1].data}))
 asyncio.run(main())
@@ -212,8 +207,8 @@ asyncio.run(main())
 async def test_media_urls_preserve_explicit_mime_types(tmp_path: Path, provider_service: ProviderService) -> None:
     provider_service.reply(sse([{"candidates": [{"content": {"parts": [{"text": "ready"}]}, "finishReason": "STOP"}]}]))
     async with provider_service.client() as client:
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client}))
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("urls")
+        runner = StepRunner(AgentSettings(client_args={"http_client": client}))
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("urls")
         events = [
             event
             async for event in runner.run(
@@ -251,8 +246,8 @@ async def test_invalid_content_fails_without_a_provider_request(
     tmp_path: Path, provider_service: ProviderService, block: dict
 ) -> None:
     async with provider_service.client() as client:
-        runner = ModelRunner(AgentSettings(client_args={"http_client": client}))
-        tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("invalid")
+        runner = StepRunner(AgentSettings(client_args={"http_client": client}))
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("invalid")
         with pytest.raises(BubError) as exc:
             _ = [
                 event

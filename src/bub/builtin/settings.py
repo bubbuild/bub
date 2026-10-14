@@ -4,7 +4,6 @@ import os
 import pathlib
 import re
 import sys
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import republic
@@ -13,11 +12,12 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from bub import Settings, __version__, config, ensure_config
-from bub.builtin.commands import validate_command_prefix
+from bub.builtin.model import BubModel, ModelCandidate
+from bub.core.commands import validate_command_prefix
 
 if TYPE_CHECKING:
-    from bub.tape import Tape
-    from bub.tools import ToolContext
+    from bub.core.tape import Tape
+    from bub.core.tools import ToolContext
 
 DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 16384
@@ -29,14 +29,6 @@ def _provider_env_name(provider: str) -> str:
 
 USER_AGENT = f"bub/{__version__}"
 """Sent to model providers instead of Republic's default."""
-
-
-@dataclass(frozen=True)
-class ModelCandidate:
-    provider: str
-    model_id: str
-    name: str
-    provider_name: str | None = None
 
 
 class CustomProvider(BaseModel):
@@ -123,22 +115,27 @@ class AgentSettings(Settings):
     def valid_command_prefix(cls, value: str) -> str:
         return validate_command_prefix(value)
 
-    def model_candidates(self, model: str) -> list[ModelCandidate]:
-        candidate_names = [model]
-        if model == self.model:
-            candidate_names.extend(self.fallback_models or [])
+    def chat_model(self, model: str | None = None, *, reasoning_effort: str | None = None) -> BubModel:
+        """Build the Republic model for ``model`` (the configured model by default).
 
-        candidates: list[ModelCandidate] = []
-        for candidate in candidate_names:
-            provider, separator, model_id = candidate.partition(":")
-            if not separator or not provider or not model_id:
-                raise ValueError(f"Expected a provider:model identifier, got {candidate!r}")
-            if custom := self.providers.get(provider):
-                candidates.append(ModelCandidate(custom.type, model_id, candidate, provider))
-                continue
-            provider = provider.lower()
-            candidates.append(ModelCandidate(provider=provider, model_id=model_id, name=f"{provider}:{model_id}"))
-        return candidates
+        Fallback models apply only to the configured model. ``reasoning_effort``
+        overrides the one in ``completion_args``.
+        """
+        options = dict(self.completion_args)
+        if reasoning_effort is not None:
+            options["reasoning_effort"] = reasoning_effort
+        return BubModel(
+            model or self.model,
+            fallbacks=(self.fallback_models or []) if (model or self.model) == self.model else (),
+            providers={name: provider.type for name, provider in self.providers.items()},
+            client_options=self.model_client_kwargs,
+            options=options,
+            max_tokens=self.max_tokens,
+            timeout=self.model_timeout_seconds,
+        )
+
+    def model_candidates(self, model: str) -> list[ModelCandidate]:
+        return self.chat_model().candidates(model)
 
     def model_client_kwargs(self, provider: str) -> dict[str, Any]:
         custom = self.providers.get(provider)
