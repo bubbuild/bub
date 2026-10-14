@@ -9,13 +9,13 @@
 
 <p><strong>A tiny agent runtime, composable with plugins.</strong></p>
 
+[Website](https://bub.build) · [Docs](https://bub.build/docs/getting-started/) · [Hub](https://hub.bub.build)
+
 </div>
 
 Bub is a small Python runtime for building agents in shared environments. It started in group chats, where multiple humans and agents had to work in the same conversation without hidden state, hand-wavy memory, or framework-specific magic.
 
-Built on [agents.md](https://agents.md/) and [Agent Skills](https://agentskills.io/) , Bub stays intentionally small. Every turn stage is a [pluggy](https://pluggy.readthedocs.io/) hook. Builtins are included but replaceable. The same runtime drives CLI, Telegram, and any channel you add.
-
-[Website](https://bub.build) · [GitHub](https://github.com/bubbuild/bub)
+Built on [agents.md](https://agents.md/) and [Agent Skills](https://agentskills.io/), Bub stays intentionally small. Every turn stage is a [pluggy](https://pluggy.readthedocs.io/) hook, builtins are replaceable, and the same runtime drives CLI, Telegram, and any channel you add.
 
 ## Quick Start
 
@@ -31,25 +31,7 @@ Windows PowerShell:
 powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
 ```
 
-The interactive installer uses a colored preset picker, accepts additional plugin dependencies, and runs `bub onboard` after installation. For automation, select a preset explicitly; non-interactive installs skip onboarding:
-
-```bash
-curl -fsSL https://bub.build/install.sh | bash -s -- --preset recommended --dependency extra-plugin
-```
-
-```powershell
-powershell -ExecutionPolicy ByPass -c "& ([scriptblock]::Create((irm https://bub.build/install.ps1))) --preset recommended --dependency extra-plugin"
-```
-
-Or from source:
-
-```bash
-git clone https://github.com/bubbuild/bub.git
-cd bub
-uv sync  # enough to run Bub from source
-```
-
-For local development, use `make install` instead so the website toolchain and `prek` hooks are installed too.
+Then:
 
 ```bash
 bub chat                         # interactive session
@@ -57,13 +39,16 @@ bub run "summarize this repo"    # one-shot task
 bub gateway                      # channel listener mode
 ```
 
+See [Getting Started](https://bub.build/docs/getting-started/) for installer presets and source installs, and [Configure](https://bub.build/docs/operate/configure/) for model and runtime settings.
+
 ## Why Bub
 
 - **Composable by design.** Every turn stage is a plugin hook. Override one stage or replace the whole flow without forking the runtime.
 - **Tape context.** Context is rebuilt from append-only records, not carried around as mutable session state. Easier to inspect, replay, and hand off.
 - **One runtime across surfaces.** The same inbound pipeline runs across CLI, Telegram, and custom channels. Adapters change the surface, not the runtime model.
 - **Batteries included.** CLI, Telegram, tools, skills, and model execution ship with the core runtime. Use the defaults first, replace them later.
-- **Operator equivalence.** Humans and agents work inside the same runtime boundaries, with the same evidence trail and handoff model. No hidden operator class.
+- **Operator equivalence.** Humans and agents work inside the same runtime boundaries, with the same evidence trail and handoff model.
+- **Embeddable Python SDK.** `bub.core` exposes the agent loop on its own — bring your own model, tools, prompts, and tape store, with no settings or plugins required.
 
 ## How It Works
 
@@ -75,101 +60,23 @@ resolve_session → load_state → build_prompt → run_model
               dispatch_outbound ← render_outbound ← save_state
 ```
 
-Builtins are registered first. External plugins load after them. At runtime, later plugins take precedence. There are no framework-only shortcuts.
-
-Key source files:
-
-- Turn orchestrator: [`src/bub/framework.py`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py)
-- Hook contract: [`src/bub/hooks/specs.py`](https://github.com/bubbuild/bub/blob/main/src/bub/hooks/specs.py)
-- Builtin hooks: [`src/bub/builtin/hook_impl.py`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/hook_impl.py)
-- Skill discovery: [`src/bub/skills.py`](https://github.com/bubbuild/bub/blob/main/src/bub/skills.py)
-
-## Extend It
-
-```python
-from bub import hookimpl
-from bub.envelope import content_of
-
-
-class EchoPlugin:
-    @hookimpl
-    def build_prompt(self, message, session_id, state):
-        return f"[echo] {content_of(message)}"
-
-    @hookimpl
-    async def run_model(self, prompt, session_id, state):
-        return prompt
-
-
-echo_plugin = EchoPlugin()
-```
-
-```toml
-[project.entry-points."bub"]
-echo = "my_package.plugin:echo_plugin"
-```
-
-See the [Build docs](https://bub.build/docs/build/) for hook guides, packaging, and plugin structure.
-
-## CLI
-
-| Command            | Description                       |
-| ------------------ | --------------------------------- |
-| `bub chat`         | Interactive REPL                  |
-| `bub run MESSAGE`  | One-shot turn                     |
-| `bub gateway`      | Channel listener (Telegram, etc.) |
-| `bub install`      | Install or sync Bub plugin deps   |
-| `bub update`       | Upgrade Bub plugin deps           |
-| `bub login codex`  | ChatGPT plan login               |
-
-Lines starting with `,` enter internal command mode (`,help`, `,skill name=my-skill`, `,fs.read path=README.md`).
-
-`bub hooks` still exists for diagnostics, but it is hidden from top-level help. `bub install` and `bub update` manage a separate uv project for Bub plugins, defaulting to `~/.bub/bub-project` or `BUB_PROJECT`.
-
-## Configuration
-
-| Variable                    | Default                      | Description                                          |
-| --------------------------- | ---------------------------- | ---------------------------------------------------- |
-| `BUB_MODEL`                 | `openrouter:openrouter/free` | Model identifier                                     |
-| `BUB_API_KEY`               | —                            | Provider key (optional with `bub login codex`)      |
-| `BUB_API_BASE`              | —                            | Custom provider endpoint                             |
-| `BUB_CLIENT_ARGS`           | —                            | JSON object forwarded to the underlying model client |
-| `BUB_COMPLETION_ARGS`       | —                            | JSON object forwarded to each completion call         |
-| `BUB_MAX_STEPS`             | unlimited                    | Tool-use loop limit; must be a positive integer      |
-| `BUB_MAX_TOKENS`            | `16384`                      | Max tokens per model call                            |
-| `BUB_MODEL_TIMEOUT_SECONDS` | —                            | Model call timeout (seconds)                         |
-| `BUB_SPILL_THRESHOLD`       | `4096`                       | Estimated tokens before tool output spills; `0` disables |
-
-## Background
-
-Bub is shaped by one constraint: real collaboration is messier than a solo demo. In shared environments, operators need visible boundaries, auditable history, and extension points that do not collapse into framework sprawl.
-
-Read more:
-
-- [Why We Rewrote Bub](https://bub.build/posts/why-rewrite-bub/)
-- [Socialized Evaluation and Agent Partnership](https://bub.build/posts/socialized-evaluation/)
-- [Context from Tape](https://tape.systems)
+Builtins are registered first and external plugins load after them, so later plugins take precedence. There are no framework-only shortcuts.
 
 ## Docs
 
 - [Getting Started](https://bub.build/docs/getting-started/) — install Bub and run the first turn
 - [Concepts](https://bub.build/docs/concepts/) — the mental model behind the runtime
-- [Channels](https://bub.build/docs/operate/channels/) — run Bub in CLI, Telegram, or your own channel
-- [Skills](https://bub.build/docs/build/skills/) — discover, inspect, and author Agent Skills in Bub
+- [Python SDK](https://bub.build/docs/build/sdk/) — embed Bub's agent loop in your own application
 - [Build](https://bub.build/docs/build/) — write plugins, override hooks, ship tools and skills
+- [Bub Hub](https://hub.bub.build) — browse community plugins, skills, and distributions
+- [Channels](https://bub.build/docs/operate/channels/) — run Bub in CLI, Telegram, or your own channel
 - [Deployment](https://bub.build/docs/operate/deploy/) — Docker, environment, upgrades
 
-## Development
+## Background
 
-```bash
-make install
-make check
-make test
-make docs
-make docs-test
-```
-
-See [CONTRIBUTING.md](https://github.com/bubbuild/bub/blob/main/CONTRIBUTING.md).
+- [Why We Rewrote Bub](https://bub.build/posts/why-rewrite-bub/)
+- [Socialized Evaluation and Agent Partnership](https://bub.build/posts/socialized-evaluation/)
+- [Context from Tape](https://tape.systems)
 
 ## License
 
