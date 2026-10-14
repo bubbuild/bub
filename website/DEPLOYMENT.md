@@ -21,6 +21,8 @@ Recommended settings:
 - Environment variable: `SITE_URL=https://bub.build`
 - Node version: `24.21.0` (pinned in `website/.node-version`; remove any older
   `NODE_VERSION` override, or set it to `24.21.0`)
+- Package manager version: `12.11.2` (pinned as `packageManager` in
+  `website/package.json`, no other setting needed)
 - Build secret: `GITHUB_TOKEN=<GitHub PAT>` (optional, recommended for higher GitHub API limits)
 
 The repo keeps a minimal [wrangler.jsonc](./wrangler.jsonc) and relies on
@@ -34,6 +36,10 @@ Cloudflare bundle then fails to resolve it. Other dependencies require Node
 22.19+, so the website enforces that minimum during installation. After changing
 the build Node version, clear Cloudflare's build cache and retry if a cached
 installation still lacks the WASM runtime.
+
+`pnpm-workspace.yaml` sets a three-day release cooldown (`minimumReleaseAge`).
+The purpose is to block supply-chain attacks. A frozen install also fails while a
+lockfile entry is younger than three days, so a dependency bump must wait.
 
 Astro sessions are explicitly disabled because the site does not use per-user
 server state. The generated Worker should have only the `ASSETS` binding, with

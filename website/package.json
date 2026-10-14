@@ -2,7 +2,7 @@
   "name": "website",
   "type": "module",
   "version": "0.0.1",
-  "packageManager": "pnpm@10.34.6",
+  "packageManager": "pnpm@12.11.2",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
@@ -35,6 +35,6 @@
   "devDependencies": {
     "@lucide/astro": "^1.48.0",
     "tailwindcss": "^4.3.3",
-    "wrangler": "^4.143.0"
+    "wrangler": "^4.149.0"
   }
 }
