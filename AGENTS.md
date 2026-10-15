@@ -27,9 +27,10 @@ Tests live in `tests/`. The website and docs runtime lives in `website/`.
 - `uv run bub hooks`: inspect discovered hook bindings.
 - `uv run ruff check .`: run Ruff directly when you only want lint feedback.
 - `uv run mypy src`: run mypy directly against `src/`.
+- `uv run lint-imports`: check the import contracts in `pyproject.toml` (`bub.core` must not import the rest of `bub` or application dependencies).
 - `uv run pytest -q`: run the main test suite without doctests.
 - `make test`: run pytest with doctests enabled.
-- `make check`: lock validation, `prek`, and typing.
+- `make check`: lock validation, `prek`, typing, and import contracts.
 - `make docs` / `make docs-test` / `make docs-preview`: serve, build, or preview the Astro website/docs in `website/`.
 
 ## Coding Style & Naming Conventions

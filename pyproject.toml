@@ -66,6 +66,7 @@ dev = [
     "ruff>=0.15.10",
     "prek>=0.3.8",
     "pytest-asyncio>=1.3.0",
+    "import-linter>=2.5",
 ]
 
 [build-system]
@@ -106,6 +107,34 @@ exclude = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.importlinter]
+root_packages = ["bub"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "bub.core is independent of the rest of bub"
+type = "forbidden"
+source_modules = ["bub.core"]
+forbidden_modules = ["bub.*"]
+
+[[tool.importlinter.contracts]]
+name = "bub.core does not use application dependencies"
+type = "forbidden"
+source_modules = ["bub.core"]
+forbidden_modules = [
+    "aiohttp",
+    "dotenv",
+    "inquirer_textual",
+    "pluggy",
+    "prompt_toolkit",
+    "pydantic_settings",
+    "rapidfuzz",
+    "rich",
+    "telegram",
+    "typer",
+    "yaml",
+]
 
 [tool.ruff]
 target-version = "py312"

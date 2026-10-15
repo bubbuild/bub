@@ -40,6 +40,9 @@ jobs:
       - name: Check typing
         run: uv run mypy
 
+      - name: Check import contracts
+        run: uv run lint-imports
+
 
 
   check-docs:
