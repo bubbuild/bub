@@ -13,10 +13,6 @@ from bub import inquirer as bub_inquirer
 from bub.agent.commands import strip_command_prefix
 from bub.agent.context import default_tape_context
 from bub.agent.events import ToolCall, ToolCallDecision, ToolCallResult
-from bub.agent.sidecars import TapeSidecar
-from bub.agent.store import TapeStore
-from bub.agent.tape import TapeContext, session_tape_name
-from bub.agent.tools import is_content_result, render_result
 from bub.builtin.agent import BubAgent
 from bub.builtin.onboarding import collect_model_config
 from bub.builtin.settings import load_session_settings, load_settings
@@ -32,7 +28,11 @@ from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.model_selection import ModelChoice, ModelOptions
 from bub.prompt import UserContent
+from bub.sidecars import TapeSidecar
+from bub.store import TapeStore
 from bub.streaming import AsyncStreamEvents
+from bub.tape import TapeContext, session_tape_name
+from bub.tools import is_content_result, render_result
 from bub.turn import TurnState
 
 AGENTS_FILE_NAME = "AGENTS.md"
@@ -338,9 +338,9 @@ class BuiltinImpl:
         replace it with a guidance ``tool_result`` so the model can re-issue a
         valid call on the next step. Commands run the agent's tools directly and are left alone.
         """
-        from bub.agent.tools import model_tools
         from bub.builtin.codemode import CODE_TOOLS_STATE_KEY
         from bub.builtin.tools import TOOL_DESCRIBE_TOOL_NAME
+        from bub.tools import model_tools
 
         if call.context is not None and call.context.command:
             return None

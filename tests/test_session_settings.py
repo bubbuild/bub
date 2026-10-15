@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from bub.agent.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.agent.tape import Tape, TapeContext
-from bub.agent.tools import ToolContext
 from bub.builtin.settings import load_session_settings, set_session_setting
+from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.tape import Tape, TapeContext
+from bub.tools import ToolContext
 
 
 def _context(tmp_path: Path) -> ToolContext:

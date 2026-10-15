@@ -1333,8 +1333,8 @@ async def test_terminal_presenter_redraw_wait_stops_when_prompt_finishes(monkeyp
 @pytest.mark.asyncio
 async def test_cli_tool_renderer_finishes_before_next_model_output() -> None:
     from bub.agent.events import EventBus
-    from bub.agent.tools import Tool, ToolExecutor
     from bub.channels.cli import _CliToolCallRenderer
+    from bub.tools import Tool, ToolExecutor
 
     events: list[str] = []
 
@@ -1366,8 +1366,8 @@ async def test_cli_tool_renderer_finishes_before_next_model_output() -> None:
 @pytest.mark.asyncio
 async def test_cli_tool_renderer_shows_the_error_the_tool_raised() -> None:
     from bub.agent.events import EventBus
-    from bub.agent.tools import Tool, ToolExecutor
     from bub.channels.cli import _CliToolCallRenderer
+    from bub.tools import Tool, ToolExecutor
 
     errors: list[BaseException] = []
 

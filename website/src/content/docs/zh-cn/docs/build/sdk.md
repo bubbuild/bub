@@ -34,7 +34,7 @@ from pathlib import Path
 import republic
 
 from bub.agent import Agent, Tool
-from bub.agent.store import FileTapeStore
+from bub.store import FileTapeStore
 
 
 async def lookup_order(order_id: str) -> dict[str, str]:

@@ -8,8 +8,8 @@ from typing import Any
 
 import republic
 
-from bub.agent.tape import TapeContext, TapeEntry, to_message
-from bub.agent.tools import result_content
+from bub.tape import TapeContext, TapeEntry, to_message
+from bub.tools import result_content
 
 
 def default_tape_context() -> TapeContext:

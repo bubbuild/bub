@@ -15,8 +15,8 @@ from typing import Any, NoReturn, Protocol, Self, overload
 from loguru import logger
 from typing_extensions import TypeIs
 
-from bub.agent.tape import TapeEntry
 from bub.errors import BubError, ErrorKind
+from bub.tape import TapeEntry
 
 
 class TapeStore(Protocol):

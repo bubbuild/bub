@@ -16,16 +16,16 @@ from bub.agent.events import (
     ToolCallDecision,
     ToolCallResult,
 )
-from bub.agent.sidecars import TapeSidecar
-from bub.agent.store import AsyncTapeStore, TapeStore
-from bub.agent.tape import Tape, TapeContext
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import MessageHandler
 from bub.envelope import Envelope
 from bub.environment import Environment
 from bub.model_selection import ModelOptions
 from bub.prompt import LegacyPrompt, UserContent
+from bub.sidecars import TapeSidecar
+from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import AsyncStreamEvents, StreamState
+from bub.tape import Tape, TapeContext
 from bub.turn import TurnState
 
 if TYPE_CHECKING:

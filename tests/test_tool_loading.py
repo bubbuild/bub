@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from bub.agent.tools import Tool
 from bub.builtin.agent import BubAgent
 from bub.framework import BubFramework
+from bub.tools import Tool
 from tests.model_fakes import ProviderService
 
 

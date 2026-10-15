@@ -15,9 +15,6 @@ from dotenv import find_dotenv, load_dotenv
 from loguru import logger
 
 from bub import configure
-from bub.agent.sidecars import TapeSidecar
-from bub.agent.store import AsyncTapeStore, TapeStore
-from bub.agent.tape import Tape, TapeContext
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import ChannelRouter, MessageHandler
 from bub.envelope import Envelope, content_of, field_of, unpack_batch
@@ -28,7 +25,10 @@ from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.model_selection import ModelOptions
 from bub.prompt import UserContent, to_content, to_legacy_prompt
+from bub.sidecars import TapeSidecar
+from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import StreamState
+from bub.tape import Tape, TapeContext
 from bub.turn import TurnResult, TurnState
 from bub.utils import maybe_context_manager
 

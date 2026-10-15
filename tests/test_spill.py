@@ -10,9 +10,6 @@ import republic
 
 from bub.agent.context import default_tape_context
 from bub.agent.events import AfterToolCall, EventBus
-from bub.agent.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore, TapeStore
-from bub.agent.tape import Tape
-from bub.agent.tools import Tool, ToolContext, ToolExecutor, model_tools
 from bub.builtin.archive import reset_tape
 from bub.builtin.hook_impl import BuiltinImpl
 from bub.builtin.settings import AgentSettings
@@ -28,6 +25,9 @@ from bub.builtin.tools import render_tools_prompt
 from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
 from bub.hooks.interception import PluginAgentHooks, ToolCall, ToolCallResult
 from bub.hooks.runtime import HookRuntime
+from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore, TapeStore
+from bub.tape import Tape
+from bub.tools import Tool, ToolContext, ToolExecutor, model_tools
 from tests.model_fakes import ProviderService, StepRunner
 
 
@@ -438,7 +438,7 @@ async def test_result_spill_without_tool_availability_keeps_full_output(tmp_path
 async def test_spill_bounds_text_of_content_results_and_keeps_media(tmp_path: Path) -> None:
     import republic
 
-    from bub.agent.tools import content_result, result_content
+    from bub.tools import content_result, result_content
 
     image = republic.Image("image/png", data=b"png")
     root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)

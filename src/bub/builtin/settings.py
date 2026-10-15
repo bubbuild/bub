@@ -16,8 +16,8 @@ from bub.agent.commands import validate_command_prefix
 from bub.builtin.model import BubModel, ModelCandidate
 
 if TYPE_CHECKING:
-    from bub.agent.tape import Tape
-    from bub.agent.tools import ToolContext
+    from bub.tape import Tape
+    from bub.tools import ToolContext
 
 DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 16384

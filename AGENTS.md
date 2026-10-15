@@ -12,7 +12,7 @@ Core code lives under `src/`:
 - `src/bub/{envelope,turn,streaming,errors,model_selection}.py`: small kernel vocabulary owned by each concern.
 - `src/bub/builtin/`: builtin runtime: `BubAgent` (a `bub.agent.Agent` subclass adding settings, skills, commands, steering), `BubModel`, tape archiving, CLI wiring, tools, tape services, and the fuzzy-searching file tape store.
 - `src/bub/channels/`: channel abstractions plus CLI and Telegram adapters.
-- `src/bub/skills.py` / `src/bub/agent/tools.py`: skill discovery and tool registry.
+- `src/bub/skills.py` / `src/bub/tools.py`: skill discovery and tool registry.
 - `src/skills/`: bundled skills shipped with Bub.
 
 Tests live in `tests/`. The website and docs runtime lives in `website/`.

@@ -14,9 +14,6 @@ from types import SimpleNamespace
 import pytest
 
 import bub.builtin.tools as builtin_tools
-from bub.agent.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.agent.tape import Tape, TapeContext
-from bub.agent.tools import REGISTRY, Tool, ToolContext, ToolExecutor, tool
 from bub.builtin.shell_manager import ShellManager
 from bub.builtin.tools import (
     bash,
@@ -30,6 +27,9 @@ from bub.builtin.tools import (
     tape_info,
 )
 from bub.errors import ErrorKind
+from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.tape import Tape, TapeContext
+from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, tool
 
 
 def _tool_context(tmp_path, **state) -> ToolContext:

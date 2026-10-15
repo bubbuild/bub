@@ -1,9 +1,9 @@
 import subprocess
 import sys
 
-from bub.agent.store import FileTapeStore, TapeQuery
-from bub.agent.tape import TapeEntry
 from bub.builtin.store import FuzzyFileTapeStore
+from bub.store import FileTapeStore, TapeQuery
+from bub.tape import TapeEntry
 
 APP_MODULES = ("typer", "pluggy", "pydantic_settings", "dotenv", "yaml", "rapidfuzz", "telegram", "rich")
 

@@ -13,9 +13,9 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
 from bub.agent.events import AfterToolCall, BeforeToolCall, EventBus, ToolCall, ToolCallResult
-from bub.agent.tape import Tape
 from bub.errors import BubError, ErrorKind
 from bub.prompt import UserContent
+from bub.tape import Tape
 from bub.tracing import Span
 
 

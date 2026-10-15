@@ -7,14 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from bub.agent.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.agent.tape import Tape, TapeContext, session_tape_name
-from bub.agent.tools import REGISTRY
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.builtin.store import FuzzyFileTapeStore
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
+from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.streaming import AsyncStreamEvents, StreamEvent
+from bub.tape import Tape, TapeContext, session_tape_name
+from bub.tools import REGISTRY
 
 
 class RecordingLifespan:

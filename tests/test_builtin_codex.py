@@ -9,14 +9,14 @@ import pytest
 from typer.testing import CliRunner
 
 from bub.agent.context import default_tape_context
-from bub.agent.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
-from bub.agent.tape import Tape, TapeContext, TapeEntry
-from bub.agent.tools import Tool
 from bub.builtin.auth import app
 from bub.builtin.settings import AgentSettings
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.framework import BubFramework
 from bub.prompt import to_content
+from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
+from bub.tape import Tape, TapeContext, TapeEntry
+from bub.tools import Tool
 from tests.model_fakes import ProviderService, StepRunner, sse
 
 

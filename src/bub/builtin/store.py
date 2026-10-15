@@ -6,8 +6,8 @@ import re
 from collections.abc import Iterable
 from dataclasses import replace
 
-from bub.agent.store import FileTapeStore, TapeQuery
-from bub.agent.tape import TapeEntry
+from bub.store import FileTapeStore, TapeQuery
+from bub.tape import TapeEntry
 from bub.utils import get_entry_text
 
 WORD_PATTERN = re.compile(r"[a-z0-9_/-]+")
@@ -17,7 +17,7 @@ MAX_FUZZY_CANDIDATES = 128
 
 
 class FuzzyFileTapeStore(FileTapeStore):
-    """:class:`~bub.agent.store.FileTapeStore` whose text queries also match approximately."""
+    """:class:`~bub.store.FileTapeStore` whose text queries also match approximately."""
 
     def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]:
         if not query._query:

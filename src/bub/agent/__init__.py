@@ -4,34 +4,38 @@ Nothing here reads settings or plugin hooks. The loop reports its progress as ev
 to registered handlers; the framework and the builtin agent assemble these components.
 """
 
-from bub.agent.agent import Agent, events_from
-from bub.agent.context import default_tape_context
-from bub.agent.events import (
-    AfterLlmCall,
-    AfterToolCall,
-    AgentEvent,
-    BeforeLlmCall,
-    BeforeToolCall,
-    ChatCompleted,
-    CommandFinished,
-    EventBus,
-    EventHandler,
-    LlmCallDecision,
-    LlmCallRequest,
-    LlmCallResult,
-    RunStarted,
-    StepFinished,
-    StepStarted,
-    TapeEvent,
-    ToolCall,
-    ToolCallDecision,
-    ToolCallResult,
-)
-from bub.agent.model import ChatModelClient, Model, ModelClient
-from bub.agent.recorder import TapeRecorder
-from bub.agent.system_prompt import PromptContext, PromptSection, SystemPrompt
-from bub.agent.tape import Tape, TapeContext, session_tape_name
-from bub.agent.tools import Tool, ToolContext, tool
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from bub.agent.agent import Agent, events_from
+    from bub.agent.context import default_tape_context
+    from bub.agent.events import (
+        AfterLlmCall,
+        AfterToolCall,
+        AgentEvent,
+        BeforeLlmCall,
+        BeforeToolCall,
+        ChatCompleted,
+        CommandFinished,
+        EventBus,
+        EventHandler,
+        LlmCallDecision,
+        LlmCallRequest,
+        LlmCallResult,
+        RunStarted,
+        StepFinished,
+        StepStarted,
+        TapeEvent,
+        ToolCall,
+        ToolCallDecision,
+        ToolCallResult,
+    )
+    from bub.agent.model import ChatModelClient, Model, ModelClient
+    from bub.agent.recorder import TapeRecorder
+    from bub.agent.system_prompt import PromptContext, PromptSection, SystemPrompt
+    from bub.tape import Tape, TapeContext, session_tape_name
+    from bub.tools import Tool, ToolContext, tool
 
 __all__ = [
     "AfterLlmCall",
@@ -70,3 +74,51 @@ __all__ = [
     "session_tape_name",
     "tool",
 ]
+
+# Exports are imported on first access, so importing one submodule (such as ``bub.agent.events``
+# from ``bub.tools``) does not import the agent loop and the modules it depends on.
+_EXPORTS = {
+    "AfterLlmCall": "bub.agent.events",
+    "AfterToolCall": "bub.agent.events",
+    "Agent": "bub.agent.agent",
+    "AgentEvent": "bub.agent.events",
+    "BeforeLlmCall": "bub.agent.events",
+    "BeforeToolCall": "bub.agent.events",
+    "ChatCompleted": "bub.agent.events",
+    "ChatModelClient": "bub.agent.model",
+    "CommandFinished": "bub.agent.events",
+    "EventBus": "bub.agent.events",
+    "EventHandler": "bub.agent.events",
+    "LlmCallDecision": "bub.agent.events",
+    "LlmCallRequest": "bub.agent.events",
+    "LlmCallResult": "bub.agent.events",
+    "Model": "bub.agent.model",
+    "ModelClient": "bub.agent.model",
+    "PromptContext": "bub.agent.system_prompt",
+    "PromptSection": "bub.agent.system_prompt",
+    "RunStarted": "bub.agent.events",
+    "StepFinished": "bub.agent.events",
+    "StepStarted": "bub.agent.events",
+    "SystemPrompt": "bub.agent.system_prompt",
+    "Tape": "bub.tape",
+    "TapeContext": "bub.tape",
+    "TapeEvent": "bub.agent.events",
+    "TapeRecorder": "bub.agent.recorder",
+    "Tool": "bub.tools",
+    "ToolCall": "bub.agent.events",
+    "ToolCallDecision": "bub.agent.events",
+    "ToolCallResult": "bub.agent.events",
+    "ToolContext": "bub.tools",
+    "default_tape_context": "bub.agent.context",
+    "events_from": "bub.agent.agent",
+    "session_tape_name": "bub.tape",
+    "tool": "bub.tools",
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _EXPORTS:
+        raise AttributeError(f"module {__name__} has no attribute {name}")
+    value = getattr(import_module(_EXPORTS[name]), name)
+    globals()[name] = value
+    return value

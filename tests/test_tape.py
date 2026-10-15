@@ -6,12 +6,12 @@ import pytest
 import republic
 
 from bub.agent.context import default_tape_context
-from bub.agent.store import AsyncTapeStoreAdapter, ForkTapeStore, InMemoryTapeStore
-from bub.agent.tape import Tape, TapeContext, TapeEntry, to_messages
+from bub.store import AsyncTapeStoreAdapter, ForkTapeStore, InMemoryTapeStore
+from bub.tape import Tape, TapeContext, TapeEntry, to_messages
 
 
 def test_tape_reexports_legacy_store_objects() -> None:
-    from bub.agent import store, tape
+    from bub import store, tape
 
     expected_exports = {
         "AsyncTapeStore",

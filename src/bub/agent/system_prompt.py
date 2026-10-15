@@ -13,8 +13,8 @@ from bub.turn import TurnState
 
 if TYPE_CHECKING:
     from bub.agent.agent import Agent
-    from bub.agent.tape import Tape
-    from bub.agent.tools import Tool
+    from bub.tape import Tape
+    from bub.tools import Tool
 
 
 @dataclass(frozen=True)

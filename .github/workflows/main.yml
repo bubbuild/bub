@@ -61,8 +61,8 @@ jobs:
           uv run --isolated --no-project --with dist/bub-*.whl python - <<'EOF'
           import importlib.util
           from bub.agent import Agent
-          from bub.agent.store import InMemoryTapeStore
-          import bub.errors, bub.agent.store, bub.agent.tape, bub.agent.tools
+          from bub.store import InMemoryTapeStore
+          import bub.errors, bub.store, bub.tape, bub.tools
 
           Agent(store=InMemoryTapeStore())
           app_modules = ("typer", "pluggy", "pydantic_settings", "yaml", "rapidfuzz", "telegram", "rich")
