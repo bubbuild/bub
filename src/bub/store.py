@@ -390,7 +390,7 @@ class FileTapeStore(InMemoryQueryMixin):
         if not query._query:
             result: Iterable[TapeEntry] = super().fetch_all(query)
             return result
-        unlimited_query = replace(query, _limit=None)
+        unlimited_query = replace(query, _query=None, _limit=None)
         entries: Iterable[TapeEntry] = super().fetch_all(unlimited_query)
         return self._filter_entries(list(entries), query._query, query._limit or 20)
 

@@ -37,7 +37,7 @@ def workspace_from_state(state: TurnState) -> Path:
 def get_entry_text(entry: TapeEntry) -> str:
     import yaml
 
-    return yaml.safe_dump(entry.payload)
+    return yaml.safe_dump(entry.payload, allow_unicode=True)
 
 
 async def maybe_context_manager(obj: Any, stack: AsyncExitStack) -> Any:
