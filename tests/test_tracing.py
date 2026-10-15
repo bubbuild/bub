@@ -11,18 +11,17 @@ from typing import Any
 
 import pytest
 
-from bub import tracing
 from bub.builtin.agent import BubAgent
 from bub.builtin.settings import AgentSettings
+from bub.core import tracing
 from bub.core.context import default_tape_context
-from bub.core.tape import session_tape_name
+from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.streaming import AsyncStreamEvents, StreamEvent
+from bub.core.tape import Tape, session_tape_name
+from bub.core.tools import Tool, ToolContext, ToolExecutor
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.hooks.interception import LlmCallDecision, ToolCallDecision, ToolCallResult
-from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.streaming import AsyncStreamEvents, StreamEvent
-from bub.tape import Tape
-from bub.tools import Tool, ToolContext, ToolExecutor
 from bub.utils import workspace_from_state
 from tests.model_fakes import ProviderService, chat_events, sse
 
@@ -321,9 +320,9 @@ class BlockTelemetry(MetaPathFinder):
         if fullname.split('.')[0] in {'opentelemetry', 'logfire'}:
             raise ModuleNotFoundError(fullname)
 sys.meta_path.insert(0, BlockTelemetry())
-from bub import tracing
+from bub.core import tracing
 from bub.builtin.agent import BubAgent
-from bub.tools import Tool, ToolExecutor
+from bub.core.tools import Tool, ToolExecutor
 assert tracing.otel is None
 async def main():
     span = tracing.Span('noop')

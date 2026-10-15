@@ -11,7 +11,7 @@ from typing import Any
 import republic
 from loguru import logger
 
-from bub.tracing import current_span, event
+from bub.core.tracing import current_span, event
 
 
 @dataclass(frozen=True)

@@ -5,8 +5,8 @@ from typing import ClassVar
 
 from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.message import ChannelMessage
+from bub.core.streaming import StreamEvent
 from bub.envelope import Envelope
-from bub.streaming import StreamEvent
 
 
 class Channel(ABC):

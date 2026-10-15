@@ -26,7 +26,7 @@ from bub.channels.handler import BufferedMessageHandler
 from bub.channels.manager import ChannelManager
 from bub.channels.message import ChannelMessage
 from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMessageParser
-from bub.streaming import StreamEvent
+from bub.core.streaming import StreamEvent
 from bub.turn import TurnResult
 
 ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[()][A-Za-z])")
@@ -1334,7 +1334,7 @@ async def test_terminal_presenter_redraw_wait_stops_when_prompt_finishes(monkeyp
 async def test_cli_tool_renderer_finishes_before_next_model_output() -> None:
     from bub.channels.cli import _CliToolCallRenderer
     from bub.core.events import EventBus
-    from bub.tools import Tool, ToolExecutor
+    from bub.core.tools import Tool, ToolExecutor
 
     events: list[str] = []
 
@@ -1367,7 +1367,7 @@ async def test_cli_tool_renderer_finishes_before_next_model_output() -> None:
 async def test_cli_tool_renderer_shows_the_error_the_tool_raised() -> None:
     from bub.channels.cli import _CliToolCallRenderer
     from bub.core.events import EventBus
-    from bub.tools import Tool, ToolExecutor
+    from bub.core.tools import Tool, ToolExecutor
 
     errors: list[BaseException] = []
 
@@ -1507,7 +1507,7 @@ def test_cli_stream_output_does_not_overlap_active_pty_prompt() -> None:
         import bub.channels.cli as cli_module
         from bub.channels.cli import CliChannel, _StreamPrinter
         from bub.channels.cli.terminal_output import TerminalPresenter, create_synchronized_output
-        from bub.streaming import StreamEvent
+        from bub.core.streaming import StreamEvent
 
 
         async def main():

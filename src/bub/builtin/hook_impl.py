@@ -20,19 +20,19 @@ from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.core.commands import strip_command_prefix
 from bub.core.context import default_tape_context
+from bub.core.errors import BubError
 from bub.core.events import ToolCall, ToolCallDecision, ToolCallResult
+from bub.core.prompt import UserContent
 from bub.core.sidecars import TapeSidecar
 from bub.core.store import TapeStore
+from bub.core.streaming import AsyncStreamEvents
 from bub.core.tape import TapeContext, session_tape_name
 from bub.core.tools import is_content_result, render_result
 from bub.envelope import Envelope, content_of, field_of
 from bub.environment import Environment
-from bub.errors import BubError
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.model_selection import ModelChoice, ModelOptions
-from bub.prompt import UserContent
-from bub.streaming import AsyncStreamEvents
 from bub.turn import TurnState
 
 AGENTS_FILE_NAME = "AGENTS.md"
@@ -295,9 +295,9 @@ class BuiltinImpl:
     @hookimpl
     def provide_tape_store(self) -> TapeStore:
         import bub
-        from bub.core.store import FileTapeStore
+        from bub.builtin.store import FuzzyFileTapeStore
 
-        return FileTapeStore(directory=bub.home / "tapes")
+        return FuzzyFileTapeStore(directory=bub.home / "tapes")
 
     @hookimpl
     def provide_tape_sidecar(self) -> TapeSidecar:

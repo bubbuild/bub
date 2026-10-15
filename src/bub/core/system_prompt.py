@@ -8,8 +8,8 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
 
-from bub.prompt import UserContent
-from bub.turn import TurnState
+from bub.core.prompt import UserContent
+from bub.core.turn import TurnState
 
 if TYPE_CHECKING:
     from bub.core.agent import Agent

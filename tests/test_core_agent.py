@@ -26,8 +26,8 @@ from bub.core import (
     Tool,
     ToolCallDecision,
 )
+from bub.core.errors import BubError
 from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.errors import BubError
 from tests.model_fakes import ProviderService, chat_events, sse, tool_events
 
 

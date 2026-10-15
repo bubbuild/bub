@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from bub.builtin.tools import run_subagent
-from bub.streaming import AsyncStreamEvents, StreamEvent
-from bub.tools import REGISTRY, tool
+from bub.core.streaming import AsyncStreamEvents, StreamEvent
+from bub.core.tools import REGISTRY, tool
 
 
 class FakeContext:

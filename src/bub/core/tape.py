@@ -14,9 +14,9 @@ from typing import TYPE_CHECKING, Any
 
 import republic
 
-from bub import tracing
+from bub.core import tracing
+from bub.core.errors import BubError, ErrorKind
 from bub.core.sidecars import TapeSidecar, sidecar_tape_name
-from bub.errors import BubError, ErrorKind
 
 __all__ = [
     "LAST_ANCHOR",

@@ -16,12 +16,11 @@ from bub.builtin.settings import AgentSettings
 from bub.builtin.steering import InMemorySteeringInbox
 from bub.core import PromptContext, StepFinished
 from bub.core.context import default_tape_context
-from bub.core.tape import session_tape_name
-from bub.prompt import UserContent
-from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
-from bub.tape import Tape
-from bub.tools import REGISTRY, tool
+from bub.core.prompt import UserContent
+from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.streaming import AsyncStreamEvents, StreamEvent, StreamState
+from bub.core.tape import Tape, session_tape_name
+from bub.core.tools import REGISTRY, tool
 from tests.model_fakes import ProviderService
 
 # ---------------------------------------------------------------------------

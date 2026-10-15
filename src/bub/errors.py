@@ -1,40 +1,8 @@
-"""Errors reported by Bub's model and tool execution paths."""
+"""Compatibility alias for :mod:`bub.core.errors`."""
 
-from __future__ import annotations
+import sys
 
-from dataclasses import dataclass
-from enum import StrEnum
-from typing import Any
+from bub.core import errors as _module
+from bub.core.errors import *  # noqa: F403
 
-
-class ErrorKind(StrEnum):
-    """Stable error kinds for execution decisions."""
-
-    INVALID_INPUT = "invalid_input"
-    CONFIG = "config"
-    PROVIDER = "provider"
-    TOOL = "tool"
-    TEMPORARY = "temporary"
-    NOT_FOUND = "not_found"
-    UNKNOWN = "unknown"
-
-
-@dataclass
-class BubError(Exception):
-    """Public error type; exception machinery must be able to assign traceback fields."""
-
-    kind: ErrorKind
-    message: str
-    details: dict[str, Any] | None = None
-
-    def __str__(self) -> str:
-        return f"[{self.kind.value}] {self.message}"
-
-    def as_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "kind": self.kind.value,
-            "message": self.message,
-        }
-        if self.details:
-            payload["details"] = self.details
-        return payload
+sys.modules[__name__] = _module

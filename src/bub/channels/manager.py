@@ -15,9 +15,9 @@ from bub.channels.contracts import MessageHandler
 from bub.channels.handler import BufferedMessageHandler
 from bub.channels.message import ChannelMessage
 from bub.configure import Settings, ensure_config
+from bub.core.streaming import StreamEvent
 from bub.envelope import Envelope, content_of, field_of
 from bub.framework import BubFramework
-from bub.streaming import StreamEvent
 from bub.turn import TurnState
 from bub.utils import wait_until_stopped
 

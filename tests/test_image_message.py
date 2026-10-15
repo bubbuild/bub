@@ -11,8 +11,8 @@ import republic
 from bub.builtin.hook_impl import BuiltinImpl
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.channels.telegram import TelegramChannel, TelegramMessageParser, _extract_media_items
+from bub.core.prompt import prompt_text, to_content, to_legacy_prompt
 from bub.framework import BubFramework
-from bub.prompt import prompt_text, to_content, to_legacy_prompt
 
 # ---------------------------------------------------------------------------
 # MediaItem & ChannelMessage

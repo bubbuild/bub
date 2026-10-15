@@ -2,9 +2,9 @@ import pluggy
 import pytest
 import republic
 
+from bub.core.streaming import AsyncStreamEvents, StreamEvent
 from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
 from bub.hooks.runtime import HookRuntime
-from bub.streaming import AsyncStreamEvents, StreamEvent
 
 
 def _runtime_with_plugins(*plugins: tuple[str, object]) -> HookRuntime:

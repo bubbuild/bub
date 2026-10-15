@@ -18,14 +18,14 @@ from bub.core.events import (
     ToolCallDecision,
     ToolCallResult,
 )
+from bub.core.prompt import LegacyPrompt, UserContent
 from bub.core.sidecars import TapeSidecar
 from bub.core.store import AsyncTapeStore, TapeStore
+from bub.core.streaming import AsyncStreamEvents, StreamState
 from bub.core.tape import Tape, TapeContext
 from bub.envelope import Envelope
 from bub.environment import Environment
 from bub.model_selection import ModelOptions
-from bub.prompt import LegacyPrompt, UserContent
-from bub.streaming import AsyncStreamEvents, StreamState
 from bub.turn import TurnState
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ class BubHookSpecs:
     ``republic.Audio`` and ``republic.Video``; legacy text and content-block
     results are still converted by inspecting the returned value. Hooks that
     receive a prompt get the legacy form: text without media, otherwise content
-    blocks with media URLs (see ``bub.prompt.to_legacy_prompt``).
+    blocks with media URLs (see ``bub.core.prompt.to_legacy_prompt``).
     """
 
     @hookspec(firstresult=True)
