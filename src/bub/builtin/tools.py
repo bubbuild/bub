@@ -11,15 +11,15 @@ from typing import TYPE_CHECKING, Any, TypedDict, cast, final
 
 from pydantic import BaseModel, Field
 
+from bub.agent.tools import REGISTRY, Tool, ToolContext, tool
 from bub.builtin.environment import environment_from_state
 from bub.builtin.settings import load_settings, set_session_setting
 from bub.builtin.shell_manager import shell_manager
-from bub.core.tools import REGISTRY, Tool, ToolContext, tool
 from bub.skills import discover_skills
 
 if TYPE_CHECKING:
+    from bub.agent.tape import Tape
     from bub.builtin.agent import BubAgent
-    from bub.core.tape import Tape
 
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 30
 DEFAULT_HEADERS = {"accept": "text/markdown"}

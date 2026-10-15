@@ -1,6 +1,6 @@
 """Bub framework package.
 
-The top-level names are imported on first access, so ``import bub.core`` does not load
+The top-level names are imported on first access, so ``import bub.agent`` does not load
 the framework, its settings or the CLI.
 """
 
@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from bub.agent.tools import tool
     from bub.configure import Settings, config, ensure_config
-    from bub.core.tools import tool
     from bub.framework import BubFramework
     from bub.hooks import hookimpl
 
@@ -50,7 +50,7 @@ except ModuleNotFoundError:
 
 def __getattr__(name: str) -> Any:
     if name == "tool":
-        from bub.core.tools import tool
+        from bub.agent.tools import tool
 
         return tool
     if name != "home" and name not in _EXPORTS:

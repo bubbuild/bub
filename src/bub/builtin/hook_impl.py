@@ -10,6 +10,13 @@ import typer
 from loguru import logger
 
 from bub import inquirer as bub_inquirer
+from bub.agent.commands import strip_command_prefix
+from bub.agent.context import default_tape_context
+from bub.agent.events import ToolCall, ToolCallDecision, ToolCallResult
+from bub.agent.sidecars import TapeSidecar
+from bub.agent.store import TapeStore
+from bub.agent.tape import TapeContext, session_tape_name
+from bub.agent.tools import is_content_result, render_result
 from bub.builtin.agent import BubAgent
 from bub.builtin.onboarding import collect_model_config
 from bub.builtin.settings import load_session_settings, load_settings
@@ -18,21 +25,14 @@ from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem
-from bub.core.commands import strip_command_prefix
-from bub.core.context import default_tape_context
-from bub.core.errors import BubError
-from bub.core.events import ToolCall, ToolCallDecision, ToolCallResult
-from bub.core.prompt import UserContent
-from bub.core.sidecars import TapeSidecar
-from bub.core.store import TapeStore
-from bub.core.streaming import AsyncStreamEvents
-from bub.core.tape import TapeContext, session_tape_name
-from bub.core.tools import is_content_result, render_result
 from bub.envelope import Envelope, content_of, field_of
 from bub.environment import Environment
+from bub.errors import BubError
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.model_selection import ModelChoice, ModelOptions
+from bub.prompt import UserContent
+from bub.streaming import AsyncStreamEvents
 from bub.turn import TurnState
 
 AGENTS_FILE_NAME = "AGENTS.md"
@@ -338,9 +338,9 @@ class BuiltinImpl:
         replace it with a guidance ``tool_result`` so the model can re-issue a
         valid call on the next step. Commands run the agent's tools directly and are left alone.
         """
+        from bub.agent.tools import model_tools
         from bub.builtin.codemode import CODE_TOOLS_STATE_KEY
         from bub.builtin.tools import TOOL_DESCRIBE_TOOL_NAME
-        from bub.core.tools import model_tools
 
         if call.context is not None and call.context.command:
             return None

@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING, Any
 from pydantic_core import to_jsonable_python
 
 from bub.builtin.codemode import code_runner_child
-from bub.core.errors import BubError, ErrorKind
 from bub.environment import CodeFailed
+from bub.errors import BubError, ErrorKind
 
 if TYPE_CHECKING:
     from bub.environment import CallTool, Environment, Process

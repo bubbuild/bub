@@ -5,7 +5,7 @@ sidebar:
   order: 0
 ---
 
-`bub.core` is Bub's agent kernel. Its `Agent` runs the agent loop (call the model, execute the tools it asks for,
+`bub.agent` is Bub's agent kernel. Its `Agent` runs the agent loop (call the model, execute the tools it asks for,
 repeat until it answers) over components you supply: tools, system prompt sections, and a tape store, plus the
 Republic model it calls, given to the agent or to each run. It reads no Bub settings and loads no plugins, so it embeds in any application.
 
@@ -34,8 +34,8 @@ from pathlib import Path
 
 import republic
 
-from bub.core import Agent, Tool
-from bub.core.store import FileTapeStore
+from bub.agent import Agent, Tool
+from bub.agent.store import FileTapeStore
 
 
 async def lookup_order(order_id: str) -> dict[str, str]:
@@ -112,21 +112,21 @@ A `BeforeLlmCall` handler may redirect a call to another `provider:model` spec: 
 the run model's client, and another provider gets a client configured from Republic's environment.
 
 For a policy of your own, such as fallbacks, per-provider credentials, or a timeout for the whole call, pass an
-object implementing `bub.core.ModelClient` instead: a `spec` (the default `provider:model`), a default
+object implementing `bub.agent.ModelClient` instead: a `spec` (the default `provider:model`), a default
 `max_tokens` (or `None`), and `open_stream(messages, spec=..., options=...)`, an async context manager yielding the
 provider name and a `republic.Stream`. Bub's own `bub.builtin.model.BubModel` is such a client.
 
 ## Tools
 
 `Tool.from_callable()` derives a schema from annotations and a description from the docstring, without registering
-the tool globally. The `@tool` decorator from `bub.core` builds the same `Tool` and also adds it to Bub's global
+the tool globally. The `@tool` decorator from `bub.agent` builds the same `Tool` and also adds it to Bub's global
 registry, which Bub's own agent snapshots.
 
 A tool created with `context=True` receives a `ToolContext` with the run's `tape`, turn `state`, `run_id`, and event
 bus:
 
 ```python
-from bub.core import ToolContext
+from bub.agent import ToolContext
 
 
 def remember(note: str, *, context: ToolContext) -> str:
@@ -149,7 +149,7 @@ skips the section. `agent.system_prompt.add(section)` appends a section and retu
 decorator; `agent.system_prompt.remove(section)` removes it.
 
 ```python
-from bub.core import PromptContext
+from bub.agent import PromptContext
 
 
 @agent.system_prompt.add
@@ -214,10 +214,10 @@ Prefixes must be non-empty and contain no whitespace. Prompts with media are nev
 
 ## Events
 
-The loop reports its progress as events from `bub.core.events`; register handlers to observe or steer it.
+The loop reports its progress as events from `bub.agent.events`; register handlers to observe or steer it.
 
 ```python
-from bub.core import AfterToolCall, BeforeToolCall, StepFinished, ToolCallDecision
+from bub.agent import AfterToolCall, BeforeToolCall, StepFinished, ToolCallDecision
 
 
 @agent.events.on(BeforeToolCall)
@@ -263,7 +263,7 @@ Inside a tool, the run's bus is `context.events`:
 ```python
 from dataclasses import dataclass
 
-from bub.core import AgentEvent, ToolContext
+from bub.agent import AgentEvent, ToolContext
 
 
 @dataclass(kw_only=True)
@@ -353,7 +353,7 @@ the turn state:
 | `continue_prompt(tape, prompt, state)` | `None`    | Return a user message for the next step after tool calls. |
 
 ```python
-from bub.core import Tape
+from bub.agent import Tape
 
 
 class TriageAgent(Agent):

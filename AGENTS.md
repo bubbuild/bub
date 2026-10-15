@@ -5,19 +5,19 @@
 Core code lives under `src/`:
 
 - `src/bub/__main__.py`: Typer CLI entrypoint; `main` (the `bub` script) checks the `app` extra before importing the CLI.
-- `src/bub/core/`: agent kernel with no settings or plugin dependencies: agent loop over a tape store (`agent.py`), model protocol and Republic chat model adapter (`model.py`), agent events and their bus (`events.py`), the tape recorder handler (`recorder.py`), system prompt sections (`system_prompt.py`), command prompts (`commands.py`), tools, tape, store, and tape context, plus the kernel vocabulary it shares with the framework (`errors.py`, `prompt.py`, `streaming.py`, `tracing.py`, `turn.py`). Nothing in `bub.core` imports the rest of `bub`; the old top-level paths (`bub.errors`, `bub.store`, ...) are compatibility aliases.
+- `src/bub/agent/`: agent kernel with no settings or plugin dependencies: agent loop over a tape store (`agent.py`), model protocol and Republic chat model adapter (`model.py`), agent events and their bus (`events.py`), the tape recorder handler (`recorder.py`), system prompt sections (`system_prompt.py`), command prompts (`commands.py`), tools, tape, store, and tape context.
 - `src/bub/framework.py`: turn orchestration and outbound routing.
 - `src/bub/hooks/`: hook specifications, execution helpers, and interception contracts.
 - `src/bub/channels/`: channel bases, routing contracts, admission policy, and lifecycle manager.
-- `src/bub/{envelope,turn,model_selection}.py`: small framework vocabulary owned by each concern.
-- `src/bub/builtin/`: builtin runtime: `BubAgent` (a `bub.core.Agent` subclass adding settings, skills, commands, steering), `BubModel`, tape archiving, CLI wiring, tools, tape services, and the fuzzy-searching file tape store.
+- `src/bub/{envelope,turn,streaming,errors,model_selection}.py`: small kernel vocabulary owned by each concern.
+- `src/bub/builtin/`: builtin runtime: `BubAgent` (a `bub.agent.Agent` subclass adding settings, skills, commands, steering), `BubModel`, tape archiving, CLI wiring, tools, tape services, and the fuzzy-searching file tape store.
 - `src/bub/channels/`: channel abstractions plus CLI and Telegram adapters.
 - `src/bub/skills.py` / `src/bub/tools.py`: skill discovery and tool registry.
 - `src/skills/`: bundled skills shipped with Bub.
 
 Tests live in `tests/`. The website and docs runtime lives in `website/`.
 
-Packaging: `pip install bub` installs only the kernel's dependencies (republic, pydantic, loguru, typing-extensions). Everything outside `bub.core` (framework, CLI, channels, hooks, skills, builtin) needs the `app` extra, and the `bub` script (`bub.__main__:main`) asks for it when it is missing. Add new non-kernel dependencies to `app`, not to `dependencies`.
+Packaging: `pip install bub` installs only the kernel's dependencies (republic, pydantic, loguru, typing-extensions). Everything outside `bub.agent` (framework, CLI, channels, hooks, skills, builtin) needs the `app` extra, and the `bub` script (`bub.__main__:main`) asks for it when it is missing. Add new non-kernel dependencies to `app`, not to `dependencies`.
 
 ## Build, Test, and Development Commands
 
@@ -29,10 +29,9 @@ Packaging: `pip install bub` installs only the kernel's dependencies (republic, 
 - `uv run bub hooks`: inspect discovered hook bindings.
 - `uv run ruff check .`: run Ruff directly when you only want lint feedback.
 - `uv run mypy src`: run mypy directly against `src/`.
-- `uv run prek run import-linter -a`: check the import contracts in `pyproject.toml` (`bub.core` must not import the rest of `bub` or application dependencies); `prek` and `make check` run it too.
 - `uv run pytest -q`: run the main test suite without doctests.
 - `make test`: run pytest with doctests enabled.
-- `make check`: lock validation, `prek` (including import contracts), and typing.
+- `make check`: lock validation, `prek`, and typing.
 - `make docs` / `make docs-test` / `make docs-preview`: serve, build, or preview the Astro website/docs in `website/`.
 
 ## Coding Style & Naming Conventions

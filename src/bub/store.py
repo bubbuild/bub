@@ -1,8 +1,8 @@
-"""Compatibility alias for :mod:`bub.core.store`."""
+"""Compatibility alias for :mod:`bub.agent.store`."""
 
 import sys
 
-from bub.core import store as _module
-from bub.core.store import *  # noqa: F403
+from bub.agent import store as _module
+from bub.agent.store import *  # noqa: F403
 
 sys.modules[__name__] = _module

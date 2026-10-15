@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from bub.core.events import (
+from bub.agent.events import (
     AfterLlmCall,
     AfterToolCall,
     BeforeLlmCall,

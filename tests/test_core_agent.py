@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 import republic
 
-import bub.core
-from bub.core import (
+import bub.agent
+from bub.agent import (
     AfterLlmCall,
     AfterToolCall,
     Agent,
@@ -26,8 +26,8 @@ from bub.core import (
     Tool,
     ToolCallDecision,
 )
-from bub.core.errors import BubError
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.agent.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.errors import BubError
 from tests.model_fakes import ProviderService, chat_events, sse, tool_events
 
 
@@ -198,7 +198,7 @@ async def test_redirected_call_reuses_the_provider_of_a_republic_model(provider_
 
 def test_core_does_not_depend_on_settings_or_plugins() -> None:
     forbidden = ("bub.builtin", "bub.configure", "bub.framework", "bub.hooks", "bub.channels", "pluggy")
-    for path in Path(bub.core.__file__).parent.glob("*.py"):
+    for path in Path(bub.agent.__file__).parent.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.ImportFrom):
                 names = [node.module or ""]

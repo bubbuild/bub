@@ -7,8 +7,8 @@ from typing import Any
 
 import republic
 
-from bub.core.events import ChatCompleted, CommandFinished, EventBus, RunStarted, StepFinished, StepStarted
-from bub.core.prompt import UserContent
+from bub.agent.events import ChatCompleted, CommandFinished, EventBus, RunStarted, StepFinished, StepStarted
+from bub.prompt import UserContent
 
 
 class TapeRecorder:

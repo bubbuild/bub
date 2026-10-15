@@ -1,8 +1,8 @@
-"""Compatibility alias for :mod:`bub.core.tools`."""
+"""Compatibility alias for :mod:`bub.agent.tools`."""
 
 import sys
 
-from bub.core import tools as _module
-from bub.core.tools import *  # noqa: F403
+from bub.agent import tools as _module
+from bub.agent.tools import *  # noqa: F403
 
 sys.modules[__name__] = _module

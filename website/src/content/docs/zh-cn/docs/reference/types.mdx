@@ -11,8 +11,6 @@ Bub 把契约放在拥有其行为的子系统旁边。请从定义它的模块�
 
 ## 内核词汇
 
-Error、prompt 内容、streaming、tracing 与 `TurnState` 属于 `bub.core` 中的 agent 内核，它不依赖 Bub 的其他部分。原路径 `bub.errors`、`bub.prompt`、`bub.streaming` 与 `bub.tracing` 作为 `bub.core` 对应模块的别名保留，`bub.turn` 也重新导出 `TurnState`。
-
 ### Envelope — `bub.envelope`
 
 ```python
@@ -61,10 +59,10 @@ class ModelOptions:
 
 Channel 与 adapter 可向用户展示这些协议无关的选择项。`BubFramework.get_model_options` 合并 `provide_model_options` 返回的值；选择 UI 与持久化由调用方负责。
 
-### Streaming — `bub.core.streaming`
+### Streaming — `bub.streaming`
 
 ```python
-from bub.core.streaming import AsyncStreamEvents, StreamEvent, StreamState
+from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
 `StreamEvent.kind` 可以是 `text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error` 或 `final`。`AsyncStreamEvents` 包装异步迭代器，并暴露最终 `error` 与 `usage` 状态。
@@ -73,10 +71,10 @@ builtin 的 `tool_call` 事件使用 Republic 字段：`id`、`name`、`argument
 
 builtin 的多部分 prompt 包含文本块（`type: text`、`text`）或媒体块（`type: image|audio|video`、`media_type`、`url`）。URL 可以是远程地址或 base64 data URL。Bub 将持久化内容块转换为 Republic 原生 part，provider 编码由 Republic 负责。hook 提供这些文本与媒体块。
 
-### Error — `bub.core.errors`
+### Error — `bub.errors`
 
 ```python
-from bub.core.errors import BubError, ErrorKind
+from bub.errors import BubError, ErrorKind
 ```
 
 `BubError` 是稳定的执行错误对象。其 `kind` 为 `ErrorKind`，`as_dict()` 返回适合传输的 payload。

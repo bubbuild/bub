@@ -2,17 +2,18 @@ from pathlib import Path
 
 import pytest
 
+from bub.agent import Agent as CoreAgent
+from bub.agent.tape import session_tape_name
 from bub.builtin import BubAgent
 from bub.builtin.codemode import run_code, set_code_mode
 from bub.builtin.model import BubModel
 from bub.builtin.tools import resolve_tool_names, run_subagent, show_help
-from bub.core import Agent as CoreAgent
-from bub.core.store import InMemoryTapeStore
-from bub.core.streaming import AsyncStreamEvents, StreamEvent
-from bub.core.tape import Tape, session_tape_name
-from bub.core.tools import Tool, ToolContext
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
+from bub.store import InMemoryTapeStore
+from bub.streaming import AsyncStreamEvents, StreamEvent
+from bub.tape import Tape
+from bub.tools import Tool, ToolContext
 
 
 def _reply() -> AsyncStreamEvents:
@@ -54,7 +55,7 @@ async def test_sdk_agents_execute_only_their_own_command_prefix(
     framework: BubFramework, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("BUB_COMMAND_PREFIX", "!")
-    monkeypatch.setattr("bub.core.agent.Agent.run_once", lambda *args, **kwargs: _reply())
+    monkeypatch.setattr("bub.agent.agent.Agent.run_once", lambda *args, **kwargs: _reply())
     custom = BubAgent(framework, tools=[show_help], skill_dirs=[], command_prefix="::")
     configured = BubAgent(framework, tools=[show_help], skill_dirs=[])
 

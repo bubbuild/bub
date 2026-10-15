@@ -14,9 +14,9 @@ from typing import TYPE_CHECKING, Any
 
 import republic
 
-from bub.core import tracing
-from bub.core.errors import BubError, ErrorKind
-from bub.core.sidecars import TapeSidecar, sidecar_tape_name
+from bub import tracing
+from bub.agent.sidecars import TapeSidecar, sidecar_tape_name
+from bub.errors import BubError, ErrorKind
 
 __all__ = [
     "LAST_ANCHOR",
@@ -44,7 +44,7 @@ __all__ = [
 ]
 
 if TYPE_CHECKING:
-    from bub.core.store import (
+    from bub.agent.store import (
         AsyncTapeStore,
         AsyncTapeStoreAdapter,
         InMemoryQueryMixin,
@@ -72,7 +72,7 @@ def __getattr__(name: str) -> Any:
     if name not in _STORE_EXPORTS:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-    from bub.core import store
+    from bub.agent import store
 
     return getattr(store, name)
 
@@ -195,7 +195,7 @@ def to_message(
     data = dict(payload)
     raw_content = data.pop("content", None)
     if role == "tool" and raw_content is not None and not isinstance(raw_content, str | list):
-        from bub.core.tools import render_result
+        from bub.agent.tools import render_result
 
         raw_content = render_result(raw_content)
     content = _content_parts(raw_content)
@@ -311,7 +311,7 @@ class Tape:
         return replace(self, context=context or self.context, _name=name)
 
     def query(self) -> TapeQuery[AsyncTapeStore]:
-        from bub.core.store import TapeQuery
+        from bub.agent.store import TapeQuery
 
         return TapeQuery(tape=self.name, store=self.store)
 
@@ -509,7 +509,7 @@ class Tape:
 
     @contextlib.asynccontextmanager
     async def fork_tape(self, merge_back: bool = True) -> AsyncGenerator[Tape, None]:
-        from bub.core.store import ForkTapeStore
+        from bub.agent.store import ForkTapeStore
 
         managed_sidecars = tuple(sidecar_tape_name(self.name, sidecar.name) for sidecar in self.sidecars)
         fork_store = ForkTapeStore(self.store, self.name, sidecars=managed_sidecars)

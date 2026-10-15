@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from bub.core.turn import TurnState
 from bub.envelope import Envelope
 
 if TYPE_CHECKING:
-    from bub.core.prompt import UserContent
+    from bub.prompt import UserContent
 
-__all__ = ["TurnResult", "TurnState"]
+type TurnState = dict[str, Any]
 
 
 @dataclass(frozen=True)

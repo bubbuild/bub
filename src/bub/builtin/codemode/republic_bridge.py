@@ -29,8 +29,8 @@ from republic.events import (
     UsageDelta,
 )
 
-from bub.core.errors import BubError, ErrorKind
-from bub.core.tools import ToolContext
+from bub.agent.tools import ToolContext
+from bub.errors import BubError, ErrorKind
 
 REPUBLIC_CALL_PREFIX = "republic."
 REPUBLIC_KEY = "$republic"

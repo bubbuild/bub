@@ -16,10 +16,9 @@ from loguru import logger
 from republic.events import Completed, ReasoningDelta, RefusalDelta, TextDelta, ToolCallReady
 from republic.tools import BuiltinTool
 
-from bub.core.commands import parse_command, parse_command_args, strip_command_prefix, validate_command_prefix
-from bub.core.context import default_tape_context
-from bub.core.errors import BubError, ErrorKind
-from bub.core.events import (
+from bub.agent.commands import parse_command, parse_command_args, strip_command_prefix, validate_command_prefix
+from bub.agent.context import default_tape_context
+from bub.agent.events import (
     AfterLlmCall,
     AgentEvent,
     BeforeLlmCall,
@@ -33,17 +32,18 @@ from bub.core.events import (
     StepStarted,
     TapeEvent,
 )
-from bub.core.model import Model, ModelClient, is_context_length_error, model_client
-from bub.core.prompt import UserContent
-from bub.core.recorder import TapeRecorder
-from bub.core.sidecars import TapeSidecar
-from bub.core.store import AsyncTapeStore, AsyncTapeStoreAdapter, InMemoryTapeStore, TapeStore, is_async_tape_store
-from bub.core.streaming import AsyncStreamEvents, StreamEvent, StreamState
-from bub.core.system_prompt import PromptContext, PromptSection, SystemPrompt
-from bub.core.tape import Tape, TapeContext
-from bub.core.tools import Tool, ToolContext, ToolExecutor, model_tools
-from bub.core.tracing import Span, current_span
-from bub.core.turn import TurnState
+from bub.agent.model import Model, ModelClient, is_context_length_error, model_client
+from bub.agent.recorder import TapeRecorder
+from bub.agent.sidecars import TapeSidecar
+from bub.agent.store import AsyncTapeStore, AsyncTapeStoreAdapter, InMemoryTapeStore, TapeStore, is_async_tape_store
+from bub.agent.system_prompt import PromptContext, PromptSection, SystemPrompt
+from bub.agent.tape import Tape, TapeContext
+from bub.agent.tools import Tool, ToolContext, ToolExecutor, model_tools
+from bub.errors import BubError, ErrorKind
+from bub.prompt import UserContent
+from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
+from bub.tracing import Span, current_span
+from bub.turn import TurnState
 
 MAX_AUTO_HANDOFF_RETRIES = 1
 
@@ -56,7 +56,7 @@ class Agent:
 
     The agent owns no configuration or session. A run calls the model given to it, or
     else the agent's ``model``: a ``republic.ChatModel`` or a
-    :class:`~bub.core.model.ModelClient`. The agent is assembled from its components:
+    :class:`~bub.agent.model.ModelClient`. The agent is assembled from its components:
 
     Args:
         model: Default model of runs not given one; None requires each run to give one.
@@ -76,7 +76,7 @@ class Agent:
         command_prefix: When set, a text prompt starting with it runs as a command
             (see :meth:`run_command`) instead of the agent loop. None disables commands.
 
-    The loop reports its progress as events (:mod:`bub.core.events`) on ``events``;
+    The loop reports its progress as events (:mod:`bub.agent.events`) on ``events``;
     register handlers with ``agent.events.on``. A :class:`TapeRecorder`, registered first,
     records them on the run's tape. ``BeforeLlmCall`` and ``BeforeToolCall`` handlers
     may change or short-circuit the call.

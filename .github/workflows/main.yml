@@ -56,12 +56,12 @@ jobs:
         run: uv build --wheel -o dist
 
       # `pip install bub` without the app extra installs only the agent kernel.
-      - name: Use bub.core without the app extra
+      - name: Use bub.agent without the app extra
         run: |
           uv run --isolated --no-project --with dist/bub-*.whl python - <<'EOF'
           import importlib.util
-          from bub.core import Agent
-          from bub.core.store import InMemoryTapeStore
+          from bub.agent import Agent
+          from bub.agent.store import InMemoryTapeStore
           import bub.errors, bub.store, bub.tape, bub.tools
 
           Agent(store=InMemoryTapeStore())

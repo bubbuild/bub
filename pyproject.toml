@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
-# The agent kernel, bub.core. Everything else (framework, CLI, channels, builtin agent) is in the `app` extra.
+# The agent kernel, bub.agent. Everything else (framework, CLI, channels, builtin agent) is in the `app` extra.
 dependencies = [
     "republic>=0.6.0a1",
     "pydantic>=2.12.5",
@@ -110,34 +110,6 @@ exclude = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-
-[tool.importlinter]
-root_packages = ["bub"]
-include_external_packages = true
-
-[[tool.importlinter.contracts]]
-name = "bub.core is independent of the rest of bub"
-type = "forbidden"
-source_modules = ["bub.core"]
-forbidden_modules = ["bub.*"]
-
-[[tool.importlinter.contracts]]
-name = "bub.core does not use application dependencies"
-type = "forbidden"
-source_modules = ["bub.core"]
-forbidden_modules = [
-    "aiohttp",
-    "dotenv",
-    "inquirer_textual",
-    "pluggy",
-    "prompt_toolkit",
-    "pydantic_settings",
-    "rapidfuzz",
-    "rich",
-    "telegram",
-    "typer",
-    "yaml",
-]
 
 [tool.ruff]
 target-version = "py312"

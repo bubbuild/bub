@@ -19,10 +19,10 @@ from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage
 from bub.channels.telegram import TelegramSettings
 from bub.configure import ensure_config
-from bub.core.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.model_selection import ModelChoice, ModelOptions
+from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 
 
 def make_named_channel(name: str, label: str) -> Channel:

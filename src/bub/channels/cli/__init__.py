@@ -26,6 +26,10 @@ from rich.text import Text
 from rich.tree import Tree
 
 import bub
+from bub.agent.commands import strip_command_prefix
+from bub.agent.events import AfterToolCall, BeforeToolCall, EventBus
+from bub.agent.tape import TapeInfo, session_tape_name
+from bub.agent.tools import REGISTRY
 from bub.builtin.agent import BubAgent
 from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.base import Interface
@@ -38,12 +42,8 @@ from bub.channels.cli.terminal_output import (
 from bub.channels.cli.writers import MarkdownWriter
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
-from bub.core.commands import strip_command_prefix
-from bub.core.events import AfterToolCall, BeforeToolCall, EventBus
-from bub.core.streaming import StreamEvent
-from bub.core.tape import TapeInfo, session_tape_name
-from bub.core.tools import REGISTRY
 from bub.envelope import Envelope, field_of
+from bub.streaming import StreamEvent
 
 _GENERATION_SPINNER: str = SPINNERS["dots"]["frames"]  # type: ignore[assignment]
 _PROMPT_REFRESH_INTERVAL: float = SPINNERS["dots"]["interval"] / 1000.0  # type: ignore[operator]

@@ -74,7 +74,7 @@ else:
         raise SystemExit('OTLP must not configure Logfire')
     logfire.configure = unexpected_configuration
 from bub.__main__ import _instrument_bub
-from bub.core.tracing import Span
+from bub.tracing import Span
 _instrument_bub('INFO')
 root = Span('invoke_agent bub', {'gen_ai.operation.name': 'invoke_agent'})
 with root.activate():
@@ -125,7 +125,7 @@ sys.meta_path.insert(0, BlockSDK())
     run_python(
         blocker
         + """
-from bub.core.tracing import Span, configure_otlp
+from bub.tracing import Span, configure_otlp
 configure_otlp()
 span = Span('noop')
 assert not span.recording
@@ -144,7 +144,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from bub.core.tracing import Span, configure_otlp
+from bub.tracing import Span, configure_otlp
 provider = TracerProvider()
 exporter = InMemorySpanExporter()
 provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -163,7 +163,7 @@ def test_otlp_rejects_unsupported_protocol(tmp_path: Path) -> None:
     pytest.importorskip("opentelemetry.sdk.trace")
     run_python(
         """
-from bub.core.tracing import configure_otlp
+from bub.tracing import configure_otlp
 try:
     configure_otlp()
 except ValueError as exc:
