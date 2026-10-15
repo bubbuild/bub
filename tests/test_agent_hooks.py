@@ -11,6 +11,9 @@ import pytest
 import republic
 from republic.errors import StreamIncompleteError
 
+from bub.agent.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.agent.tape import Tape, TapeContext
+from bub.agent.tools import Tool, ToolExecutor
 from bub.builtin.settings import AgentSettings
 from bub.errors import BubError
 from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
@@ -25,9 +28,6 @@ from bub.hooks.interception import (
 )
 from bub.hooks.runtime import HookRuntime
 from bub.prompt import to_content
-from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.tape import Tape, TapeContext
-from bub.tools import Tool, ToolExecutor
 from tests.model_fakes import ProviderService, StepRunner, sse
 
 

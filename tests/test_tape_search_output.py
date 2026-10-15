@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import pytest
 
 import bub.builtin.tools as builtin_tools
+from bub.agent.tools import ToolContext
 from bub.builtin.tools import tape_search
-from bub.tools import ToolContext
 
 
 @dataclass(frozen=True)

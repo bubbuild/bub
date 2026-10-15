@@ -3,17 +3,16 @@ from pathlib import Path
 import pytest
 
 from bub.agent import Agent as CoreAgent
-from bub.agent.tape import session_tape_name
+from bub.agent.store import InMemoryTapeStore
+from bub.agent.tape import Tape, session_tape_name
+from bub.agent.tools import Tool, ToolContext
 from bub.builtin import BubAgent
 from bub.builtin.codemode import run_code, set_code_mode
 from bub.builtin.model import BubModel
 from bub.builtin.tools import resolve_tool_names, run_subagent, show_help
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
-from bub.store import InMemoryTapeStore
 from bub.streaming import AsyncStreamEvents, StreamEvent
-from bub.tape import Tape
-from bub.tools import Tool, ToolContext
 
 
 def _reply() -> AsyncStreamEvents:
