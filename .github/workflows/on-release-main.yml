@@ -42,8 +42,16 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
 
+      # bub and bubling are released together: build both at the tag's version and pin bub to that bubling.
+      - name: Pin bubling to the release version
+        run: python scripts/release.py pin "${GITHUB_REF_NAME#v}"
+
       - name: Build packages
-        run: uv build --all-packages
+        # Pinning dirties the checkout, which would make hatch-vcs compute a dev version.
+        run: SETUPTOOLS_SCM_PRETEND_VERSION="${GITHUB_REF_NAME#v}" uv build --all-packages
+
+      - name: Check release metadata
+        run: python scripts/release.py check "${GITHUB_REF_NAME#v}" dist
 
       - name: Publish package
         run: uv publish --trusted-publishing always

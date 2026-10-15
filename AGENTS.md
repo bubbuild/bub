@@ -33,6 +33,7 @@ Tests live in `tests/`. The website and docs runtime lives in `website/`.
 - `make test`: run pytest with doctests enabled.
 - `uv run --isolated --no-project --with ./packages/bubling --with pytest --with pytest-asyncio pytest packages/bubling/tests`: run `bubling`'s tests with only `bubling` installed, as CI does.
 - `make build`: build the distributions of both `bub` and `bubling`.
+- Releases: publishing a GitHub release builds `bub` and `bubling` at the tag's version, with `bub` pinned to `bubling==<tag>` by `scripts/release.py` (the repository keeps a range for development). Rehearse with `python scripts/release.py pin X`, `SETUPTOOLS_SCM_PRETEND_VERSION=X uv build --all-packages`, `python scripts/release.py check X dist`, then revert `pyproject.toml`.
 - `make check`: lock validation, `prek` (including import contracts), and typing.
 - `make docs` / `make docs-test` / `make docs-preview`: serve, build, or preview the Astro website/docs in `website/`.
 
