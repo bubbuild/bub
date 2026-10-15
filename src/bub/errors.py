@@ -1,8 +1,8 @@
-"""Compatibility alias for :mod:`bub.core.errors`."""
+"""Compatibility alias for :mod:`bubling.errors`."""
 
 import sys
 
-from bub.core import errors as _module
-from bub.core.errors import *  # noqa: F403
+from bubling import errors as _module
+from bubling.errors import *  # noqa: F403
 
 sys.modules[__name__] = _module

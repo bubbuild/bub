@@ -1,11 +1,11 @@
 ---
 title: 用 FastAPI 提供 Bub agent 服务
-description: 用 FastAPI 把 bub.core agent 暴露为 HTTP API，每个会话对应一段对话。
+description: 用 FastAPI 把 bubling agent 暴露为 HTTP API，每个会话对应一段对话。
 sidebar:
   order: 7
 ---
 
-本教程把基于 `bub.core` 构建的 agent 作为 HTTP API 提供服务。每个请求都指定一个会话；同一会话的请求会延续同一段对话，
+本教程把基于 `bubling` 构建的 agent 作为 HTTP API 提供服务。每个请求都指定一个会话；同一会话的请求会延续同一段对话，
 对话以 tape 的形式保存在磁盘上。
 
 你需要 Python 3.12+ 和某个模型提供方的 API key。示例通过 [Republic](https://github.com/bubbuild/republic) 使用 OpenAI；
@@ -15,7 +15,7 @@ sidebar:
 
 ```bash
 uv init bub-api && cd bub-api
-uv add bub fastapi uvicorn
+uv add bubling fastapi uvicorn
 ```
 
 ## 编写应用
@@ -32,8 +32,8 @@ import republic
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from bub.core import Agent, Tool
-from bub.core.store import FileTapeStore
+from bubling import Agent, Tool
+from bubling.store import FileTapeStore
 
 
 async def lookup_order(order_id: str) -> dict[str, str]:

@@ -10,10 +10,10 @@ from typing import Any
 import pluggy
 from loguru import logger
 
-from bub.core.prompt import LegacyPrompt, UserContent, to_content, to_legacy_prompt
-from bub.core.streaming import AsyncStreamEvents, StreamEvent, StreamState
 from bub.envelope import Envelope
 from bub.turn import TurnState
+from bubling.prompt import LegacyPrompt, UserContent, to_content, to_legacy_prompt
+from bubling.streaming import AsyncStreamEvents, StreamEvent, StreamState
 
 
 class HookRuntime:

@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 
 from bub.builtin.settings import load_session_settings, set_session_setting
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.core.tape import Tape, TapeContext
-from bub.core.tools import ToolContext
+from bubling.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bubling.tape import Tape, TapeContext
+from bubling.tools import ToolContext
 
 
 def _context(tmp_path: Path) -> ToolContext:

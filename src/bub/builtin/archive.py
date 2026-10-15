@@ -8,9 +8,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from bub.core.sidecars import sidecar_tape_name
-from bub.core.store import TapeQuery
-from bub.core.tape import Tape
+from bubling.sidecars import sidecar_tape_name
+from bubling.store import TapeQuery
+from bubling.tape import Tape
 
 
 def archive_dir() -> Path:

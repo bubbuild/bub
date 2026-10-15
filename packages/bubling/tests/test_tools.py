@@ -7,11 +7,11 @@ import pytest
 from loguru import logger
 from pydantic import BaseModel
 
-from bub.core.errors import BubError
-from bub.core.events import AfterToolCall, BeforeToolCall, EventBus
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.core.tape import Tape, TapeContext
-from bub.core.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
+from bubling.errors import BubError
+from bubling.events import AfterToolCall, BeforeToolCall, EventBus
+from bubling.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bubling.tape import Tape, TapeContext
+from bubling.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
 
 
 class EchoInput(BaseModel):
@@ -129,7 +129,7 @@ async def test_tool_executor_logs_failures(monkeypatch: pytest.MonkeyPatch) -> N
         def error(self, message: str, *args: Any) -> None:
             errors.append((message.format(*args), self.exception))
 
-    monkeypatch.setattr("bub.core.tools.logger", Recorder())
+    monkeypatch.setattr("bubling.tools.logger", Recorder())
 
     def failing_tool() -> str:
         raise RuntimeError("boom")

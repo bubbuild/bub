@@ -7,8 +7,8 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from bub.core.errors import BubError
-from bub.core.tracing import Span
+from bubling.errors import BubError
+from bubling.tracing import Span
 
 
 @dataclass

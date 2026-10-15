@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING, Any, Literal, TypeVar, overload
 
 import republic
 
-from bub.core.errors import BubError
-from bub.core.prompt import UserContent
-from bub.core.turn import TurnState
+from bubling.errors import BubError
+from bubling.prompt import UserContent
+from bubling.turn import TurnState
 
 if TYPE_CHECKING:
-    from bub.core.tape import Tape
-    from bub.core.tools import ToolContext
+    from bubling.tape import Tape
+    from bubling.tools import ToolContext
 
 
 @dataclass(frozen=True)

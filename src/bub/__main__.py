@@ -24,7 +24,7 @@ def _instrument_bub(level: str) -> None:
     logger.add(sys.stderr, level=level, colorize=True, diagnose=False)
 
     if os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
-        from bub.core.tracing import configure_otlp
+        from bubling.tracing import configure_otlp
 
         try:
             configure_otlp()

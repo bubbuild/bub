@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from bub.core.sidecars import sidecar_tape_name
-from bub.core.store import AsyncTapeStoreAdapter, FileTapeStore, ForkTapeStore
-from bub.core.tape import TapeEntry
+from bubling.sidecars import sidecar_tape_name
+from bubling.store import AsyncTapeStoreAdapter, FileTapeStore, ForkTapeStore
+from bubling.tape import TapeEntry
 
 
 @pytest.mark.asyncio

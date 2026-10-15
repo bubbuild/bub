@@ -8,13 +8,13 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
 
-from bub.core.prompt import UserContent
-from bub.core.turn import TurnState
+from bubling.prompt import UserContent
+from bubling.turn import TurnState
 
 if TYPE_CHECKING:
-    from bub.core.agent import Agent
-    from bub.core.tape import Tape
-    from bub.core.tools import Tool
+    from bubling.agent import Agent
+    from bubling.tape import Tape
+    from bubling.tools import Tool
 
 
 @dataclass(frozen=True)

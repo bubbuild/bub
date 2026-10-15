@@ -18,22 +18,22 @@ from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem
-from bub.core.commands import strip_command_prefix
-from bub.core.context import default_tape_context
-from bub.core.errors import BubError
-from bub.core.events import ToolCall, ToolCallDecision, ToolCallResult
-from bub.core.prompt import UserContent
-from bub.core.sidecars import TapeSidecar
-from bub.core.store import TapeStore
-from bub.core.streaming import AsyncStreamEvents
-from bub.core.tape import TapeContext, session_tape_name
-from bub.core.tools import is_content_result, render_result
 from bub.envelope import Envelope, content_of, field_of
 from bub.environment import Environment
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.model_selection import ModelChoice, ModelOptions
 from bub.turn import TurnState
+from bubling.commands import strip_command_prefix
+from bubling.context import default_tape_context
+from bubling.errors import BubError
+from bubling.events import ToolCall, ToolCallDecision, ToolCallResult
+from bubling.prompt import UserContent
+from bubling.sidecars import TapeSidecar
+from bubling.store import TapeStore
+from bubling.streaming import AsyncStreamEvents
+from bubling.tape import TapeContext, session_tape_name
+from bubling.tools import is_content_result, render_result
 
 AGENTS_FILE_NAME = "AGENTS.md"
 DEFAULT_SYSTEM_PROMPT = """\
@@ -340,7 +340,7 @@ class BuiltinImpl:
         """
         from bub.builtin.codemode import CODE_TOOLS_STATE_KEY
         from bub.builtin.tools import TOOL_DESCRIBE_TOOL_NAME
-        from bub.core.tools import model_tools
+        from bubling.tools import model_tools
 
         if call.context is not None and call.context.command:
             return None

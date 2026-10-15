@@ -1,11 +1,11 @@
 ---
 title: Serve a Bub agent with FastAPI
-description: Expose a bub.core agent over HTTP with FastAPI, with one conversation per session.
+description: Expose a bubling agent over HTTP with FastAPI, with one conversation per session.
 sidebar:
   order: 7
 ---
 
-This tutorial serves an agent built from `bub.core` as an HTTP API. Each request names a session; requests with
+This tutorial serves an agent built from `bubling` as an HTTP API. Each request names a session; requests with
 the same session continue one conversation, stored as a tape on disk.
 
 You need Python 3.12+ and an API key for a model provider. The example uses OpenAI through
@@ -15,7 +15,7 @@ You need Python 3.12+ and an API key for a model provider. The example uses Open
 
 ```bash
 uv init bub-api && cd bub-api
-uv add bub fastapi uvicorn
+uv add bubling fastapi uvicorn
 ```
 
 ## Write the app
@@ -32,8 +32,8 @@ import republic
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from bub.core import Agent, Tool
-from bub.core.store import FileTapeStore
+from bubling import Agent, Tool
+from bubling.store import FileTapeStore
 
 
 async def lookup_order(order_id: str) -> dict[str, str]:

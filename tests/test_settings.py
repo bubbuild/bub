@@ -11,9 +11,9 @@ from pydantic import ValidationError
 from bub.builtin.settings import DEFAULT_MODEL, AgentSettings, load_settings
 from bub.builtin.spill import SpillSettings
 from bub.configure import ensure_config
-from bub.core.prompt import to_content
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.core.tape import Tape, TapeContext
+from bubling.prompt import to_content
+from bubling.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bubling.tape import Tape, TapeContext
 from tests.model_fakes import ProviderService, StepRunner, chat_events, sse
 
 

@@ -7,18 +7,18 @@ import re
 from collections.abc import Collection
 from pathlib import Path
 
-import bub.core as core
+import bubling as core
 from bub.builtin.settings import load_settings
-from bub.core.prompt import LegacyPrompt, UserContent, prompt_text, to_content
-from bub.core.store import AsyncTapeStore, TapeStore
-from bub.core.streaming import AsyncStreamEvents, StreamState
-from bub.core.tape import Tape, session_tape_name
-from bub.core.tools import REGISTRY, Tool, model_tools
 from bub.envelope import field_of
 from bub.framework import BubFramework
 from bub.skills import discover_skills, render_skills_prompt
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
+from bubling.prompt import LegacyPrompt, UserContent, prompt_text, to_content
+from bubling.store import AsyncTapeStore, TapeStore
+from bubling.streaming import AsyncStreamEvents, StreamState
+from bubling.tape import Tape, session_tape_name
+from bubling.tools import REGISTRY, Tool, model_tools
 
 HINT_RE = re.compile(r"\$([A-Za-z0-9_.-]+)")
 ALLOWED_SKILLS_STATE_KEY = "allowed_skills"
@@ -28,7 +28,7 @@ class BubAgent(core.Agent):
     """Bub's agent: the core loop configured by settings and the framework's hooks.
 
     Adds commands, skills, code mode, deferred tools, steering and the
-    ``continue_prompt`` hook to :class:`bub.core.Agent`. System prompt sections, in
+    ``continue_prompt`` hook to :class:`bubling.Agent`. System prompt sections, in
     order: the framework's ``system_prompt`` hooks, code mode, deferred tools, skills,
     then sections added with ``system_prompt.add``. The framework's interception
     hooks handle events before handlers added with ``events.on``.

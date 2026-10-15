@@ -9,12 +9,12 @@ from typing import Any
 import httpx2
 
 from bub.builtin.settings import AgentSettings
-from bub.core import Agent as CoreAgent
-from bub.core.prompt import UserContent
-from bub.core.streaming import AsyncStreamEvents
-from bub.core.tape import Tape
-from bub.core.tools import Tool
 from bub.hooks.interception import PluginAgentHooks
+from bubling import Agent as CoreAgent
+from bubling.prompt import UserContent
+from bubling.streaming import AsyncStreamEvents
+from bubling.tape import Tape
+from bubling.tools import Tool
 
 
 class StepRunner:

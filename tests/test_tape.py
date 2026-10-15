@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 import republic
 
-from bub.core.context import default_tape_context
-from bub.core.store import AsyncTapeStoreAdapter, ForkTapeStore, InMemoryTapeStore
-from bub.core.tape import Tape, TapeContext, TapeEntry, to_messages
+from bubling.context import default_tape_context
+from bubling.store import AsyncTapeStoreAdapter, ForkTapeStore, InMemoryTapeStore
+from bubling.tape import Tape, TapeContext, TapeEntry, to_messages
 
 
 def test_tape_reexports_legacy_store_objects() -> None:

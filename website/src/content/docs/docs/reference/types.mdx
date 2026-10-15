@@ -11,7 +11,7 @@ The former `bub.types` compatibility module has been removed. Use `bub.envelope.
 
 ## Kernel vocabulary
 
-Errors, prompt content, streaming, tracing and `TurnState` belong to the agent kernel in `bub.core`, which depends on nothing else in Bub. The former paths `bub.errors`, `bub.prompt`, `bub.streaming` and `bub.tracing` remain as aliases of the `bub.core` modules, and `bub.turn` re-exports `TurnState`.
+Errors, prompt content, streaming, tracing and `TurnState` belong to the agent kernel, the `bubling` package, which depends on nothing in Bub. The former paths `bub.errors`, `bub.streaming` and `bub.tracing` remain as aliases of the `bubling` modules, and `bub.turn` re-exports `TurnState`.
 
 ### Envelopes — `bub.envelope`
 
@@ -61,10 +61,10 @@ class ModelOptions:
 
 Channels and adapters may present these protocol-neutral choices to users. `BubFramework.get_model_options` merges values returned by `provide_model_options`; the caller owns selection UI and persistence.
 
-### Streaming — `bub.core.streaming`
+### Streaming — `bubling.streaming`
 
 ```python
-from bub.core.streaming import AsyncStreamEvents, StreamEvent, StreamState
+from bubling.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
 `StreamEvent.kind` is one of `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, or `final`. `AsyncStreamEvents` wraps an async iterator and exposes terminal `error` and `usage` state.
@@ -73,10 +73,10 @@ Builtin `tool_call` events use Republic fields: `id`, `name`, `arguments`, and `
 
 Builtin multipart prompts contain text blocks (`type: text`, `text`) or media blocks (`type: image|audio|video`, `media_type`, `url`). The URL can be remote or a base64 data URL. Bub converts these persisted blocks into native Republic parts; Republic owns provider encoding. Hooks supply these text and media blocks.
 
-### Errors — `bub.core.errors`
+### Errors — `bubling.errors`
 
 ```python
-from bub.core.errors import BubError, ErrorKind
+from bubling.errors import BubError, ErrorKind
 ```
 
 `BubError` is the stable execution error object. Its `kind` is an `ErrorKind`, and `as_dict()` returns a transport-friendly payload.

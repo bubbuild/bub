@@ -1,8 +1,8 @@
-"""Compatibility alias for :mod:`bub.core.tools`."""
+"""Compatibility alias for :mod:`bubling.tools`."""
 
 import sys
 
-from bub.core import tools as _module
-from bub.core.tools import *  # noqa: F403
+from bubling import tools as _module
+from bubling.tools import *  # noqa: F403
 
 sys.modules[__name__] = _module

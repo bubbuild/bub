@@ -5,7 +5,7 @@ sidebar:
   order: 0
 ---
 
-`bub.core` 是 Bub 的 agent 内核。它的 `Agent` 运行 agent loop（调用模型、执行模型请求的工具、重复直到模型给出回答），
+`bubling` 是 Bub 的 agent 内核，作为独立的包发布。它的 `Agent` 运行 agent loop（调用模型、执行模型请求的工具、重复直到模型给出回答），
 所用的组件都由你提供：工具、system prompt section 和 tape store，以及传给 agent 或每次运行的 Republic 模型。
 它不读取 Bub 的 settings，也不加载插件，因此可以嵌入任何应用。
 
@@ -13,11 +13,13 @@ Bub 自身的运行时也构建在这个内核之上：`bub.builtin.BubAgent` �
 
 ## 安装
 
-在 Python 3.12+ 项目中安装 Bub：
+在 Python 3.12+ 项目中安装内核：
 
 ```bash
-uv add bub
+uv add bubling
 ```
+
+`bub` 依赖 `bubling`，同时需要 Bub 运行时的应用可以直接安装 `bub`。
 
 下文描述的是当前源码中的 API；请使用包含这些接口的发布版本，或安装当前源码。
 
@@ -31,8 +33,8 @@ from pathlib import Path
 
 import republic
 
-from bub.core import Agent, Tool
-from bub.core.store import FileTapeStore
+from bubling import Agent, Tool
+from bubling.store import FileTapeStore
 
 
 async def lookup_order(order_id: str) -> dict[str, str]:
@@ -107,20 +109,20 @@ async with agent.run(prompt, tape="t") as stream:
 处理器可以把一次调用重定向到其他 `provider:model`：同一 provider 的模型复用运行模型的客户端，其他 provider
 使用从 Republic 环境变量配置的客户端。
 
-如果需要自己的策略，例如 fallback、按 provider 的凭据或整次调用的超时，可以改为传入实现 `bub.core.ModelClient`
+如果需要自己的策略，例如 fallback、按 provider 的凭据或整次调用的超时，可以改为传入实现 `bubling.ModelClient`
 的对象：提供 `spec`（默认的 `provider:model`）、默认 `max_tokens`（或 `None`），以及
 `open_stream(messages, spec=..., options=...)`——一个产出 provider 名称和 `republic.Stream` 的异步上下文管理器。
 Bub 自己的 `bub.builtin.model.BubModel` 就是这样的客户端。
 
 ## 工具
 
-`Tool.from_callable()` 从类型注解生成参数 schema，从 docstring 生成描述，不会注册到全局。`bub.core` 中的
+`Tool.from_callable()` 从类型注解生成参数 schema，从 docstring 生成描述，不会注册到全局。`bubling` 中的
 `@tool` 装饰器生成同样的 `Tool`，同时把它加入 Bub 的全局注册表，Bub 自己的 agent 会取其快照。
 
 以 `context=True` 创建的工具会收到 `ToolContext`，其中包含本次运行的 `tape`、turn `state`、`run_id` 和事件总线：
 
 ```python
-from bub.core import ToolContext
+from bubling import ToolContext
 
 
 def remember(note: str, *, context: ToolContext) -> str:
@@ -142,7 +144,7 @@ system prompt 是有序的 section 列表，每个模型步骤渲染一次，以
 追加一个 section 并返回它，因此也可以用作装饰器；`agent.system_prompt.remove(section)` 将其移除。
 
 ```python
-from bub.core import PromptContext
+from bubling import PromptContext
 
 
 @agent.system_prompt.add
@@ -203,10 +205,10 @@ async with agent.run(",lookup_order order_id=A123", model=model, tape="customer-
 
 ## 事件
 
-循环通过 `bub.core.events` 中的事件报告进度；注册处理器即可观察或干预它。
+循环通过 `bubling.events` 中的事件报告进度；注册处理器即可观察或干预它。
 
 ```python
-from bub.core import AfterToolCall, BeforeToolCall, StepFinished, ToolCallDecision
+from bubling import AfterToolCall, BeforeToolCall, StepFinished, ToolCallDecision
 
 
 @agent.events.on(BeforeToolCall)
@@ -250,7 +252,7 @@ agent.events.on(StepFinished, lambda event: print("step", event.step, event.stat
 ```python
 from dataclasses import dataclass
 
-from bub.core import AgentEvent, ToolContext
+from bubling import AgentEvent, ToolContext
 
 
 @dataclass(kw_only=True)
@@ -335,7 +337,7 @@ async with agent.run("Check order A123", model=model, tape="customer-42") as str
 | `continue_prompt(tape, prompt, state)` | `None`   | 在工具调用后返回下一步的用户消息。 |
 
 ```python
-from bub.core import Tape
+from bubling import Tape
 
 
 class TriageAgent(Agent):

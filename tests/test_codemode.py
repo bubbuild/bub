@@ -23,13 +23,13 @@ from bub.builtin.codemode import (
     write_tool_stub,
 )
 from bub.builtin.environment import LocalEnvironment, LocalProcess
-from bub.core.errors import BubError, ErrorKind
-from bub.core.events import BeforeToolCall, EventBus
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.core.tape import Tape, TapeContext
-from bub.core.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
 from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, CodeFailed
 from bub.hooks.interception import ToolCallDecision
+from bubling.errors import BubError, ErrorKind
+from bubling.events import BeforeToolCall, EventBus
+from bubling.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bubling.tape import Tape, TapeContext
+from bubling.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
 
 
 class Order(TypedDict):
@@ -469,7 +469,7 @@ async def test_run_code_attaches_media_to_its_result(tmp_path: Path) -> None:
     import republic
 
     from bub.builtin.codemode import attach_audio, attach_image, attach_video
-    from bub.core.tools import result_content
+    from bubling.tools import result_content
 
     (tmp_path / "charts").mkdir()
     (tmp_path / "charts" / "chart.png").write_bytes(PNG_BYTES)
@@ -526,9 +526,9 @@ async def test_media_tools_only_work_inside_run_code(tmp_path: Path) -> None:
 def test_media_tool_results_become_multimodal_tool_messages(tmp_path: Path) -> None:
     import republic
 
-    from bub.core.context import default_tape_context
-    from bub.core.tape import TapeEntry
-    from bub.core.tools import content_result
+    from bubling.context import default_tape_context
+    from bubling.tape import TapeEntry
+    from bubling.tools import content_result
 
     image = republic.Image("image/png", data=PNG_BYTES)
     entries = [

@@ -8,12 +8,12 @@ import pytest
 import bub.builtin.tools as builtin_tools
 from bub.builtin.environment import LocalEnvironment, LocalProcess, environment_from_state
 from bub.builtin.shell_manager import ShellManager
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.core.tape import Tape, TapeContext
-from bub.core.tools import ToolContext
 from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, Environment, Process
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
+from bubling.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bubling.tape import Tape, TapeContext
+from bubling.tools import ToolContext
 
 
 class MemoryEnvironment(Environment):

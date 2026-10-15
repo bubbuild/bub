@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import replace
-from pathlib import Path
 from typing import Any
 
 import pytest
 import republic
+from provider_fakes import ProviderService, chat_events, sse, tool_events
 
-import bub.core
-from bub.core import (
+from bubling import (
     AfterLlmCall,
     AfterToolCall,
     Agent,
@@ -26,9 +24,8 @@ from bub.core import (
     Tool,
     ToolCallDecision,
 )
-from bub.core.errors import BubError
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from tests.model_fakes import ProviderService, chat_events, sse, tool_events
+from bubling.errors import BubError
+from bubling.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 
 
 def _model(client: Any) -> republic.ChatModel:
@@ -194,19 +191,6 @@ async def test_redirected_call_reuses_the_provider_of_a_republic_model(provider_
 
     assert events[-1].data == {"ok": True, "text": "done"}
     assert provider_service.body()["model"] == "other"
-
-
-def test_core_does_not_depend_on_settings_or_plugins() -> None:
-    forbidden = ("bub.builtin", "bub.configure", "bub.framework", "bub.hooks", "bub.channels", "pluggy")
-    for path in Path(bub.core.__file__).parent.glob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom):
-                names = [node.module or ""]
-            elif isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            else:
-                continue
-            assert not [name for name in names if name.startswith(forbidden)], f"{path.name} imports {names}"
 
 
 def test_tapes_share_the_agent_store() -> None:

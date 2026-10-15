@@ -14,13 +14,13 @@ import bub.builtin.tools  # noqa: F401  — registers builtin tools (incl. `mode
 from bub.builtin.agent import BubAgent
 from bub.builtin.settings import AgentSettings
 from bub.builtin.steering import InMemorySteeringInbox
-from bub.core import PromptContext, StepFinished
-from bub.core.context import default_tape_context
-from bub.core.prompt import UserContent
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.core.streaming import AsyncStreamEvents, StreamEvent, StreamState
-from bub.core.tape import Tape, session_tape_name
-from bub.core.tools import REGISTRY, tool
+from bubling import PromptContext, StepFinished
+from bubling.context import default_tape_context
+from bubling.prompt import UserContent
+from bubling.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bubling.streaming import AsyncStreamEvents, StreamEvent, StreamState
+from bubling.tape import Tape, session_tape_name
+from bubling.tools import REGISTRY, tool
 from tests.model_fakes import ProviderService
 
 # ---------------------------------------------------------------------------

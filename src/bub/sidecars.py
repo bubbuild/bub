@@ -1,8 +1,8 @@
-"""Compatibility alias for :mod:`bub.core.sidecars`."""
+"""Compatibility alias for :mod:`bubling.sidecars`."""
 
 import sys
 
-from bub.core import sidecars as _module
-from bub.core.sidecars import *  # noqa: F403
+from bubling import sidecars as _module
+from bubling.sidecars import *  # noqa: F403
 
 sys.modules[__name__] = _module

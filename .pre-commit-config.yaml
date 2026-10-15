@@ -32,8 +32,8 @@ repos:
       - id: import-linter
         name: import-linter
         # Contracts live in pyproject.toml; grimp finds the packages through PYTHONPATH without installing them.
-        entry: env PYTHONPATH=src lint-imports
+        entry: env PYTHONPATH=src:packages/bubling/src lint-imports
         language: python
         additional_dependencies: ["import-linter==2.15"]
         pass_filenames: false
-        files: ^(src/.*\.py|pyproject\.toml)$
+        files: ^((src|packages/[^/]+/src)/.*\.py|pyproject\.toml)$

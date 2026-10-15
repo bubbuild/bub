@@ -6,6 +6,12 @@ resolution-markers = [
     "python_full_version < '3.14'",
 ]
 
+[manifest]
+members = [
+    "bub",
+    "bubling",
+]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
@@ -186,6 +192,7 @@ name = "bub"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
+    { name = "bubling" },
     { name = "httpx", extra = ["socks"] },
     { name = "inquirer-textual" },
     { name = "loguru" },
@@ -204,15 +211,11 @@ dependencies = [
 
 [package.optional-dependencies]
 logfire = [
+    { name = "bubling", extra = ["trace"] },
     { name = "logfire" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "opentelemetry-sdk" },
 ]
 trace = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "opentelemetry-sdk" },
+    { name = "bubling", extra = ["trace"] },
 ]
 
 [package.dev-dependencies]
@@ -229,16 +232,13 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.3" },
+    { name = "bubling", editable = "packages/bubling" },
+    { name = "bubling", extras = ["trace"], marker = "extra == 'logfire'", editable = "packages/bubling" },
+    { name = "bubling", extras = ["trace"], marker = "extra == 'trace'", editable = "packages/bubling" },
     { name = "httpx", extras = ["socks"], specifier = ">=0.28.1" },
     { name = "inquirer-textual", specifier = ">=0.8.0" },
     { name = "logfire", marker = "extra == 'logfire'", specifier = ">=4.32.0" },
     { name = "loguru", specifier = ">=0.7.3" },
-    { name = "opentelemetry-api", marker = "extra == 'logfire'", specifier = ">=1.39.0" },
-    { name = "opentelemetry-api", marker = "extra == 'trace'", specifier = ">=1.39.0" },
-    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'logfire'", specifier = ">=1.39.0" },
-    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'trace'", specifier = ">=1.39.0" },
-    { name = "opentelemetry-sdk", marker = "extra == 'logfire'", specifier = ">=1.39.0" },
-    { name = "opentelemetry-sdk", marker = "extra == 'trace'", specifier = ">=1.39.0" },
     { name = "pluggy", specifier = ">=1.6.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pydantic", specifier = ">=2.12.5" },
@@ -263,6 +263,35 @@ dev = [
     { name = "tox-uv", specifier = ">=1.35.1" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20260408" },
 ]
+
+[[package]]
+name = "bubling"
+source = { editable = "packages/bubling" }
+dependencies = [
+    { name = "loguru" },
+    { name = "pydantic" },
+    { name = "republic" },
+    { name = "typing-extensions" },
+]
+
+[package.optional-dependencies]
+trace = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "loguru", specifier = ">=0.7.3" },
+    { name = "opentelemetry-api", marker = "extra == 'trace'", specifier = ">=1.39.0" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'trace'", specifier = ">=1.39.0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'trace'", specifier = ">=1.39.0" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "republic", specifier = ">=0.6.0a1" },
+    { name = "typing-extensions", specifier = ">=4.15.0" },
+]
+provides-extras = ["trace"]
 
 [[package]]
 name = "cachetools"

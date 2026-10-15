@@ -43,9 +43,9 @@ description: BubHookSpecs 中每个钩子的类型、签名、返回值与调用
 
 ### Prompt 内容
 
-`build_prompt` 返回 `bub.prompt` 中的 `list[UserContent]`，其中 `UserContent = str | republic.Image | republic.Audio | republic.Video`。媒体用 `republic.image(...)`、`republic.audio(...)` 或 `republic.video(...)` 构造。为保持兼容，它仍可返回旧格式：字符串，或 content block 字典列表（例如 `{"type": "image", "media_type": "image/png", "url": "..."}`）。框架会根据实际返回值进行转换。
+`build_prompt` 返回 `bubling.prompt` 中的 `list[UserContent]`，其中 `UserContent = str | republic.Image | republic.Audio | republic.Video`。媒体用 `republic.image(...)`、`republic.audio(...)` 或 `republic.video(...)` 构造。为保持兼容，它仍可返回旧格式：字符串，或 content block 字典列表（例如 `{"type": "image", "media_type": "image/png", "url": "..."}`）。框架会根据实际返回值进行转换。
 
-接收 prompt 的 hook（`run_model`、`run_model_stream`、`continue_prompt`、`system_prompt`）仍收到旧格式：没有媒体时为字符串，否则为 content block 列表，媒体使用 URL（内联媒体转为 `data:` URL）。可用 `bub.prompt.to_content(prompt)` 转为 user content。
+接收 prompt 的 hook（`run_model`、`run_model_stream`、`continue_prompt`、`system_prompt`）仍收到旧格式：没有媒体时为字符串，否则为 content block 列表，媒体使用 URL（内联媒体转为 `data:` URL）。可用 `bubling.prompt.to_content(prompt)` 转为 user content。
 
 ## 钩子如何被调用
 
@@ -127,13 +127,13 @@ Windows 当前只清理直接 shell 进程。
 
 ### Agent-loop 钩子(`PluginAgentHooks`)
 
-四个 `*_llm_call` / `*_tool_call` 钩子经由 `PluginAgentHooks` 适配器(`src/bub/hooks/interception.py`,订阅 core agent 的 `BeforeLlmCall`/`AfterLlmCall`/`BeforeToolCall`/`AfterToolCall` 事件,见 `bub.core.events`)分发,而不是 `call_first`/`call_many`,有三处刻意差异:
+四个 `*_llm_call` / `*_tool_call` 钩子经由 `PluginAgentHooks` 适配器(`src/bub/hooks/interception.py`,订阅 core agent 的 `BeforeLlmCall`/`AfterLlmCall`/`BeforeToolCall`/`AfterToolCall` 事件,见 `bubling.events`)分发,而不是 `call_first`/`call_many`,有三处刻意差异:
 
 - **链式** — `before_llm_call` 与 `before_tool_call` 按 LIFO 顺序执行全部实现并**折叠**修改:每个实现收到的是前序实现修改后的 request/call。第一个短路决定(`LlmCallDecision.finish`、`ToolCallDecision.replace`/`deny`)终止链。
 - **错误隔离** — 实现抛异常只记日志(`hook.agent_hook_failed`)并跳过,绝不炸掉回合。阻断只能通过 decision 对象表达,坏掉的策略插件无法靠 crash 否决。
 - **终态处理恰好一次** — `after_llm_call` 与 `after_tool_call` 对真实完成的调用恰好触发一次：成功或 `Exception` 失败。取消与消费方关闭（`BaseException`）刻意不进入 after hook。`result.error` 携带**原始异常对象**（工具失败为完整 `BubError`，保留 `kind`/`details`）。所有 `after_tool_call` 实现共享同一个 outcome，因此赋值 `result.result` 会改变后续实现看到的模型可见结果，同时保留 `result.error` 中的失败状态。
 
-载荷数据类(`LlmCallRequest`、`LlmCallResult`、`ToolCall`、`ToolCallDecision`、`ToolCallResult`、`LlmCallDecision`)位于 `src/bub/core/events.py`,并由 `bub.hooks.interception` 重新导出。所有载荷携带 `run_id`,与 tape 条目 meta 中的 `run_id` 对应,观察者可将钩子事件与 tape 记录对齐。`before_llm_call` 改写的 `model`/`max_tokens` 全链路生效:provider 收到改写值,tape 记录 effective model。
+载荷数据类(`LlmCallRequest`、`LlmCallResult`、`ToolCall`、`ToolCallDecision`、`ToolCallResult`、`LlmCallDecision`)位于 `packages/bubling/src/bubling/events.py`,并由 `bub.hooks.interception` 重新导出。所有载荷携带 `run_id`,与 tape 条目 meta 中的 `run_id` 对应,观察者可将钩子事件与 tape 记录对齐。`before_llm_call` 改写的 `model`/`max_tokens` 全链路生效:provider 收到改写值,tape 记录 effective model。
 
 continuation 风格的 `wrap_tool_call`(重试 / human-in-the-loop / 缓存)曾在原 PR 中实现,按 review 方向移除;若相关用例成熟,将作为独立提案回归。
 

@@ -12,9 +12,9 @@ from pydantic_settings import SettingsConfigDict
 
 from bub import config
 from bub.configure import Settings
-from bub.core.errors import BubError, ErrorKind
-from bub.core.tape import Tape, TapeEntry, TapeQuery
-from bub.core.tools import ToolContext, tool
+from bubling.errors import BubError, ErrorKind
+from bubling.tape import Tape, TapeEntry, TapeQuery
+from bubling.tools import ToolContext, tool
 
 SPILL_READ_TOOL_NAME = "spill.read"
 SPILL_READ_MODEL_NAME = SPILL_READ_TOOL_NAME.replace(".", "_")

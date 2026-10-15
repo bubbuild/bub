@@ -43,9 +43,9 @@ For the *why* and *how* of each stage see [Turn pipeline](/docs/concepts/turn-pi
 
 ### Prompt content
 
-`build_prompt` returns `list[UserContent]` from `bub.prompt`, where `UserContent = str | republic.Image | republic.Audio | republic.Video`. Build media with `republic.image(...)`, `republic.audio(...)` or `republic.video(...)`. For compatibility, it may still return the legacy forms: a string, or a list of content-block dicts such as `{"type": "image", "media_type": "image/png", "url": "..."}`. The framework converts them by inspecting the returned value.
+`build_prompt` returns `list[UserContent]` from `bubling.prompt`, where `UserContent = str | republic.Image | republic.Audio | republic.Video`. Build media with `republic.image(...)`, `republic.audio(...)` or `republic.video(...)`. For compatibility, it may still return the legacy forms: a string, or a list of content-block dicts such as `{"type": "image", "media_type": "image/png", "url": "..."}`. The framework converts them by inspecting the returned value.
 
-Hooks that receive a prompt (`run_model`, `run_model_stream`, `continue_prompt`, `system_prompt`) still get the legacy form: a string when the prompt has no media, otherwise content blocks whose media use URLs (inline media become `data:` URLs). `bub.prompt.to_content(prompt)` converts it to user content.
+Hooks that receive a prompt (`run_model`, `run_model_stream`, `continue_prompt`, `system_prompt`) still get the legacy form: a string when the prompt has no media, otherwise content blocks whose media use URLs (inline media become `data:` URLs). `bubling.prompt.to_content(prompt)` converts it to user content.
 
 ## How hooks are invoked
 
@@ -128,13 +128,13 @@ Each `provide_tape_sidecar` implementation contributes one named capability back
 
 ### Agent-loop hooks (`PluginAgentHooks`)
 
-The four `*_llm_call` / `*_tool_call` hooks are dispatched through the `PluginAgentHooks` adapter (`src/bub/hooks/interception.py`), which subscribes to the core agent's `BeforeLlmCall`/`AfterLlmCall`/`BeforeToolCall`/`AfterToolCall` events (`bub.core.events`), not `call_first`/`call_many`, with three deliberate differences:
+The four `*_llm_call` / `*_tool_call` hooks are dispatched through the `PluginAgentHooks` adapter (`src/bub/hooks/interception.py`), which subscribes to the core agent's `BeforeLlmCall`/`AfterLlmCall`/`BeforeToolCall`/`AfterToolCall` events (`bubling.events`), not `call_first`/`call_many`, with three deliberate differences:
 
 - **Chaining** — `before_llm_call` and `before_tool_call` run every implementation in LIFO order and *fold* modifications: each impl receives the request/call as modified by the impls before it. The first short-circuiting decision (`LlmCallDecision.finish`, `ToolCallDecision.replace`/`deny`) stops the chain.
 - **Fault isolation** — a raising implementation is logged (`hook.agent_hook_failed`) and skipped, never fatal to the turn. Blocking is only expressible through decision objects, so a broken policy plugin cannot veto by crashing.
 - **Exactly-once terminal handling** — `after_llm_call` and `after_tool_call` fire exactly once per call for real completions: success or `Exception` failure. Cancellation and consumer close (`BaseException`) intentionally bypass after hooks. `result.error` carries the **original exception object** (a `BubError` for tool failures with `kind`/`details` intact). `after_tool_call` implementations share one outcome, so assigning `result.result` changes the model-facing value seen by later implementations while leaving any failure in `result.error` intact.
 
-Payload dataclasses (`LlmCallRequest`, `LlmCallResult`, `ToolCall`, `ToolCallDecision`, `ToolCallResult`, `LlmCallDecision`) live in `src/bub/core/events.py` and are re-exported by `bub.hooks.interception`. Every payload carries `run_id`, matching the `run_id` meta on tape entries, so observers can correlate hook events with the tape. Rewritten `model`/`max_tokens` from `before_llm_call` are honored end-to-end: the provider receives them and the tape records the effective model.
+Payload dataclasses (`LlmCallRequest`, `LlmCallResult`, `ToolCall`, `ToolCallDecision`, `ToolCallResult`, `LlmCallDecision`) live in `packages/bubling/src/bubling/events.py` and are re-exported by `bub.hooks.interception`. Every payload carries `run_id`, matching the `run_id` meta on tape entries, so observers can correlate hook events with the tape. Rewritten `model`/`max_tokens` from `before_llm_call` are honored end-to-end: the provider receives them and the tape records the effective model.
 
 A continuation-style `wrap_tool_call` (retry / human-in-the-loop / caching) was prototyped in the original PR and removed by review direction; if those use cases materialize it will return as a separate proposal.
 

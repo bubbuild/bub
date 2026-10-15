@@ -1,7 +1,7 @@
 """Bub framework package.
 
-The top-level names are imported on first access, so ``import bub.core`` does not load
-the framework, its settings or the CLI.
+The top-level names are imported on first access, so importing a submodule such as
+``bub.envelope`` does not load the framework, its settings or the CLI.
 """
 
 from __future__ import annotations
@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from bub.configure import Settings, config, ensure_config
-    from bub.core.tools import tool
     from bub.framework import BubFramework
     from bub.hooks import hookimpl
+    from bubling.tools import tool
 
     home: Path
 
@@ -50,7 +50,7 @@ except ModuleNotFoundError:
 
 def __getattr__(name: str) -> Any:
     if name == "tool":
-        from bub.core.tools import tool
+        from bubling.tools import tool
 
         return tool
     if name != "home" and name not in _EXPORTS:

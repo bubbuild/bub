@@ -11,13 +11,13 @@ import pytest
 
 from bub.builtin.settings import AgentSettings
 from bub.channels.message import ChannelMessage, MediaItem
-from bub.core.context import default_tape_context
-from bub.core.errors import BubError, ErrorKind
-from bub.core.prompt import to_content
-from bub.core.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
-from bub.core.tape import Tape, TapeContext
-from bub.core.tools import Tool
 from bub.framework import BubFramework
+from bubling.context import default_tape_context
+from bubling.errors import BubError, ErrorKind
+from bubling.prompt import to_content
+from bubling.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
+from bubling.tape import Tape, TapeContext
+from bubling.tools import Tool
 from tests.model_fakes import ProviderService, StepRunner, chat_events, sse
 
 
@@ -174,11 +174,11 @@ async def test_fresh_process_replays_tool_signatures_to_the_provider(
 import asyncio, json, sys
 from pathlib import Path
 import httpx2
-from bub.core.context import default_tape_context
+from bubling.context import default_tape_context
 from tests.model_fakes import StepRunner
 from bub.builtin.settings import AgentSettings
-from bub.core.store import FileTapeStore, AsyncTapeStoreAdapter
-from bub.core.tape import Tape
+from bubling.store import FileTapeStore, AsyncTapeStoreAdapter
+from bubling.tape import Tape
 async def main():
     bodies = []
     def respond(request):

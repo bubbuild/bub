@@ -10,11 +10,11 @@ import pytest
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.builtin.store import FuzzyFileTapeStore
 from bub.channels.message import ChannelMessage
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.core.streaming import AsyncStreamEvents, StreamEvent
-from bub.core.tape import Tape, TapeContext, session_tape_name
-from bub.core.tools import REGISTRY
 from bub.framework import BubFramework
+from bubling.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bubling.streaming import AsyncStreamEvents, StreamEvent
+from bubling.tape import Tape, TapeContext, session_tape_name
+from bubling.tools import REGISTRY
 
 
 class RecordingLifespan:

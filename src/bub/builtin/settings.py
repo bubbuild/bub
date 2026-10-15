@@ -13,11 +13,11 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 from bub import Settings, __version__, config, ensure_config
 from bub.builtin.model import BubModel, ModelCandidate
-from bub.core.commands import validate_command_prefix
+from bubling.commands import validate_command_prefix
 
 if TYPE_CHECKING:
-    from bub.core.tape import Tape
-    from bub.core.tools import ToolContext
+    from bubling.tape import Tape
+    from bubling.tools import ToolContext
 
 DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 16384

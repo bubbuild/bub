@@ -4,9 +4,9 @@ Nothing here reads settings or plugin hooks. The loop reports its progress as ev
 to registered handlers; the framework and the builtin agent assemble these components.
 """
 
-from bub.core.agent import Agent, events_from
-from bub.core.context import default_tape_context
-from bub.core.events import (
+from bubling.agent import Agent, events_from
+from bubling.context import default_tape_context
+from bubling.events import (
     AfterLlmCall,
     AfterToolCall,
     AgentEvent,
@@ -27,11 +27,11 @@ from bub.core.events import (
     ToolCallDecision,
     ToolCallResult,
 )
-from bub.core.model import ChatModelClient, Model, ModelClient
-from bub.core.recorder import TapeRecorder
-from bub.core.system_prompt import PromptContext, PromptSection, SystemPrompt
-from bub.core.tape import Tape, TapeContext, session_tape_name
-from bub.core.tools import Tool, ToolContext, tool
+from bubling.model import ChatModelClient, Model, ModelClient
+from bubling.recorder import TapeRecorder
+from bubling.system_prompt import PromptContext, PromptSection, SystemPrompt
+from bubling.tape import Tape, TapeContext, session_tape_name
+from bubling.tools import Tool, ToolContext, tool
 
 __all__ = [
     "AfterLlmCall",

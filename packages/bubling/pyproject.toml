@@ -1,0 +1,56 @@
+[project]
+name = "bubling"
+dynamic = ["version"]
+description = "Bub's event-driven agent kernel: agent loop, model protocol, tools and tape."
+authors = [
+    { name = "Chojan Shang", email = "psiace@apache.org" },
+    { name = "Frost Ming", email = "me@frostming.com" },
+    { name = "Yihong", email = "zouzou0208@gmail.com" },
+]
+readme = "README.md"
+requires-python = ">=3.12,<4.0"
+license = { text = "Apache-2.0" }
+classifiers = [
+    "Intended Audience :: Developers",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "republic>=0.6.0a1",
+    "pydantic>=2.12.5",
+    "loguru>=0.7.3",
+    "typing-extensions>=4.15.0",
+]
+
+[project.urls]
+Homepage = "https://bub.build"
+Repository = "https://github.com/bubbuild/bub"
+Documentation = "https://bub.build"
+
+[project.optional-dependencies]
+trace = [
+    "opentelemetry-api>=1.39.0",
+    "opentelemetry-sdk>=1.39.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.39.0",
+]
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.3.0"
+# Released in lockstep with bub from the same repository tag.
+raw-options = { root = "../.." }
+
+[tool.hatch.build.targets.sdist]
+only-include = ["src/bubling", "tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bubling"]

@@ -42,8 +42,8 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
 
-      - name: Build package
-        run: uv build
+      - name: Build packages
+        run: uv build --all-packages
 
       - name: Publish package
         run: uv publish --trusted-publishing always

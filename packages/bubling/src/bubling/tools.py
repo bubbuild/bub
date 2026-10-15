@@ -12,11 +12,11 @@ import republic
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
-from bub.core.errors import BubError, ErrorKind
-from bub.core.events import AfterToolCall, BeforeToolCall, EventBus, ToolCall, ToolCallResult
-from bub.core.prompt import UserContent
-from bub.core.tape import Tape
-from bub.core.tracing import Span
+from bubling.errors import BubError, ErrorKind
+from bubling.events import AfterToolCall, BeforeToolCall, EventBus, ToolCall, ToolCallResult
+from bubling.prompt import UserContent
+from bubling.tape import Tape
+from bubling.tracing import Span
 
 
 @dataclass(frozen=True)

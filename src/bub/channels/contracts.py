@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterable, Callable, Coroutine
 from typing import TYPE_CHECKING, Any, Protocol
 
-from bub.core.streaming import StreamEvent
 from bub.envelope import Envelope
+from bubling.streaming import StreamEvent
 
 if TYPE_CHECKING:
     from bub.channels.admission import AdmitDecision, TurnSnapshot

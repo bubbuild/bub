@@ -11,12 +11,12 @@ from typer.testing import CliRunner
 from bub.builtin.auth import app
 from bub.builtin.settings import AgentSettings
 from bub.channels.message import ChannelMessage, MediaItem
-from bub.core.context import default_tape_context
-from bub.core.prompt import to_content
-from bub.core.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
-from bub.core.tape import Tape, TapeContext, TapeEntry
-from bub.core.tools import Tool
 from bub.framework import BubFramework
+from bubling.context import default_tape_context
+from bubling.prompt import to_content
+from bubling.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
+from bubling.tape import Tape, TapeContext, TapeEntry
+from bubling.tools import Tool
 from tests.model_fakes import ProviderService, StepRunner, sse
 
 

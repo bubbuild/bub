@@ -13,13 +13,13 @@ install: ## Sync Python deps, install website deps, and install prek hooks
 	@echo "==> Installing prek hooks"
 	uv run prek install
 
-check: ## Validate lockfile, run prek across the repo, and type-check src
+check: ## Validate lockfile, run prek across the repo, and type-check
 	@echo "==> Verifying uv.lock matches pyproject.toml"
 	uv lock --locked
 	@echo "==> Running prek hooks"
 	uv run prek run -a
-	@echo "==> Running mypy on src"
-	uv run mypy src
+	@echo "==> Running mypy"
+	uv run mypy
 
 vulture: ## Run the optional unused-code check
 	@echo "==> Running vulture via prek"
@@ -33,9 +33,9 @@ clean-build: ## Remove local build artifacts
 	@echo "==> Removing dist/"
 	rm -rf dist
 
-build: clean-build ## Build source and wheel distributions
+build: clean-build ## Build source and wheel distributions of bub and bubling
 	@echo "==> Building package distributions"
-	uv build
+	uv build --all-packages
 
 publish: ## Publish the contents of dist/ with uv
 	@echo "==> Publishing dist/ with uv"

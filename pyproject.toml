@@ -21,6 +21,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "bubling>=0.6.0a1",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.14.2",
     "pyyaml>=6.0.3",
@@ -48,9 +49,7 @@ bub = "bub.__main__:app"
 
 [project.optional-dependencies]
 trace = [
-    "opentelemetry-api>=1.39.0",
-    "opentelemetry-sdk>=1.39.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.39.0",
+    "bubling[trace]",
 ]
 logfire = [
     "bub[trace]",
@@ -67,6 +66,12 @@ dev = [
     "prek>=0.3.8",
     "pytest-asyncio>=1.3.0",
 ]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+bubling = { workspace = true }
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -88,10 +93,10 @@ only-include = ["src/bub", "src/skills"]
 
 [tool.vulture]
 ignore_names = ["test_*", "Test*"]
-paths = ["src"]
+paths = ["src", "packages/bubling/src"]
 
 [tool.mypy]
-files = ["src"]
+files = ["src", "packages/bubling/src"]
 disallow_untyped_defs = false
 disallow_any_unimported = false
 no_implicit_optional = true
@@ -105,22 +110,22 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packages/bubling/tests"]
 
 [tool.importlinter]
-root_packages = ["bub"]
+root_packages = ["bub", "bubling"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "bub.core is independent of the rest of bub"
+name = "bubling is independent of bub"
 type = "forbidden"
-source_modules = ["bub.core"]
-forbidden_modules = ["bub.*"]
+source_modules = ["bubling"]
+forbidden_modules = ["bub"]
 
 [[tool.importlinter.contracts]]
-name = "bub.core does not use application dependencies"
+name = "bubling does not use application dependencies"
 type = "forbidden"
-source_modules = ["bub.core"]
+source_modules = ["bubling"]
 forbidden_modules = [
     "aiohttp",
     "dotenv",
@@ -137,6 +142,7 @@ forbidden_modules = [
 
 [tool.ruff]
 target-version = "py312"
+src = ["src", "packages/bubling/src"]
 line-length = 120
 fix = true
 extend-exclude = [
@@ -189,6 +195,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
+"packages/*/tests/*" = ["S101"]
 
 [tool.ruff.format]
 preview = true

@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from bub.core.turn import TurnState
 from bub.envelope import Envelope
+from bubling.turn import TurnState
 
 if TYPE_CHECKING:
-    from bub.core.prompt import UserContent
+    from bubling.prompt import UserContent
 
 __all__ = ["TurnResult", "TurnState"]
 

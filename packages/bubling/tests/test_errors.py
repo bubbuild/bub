@@ -3,7 +3,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from bub.core.errors import BubError, ErrorKind
+from bubling.errors import BubError, ErrorKind
 
 
 def test_error_survives_generator_context_manager_with_identity_and_details() -> None:

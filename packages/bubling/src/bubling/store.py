@@ -15,8 +15,8 @@ from typing import Any, NoReturn, Protocol, Self, overload
 from loguru import logger
 from typing_extensions import TypeIs
 
-from bub.core.errors import BubError, ErrorKind
-from bub.core.tape import TapeEntry
+from bubling.errors import BubError, ErrorKind
+from bubling.tape import TapeEntry
 
 
 class TapeStore(Protocol):

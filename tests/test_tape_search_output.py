@@ -6,7 +6,7 @@ import pytest
 
 import bub.builtin.tools as builtin_tools
 from bub.builtin.tools import tape_search
-from bub.core.tools import ToolContext
+from bubling.tools import ToolContext
 
 
 @dataclass(frozen=True)

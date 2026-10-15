@@ -10,12 +10,12 @@ import republic
 from republic.errors import APIStatusError, StreamIncompleteError
 
 from bub.builtin.settings import AgentSettings
-from bub.core.context import default_tape_context
-from bub.core.errors import BubError, ErrorKind
-from bub.core.prompt import to_content
-from bub.core.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
-from bub.core.tape import Tape, TapeContext, TapeEntry
-from bub.core.tools import Tool
+from bubling.context import default_tape_context
+from bubling.errors import BubError, ErrorKind
+from bubling.prompt import to_content
+from bubling.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
+from bubling.tape import Tape, TapeContext, TapeEntry
+from bubling.tools import Tool
 from tests.model_fakes import ProviderService, StepRunner, chat_events, sse, tool_events
 
 

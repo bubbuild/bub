@@ -4,8 +4,8 @@ from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 
-from bub.core.tape import TapeEntry
 from bub.turn import TurnState
+from bubling.tape import TapeEntry
 
 
 def exclude_none(d: dict[str, Any]) -> dict[str, Any]:

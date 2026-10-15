@@ -19,8 +19,8 @@ from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage, MediaItem, MediaType
 from bub.configure import Settings, ensure_config
-from bub.core.commands import strip_command_prefix, validate_command_prefix
 from bub.utils import exclude_none
+from bubling.commands import strip_command_prefix, validate_command_prefix
 
 
 @config(name="telegram")
