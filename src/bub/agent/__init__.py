@@ -1,4 +1,4 @@
-"""Bub's agent kernel: agent loop, Republic model, tools, system prompt and tape.
+"""Bub's agent kernel: agent loop, Republic model, events and system prompt.
 
 Nothing here reads settings or plugin hooks. The loop reports its progress as events
 to registered handlers; the framework and the builtin agent assemble these components.
@@ -34,8 +34,6 @@ if TYPE_CHECKING:
     from bub.agent.model import ChatModelClient, Model, ModelClient
     from bub.agent.recorder import TapeRecorder
     from bub.agent.system_prompt import PromptContext, PromptSection, SystemPrompt
-    from bub.tape import Tape, TapeContext, session_tape_name
-    from bub.tools import Tool, ToolContext, tool
 
 __all__ = [
     "AfterLlmCall",
@@ -60,19 +58,13 @@ __all__ = [
     "StepFinished",
     "StepStarted",
     "SystemPrompt",
-    "Tape",
-    "TapeContext",
     "TapeEvent",
     "TapeRecorder",
-    "Tool",
     "ToolCall",
     "ToolCallDecision",
     "ToolCallResult",
-    "ToolContext",
     "default_tape_context",
     "events_from",
-    "session_tape_name",
-    "tool",
 ]
 
 # Exports are imported on first access, so importing one submodule (such as ``bub.agent.events``
@@ -100,19 +92,13 @@ _EXPORTS = {
     "StepFinished": "bub.agent.events",
     "StepStarted": "bub.agent.events",
     "SystemPrompt": "bub.agent.system_prompt",
-    "Tape": "bub.tape",
-    "TapeContext": "bub.tape",
     "TapeEvent": "bub.agent.events",
     "TapeRecorder": "bub.agent.recorder",
-    "Tool": "bub.tools",
     "ToolCall": "bub.agent.events",
     "ToolCallDecision": "bub.agent.events",
     "ToolCallResult": "bub.agent.events",
-    "ToolContext": "bub.tools",
     "default_tape_context": "bub.agent.context",
     "events_from": "bub.agent.agent",
-    "session_tape_name": "bub.tape",
-    "tool": "bub.tools",
 }
 
 

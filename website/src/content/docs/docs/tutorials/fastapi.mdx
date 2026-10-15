@@ -32,8 +32,9 @@ import republic
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from bub.agent import Agent, Tool
+from bub.agent import Agent
 from bub.store import FileTapeStore
+from bub.tools import Tool
 
 
 async def lookup_order(order_id: str) -> dict[str, str]:

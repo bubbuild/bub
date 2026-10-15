@@ -34,8 +34,9 @@ from pathlib import Path
 
 import republic
 
-from bub.agent import Agent, Tool
+from bub.agent import Agent
 from bub.store import FileTapeStore
+from bub.tools import Tool
 
 
 async def lookup_order(order_id: str) -> dict[str, str]:
@@ -119,14 +120,14 @@ provider name and a `republic.Stream`. Bub's own `bub.builtin.model.BubModel` is
 ## Tools
 
 `Tool.from_callable()` derives a schema from annotations and a description from the docstring, without registering
-the tool globally. The `@tool` decorator from `bub.agent` builds the same `Tool` and also adds it to Bub's global
+the tool globally. The `@tool` decorator from `bub.tools` builds the same `Tool` and also adds it to Bub's global
 registry, which Bub's own agent snapshots.
 
 A tool created with `context=True` receives a `ToolContext` with the run's `tape`, turn `state`, `run_id`, and event
 bus:
 
 ```python
-from bub.agent import ToolContext
+from bub.tools import ToolContext
 
 
 def remember(note: str, *, context: ToolContext) -> str:
@@ -263,7 +264,8 @@ Inside a tool, the run's bus is `context.events`:
 ```python
 from dataclasses import dataclass
 
-from bub.agent import AgentEvent, ToolContext
+from bub.agent import AgentEvent
+from bub.tools import ToolContext
 
 
 @dataclass(kw_only=True)
@@ -353,7 +355,7 @@ the turn state:
 | `continue_prompt(tape, prompt, state)` | `None`    | Return a user message for the next step after tool calls. |
 
 ```python
-from bub.agent import Tape
+from bub.tape import Tape
 
 
 class TriageAgent(Agent):

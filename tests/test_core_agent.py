@@ -23,11 +23,11 @@ from bub.agent import (
     PromptContext,
     RunStarted,
     StepFinished,
-    Tool,
     ToolCallDecision,
 )
 from bub.errors import BubError
 from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.tools import Tool
 from tests.model_fakes import ProviderService, chat_events, sse, tool_events
 
 

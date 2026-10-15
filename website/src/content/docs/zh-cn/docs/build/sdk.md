@@ -33,8 +33,9 @@ from pathlib import Path
 
 import republic
 
-from bub.agent import Agent, Tool
+from bub.agent import Agent
 from bub.store import FileTapeStore
+from bub.tools import Tool
 
 
 async def lookup_order(order_id: str) -> dict[str, str]:
@@ -116,13 +117,13 @@ Bub 自己的 `bub.builtin.model.BubModel` 就是这样的客户端。
 
 ## 工具
 
-`Tool.from_callable()` 从类型注解生成参数 schema，从 docstring 生成描述，不会注册到全局。`bub.agent` 中的
+`Tool.from_callable()` 从类型注解生成参数 schema，从 docstring 生成描述，不会注册到全局。`bub.tools` 中的
 `@tool` 装饰器生成同样的 `Tool`，同时把它加入 Bub 的全局注册表，Bub 自己的 agent 会取其快照。
 
 以 `context=True` 创建的工具会收到 `ToolContext`，其中包含本次运行的 `tape`、turn `state`、`run_id` 和事件总线：
 
 ```python
-from bub.agent import ToolContext
+from bub.tools import ToolContext
 
 
 def remember(note: str, *, context: ToolContext) -> str:
@@ -252,7 +253,8 @@ agent.events.on(StepFinished, lambda event: print("step", event.step, event.stat
 ```python
 from dataclasses import dataclass
 
-from bub.agent import AgentEvent, ToolContext
+from bub.agent import AgentEvent
+from bub.tools import ToolContext
 
 
 @dataclass(kw_only=True)
@@ -337,7 +339,7 @@ async with agent.run("Check order A123", model=model, tape="customer-42") as str
 | `continue_prompt(tape, prompt, state)` | `None`   | 在工具调用后返回下一步的用户消息。 |
 
 ```python
-from bub.agent import Tape
+from bub.tape import Tape
 
 
 class TriageAgent(Agent):
