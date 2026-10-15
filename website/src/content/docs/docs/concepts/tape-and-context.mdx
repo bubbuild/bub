@@ -54,7 +54,7 @@ The builtin spill plugin mounts a `SpillStore` through `provide_tape_sidecar`, r
 
 The main tape keeps a bounded preview and an opaque handle instead of the complete result. The `spill.read` tool reads a bounded page by handle and cursor, including pages counted from the end. Content explicitly returned by `spill.read` is recorded as a normal bounded tool result. `spill.read` has `exposure="direct"`, so it returns plain text and stays directly callable in code mode instead of being routed through `run_code`.
 
-The sidecar follows the session tape through forks, merges, archive, and reset, but remains a separate tape and is never scanned while constructing the main context. It can also be archived or reset independently with `Tape.archive_sidecar("spill")` and `Tape.reset_sidecar("spill")`. When reset requests an archive, Bub preserves the sidecar if that archive fails.
+The sidecar follows the session tape through forks, merges, archive, and reset, but remains a separate tape and is never scanned while constructing the main context. It can also be reset independently with `Tape.reset_sidecar("spill")`, or archived with `bub.builtin.archive.archive_sidecar(tape, "spill", directory)`. When `tape.reset` requests an archive, Bub preserves the sidecar if that archive fails.
 
 Spill configuration belongs to the sidecar plugin: use `spill.threshold` in `config.yml` or `BUB_SPILL_THRESHOLD` in the environment. Setting it to `0` stops new writes without unmounting the sidecar, so existing handles remain readable and tape lifecycle operations still include it.
 
@@ -64,16 +64,18 @@ Spill writes are recorded as `spill.write`. Framework-managed lifecycle outcomes
 
 Before the first turn on a tape, `TapeService.ensure_bootstrap_anchor` checks for an anchor entry. If none exists, it writes a `session/start` handoff with `state={"owner": "human"}`. This guarantees that context reconstruction has a starting anchor on every tape.
 
-### default_tape_context: entries → OpenAI messages
+### default_tape_context: entries → model messages
 
-`default_tape_context()` builds a `TapeContext` whose `select` function (`_select_messages`) walks tape entries and emits OpenAI-compatible messages. The mapping is:
+`default_tape_context()` builds a `TapeContext` whose `select` function (`_select_messages`) walks tape entries and returns a list of `republic.Message` objects. The mapping is:
 
 - `anchor` → an `assistant` message of the form `[Anchor created: <name>]: <state-as-json>`.
-- `message` → the entry payload, used as a chat message dict.
+- `message` → the entry payload, converted with `bub.tape.to_message`. New user messages are stored as `republic.Message.to_dict()`; older Bub payloads (media URLs, `tool_call_id`, `reasoning`, `provider_data`) are still read.
 - `tool_call` → one `assistant` message with the saved text (or empty content for calls without text, including older entries) and a `tool_calls` array.
-- `tool_result` → one `tool` role message per result; when a preceding `tool_call` is pending, Bub copies the call's `id` into `tool_call_id` by result position.
+- `tool_result` → one `republic.tool(...)` message per result, paired with the preceding `tool_call` entry's calls by position. Results without a recorded call are skipped.
 
-The context selector is a hook (`build_tape_context`), so plugins can replace it with a different strategy — compaction, summarization, retrieval — without touching the rest of the pipeline.
+Saved reasoning and provider data are always included; Republic sends them back only to API formats that accept them.
+
+The context selector is a hook (`build_tape_context`), so plugins can replace it with a different strategy — compaction, summarization, retrieval — without touching the rest of the pipeline. A custom `select` must return Republic messages (or an awaitable of them); `bub.tape.to_messages` converts stored message payloads.
 
 Entries marked `context=False` are removed before the selector runs. This is how operational spill events remain queryable on the tape without appearing in either the default context or a plugin-defined context.
 

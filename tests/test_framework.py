@@ -8,6 +8,7 @@ from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
+import republic
 import typer
 from typer.testing import CliRunner
 
@@ -146,6 +147,25 @@ def test_get_tape_sidecars_combines_plugins_and_prefers_the_highest_priority_nam
 
 
 @pytest.mark.asyncio
+async def test_build_prompt_converts_legacy_content_blocks_by_value() -> None:
+    framework = BubFramework()
+
+    class LegacyPlugin:
+        @hookimpl
+        def build_prompt(self, message, session_id, state):
+            return [
+                {"type": "text", "text": "describe"},
+                {"type": "image", "media_type": "image/png", "url": "https://example.test/a.png"},
+            ]
+
+    framework.plugin_manager.register(LegacyPlugin(), name="legacy")
+
+    prompt = await framework.build_prompt({"content": "ignored"}, session_id="s", state={})
+
+    assert prompt == ["describe", republic.Image("image/png", url="https://example.test/a.png")]
+
+
+@pytest.mark.asyncio
 async def test_continue_prompt_awaits_high_priority_async_hook() -> None:
     framework = BubFramework()
     tape = cast(Any, SimpleNamespace(context=SimpleNamespace(state={})))
@@ -162,6 +182,7 @@ async def test_continue_prompt_awaits_high_priority_async_hook() -> None:
         @hookimpl
         async def continue_prompt(self, prompt: str, tape: Any, state: StreamState) -> str:
             called.append("async")
+            # Hooks receive the legacy prompt form.
             assert prompt == "current prompt"
             assert state.usage == {"total_tokens": 42}
             return "async prompt"
@@ -169,7 +190,7 @@ async def test_continue_prompt_awaits_high_priority_async_hook() -> None:
     framework.plugin_manager.register(SyncPlugin(), name="sync")
     framework.plugin_manager.register(AsyncPlugin(), name="async")
 
-    prompt = await framework.continue_prompt(prompt="current prompt", tape=tape, state=state)
+    prompt = await framework.continue_prompt(prompt=["current prompt"], tape=tape, state=state)
 
     assert prompt == "async prompt"
     assert called == ["async"]
@@ -191,7 +212,7 @@ async def test_continue_prompt_allows_no_user_message(register_none_hook: bool) 
         framework.plugin_manager.register(NoPromptPlugin())
 
     result = await framework.continue_prompt(
-        prompt="initial prompt", tape=cast(Any, SimpleNamespace()), state=StreamState()
+        prompt=["initial prompt"], tape=cast(Any, SimpleNamespace()), state=StreamState()
     )
 
     assert result is None

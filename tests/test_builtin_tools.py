@@ -33,7 +33,7 @@ from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, tool
 
 
 def _tool_context(tmp_path, **state) -> ToolContext:
-    tape = Tape(tmp_path, AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
     return ToolContext(tape=tape, run_id="test-run", state={"_runtime_workspace": str(tmp_path), **state})
 
 
@@ -54,10 +54,10 @@ async def test_tape_info_formats_token_cache_hit_rate(tmp_path) -> None:
         new_messages=[],
         response_text=None,
         usage={
-            "prompt_tokens": 8,
-            "completion_tokens": 2,
+            "input_tokens": 8,
+            "output_tokens": 2,
             "total_tokens": 10,
-            "prompt_tokens_details": {"cached_tokens": 3},
+            "cached_tokens": 3,
         },
     )
 
@@ -378,7 +378,7 @@ async def test_bash_non_zero_exit_is_returned_as_tool_error(tmp_path) -> None:
     command = _python_shell("import sys; print('boom'); sys.exit(7)")
     executor = ToolExecutor()
 
-    result = await executor.execute_async([(bash, {"command": command})], context=_tool_context(tmp_path))
+    result = await executor.execute_many([(bash, {"command": command})], context=_tool_context(tmp_path))
 
     assert result.error is not None
     assert result.error.kind is ErrorKind.TOOL

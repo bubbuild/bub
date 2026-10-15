@@ -23,18 +23,17 @@ def test_panel_head_and_end_commit_separate_terminal_lines() -> None:
     assert lines[3] == "next prompt"
 
 
-def test_tool_call_renderer_hides_success_output() -> None:
+def test_tool_call_renderer_shows_call_and_elapsed_time() -> None:
     console = Console(record=True, force_terminal=False, width=120)
     renderer = CliRenderer(console)
 
-    renderer.tool_call_start(name="demo.echo", args=(), kwargs={"value": "hello"})
-    renderer.tool_call_success(name="demo.echo", result={"secret": "hidden-result"}, elapsed_ms=12.3)
+    renderer.tool_call_start(name="demo.echo", kwargs={"value": "hello"})
+    renderer.tool_call_success(name="demo.echo", elapsed_ms=12.3)
 
     output = console.export_text()
 
     assert '● demo.echo(value: "hello")' in output
     assert "  ⎿ completed in 12 ms" in output
-    assert "hidden-result" not in output
     assert "Tool call:" not in output
     assert "Tool result:" not in output
 

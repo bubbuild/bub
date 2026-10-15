@@ -14,12 +14,12 @@ from pydantic import BaseModel, Field
 from bub.builtin.environment import environment_from_state
 from bub.builtin.settings import load_settings, set_session_setting
 from bub.builtin.shell_manager import shell_manager
+from bub.core.tools import REGISTRY, Tool, ToolContext, tool
 from bub.skills import discover_skills
-from bub.tools import REGISTRY, Tool, ToolContext, tool
 
 if TYPE_CHECKING:
-    from bub.builtin.agent import Agent
-    from bub.tape import Tape
+    from bub.builtin.agent import BubAgent
+    from bub.core.tape import Tape
 
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 30
 DEFAULT_HEADERS = {"accept": "text/markdown"}
@@ -141,10 +141,10 @@ def _raise_for_failed_shell(returncode: int | None, output: str) -> None:
     raise RuntimeError(f"command exited with code {returncode}\noutput:\n{body}")
 
 
-def _get_agent(context: ToolContext) -> Agent:
+def _get_agent(context: ToolContext) -> BubAgent:
     if "_runtime_agent" not in context.state:
         raise RuntimeError("no runtime agent found in tool context")
-    return cast("Agent", context.state["_runtime_agent"])
+    return cast("BubAgent", context.state["_runtime_agent"])
 
 
 class SearchInput(BaseModel):
@@ -458,7 +458,9 @@ async def tape_search(param: SearchInput, *, context: ToolContext) -> TapeSearch
 @tool(context=True, name="tape.reset", renderer=lambda result: result["message"])
 async def tape_reset(archive: bool = False, *, context: ToolContext) -> dict[str, str]:
     """Reset the current tape, optionally archiving it."""
-    return {"message": await context.tape.reset(archive=archive)}
+    from bub.builtin.archive import archive_dir, reset_tape
+
+    return {"message": await reset_tape(context.tape, archive_to=archive_dir() if archive else None)}
 
 
 @tool(context=True, name="tape.handoff", renderer=lambda result: f"anchor added: {result['anchor']}")

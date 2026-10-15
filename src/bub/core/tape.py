@@ -1,0 +1,521 @@
+"""Append-only tape primitives owned by Bub."""
+
+from __future__ import annotations
+
+import contextlib
+import hashlib
+import inspect
+import json
+from collections.abc import AsyncGenerator, Callable, Coroutine, Iterable, Mapping, MutableMapping
+from dataclasses import asdict, dataclass, field, replace
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import republic
+
+from bub import tracing
+from bub.core.sidecars import TapeSidecar, sidecar_tape_name
+from bub.errors import BubError, ErrorKind
+
+__all__ = [
+    "LAST_ANCHOR",
+    "AnchorSelector",
+    "AnchorSummary",
+    "AsyncTapeStore",
+    "AsyncTapeStoreAdapter",
+    "ContextSelector",
+    "InMemoryQueryMixin",
+    "InMemoryTapeStore",
+    "SelectedMessages",
+    "Tape",
+    "TapeContext",
+    "TapeEntry",
+    "TapeInfo",
+    "TapeQuery",
+    "TapeStore",
+    "UnavailableTapeStore",
+    "build_messages",
+    "is_async_tape_store",
+    "session_tape_name",
+    "to_message",
+    "to_messages",
+    "utc_now",
+]
+
+if TYPE_CHECKING:
+    from bub.core.store import (
+        AsyncTapeStore,
+        AsyncTapeStoreAdapter,
+        InMemoryQueryMixin,
+        InMemoryTapeStore,
+        TapeQuery,
+        TapeStore,
+        UnavailableTapeStore,
+        is_async_tape_store,
+    )
+
+
+_STORE_EXPORTS = frozenset({
+    "AsyncTapeStore",
+    "AsyncTapeStoreAdapter",
+    "InMemoryQueryMixin",
+    "InMemoryTapeStore",
+    "TapeQuery",
+    "TapeStore",
+    "UnavailableTapeStore",
+    "is_async_tape_store",
+})
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _STORE_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    from bub.core import store
+
+    return getattr(store, name)
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_STORE_EXPORTS})
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+@dataclass(frozen=True)
+class TapeEntry:
+    """A single append-only entry in a tape."""
+
+    id: int
+    kind: str
+    payload: dict[str, Any]
+    meta: dict[str, Any] = field(default_factory=dict)
+    date: str = field(default_factory=utc_now)
+
+    def copy(self) -> TapeEntry:
+        return TapeEntry(self.id, self.kind, dict(self.payload), dict(self.meta), self.date)
+
+    @classmethod
+    def message(cls, message: dict[str, Any], **meta: Any) -> TapeEntry:
+        return cls(id=0, kind="message", payload=dict(message), meta=dict(meta))
+
+    @classmethod
+    def system(cls, content: str, **meta: Any) -> TapeEntry:
+        return cls(id=0, kind="system", payload={"content": content}, meta=dict(meta))
+
+    @classmethod
+    def anchor(cls, name: str, state: dict[str, Any] | None = None, **meta: Any) -> TapeEntry:
+        payload: dict[str, Any] = {"name": name}
+        if state is not None:
+            payload["state"] = dict(state)
+        return cls(id=0, kind="anchor", payload=payload, meta=dict(meta))
+
+    @classmethod
+    def tool_call(cls, calls: list[dict[str, Any]], *, content: str = "", **meta: Any) -> TapeEntry:
+        payload: dict[str, Any] = {"calls": calls, "content": content}
+        return cls(id=0, kind="tool_call", payload=payload, meta=dict(meta))
+
+    @classmethod
+    def tool_result(cls, results: list[Any], **meta: Any) -> TapeEntry:
+        return cls(id=0, kind="tool_result", payload={"results": results}, meta=dict(meta))
+
+    @classmethod
+    def error(cls, error: BubError, **meta: Any) -> TapeEntry:
+        return cls(id=0, kind="error", payload=error.as_dict(), meta=dict(meta))
+
+    @classmethod
+    def event(cls, name: str, data: dict[str, Any] | None = None, **meta: Any) -> TapeEntry:
+        payload: dict[str, Any] = {"name": name}
+        if data is not None:
+            payload["data"] = dict(data)
+        return cls(id=0, kind="event", payload=payload, meta=dict(meta))
+
+
+class _LastAnchor:
+    def __repr__(self) -> str:
+        return "LAST_ANCHOR"
+
+
+LAST_ANCHOR = _LastAnchor()
+type AnchorSelector = str | None | _LastAnchor
+type SelectedMessages = list[republic.Message] | Coroutine[Any, Any, list[republic.Message]]
+type ContextSelector = Callable[[Iterable[TapeEntry], "TapeContext"], SelectedMessages]
+
+
+@dataclass(frozen=True)
+class TapeContext:
+    """Rules for selecting tape entries into a prompt context."""
+
+    anchor: AnchorSelector = LAST_ANCHOR
+    select: ContextSelector | None = None
+    state: dict[str, Any] = field(default_factory=dict)
+
+    def build_query(self, query: TapeQuery) -> TapeQuery:
+        if self.anchor is None:
+            return query
+        if isinstance(self.anchor, _LastAnchor):
+            return query.last_anchor()
+        return query.after_anchor(self.anchor)
+
+
+def build_messages(entries: Iterable[TapeEntry], context: TapeContext) -> SelectedMessages:
+    if context.select is not None:
+        return context.select(entries, context)
+    return _default_messages(entries)
+
+
+def _default_messages(entries: Iterable[TapeEntry]) -> list[republic.Message]:
+    return to_messages(
+        entry.payload for entry in entries if entry.kind == "message" and isinstance(entry.payload, dict)
+    )
+
+
+def to_messages(payloads: Iterable[Mapping[str, Any]]) -> list[republic.Message]:
+    """Convert stored message payloads to Republic messages, resolving tool results to earlier calls."""
+    calls: dict[str, republic.ToolCall] = {}
+    return [to_message(payload, calls) for payload in payloads]
+
+
+def to_message(
+    payload: Mapping[str, Any], calls: MutableMapping[str, republic.ToolCall] | None = None
+) -> republic.Message:
+    """Convert one stored message payload; assistant tool calls are added to ``calls``.
+
+    Payloads are ``republic.Message.to_dict()`` output. Older Bub payloads, with media URLs,
+    ``tool_call_id``, ``reasoning`` and ``provider_data`` fields, and tool calls in the Chat
+    Completions ``{"function": {"name", "arguments"}}`` form, are converted to that form first.
+    """
+    calls = {} if calls is None else calls
+    role = payload.get("role")
+    if role not in {"system", "user", "assistant", "tool"}:
+        raise BubError(ErrorKind.INVALID_INPUT, f"Unknown message role: {role}")
+    data = dict(payload)
+    raw_content = data.pop("content", None)
+    if role == "tool" and raw_content is not None and not isinstance(raw_content, str | list):
+        from bub.core.tools import render_result
+
+        raw_content = render_result(raw_content)
+    content = _content_parts(raw_content)
+    if isinstance(tool_calls := data.get("tool_calls"), list):
+        data["tool_calls"] = [_tool_call_dict(call) for call in tool_calls]
+    if role == "tool" and "tool_call" not in data:
+        call_id = data.pop("tool_call_id", None)
+        if not isinstance(call_id, str) or not call_id:
+            raise BubError(ErrorKind.INVALID_INPUT, "Tool result without a tool call ID.")
+        # Republic announces calls missing from the conversation before their results.
+        call = calls.get(call_id) or republic.ToolCall(call_id, data.pop("name", None) or "", "{}")
+        data["tool_call"] = asdict(call)
+    if reasoning := data.pop("reasoning", None):
+        content.append({"type": "reasoning", "text": reasoning})
+    content.extend({"type": "provider_data", **item} for item in data.pop("provider_data", None) or [])
+    data["content"] = content
+    try:
+        message = republic.Message.from_dict(data)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise BubError(ErrorKind.INVALID_INPUT, f"Invalid {role} message: {exc}") from exc
+    if role == "system" and any(not isinstance(part, republic.Text) for part in message.parts):
+        raise BubError(ErrorKind.INVALID_INPUT, "System messages only support text content.")
+    calls.update((call.id, call) for call in message.tool_calls)
+    return message
+
+
+def _tool_call_dict(call: object) -> object:
+    """Convert a Chat Completions tool call, as recorded by older Bub versions, to Republic's form."""
+    if not isinstance(call, dict) or not isinstance(function := call.get("function"), dict):
+        return call
+    arguments = function.get("arguments")
+    return {
+        "id": call.get("id") or "",
+        "name": function.get("name") or "",
+        "arguments": arguments if isinstance(arguments, str) else json.dumps(arguments or {}),
+    }
+
+
+def _content_parts(content: object) -> list[dict[str, Any]]:
+    if content is None:
+        return []
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    if not isinstance(content, list):
+        raise BubError(ErrorKind.INVALID_INPUT, "Expected text or a list of message content blocks.")
+    parts: list[dict[str, Any]] = []
+    for block in content:
+        match block:
+            case {"type": "image" | "audio" | "video" as kind, "url": str(url), "media_type": str(mime)} if (
+                url.startswith("data:") and "data" not in block
+            ):
+                # Older payloads keep inline media as data URLs.
+                media = {"image": republic.image, "audio": republic.audio, "video": republic.video}[kind](
+                    url, media_type=mime
+                )
+                parts.append({"type": kind, "media_type": media.media_type, "data": media.base64_data})
+            case {"type": "image" | "audio" | "video" as kind} if "url" not in block and "data" not in block:
+                raise BubError(ErrorKind.INVALID_INPUT, f"The {kind} content block needs a url or data.")
+            case {"type": "text" | "reasoning" | "image" | "audio" | "video" | "provider_data"}:
+                parts.append(block)
+            case _:
+                kind = block.get("type") if isinstance(block, dict) else type(block).__name__
+                raise BubError(ErrorKind.INVALID_INPUT, f"Unsupported message content block: {kind}")
+    return parts
+
+
+@dataclass(frozen=True)
+class TapeInfo:
+    """Runtime tape info summary."""
+
+    name: str
+    entries: int
+    anchors: int
+    last_anchor: str | None
+    entries_since_last_anchor: int
+    last_token_usage: int | None
+    last_token_cache_hit_rate: float | None
+
+
+@dataclass(frozen=True)
+class AnchorSummary:
+    """Rendered anchor summary."""
+
+    name: str
+    state: dict[str, object]
+
+
+def session_tape_name(session_id: str, workspace: Path) -> str:
+    """Return the tape name of a session in a workspace."""
+    workspace_hash = hashlib.md5(str(workspace.resolve()).encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+    return workspace_hash + "__" + hashlib.md5(session_id.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+
+
+@dataclass(frozen=True)
+class Tape:
+    """Tape abstraction for recording agent interactions."""
+
+    store: AsyncTapeStore
+    context: TapeContext
+    sidecars: tuple[TapeSidecar, ...] = field(default=(), repr=False)
+    _name: str | None = field(default=None, repr=False)
+
+    @property
+    def name(self) -> str:
+        if self._name is None:
+            raise ValueError("tape is not scoped")
+        return self._name
+
+    def with_context(self, context: TapeContext) -> Tape:
+        return replace(self, context=context)
+
+    def scoped(self, name: str, context: TapeContext | None = None) -> Tape:
+        return replace(self, context=context or self.context, _name=name)
+
+    def query(self) -> TapeQuery[AsyncTapeStore]:
+        from bub.core.store import TapeQuery
+
+        return TapeQuery(tape=self.name, store=self.store)
+
+    def get_sidecar(self, name: str) -> TapeSidecar | None:
+        """Return a mounted sidecar by its public name."""
+
+        return next((sidecar for sidecar in self.sidecars if sidecar.name == name), None)
+
+    def sidecar_tape_name(self, name: str) -> str:
+        """Return the sibling tape name for a mounted sidecar."""
+
+        if self.get_sidecar(name) is None:
+            raise KeyError(f"tape sidecar {name!r} is not mounted")
+        return sidecar_tape_name(self.name, name)
+
+    async def info(self) -> TapeInfo:
+        entries = list(await self.store.fetch_all(self.query()))
+        anchors = [(i, entry) for i, entry in enumerate(entries) if entry.kind == "anchor"]
+        if anchors:
+            last_anchor = anchors[-1][1].payload.get("name")
+            entries_since_last_anchor = len(entries) - anchors[-1][0] - 1
+        else:
+            last_anchor = None
+            entries_since_last_anchor = len(entries)
+        last_token_usage: int | None = None
+        last_token_cache_hit_rate: float | None = None
+        for entry in reversed(entries):
+            if entry.kind == "event" and entry.payload.get("name") == "run":
+                data = entry.payload.get("data")
+                usage = data.get("usage") if isinstance(data, Mapping) else None
+                if not isinstance(usage, Mapping):
+                    continue
+                token_usage = usage.get("total_tokens")
+                if not isinstance(token_usage, int) or isinstance(token_usage, bool):
+                    continue
+                last_token_usage = token_usage
+                input_tokens = usage.get("input_tokens")
+                cached_tokens = usage.get("cached_tokens")
+                if (
+                    isinstance(input_tokens, int)
+                    and not isinstance(input_tokens, bool)
+                    and input_tokens > 0
+                    and isinstance(cached_tokens, int)
+                    and not isinstance(cached_tokens, bool)
+                ):
+                    last_token_cache_hit_rate = cached_tokens / input_tokens
+                break
+        return TapeInfo(
+            name=self.name,
+            entries=len(entries),
+            anchors=len(anchors),
+            last_anchor=str(last_anchor) if last_anchor else None,
+            entries_since_last_anchor=entries_since_last_anchor,
+            last_token_usage=last_token_usage,
+            last_token_cache_hit_rate=last_token_cache_hit_rate,
+        )
+
+    async def ensure_bootstrap_anchor(self) -> None:
+        anchors = list(await self.store.fetch_all(self.query().kinds("anchor")))
+        if not anchors:
+            await self.handoff(name="session/start", state={"owner": "human"})
+
+    async def anchors(self, limit: int = 20) -> list[AnchorSummary]:
+        entries = list(await self.store.fetch_all(self.query().kinds("anchor")))
+        results: list[AnchorSummary] = []
+        for entry in entries[-limit:]:
+            name = str(entry.payload.get("name", "-"))
+            state = entry.payload.get("state")
+            state_dict: dict[str, object] = dict(state) if isinstance(state, dict) else {}
+            results.append(AnchorSummary(name=name, state=state_dict))
+        return results
+
+    async def search(self, query: TapeQuery[AsyncTapeStore]) -> list[TapeEntry]:
+        return list(await self.store.fetch_all(query))
+
+    async def append_event(self, name: str, payload: dict[str, Any], **meta: Any) -> None:
+        tracing.event(f"bub.{name}", **payload)
+        await self.store.append(self.name, TapeEntry.event(name, payload, **(tracing.correlation() | meta)))
+
+    async def read_messages(self) -> list[republic.Message]:
+        query = self.context.build_query(self.query())
+        entries = await self.store.fetch_all(query)
+        context_entries = (entry for entry in entries if entry.meta.get("context") is not False)
+        messages = build_messages(context_entries, self.context)
+        if inspect.isawaitable(messages):
+            messages = await messages
+        return messages
+
+    async def handoff(
+        self,
+        *,
+        name: str,
+        state: dict[str, Any] | None = None,
+        **meta: Any,
+    ) -> list[TapeEntry]:
+        tape_name = self.name
+        meta = tracing.correlation() | meta
+        tracing.event("bub.handoff", anchor=name, state=state)
+        entry = TapeEntry.anchor(name, state=state, **meta)
+        event = TapeEntry.event("handoff", {"name": name, "state": state or {}}, **meta)
+        await self.store.append(tape_name, entry)
+        await self.store.append(tape_name, event)
+        return [entry, event]
+
+    async def record_chat(  # noqa: C901
+        self,
+        *,
+        run_id: str,
+        system_prompt: str | None,
+        new_messages: list[republic.Message],
+        response_text: str | None,
+        context_error: BubError | None = None,
+        tool_calls: list[dict[str, Any]] | None = None,
+        tool_results: list[Any] | None = None,
+        error: BubError | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        usage: dict[str, Any] | None = None,
+        assistant_fields: dict[str, Any] | None = None,
+    ) -> None:
+        tape_name = self.name
+        meta = {"run_id": run_id, **tracing.correlation()}
+        if system_prompt:
+            await self.store.append(tape_name, TapeEntry.system(system_prompt, **meta))
+        if context_error is not None:
+            await self.store.append(tape_name, TapeEntry.error(context_error, **meta))
+        for message in new_messages:
+            await self.store.append(tape_name, TapeEntry.message(message.to_dict(), **meta))
+        if tool_calls:
+            call_entry = TapeEntry.tool_call(tool_calls, content=response_text or "", **meta)
+            call_entry.payload.update(assistant_fields or {})
+            await self.store.append(tape_name, call_entry)
+        if tool_results is not None:
+            await self.store.append(tape_name, TapeEntry.tool_result(tool_results, **meta))
+        if error is not None and error is not context_error:
+            await self.store.append(tape_name, TapeEntry.error(error, **meta))
+        if response_text is not None and not tool_calls:
+            await self.store.append(
+                tape_name,
+                TapeEntry.message({"role": "assistant", "content": response_text, **(assistant_fields or {})}, **meta),
+            )
+
+        data: dict[str, Any] = {"status": "error" if error is not None else "ok"}
+        if usage is not None:
+            data["usage"] = usage
+        if provider:
+            data["provider"] = provider
+        if model:
+            data["model"] = model
+        await self.store.append(tape_name, TapeEntry.event("run", data, **meta))
+
+    @staticmethod
+    def _sidecar_lifecycle_data(
+        *, sidecar: str, status: str, reason: str, error: Exception | None = None
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {"sidecar": sidecar, "status": status, "reason": reason}
+        if error is not None:
+            data["error"] = str(error)
+        return data
+
+    async def _try_reset_sidecar(self, sidecar: TapeSidecar, *, reason: str) -> dict[str, Any]:
+        try:
+            await self.store.reset(sidecar_tape_name(self.name, sidecar.name))
+        except Exception as exc:
+            return self._sidecar_lifecycle_data(sidecar=sidecar.name, status="error", reason=reason, error=exc)
+        return self._sidecar_lifecycle_data(sidecar=sidecar.name, status="ok", reason=reason)
+
+    async def reset_sidecar(self, name: str, *, reason: str = "gc") -> str:
+        """Reset one mounted sidecar and record the outcome on the main tape."""
+
+        sidecar = self.get_sidecar(name)
+        if sidecar is None:
+            raise KeyError(f"tape sidecar {name!r} is not mounted")
+        reset_data = await self._try_reset_sidecar(sidecar, reason=reason)
+        await self.append_event("sidecar.reset", reset_data, context=False)
+        return f"{name} reset failed: {reset_data['error']}" if reset_data["status"] == "error" else "ok"
+
+    async def reset(self, *, state: dict[str, Any] | None = None, keep_sidecars: Iterable[str] = ()) -> None:
+        """Clear the tape and start a new context with a ``session/start`` anchor.
+
+        ``state`` is added to the anchor's state. Mounted sidecars are reset too, except
+        those named in ``keep_sidecars``; each reset is recorded as ``sidecar.reset``.
+        """
+        keep = set(keep_sidecars)
+        await self.store.reset(self.name)
+        await self.handoff(name="session/start", state={"owner": "human", **(state or {})})
+        for sidecar in self.sidecars:
+            if sidecar.name in keep:
+                continue
+            reset_data = await self._try_reset_sidecar(sidecar, reason="tape.reset")
+            await self.append_event("sidecar.reset", reset_data, context=False)
+
+    def session_tape(self, session_id: str, workspace: Path, context: TapeContext | None = None) -> Tape:
+        return self.scoped(session_tape_name(session_id, workspace), context=context)
+
+    @contextlib.asynccontextmanager
+    async def fork_tape(self, merge_back: bool = True) -> AsyncGenerator[Tape, None]:
+        from bub.core.store import ForkTapeStore
+
+        managed_sidecars = tuple(sidecar_tape_name(self.name, sidecar.name) for sidecar in self.sidecars)
+        fork_store = ForkTapeStore(self.store, self.name, sidecars=managed_sidecars)
+        forked = replace(self, store=fork_store)
+        try:
+            yield forked
+        finally:
+            if merge_back:
+                await fork_store.merge_back()

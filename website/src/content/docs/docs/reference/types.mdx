@@ -6,7 +6,7 @@ description: Bub's subsystem-owned contracts for turns, models, streaming, hooks
 Bub keeps contracts beside the subsystem that owns their behavior. Import a contract from its defining module; the top-level `bub` package intentionally exposes only the common framework entry points.
 
 :::caution
-`bub.types` temporarily re-exports only `Envelope`, `State`, and `MessageHandler` for compatibility and emits a `DeprecationWarning` when imported. New code should use `bub.envelope.Envelope`, `bub.turn.TurnState`, and `bub.channels.contracts.MessageHandler` directly.
+The former `bub.types` compatibility module has been removed. Use `bub.envelope.Envelope`, `bub.turn.TurnState`, and `bub.channels.contracts.MessageHandler` directly.
 :::
 
 ## Kernel vocabulary
@@ -31,7 +31,7 @@ type TurnState = dict[str, Any]
 @dataclass(frozen=True)
 class TurnResult:
     session_id: str
-    prompt: str | list[dict[str, Any]]
+    prompt: list[UserContent]
     model_output: str
     outbounds: list[Envelope] = field(default_factory=list)
     state: TurnState = field(default_factory=dict)
@@ -67,6 +67,10 @@ from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 
 `StreamEvent.kind` is one of `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, or `final`. `AsyncStreamEvents` wraps an async iterator and exposes terminal `error` and `usage` state.
 
+Builtin `tool_call` events use Republic fields: `id`, `name`, `arguments`, and `metadata`. Usage dictionaries contain `input_tokens`, `output_tokens`, `reasoning_tokens`, `cached_tokens`, `cache_write_tokens`, and `total_tokens`.
+
+Builtin multipart prompts contain text blocks (`type: text`, `text`) or media blocks (`type: image|audio|video`, `media_type`, `url`). The URL can be remote or a base64 data URL. Bub converts these persisted blocks into native Republic parts; Republic owns provider encoding. Hooks supply these text and media blocks.
+
 ### Errors — `bub.errors`
 
 ```python
@@ -82,10 +86,10 @@ Hook declarations and markers live in `bub.hooks`; agent-loop interception paylo
 ```python
 from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl, hookspec
 from bub.hooks.interception import (
-    AgentHooks,
     LlmCallDecision,
     LlmCallRequest,
     LlmCallResult,
+    PluginAgentHooks,
     ToolCall,
     ToolCallDecision,
     ToolCallResult,

@@ -7,7 +7,7 @@ import contextlib
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import pluggy
 import typer
@@ -17,17 +17,18 @@ from loguru import logger
 from bub import configure
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import ChannelRouter, MessageHandler
+from bub.core.sidecars import TapeSidecar
+from bub.core.store import AsyncTapeStore, TapeStore
+from bub.core.tape import Tape, TapeContext
 from bub.envelope import Envelope, content_of, field_of, unpack_batch
 from bub.environment import ENVIRONMENT_STATE_KEY, Environment
 from bub.errors import BubError, ErrorKind
-from bub.hooks.interception import AgentHooks
+from bub.hooks.interception import PluginAgentHooks
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
 from bub.model_selection import ModelOptions
-from bub.sidecars import TapeSidecar
-from bub.store import AsyncTapeStore, TapeStore
+from bub.prompt import UserContent, to_content, to_legacy_prompt
 from bub.streaming import StreamState
-from bub.tape import Tape, TapeContext
 from bub.turn import TurnResult, TurnState
 from bub.utils import maybe_context_manager
 
@@ -59,7 +60,7 @@ class BubFramework:
         self._plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
         self._plugin_manager.add_hookspecs(BubHookSpecs)
         self._hook_runtime = HookRuntime(self._plugin_manager)
-        self._agent_hooks = AgentHooks(self._hook_runtime)
+        self._agent_hooks = PluginAgentHooks(self._hook_runtime)
         self._plugin_status: dict[str, PluginStatus] = {}
         self._channel_router: ChannelRouter | None = None
         self._tape_store: TapeStore | AsyncTapeStore | None = None
@@ -131,20 +132,19 @@ class BubFramework:
         self._hook_runtime.call_many_sync("register_cli_commands", app=app)
         return app
 
-    async def build_prompt(
-        self, message: Envelope, session_id: str, state: dict[str, Any]
-    ) -> str | list[dict[str, Any]]:
-        """Build prompt for one message turn."""
+    async def build_prompt(self, message: Envelope, session_id: str, state: dict[str, Any]) -> list[UserContent]:
+        """Build prompt content for one message turn, converting legacy hook results."""
         prompt = await self._hook_runtime.call_first(
             "build_prompt", message=message, session_id=session_id, state=state
         )
         if not prompt:
             prompt = content_of(message)
-        return cast("str | list[dict[str, Any]]", prompt)
+        return to_content(prompt)
 
-    async def continue_prompt(self, prompt: str | list[dict] | None, tape: Tape, state: StreamState) -> str | None:
+    async def continue_prompt(self, prompt: list[UserContent] | None, tape: Tape, state: StreamState) -> str | None:
         """Return an optional user message for the next step of an agent loop."""
-        next_prompt = await self._hook_runtime.call_first("continue_prompt", prompt=prompt, tape=tape, state=state)
+        legacy = None if prompt is None else to_legacy_prompt(prompt)
+        next_prompt = await self._hook_runtime.call_first("continue_prompt", prompt=legacy, tape=tape, state=state)
         if next_prompt is None or isinstance(next_prompt, str):
             return next_prompt
         raise TypeError("hook.continue_prompt must return str or None")
@@ -219,7 +219,7 @@ class BubFramework:
     async def _run_model(
         self,
         inbound: Envelope,
-        prompt: str | list[dict],
+        prompt: list[UserContent],
         session_id: str,
         state: dict[str, Any],
         stream_output: bool,
@@ -232,7 +232,7 @@ class BubFramework:
                     error=RuntimeError("no model skill returned output"),
                     message=inbound,
                 )
-                return prompt if isinstance(prompt, str) else content_of(inbound)
+                return text if isinstance(text := to_legacy_prompt(prompt), str) else content_of(inbound)
             return output
         stream = await self._hook_runtime.run_model_stream(prompt=prompt, session_id=session_id, state=state)
         if stream is None:
@@ -241,7 +241,7 @@ class BubFramework:
                 error=RuntimeError("no model skill returned output"),
                 message=inbound,
             )
-            return prompt if isinstance(prompt, str) else content_of(inbound)
+            return text if isinstance(text := to_legacy_prompt(prompt), str) else content_of(inbound)
         else:
             parts: list[str] = []
             events = self._channel_router.wrap_stream(inbound, stream) if self._channel_router is not None else stream
@@ -471,11 +471,11 @@ class BubFramework:
         """Return the inbox acquired by ``running()``, or None when unavailable."""
         return self._steering_inbox
 
-    def get_agent_hooks(self) -> AgentHooks:
+    def get_agent_hooks(self) -> PluginAgentHooks:
         """Return the model and tool interception adapter for this framework's hooks."""
         return self._agent_hooks
 
-    def get_system_prompt(self, prompt: str | list[dict], state: dict[str, Any]) -> str:
+    def get_system_prompt(self, prompt: list[UserContent], state: dict[str, Any]) -> str:
         """Join nonempty system-prompt hook results from low to high priority.
 
         Hooks contribute additional blocks; a higher-priority hook does not replace
@@ -483,7 +483,9 @@ class BubFramework:
         """
         return "\n\n".join(
             result
-            for result in reversed(self._hook_runtime.call_many_sync("system_prompt", prompt=prompt, state=state))
+            for result in reversed(
+                self._hook_runtime.call_many_sync("system_prompt", prompt=to_legacy_prompt(prompt), state=state)
+            )
             if result
         )
 

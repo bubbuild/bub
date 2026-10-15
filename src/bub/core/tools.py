@@ -1,0 +1,633 @@
+from __future__ import annotations
+
+import asyncio
+import inspect
+import json
+import time
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, field, replace
+from typing import Any, Literal, get_args, get_type_hints, overload
+
+import republic
+from loguru import logger
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
+
+from bub.core.events import AfterToolCall, BeforeToolCall, EventBus, ToolCall, ToolCallResult
+from bub.core.tape import Tape
+from bub.errors import BubError, ErrorKind
+from bub.prompt import UserContent
+from bub.tracing import Span
+
+
+@dataclass(frozen=True)
+class ToolContext:
+    """Runtime context passed to tools that opt into context.
+
+    ``code_mode`` is true when the tool is invoked from model-written code rather than
+    as a direct model tool call. Whether the result is rendered to text is decided by the
+    ``ToolExecutor`` running the call, not by this flag. ``command`` is true when the tool
+    runs as a command prompt rather than for the model. ``events`` is the bus of the agent
+    running the call, for tools that execute further tool calls.
+    """
+
+    tape: Tape
+    run_id: str | None = None
+    state: dict[str, Any] = field(default_factory=dict)
+    code_mode: bool = False
+    command: bool = False
+    events: EventBus | None = field(default=None, repr=False, compare=False)
+
+
+def render_result(result: Any) -> str:
+    """Render a structured tool result as plain text (the default tool renderer)."""
+    if isinstance(result, str):
+        return result
+    if isinstance(result, BaseModel):
+        return result.model_dump_json()
+    try:
+        return json.dumps(result, ensure_ascii=False)
+    except TypeError:
+        return str(result)
+
+
+CONTENT_RESULT_TYPE = "tool_content"
+
+
+def content_result(content: Sequence[UserContent]) -> dict[str, Any]:
+    """Build a model-facing tool result that carries media along with text.
+
+    The result is JSON so it can be recorded on the tape; ``result_content`` reads it back.
+    """
+    blocks = [
+        {"type": "text", "text": item} if isinstance(item, str) else republic.user(item).to_dict()["content"][0]
+        for item in content
+    ]
+    return {"type": CONTENT_RESULT_TYPE, "content": blocks}
+
+
+def is_content_result(result: Any) -> bool:
+    return (
+        isinstance(result, dict)
+        and result.get("type") == CONTENT_RESULT_TYPE
+        and isinstance(result.get("content"), list)
+    )
+
+
+def result_content(result: Any) -> list[UserContent]:
+    """Return a tool result as content for the model: media of ``content_result`` results, otherwise text."""
+    if not is_content_result(result):
+        return [render_result(result)]
+    parts = republic.Message.from_dict({"role": "user", "content": result["content"]}).parts
+    return [
+        part.text if isinstance(part, republic.Text) else part
+        for part in parts
+        if isinstance(part, republic.Text | republic.Image | republic.Audio | republic.Video)
+    ]
+
+
+def _to_snake_case(name: str) -> str:
+    return "".join(["_" + c.lower() if c.isupper() else c for c in name]).lstrip("_")
+
+
+def _callable_name(func: Callable[..., Any]) -> str:
+    name = getattr(func, "__name__", None)
+    if isinstance(name, str) and name:
+        return name
+    return func.__class__.__name__
+
+
+def _schema_from_annotation(annotation: Any) -> dict[str, Any]:
+    if annotation is inspect._empty:
+        annotation = Any
+    try:
+        return TypeAdapter(annotation).json_schema()
+    except Exception as exc:
+        raise ValueError(f"Failed to build JSON schema for type: {annotation!r}") from exc
+
+
+def _schema_from_signature(signature: inspect.Signature, *, ignore_params: set[str] | None = None) -> dict[str, Any]:
+    ignore = ignore_params or set()
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    for param in signature.parameters.values():
+        if param.name in ignore:
+            continue
+        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+            continue
+        property_schema = _schema_from_annotation(param.annotation)
+        if param.default is param.empty:
+            required.append(param.name)
+        elif _is_json_value(param.default):
+            property_schema = {**property_schema, "default": param.default}
+        properties[param.name] = property_schema
+    schema: dict[str, Any] = {"type": "object", "properties": properties}
+    if required:
+        schema["required"] = required
+    return schema
+
+
+def _is_json_value(value: Any) -> bool:
+    try:
+        json.dumps(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _output_schema(func: Callable[..., Any]) -> dict[str, Any] | None:
+    """Build a JSON schema for the callable's return annotation, if it can be resolved."""
+    try:
+        annotation = get_type_hints(func).get("return", inspect.Signature.empty)
+    except Exception:
+        return None
+    if annotation is inspect.Signature.empty:
+        return None
+    try:
+        return _schema_from_annotation(annotation)
+    except ValueError:
+        return None
+
+
+def _signature_without_context(signature: inspect.Signature) -> inspect.Signature:
+    parameters = [param for param in signature.parameters.values() if param.name != "context"]
+    return signature.replace(parameters=parameters)
+
+
+def _validate_without_context(func: Callable[..., Any], signature: inspect.Signature) -> Callable[..., Any]:
+    def validate_target(*args: Any, **kwargs: Any) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        return args, kwargs
+
+    validate_target.__name__ = _callable_name(func)
+    validate_target.__qualname__ = getattr(func, "__qualname__", validate_target.__name__)
+    # Only arguments are validated; dropping the return annotation also avoids resolving
+    # forward references to types that live in the tool's module, not this one.
+    validate_target.__annotations__ = dict(getattr(func, "__annotations__", {}))
+    validate_target.__annotations__.pop("context", None)
+    validate_target.__annotations__.pop("return", None)
+    validate_target.__signature__ = _signature_without_context(signature).replace(  # type: ignore[attr-defined]
+        return_annotation=inspect.Signature.empty
+    )
+    return validate_call(validate_target)
+
+
+ToolExposure = Literal["auto", "direct", "code", "command"]
+"""Where a tool can be called from.
+
+- ``auto``: by the model directly, or only from ``run_code`` in code mode.
+- ``direct``: by the model directly, also in code mode; never from ``run_code``.
+- ``code``: only from ``run_code`` in code mode; never by the model directly.
+- ``command``: only as a comma command; never by the model or from code.
+"""
+
+
+@dataclass(frozen=True)
+class Tool:
+    """A callable unit the model can invoke."""
+
+    name: str
+    handler: Callable[..., Any]
+    description: str = ""
+    parameters: dict[str, Any] = field(default_factory=dict)
+    context: bool = False
+    exposure: ToolExposure = "auto"
+    """Where the tool can be called from, see ``ToolExposure``."""
+    renderer: Callable[[Any], str] | None = None
+    output_schema: dict[str, Any] | None = None
+    """JSON schema of the structured result, used to describe the tool to model-written code."""
+    deferred: bool = False
+    """Load the tool on demand: only its name is listed until ``tool.describe`` loads its definition."""
+
+    def __post_init__(self) -> None:
+        if self.exposure not in get_args(ToolExposure):
+            raise ValueError(f"Tool '{self.name}' has unknown exposure {self.exposure!r}.")
+
+    async def run(self, *args: Any, **kwargs: Any) -> Any:
+        """Call the handler, awaiting its result when it is awaitable."""
+        result = self.handler(*args, **kwargs)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
+
+    def render(self, result: Any) -> str:
+        """Render a structured result of this tool as plain text for the model."""
+        if self.renderer is None:
+            return render_result(result)
+        return self.renderer(result)
+
+    def to_schema(self) -> dict[str, Any]:
+        """Build a function tool schema for hooks and diagnostics."""
+        return {"name": self.name, "description": self.description, "parameters": self.parameters}
+
+    @classmethod
+    def from_callable(
+        cls,
+        func: Callable[..., Any],
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        context: bool = False,
+        exposure: ToolExposure = "auto",
+        renderer: Callable[[Any], str] | None = None,
+        deferred: bool = False,
+    ) -> Tool:
+        signature = inspect.signature(func)
+        if context and "context" not in signature.parameters:
+            raise TypeError("Tool context is enabled but the callable lacks a 'context' parameter.")
+        tool_name = name or _to_snake_case(_callable_name(func))
+        tool_description = description if description is not None else (inspect.getdoc(func) or "")
+        parameters = _schema_from_signature(signature, ignore_params={"context"} if context else None)
+        if context:
+            validate_args = _validate_without_context(func, signature)
+
+            def validated(*args: Any, **kwargs: Any) -> Any:
+                tool_context = kwargs.pop("context")
+                validated_args, validated_kwargs = validate_args(*args, **kwargs)
+                return func(*validated_args, context=tool_context, **validated_kwargs)
+
+        else:
+            validated = validate_call(config=ConfigDict(arbitrary_types_allowed=True))(func)
+        return cls(
+            name=tool_name,
+            description=tool_description,
+            parameters=parameters,
+            handler=validated,
+            context=context,
+            exposure=exposure,
+            renderer=renderer,
+            output_schema=_output_schema(func),
+            deferred=deferred,
+        )
+
+
+def model_tools(tools: Iterable[Tool]) -> list[Tool]:
+    """Convert tools callable by the model or code into model-safe aliases; comma commands are dropped."""
+    return [
+        replace(tool_item, name=tool_item.name.replace(".", "_"))
+        for tool_item in tools
+        if tool_item.exposure != "command"
+    ]
+
+
+@dataclass(frozen=True)
+class ToolExecution:
+    tool_results: list[Any] = field(default_factory=list)
+    error: BubError | None = None
+
+
+@dataclass(frozen=True)
+class _FailedToolResult:
+    error: BubError
+    result: Any = None
+
+
+class ToolExecutor:
+    """Execute already-resolved Bub tool invocations.
+
+    With ``render`` (the default) successful results are rendered to model-facing text with
+    ``Tool.render``; ``render=False`` returns tools' structured results unchanged, as needed
+    when the caller is code rather than the model. ``BeforeToolCall`` and ``AfterToolCall``
+    events are emitted on ``events``.
+    """
+
+    def __init__(self, events: EventBus | None = None, *, render: bool = True) -> None:
+        self._events = events
+        self._render = render
+
+    async def execute(
+        self,
+        tool: Tool,
+        arguments: dict[str, Any],
+        *,
+        context: ToolContext | None = None,
+        call_id: str | None = None,
+    ) -> Any:
+        """Execute one tool call and return its result; raise its ``BubError`` when it fails."""
+        result = await self._trace_tool_response(tool, arguments, context, call_id)
+        if isinstance(result, _FailedToolResult):
+            raise result.error
+        return result
+
+    async def execute_many(
+        self,
+        invocations: Sequence[tuple[Tool, dict[str, Any]]],
+        *,
+        context: ToolContext | None = None,
+        call_ids: Sequence[str] | None = None,
+    ) -> ToolExecution:
+        if not invocations:
+            return ToolExecution(tool_results=[])
+
+        results: list[Any] = []
+        error: BubError | None = None
+        gathered = await asyncio.gather(
+            *(
+                self._trace_tool_response(tool_obj, tool_args, context, call_ids[index] if call_ids else None)
+                for index, (tool_obj, tool_args) in enumerate(invocations)
+            ),
+            return_exceptions=True,
+        )
+        for result in gathered:
+            if isinstance(result, _FailedToolResult):
+                error = result.error
+                results.append(result.error.as_dict() if result.result is None else result.result)
+            elif isinstance(result, BubError):
+                error = result
+                results.append(result.as_dict())
+            elif isinstance(result, BaseException):
+                raise result
+            else:
+                results.append(result)
+
+        return ToolExecution(tool_results=results, error=error)
+
+    async def _trace_tool_response(
+        self,
+        tool: Tool,
+        arguments: dict[str, Any],
+        context: ToolContext | None,
+        call_id: str | None,
+    ) -> Any:
+        span = Span(
+            f"execute_tool {tool.name}",
+            {
+                "gen_ai.operation.name": "execute_tool",
+                "gen_ai.tool.name": tool.name,
+                "gen_ai.tool.type": "function",
+                "gen_ai.tool.call.id": call_id,
+                "bub.run_id": context.run_id if context else None,
+                "gen_ai.conversation.id": context.state.get("session_id") if context else None,
+            },
+        )
+        try:
+            with span.activate():
+                result = await self._handle_tool_response_async(tool, arguments, context, span=span)
+                if isinstance(result, _FailedToolResult):
+                    span.fail(result.error)
+                    span.set(**{
+                        "gen_ai.tool.call.result": result.error.as_dict() if result.result is None else result.result
+                    })
+                else:
+                    span.set(**{"gen_ai.tool.call.result": result})
+                return result
+        except BaseException as exc:
+            span.fail(exc)
+            raise
+        finally:
+            span.end()
+
+    def _invoke_tool(
+        self,
+        *,
+        tool_name: str,
+        tool_obj: Tool,
+        tool_args: dict[str, Any],
+        context: ToolContext | None,
+    ) -> Any:
+        if tool_obj.context:
+            if context is None:
+                raise BubError(ErrorKind.INVALID_INPUT, f"Tool '{tool_name}' requires context but none was provided.")
+            return tool_obj.run(context=context, **tool_args)
+        return tool_obj.run(**tool_args)
+
+    async def _handle_tool_response_async(
+        self,
+        tool_obj: Tool,
+        tool_args: dict[str, Any],
+        context: ToolContext | None,
+        *,
+        span: Span | None = None,
+    ) -> Any:
+        tool_name = tool_obj.name
+        call = ToolCall(
+            run_id=(context.run_id if context is not None else None) or "",
+            tool=tool_name,
+            arguments=dict(tool_args),
+            context=context,
+        )
+        hook_state = context.state if context is not None else {}
+        if self._events is not None and context is not None:
+            hook_state["_runtime_tape"] = context.tape
+        started = time.monotonic()
+        call, short_circuit = await self._apply_before_tool_call(call, hook_state, started)
+        if span is not None:
+            span.set(**{"gen_ai.tool.call.arguments": call.arguments})
+        if short_circuit is not None:
+            return short_circuit()
+
+        _log_tool_call(call)
+        invoked = time.monotonic()
+        try:
+            result = await self._invoke_normalized(tool_obj, call, context)
+        except BubError as exc:
+            elapsed_ms = (time.monotonic() - invoked) * 1000
+            logger.opt(exception=exc).error("tool.call.error name={} elapsed_time={:.2f}ms", tool_name, elapsed_ms)
+            outcome = await self._fire_after_tool_call(call, hook_state, started, error=exc)
+            return _FailedToolResult(error=exc, result=outcome.result)
+        else:
+            elapsed_ms = (time.monotonic() - invoked) * 1000
+            logger.info("tool.call.success name={} elapsed_time={:.2f}ms", tool_name, elapsed_ms)
+            outcome = await self._fire_after_tool_call(call, hook_state, started, result=result)
+            return outcome.result
+
+    async def _invoke_normalized(self, tool_obj: Tool, call: ToolCall, context: ToolContext | None) -> Any:
+        """Run the tool with errors normalized to BubError; render the result if configured to."""
+
+        tool_name = tool_obj.name
+        try:
+            value = self._invoke_tool(
+                tool_name=tool_name,
+                tool_obj=tool_obj,
+                tool_args=call.arguments,
+                context=context,
+            )
+            if inspect.isawaitable(value):
+                value = await value
+            # Content results already carry model-facing text and media.
+            if self._render and not is_content_result(value):
+                value = tool_obj.render(value)
+        except BubError:
+            raise
+        except ValidationError as exc:
+            raise BubError(
+                ErrorKind.INVALID_INPUT,
+                f"Tool '{tool_name}' argument validation failed.",
+                details={"errors": json.loads(exc.json())},
+            ) from exc
+        except Exception as exc:
+            raise BubError(
+                ErrorKind.TOOL,
+                f"Tool '{tool_name}' execution failed.",
+                details={"error": repr(exc)},
+            ) from exc
+        return value
+
+    async def _apply_before_tool_call(
+        self,
+        call: ToolCall,
+        hook_state: dict[str, Any],
+        started: float,
+    ) -> tuple[ToolCall, Callable[[], Any] | None]:
+        """Emit BeforeToolCall and translate deny/replace into a short-circuit thunk."""
+
+        if self._events is None:
+            return call, None
+        before = await self._events.emit(BeforeToolCall(state=hook_state, call=call))
+        call, decision = before.call, before.decision
+        if decision.action == "deny":
+            error = BubError(
+                ErrorKind.TOOL,
+                decision.message or f"Tool '{call.tool}' call denied by policy hook.",
+            )
+            outcome = await self._fire_after_tool_call(call, hook_state, started, error=error)
+            return call, lambda: _FailedToolResult(error=error, result=outcome.result)
+        if decision.action == "replace":
+            outcome = await self._fire_after_tool_call(call, hook_state, started, result=decision.result)
+            return call, lambda: outcome.result
+        return call, None
+
+    async def _fire_after_tool_call(
+        self,
+        call: ToolCall,
+        state: dict[str, Any],
+        started: float,
+        *,
+        result: Any = None,
+        error: Exception | None = None,
+    ) -> ToolCallResult:
+        duration_ms = int((time.monotonic() - started) * 1000)
+        outcome = ToolCallResult(
+            run_id=call.run_id,
+            tool=call.tool,
+            arguments=call.arguments,
+            result=None if error is not None else result,
+            error=error,
+            duration_ms=duration_ms,
+        )
+        if self._events is not None:
+            await self._events.emit(AfterToolCall(state=state, call=call, result=outcome))
+        return outcome
+
+
+# Central registry for tools. Tools defined with the @tool decorator are automatically added here.
+REGISTRY: dict[str, Tool] = {}
+
+
+def _shorten_text(text: str, width: int = 30, placeholder: str = "...") -> str:
+    if len(text) <= width:
+        return text
+
+    # Reserve space for placeholder
+    available = width - len(placeholder)
+    if available <= 0:
+        return placeholder
+
+    return text[:available] + placeholder
+
+
+def _render_value(value: Any) -> str:
+    try:
+        rendered = json.dumps(value, ensure_ascii=False)
+    except TypeError:
+        rendered = repr(value)
+    rendered = _shorten_text(rendered, width=100, placeholder="...")
+    if rendered.startswith('"') and not rendered.endswith('"'):
+        rendered = rendered + '"'
+    if rendered.startswith("{") and not rendered.endswith("}"):
+        rendered = rendered + "}"
+    if rendered.startswith("[") and not rendered.endswith("]"):
+        rendered = rendered + "]"
+    return rendered
+
+
+def _log_tool_call(call: ToolCall) -> None:
+    params = [f"{key}={_render_value(value)}" for key, value in call.arguments.items()]
+    params_str = f" {{ {', '.join(params)} }}" if params else ""
+    logger.info("tool.call.start name={}{}", call.tool, params_str)
+
+
+@overload
+def tool(
+    func: Callable,
+    *,
+    name: str | None = ...,
+    model: type[BaseModel] | None = ...,
+    description: str | None = ...,
+    context: bool = ...,
+    exposure: ToolExposure = ...,
+    renderer: Callable[[Any], str] | None = ...,
+    deferred: bool = ...,
+) -> Tool: ...
+
+
+@overload
+def tool(
+    func: None = ...,
+    *,
+    name: str | None = ...,
+    model: type[BaseModel] | None = ...,
+    description: str | None = ...,
+    context: bool = ...,
+    exposure: ToolExposure = ...,
+    renderer: Callable[[Any], str] | None = ...,
+    deferred: bool = ...,
+) -> Callable[[Callable], Tool]: ...
+
+
+def tool(
+    func: Callable | None = None,
+    *,
+    name: str | None = None,
+    model: type[BaseModel] | None = None,
+    description: str | None = None,
+    context: bool = False,
+    exposure: ToolExposure = "auto",
+    renderer: Callable[[Any], str] | None = None,
+    deferred: bool = False,
+) -> Tool | Callable[[Callable], Tool]:
+    """Decorator to convert a function into a Tool instance.
+
+    Tools should return structured results; ``renderer`` turns such a result into the
+    plain text shown to the model outside code mode (defaults to JSON for non-strings).
+    ``exposure`` decides where the tool can be called from (see ``ToolExposure``), and
+    ``deferred`` tools are loaded on demand through ``tool.describe``.
+    """
+
+    def decorator(func: Callable) -> Tool:
+        if model is not None:
+            if context and "context" not in inspect.signature(func).parameters:
+                raise TypeError("Tool context is enabled but the handler lacks a 'context' parameter.")
+
+            def handler(*args: Any, **kwargs: Any) -> Any:
+                tool_context = kwargs.pop("context", None)
+                parsed = model(*args, **kwargs)
+                if context:
+                    return func(parsed, context=tool_context)
+                return func(parsed)
+
+            result = Tool(
+                name=name or _to_snake_case(model.__name__),
+                description=description if description is not None else (inspect.getdoc(func) or model.__doc__ or ""),
+                parameters=model.model_json_schema(),
+                handler=handler,
+                context=context,
+                exposure=exposure,
+                renderer=renderer,
+                output_schema=_output_schema(func),
+                deferred=deferred,
+            )
+        else:
+            result = Tool.from_callable(
+                func,
+                name=name,
+                description=description,
+                context=context,
+                exposure=exposure,
+                renderer=renderer,
+                deferred=deferred,
+            )
+        REGISTRY[result.name] = result
+        return result
+
+    if func is None:
+        return decorator
+    return decorator(func)

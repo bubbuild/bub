@@ -10,9 +10,7 @@ import pluggy
 
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import MessageHandler
-from bub.envelope import Envelope
-from bub.environment import Environment
-from bub.hooks.interception import (
+from bub.core.events import (
     LlmCallDecision,
     LlmCallRequest,
     LlmCallResult,
@@ -20,11 +18,14 @@ from bub.hooks.interception import (
     ToolCallDecision,
     ToolCallResult,
 )
+from bub.core.sidecars import TapeSidecar
+from bub.core.store import AsyncTapeStore, TapeStore
+from bub.core.tape import Tape, TapeContext
+from bub.envelope import Envelope
+from bub.environment import Environment
 from bub.model_selection import ModelOptions
-from bub.sidecars import TapeSidecar
-from bub.store import AsyncTapeStore, TapeStore
+from bub.prompt import LegacyPrompt, UserContent
 from bub.streaming import AsyncStreamEvents, StreamState
-from bub.tape import Tape, TapeContext
 from bub.turn import TurnState
 
 if TYPE_CHECKING:
@@ -36,7 +37,14 @@ hookimpl = pluggy.HookimplMarker(BUB_HOOK_NAMESPACE)
 
 
 class BubHookSpecs:
-    """Hook contract for Bub framework extensions."""
+    """Hook contract for Bub framework extensions.
+
+    ``build_prompt`` returns user content: text, ``republic.Image``,
+    ``republic.Audio`` and ``republic.Video``; legacy text and content-block
+    results are still converted by inspecting the returned value. Hooks that
+    receive a prompt get the legacy form: text without media, otherwise content
+    blocks with media URLs (see ``bub.prompt.to_legacy_prompt``).
+    """
 
     @hookspec(firstresult=True)
     def resolve_session(self, message: Envelope) -> str:
@@ -44,11 +52,11 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def build_prompt(self, message: Envelope, session_id: str, state: TurnState) -> str | list[dict]:
-        """Build model prompt for this turn.
+    def build_prompt(self, message: Envelope, session_id: str, state: TurnState) -> list[UserContent] | LegacyPrompt:
+        """Build model prompt content for this turn.
 
-        Returns either a plain text string or a list of content parts
-        (OpenAI multimodal format) when media attachments are present.
+        Return a list of text and Republic media such as ``republic.image(...)``.
+        Legacy text and content-block lists are still accepted and converted.
         """
         raise NotImplementedError
 

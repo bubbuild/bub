@@ -13,16 +13,16 @@ Bub 自己的配置按以下优先级（从高到低）读取：
 2. CLI 启动阶段加载的 `.env` 值，或显式声明 `env_file=".env"` 的 settings class 读取到的 `.env` 值。
 3. `~/.bub/config.yml`（由 `bub onboard` 创建）。
 
-当未显式提供 `BUB_API_KEY` 时，下游模型 SDK 仍可能读取自己的提供商变量，例如 `OPENROUTER_API_KEY`。Bub 的 settings 层只映射 `BUB_*` 变量。
+当没有显式配置 Bub 凭证时，Bub 读取 `<PROVIDER>_API_KEY` 和 `<PROVIDER>_API_BASE`。provider 使用 Republic 名称，将连字符替换为下划线，例如 `OPENROUTER_API_KEY`、`GOOGLE_API_KEY` 和 `AZURE_OPENAI_API_KEY`。显式的 `BUB_*` 设置优先。
 
 ## 开始之前
 
 - Bub 已安装（`bub --help` 可用）。
-- 你已拥有某个模型提供商的 API key，或已运行 `bub login openai` 完成 OAuth。
+- 你已拥有某个模型提供商的 API key，或已运行 `bub login codex` 完成 OAuth。
 
 ## 1. 运行交互式初始化
 
-`bub onboard` 依次引导你选择 provider、填写 API key 和必要的 URL、检查连接、搜索选择模型，再配置 channel 与流式输出。托管服务使用默认 URL；自定义 OpenAI 兼容服务请选择 **OpenAI-compatible**。API key 留空可使用环境变量中的凭证。获取模型列表失败时，可以修改连接、重试或手动输入模型 ID。连接检查只获取模型列表，不发起模型生成请求。已登录 OpenAI OAuth 时会跳过模型发现，直接手动输入模型。收集到的配置会替换 `~/.bub/config.yml`；已有文件内容不会合并到本轮交互中。插件可通过 `onboard_config` hook 添加自己的交互提示。
+`bub onboard` 依次引导你选择 provider、填写 API key 和必要的 URL、检查连接、搜索选择模型，再配置 channel 与流式输出。托管服务使用默认 URL；自定义 OpenAI 兼容服务请选择 **OpenAI-compatible**。API key 留空可使用环境变量中的凭证。获取模型列表失败时，可以修改连接、重试或手动输入模型 ID。连接检查只获取模型列表，不发起模型生成请求。选择 Codex 时会跳过模型发现，直接手动输入模型。收集到的配置会替换 `~/.bub/config.yml`；已有配置会作为本轮交互的默认值，未更新的字段会保留。插件可通过 `onboard_config` hook 添加自己的交互提示。
 
 ```bash
 bub onboard
@@ -55,16 +55,16 @@ telegram:
 
 | 变量 | 用途 |
 |---|---|
-| `BUB_MODEL` | 模型标识，如 `openrouter:openrouter/free` 或 `openai:<codex-model>`。 |
-| `BUB_API_KEY` | 当前提供商的 API key。使用 `bub login openai` 时保持未设置。 |
-
-如果某个端点说的是已支持的协议，但需要单独起名（公司代理、中转站、第二个账号），就在 `providers` 下声明它，再用这个名字当模型前缀，见[自定义 provider](/zh-cn/docs/reference/settings/#自定义-provider)。
-| `BUB_API_BASE` | 覆盖提供商的基础 URL。使用 Codex OAuth 时保持未设置，以便 Bub 路由到 Codex backend。 |
+| `BUB_MODEL` | 模型标识，如 `openrouter:openrouter/free` 或 `codex:<model>`。 |
+| `BUB_API_KEY` | 当前提供商的 API key。使用 `bub login codex` 时保持未设置。 |
+| `BUB_API_BASE` | 覆盖提供商的基础 URL。保持未设置可使用所选 provider 的默认端点。 |
 | `BUB_HOME` | Bub 的运行时数据目录（history、tapes、托管插件项目）。默认 `~/.bub`；不会移动默认配置文件。 |
 | `BUB_<PROVIDER>_API_KEY` | 单个提供商的 key，如 `BUB_OPENROUTER_API_KEY`。 |
 | `BUB_<PROVIDER>_API_BASE` | 单个提供商的基础 URL。 |
 
-使用 `bub login openai` 时，Bub 会从 `CODEX_HOME` 或 `~/.codex` 读取 Codex OAuth 凭据，并自动 refresh。这个路径下使用 `openai:` provider 的模型标识，同时保持 `BUB_API_KEY` 和 `BUB_API_BASE` 未设置。
+Republic 从 `$CODEX_HOME/auth.json` 或 `~/.codex/auth.json` 读取并刷新 Codex 文件凭据。新登录需要安装 Codex CLI，然后选择 `codex:<model>` 并保持 `BUB_API_KEY` 未设置。OpenAI API 访问使用 `openai:<model>` 和 API 凭据。
+
+公司代理、中转站或第二个账号可在 `providers` 下单独命名，再使用该名称作为模型前缀，见[自定义 provider](/zh-cn/docs/reference/settings/#自定义-provider)。
 
 完整变量表（包括 channel 防抖参数和高级模型客户端设置）见 [Settings 参考](/zh-cn/docs/reference/settings/)。
 
