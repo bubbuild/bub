@@ -12,12 +12,12 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from bub import Settings, __version__, config, ensure_config
-from bub.agent.commands import validate_command_prefix
 from bub.builtin.model import BubModel, ModelCandidate
+from bub.core.commands import validate_command_prefix
 
 if TYPE_CHECKING:
-    from bub.tape import Tape
-    from bub.tools import ToolContext
+    from bub.core.tape import Tape
+    from bub.core.tools import ToolContext
 
 DEFAULT_MODEL = "openrouter:openrouter/free"
 DEFAULT_MAX_TOKENS = 16384

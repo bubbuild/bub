@@ -7,26 +7,26 @@ from typing import Any
 
 from loguru import logger
 
-from bub.agent.events import (
-    AfterLlmCall,
-    AfterToolCall,
-    BeforeLlmCall,
-    BeforeToolCall,
+from bub.core.events import (
     EventBus,
-    LlmCallDecision,
-    LlmCallRequest,
-    LlmCallResult,
+    LLMCallDecision,
+    LLMCallFinished,
+    LLMCallRequest,
+    LLMCallResult,
+    LLMCallStarted,
     ToolCall,
     ToolCallDecision,
+    ToolCallFinished,
     ToolCallResult,
+    ToolCallStarted,
 )
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
 from bub.turn import TurnState
 
 __all__ = [
-    "LlmCallDecision",
-    "LlmCallRequest",
-    "LlmCallResult",
+    "LLMCallDecision",
+    "LLMCallRequest",
+    "LLMCallResult",
     "PluginAgentHooks",
     "ToolCall",
     "ToolCallDecision",
@@ -48,47 +48,47 @@ class PluginAgentHooks:
     def subscribe(self, events: EventBus | None = None) -> EventBus:
         """Handle an agent's ``Before/After*Call`` events with the plugin hooks; return the bus."""
         events = EventBus() if events is None else events
-        events.on(BeforeLlmCall, self._on_before_llm_call)
-        events.on(AfterLlmCall, self._on_after_llm_call)
-        events.on(BeforeToolCall, self._on_before_tool_call)
-        events.on(AfterToolCall, self._on_after_tool_call)
+        events.on(LLMCallStarted, self._on_llm_call_started)
+        events.on(LLMCallFinished, self._on_llm_call_finished)
+        events.on(ToolCallStarted, self._on_tool_call_started)
+        events.on(ToolCallFinished, self._on_tool_call_finished)
         return events
 
-    async def _on_before_llm_call(self, event: BeforeLlmCall) -> None:
+    async def _on_llm_call_started(self, event: LLMCallStarted) -> None:
         event.request, event.decision = await self.before_llm_call(event.request, event.state)
 
-    async def _on_after_llm_call(self, event: AfterLlmCall) -> None:
+    async def _on_llm_call_finished(self, event: LLMCallFinished) -> None:
         await self.after_llm_call(event.request, event.result, event.state)
 
-    async def _on_before_tool_call(self, event: BeforeToolCall) -> None:
+    async def _on_tool_call_started(self, event: ToolCallStarted) -> None:
         event.call, event.decision = await self.before_tool_call(event.call, event.state)
 
-    async def _on_after_tool_call(self, event: AfterToolCall) -> None:
+    async def _on_tool_call_finished(self, event: ToolCallFinished) -> None:
         await self.after_tool_call(event.call, event.result, event.state)
 
     async def before_llm_call(
-        self, request: LlmCallRequest, state: TurnState
-    ) -> tuple[LlmCallRequest, LlmCallDecision | None]:
+        self, request: LLMCallRequest, state: TurnState
+    ) -> tuple[LLMCallRequest, LLMCallDecision | None]:
         """Chain hooks so each implementation sees the previous request."""
 
         for impl in self._runtime._iter_hookimpls("before_llm_call"):
             value = await self._safe_call_one("before_llm_call", impl, {"request": request, "state": state})
             if value is None or value is _SKIP_VALUE:
                 continue
-            if isinstance(value, LlmCallRequest):
+            if isinstance(value, LLMCallRequest):
                 request = value
-            elif isinstance(value, LlmCallDecision):
+            elif isinstance(value, LLMCallDecision):
                 return request, value
             else:
                 self._warn_bad_return(
-                    "before_llm_call", impl, value, expected="LlmCallRequest | LlmCallDecision | None"
+                    "before_llm_call", impl, value, expected="LLMCallRequest | LLMCallDecision | None"
                 )
         return request, None
 
     async def after_llm_call(
         self,
-        request: LlmCallRequest,
-        result: LlmCallResult,
+        request: LLMCallRequest,
+        result: LLMCallResult,
         state: TurnState,
     ) -> None:
         """Notify every observer; return values are ignored."""

@@ -5,19 +5,19 @@
 Core code lives under `src/`:
 
 - `src/bub/__main__.py`: Typer CLI entrypoint; `main` (the `bub` script) checks the `app` extra before importing the CLI.
-- `src/bub/agent/`: agent kernel with no settings or plugin dependencies: agent loop over a tape store (`agent.py`), model protocol and Republic chat model adapter (`model.py`), agent events and their bus (`events.py`), the tape recorder handler (`recorder.py`), system prompt sections (`system_prompt.py`), command prompts (`commands.py`), tools, tape, store, and tape context.
+- `src/bub/core/`: agent kernel with no settings or plugin dependencies: agent loop over a tape store (`agent.py`), model protocol and Republic chat model adapter (`model.py`), agent events and their bus (`events.py`), the tape recorder handler (`recorder.py`), system prompt sections (`system_prompt.py`), command prompts (`commands.py`), tools, tape, store, and tape context.
 - `src/bub/framework.py`: turn orchestration and outbound routing.
 - `src/bub/hooks/`: hook specifications, execution helpers, and interception contracts.
 - `src/bub/channels/`: channel bases, routing contracts, admission policy, and lifecycle manager.
 - `src/bub/{envelope,turn,streaming,errors,model_selection}.py`: small kernel vocabulary owned by each concern.
-- `src/bub/builtin/`: builtin runtime: `BubAgent` (a `bub.agent.Agent` subclass adding settings, skills, commands, steering), `BubModel`, tape archiving, CLI wiring, tools, tape services, and the fuzzy-searching file tape store.
+- `src/bub/builtin/`: builtin runtime: `BubAgent` (a `bub.core.Agent` subclass adding settings, skills, commands, steering), `BubModel`, tape archiving, CLI wiring, tools, tape services, and the fuzzy-searching file tape store.
 - `src/bub/channels/`: channel abstractions plus CLI and Telegram adapters.
-- `src/bub/skills.py` / `src/bub/tools.py`: skill discovery and tool registry.
+- `src/bub/skills.py` / `src/bub/core/tools.py`: skill discovery and tool registry.
 - `src/skills/`: bundled skills shipped with Bub.
 
 Tests live in `tests/`. The website and docs runtime lives in `website/`.
 
-Packaging: `pip install bub` installs only the kernel's dependencies (republic, pydantic, loguru, typing-extensions). Everything outside `bub.agent` (framework, CLI, channels, hooks, skills, builtin) needs the `app` extra, and the `bub` script (`bub.__main__:main`) asks for it when it is missing. Add new non-kernel dependencies to `app`, not to `dependencies`.
+Packaging: `pip install bub` installs only the kernel's dependencies (republic, pydantic, loguru, typing-extensions). Everything outside `bub.core` (framework, CLI, channels, hooks, skills, builtin) needs the `app` extra, and the `bub` script (`bub.__main__:main`) asks for it when it is missing. Add new non-kernel dependencies to `app`, not to `dependencies`.
 
 ## Build, Test, and Development Commands
 

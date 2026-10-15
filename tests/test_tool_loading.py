@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 
 from bub.builtin.agent import BubAgent
+from bub.core.tools import Tool
 from bub.framework import BubFramework
-from bub.tools import Tool
 from tests.model_fakes import ProviderService
 
 

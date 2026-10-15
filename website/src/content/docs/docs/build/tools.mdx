@@ -14,7 +14,7 @@ This guide shows how to define a Bub **tool** — a Python function the model ca
 
 ## Define a tool
 
-Decorate any function with `@tool`. The decorator builds a [`Tool`](https://github.com/bubbuild/bub/blob/main/src/bub/tools.py) object, wraps it with timing logs, and inserts it into the central `REGISTRY`:
+Decorate any function with `@tool`. The decorator builds a [`Tool`](https://github.com/bubbuild/bub/blob/main/src/bub/core/tools.py) object, wraps it with timing logs, and inserts it into the central `REGISTRY`:
 
 ```python
 from bub import tool
@@ -60,7 +60,7 @@ Code mode lets the model call tools from Python instead of one tool call at a ti
 - Bub writes a Python stub with one function per allowed `auto` or `code` tool — parameter and return types plus docstring — under `~/.bub/codemode/` and puts its path in the system prompt. The path stays the same for a session as long as its tool set does not change.
 - `run_code(code, timeout_seconds=120)` returns what the code writes to stdout. An uncaught exception becomes a tool error whose details carry the printed output and the traceback.
 - The code also gets a `republic` module (preset as a global and importable), documented at the end of the stub. It has the media classes `republic.Image`, `Audio` and `Video`. `republic.get_model(spec=None)` returns a chat model — without a spec, the model running the session — with `chat()` and `stream()` (`async with model.stream(...) as stream: async for event in stream`, events from `republic.events`), and `republic.get_embedding_model(spec)` and `republic.get_decision_model(spec)` return embedding and decision models. These are proxies: requests are made by Bub with its provider settings and credentials, which never reach the code.
-- The code-only tools `tools.attach_image(image=...)`, `tools.attach_audio(audio=...)` and `tools.attach_video(video=...)` attach media to the `run_code` result, so the model can look at a chart or screenshot the code produced. Besides a `republic` media object, they accept a file path in the environment (relative to its workspace), an http(s)/gs URL or a data URL, and load it themselves, reading files with the environment's `read_bytes`. A result with media is recorded as `{"type": "tool_content", "content": [...]}` (build one with `bub.tools.content_result`) and sent to the model as a multimodal tool message; spilling bounds only its text.
+- The code-only tools `tools.attach_image(image=...)`, `tools.attach_audio(audio=...)` and `tools.attach_video(video=...)` attach media to the `run_code` result, so the model can look at a chart or screenshot the code produced. Besides a `republic` media object, they accept a file path in the environment (relative to its workspace), an http(s)/gs URL or a data URL, and load it themselves, reading files with the environment's `read_bytes`. A result with media is recorded as `{"type": "tool_content", "content": [...]}` (build one with `bub.core.tools.content_result`) and sent to the model as a multimodal tool message; spilling bounds only its text.
 
 If `run_code` is not allowed (for example, a subagent restricted with `allowed_tools`), that turn falls back to direct tool calls.
 
@@ -101,10 +101,10 @@ Provide one per session with the `provide_environment(session_id, workspace)` ho
 
 ## How tools become available
 
-The `REGISTRY` lives in [`bub.tools`](https://github.com/bubbuild/bub/blob/main/src/bub/tools.py):
+The `REGISTRY` lives in [`bub.core.tools`](https://github.com/bubbuild/bub/blob/main/src/bub/core/tools.py):
 
 ```python
-# from src/bub/tools.py
+# from src/bub/core/tools.py
 REGISTRY: dict[str, Tool] = {}
 ```
 
@@ -143,7 +143,7 @@ See [Surfaces](/docs/concepts/surfaces/) for the full split between operator and
 Tools do not appear in `bub hooks`, but you can confirm registration with a Python one-liner:
 
 ```bash
-uv run python -c "import bub_myplugin.plugin; from bub.tools import REGISTRY; print(sorted(REGISTRY))"
+uv run python -c "import bub_myplugin.plugin; from bub.core.tools import REGISTRY; print(sorted(REGISTRY))"
 ```
 
 The output should include your tool's name. From there, run a turn that asks the model to call it.

@@ -8,24 +8,24 @@ from typing import TYPE_CHECKING, Any
 
 import pluggy
 
-from bub.agent.events import (
-    LlmCallDecision,
-    LlmCallRequest,
-    LlmCallResult,
+from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
+from bub.channels.contracts import MessageHandler
+from bub.core.events import (
+    LLMCallDecision,
+    LLMCallRequest,
+    LLMCallResult,
     ToolCall,
     ToolCallDecision,
     ToolCallResult,
 )
-from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
-from bub.channels.contracts import MessageHandler
+from bub.core.sidecars import TapeSidecar
+from bub.core.store import AsyncTapeStore, TapeStore
+from bub.core.tape import Tape, TapeContext
 from bub.envelope import Envelope
 from bub.environment import Environment
 from bub.model_selection import ModelOptions
 from bub.prompt import LegacyPrompt, UserContent
-from bub.sidecars import TapeSidecar
-from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import AsyncStreamEvents, StreamState
-from bub.tape import Tape, TapeContext
 from bub.turn import TurnState
 
 if TYPE_CHECKING:
@@ -148,20 +148,20 @@ class BubHookSpecs:
         """Observe framework errors from any stage."""
 
     @hookspec
-    def before_llm_call(self, request: LlmCallRequest, state: TurnState) -> LlmCallRequest | LlmCallDecision | None:
+    def before_llm_call(self, request: LLMCallRequest, state: TurnState) -> LLMCallRequest | LLMCallDecision | None:
         """Observe, modify or short-circuit an outgoing agent-loop LLM request.
 
         Implementations are chained in pluggy's LIFO order (last registered
         runs first): each receives the
         request as modified by earlier implementations, and may return a
         modified copy (``dataclasses.replace``), ``None`` to leave it
-        unchanged, or ``LlmCallDecision.finish(text)`` to skip the provider
+        unchanged, or ``LLMCallDecision.finish(text)`` to skip the provider
         call and emit ``text`` as the final output (cost guards / call
         limits). Exceptions are logged and skipped, never fatal.
         """
 
     @hookspec
-    def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: TurnState) -> None:
+    def after_llm_call(self, request: LLMCallRequest, result: LLMCallResult, state: TurnState) -> None:
         """Observe the terminal outcome of one agent-loop LLM call.
 
         Fires exactly once per completed call — success (for streaming

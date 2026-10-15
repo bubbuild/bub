@@ -14,7 +14,7 @@ from tests.model_fakes import ProviderService
 
 @pytest.fixture(autouse=True)
 def isolate_bub_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Importing bub.framework loads the developer's .env into os.environ; tests set what they need.
+    # Importing bub.configure loads the developer's .env into os.environ; tests set what they need.
     for name in list(os.environ):
         if name.startswith("BUB_"):
             monkeypatch.delenv(name)

@@ -14,7 +14,7 @@ sidebar:
 
 ## 定义工具
 
-用 `@tool` 装饰任意函数。装饰器会构造一个 [`Tool`](https://github.com/bubbuild/bub/blob/main/src/bub/tools.py) 对象，套上计时日志，并写入中央 `REGISTRY`：
+用 `@tool` 装饰任意函数。装饰器会构造一个 [`Tool`](https://github.com/bubbuild/bub/blob/main/src/bub/core/tools.py) 对象，套上计时日志，并写入中央 `REGISTRY`：
 
 ```python
 from bub import tool
@@ -60,7 +60,7 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 - Bub 会在 `~/.bub/codemode/` 下为允许的 `auto` 和 `code` 工具生成一个 Python stub 文件，每个工具对应一个函数，包含参数类型、返回类型和 docstring，并把文件路径写入 system prompt。只要工具集合不变，同一个 session 中这个路径保持不变。
 - `run_code(code, timeout_seconds=120)` 返回代码写到 stdout 的内容。未捕获的异常会变成工具错误，错误详情中包含已打印的输出和 traceback。
 - 代码里还有一个 `republic` 模块（已作为全局变量预置，也可以 `import`），其用法写在 stub 文件末尾。其中有媒体类 `republic.Image`、`Audio` 和 `Video`。`republic.get_model(spec=None)` 返回对话模型——不传 spec 时就是当前会话使用的模型——支持 `chat()` 和 `stream()`（`async with model.stream(...) as stream: async for event in stream`，事件类型在 `republic.events` 中）；`republic.get_embedding_model(spec)` 和 `republic.get_decision_model(spec)` 分别返回 embedding 模型和决策模型。它们都是代理：请求由 Bub 使用自己的 provider 配置和凭证发出，凭证不会进入代码。
-- 仅代码可用的工具 `tools.attach_image(image=...)`、`tools.attach_audio(audio=...)` 和 `tools.attach_video(video=...)` 会把媒体附加到这次 `run_code` 的结果里，模型因此可以看到代码生成的图表或截图。除了 `republic` 媒体对象，它们也接受执行环境内的文件路径（相对路径基于其 workspace）、http(s)/gs URL 或 data URL，并自行加载，文件通过执行环境的 `read_bytes` 读取。带媒体的结果以 `{"type": "tool_content", "content": [...]}` 记录（可用 `bub.tools.content_result` 构造），并作为多模态工具消息发给模型；spill 只截断其中的文本。
+- 仅代码可用的工具 `tools.attach_image(image=...)`、`tools.attach_audio(audio=...)` 和 `tools.attach_video(video=...)` 会把媒体附加到这次 `run_code` 的结果里，模型因此可以看到代码生成的图表或截图。除了 `republic` 媒体对象，它们也接受执行环境内的文件路径（相对路径基于其 workspace）、http(s)/gs URL 或 data URL，并自行加载，文件通过执行环境的 `read_bytes` 读取。带媒体的结果以 `{"type": "tool_content", "content": [...]}` 记录（可用 `bub.core.tools.content_result` 构造），并作为多模态工具消息发给模型；spill 只截断其中的文本。
 
 如果 `run_code` 不在允许范围内（例如被 `allowed_tools` 限制的 subagent），该 turn 会退回直接调用工具的方式。
 
@@ -102,10 +102,10 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 
 ## 工具如何变得可用
 
-`REGISTRY` 位于 [`bub.tools`](https://github.com/bubbuild/bub/blob/main/src/bub/tools.py)：
+`REGISTRY` 位于 [`bub.core.tools`](https://github.com/bubbuild/bub/blob/main/src/bub/core/tools.py)：
 
 ```python
-# 来自 src/bub/tools.py
+# 来自 src/bub/core/tools.py
 REGISTRY: dict[str, Tool] = {}
 ```
 
@@ -144,7 +144,7 @@ from . import tools  # noqa: F401  —— 触发 @tool 注册
 工具不会出现在 `bub hooks` 中，但可以用一行 Python 验证注册：
 
 ```bash
-uv run python -c "import bub_myplugin.plugin; from bub.tools import REGISTRY; print(sorted(REGISTRY))"
+uv run python -c "import bub_myplugin.plugin; from bub.core.tools import REGISTRY; print(sorted(REGISTRY))"
 ```
 
 输出应包含你的工具名。然后运行一次让模型调用它的轮次。

@@ -7,17 +7,16 @@ import re
 from collections.abc import Collection
 from pathlib import Path
 
-from bub.agent import Agent as CoreAgent
-from bub.agent import PromptContext
+import bub.core as core
 from bub.builtin.settings import load_settings
+from bub.core.store import AsyncTapeStore, TapeStore
+from bub.core.tape import Tape, session_tape_name
+from bub.core.tools import REGISTRY, Tool, model_tools
 from bub.envelope import field_of
 from bub.framework import BubFramework
 from bub.prompt import LegacyPrompt, UserContent, prompt_text, to_content
 from bub.skills import discover_skills, render_skills_prompt
-from bub.store import AsyncTapeStore, TapeStore
 from bub.streaming import AsyncStreamEvents, StreamState
-from bub.tape import Tape, session_tape_name
-from bub.tools import REGISTRY, Tool, model_tools
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
 
@@ -25,11 +24,11 @@ HINT_RE = re.compile(r"\$([A-Za-z0-9_.-]+)")
 ALLOWED_SKILLS_STATE_KEY = "allowed_skills"
 
 
-class BubAgent(CoreAgent):
+class BubAgent(core.Agent):
     """Bub's agent: the core loop configured by settings and the framework's hooks.
 
     Adds commands, skills, code mode, deferred tools, steering and the
-    ``continue_prompt`` hook to :class:`bub.agent.Agent`. System prompt sections, in
+    ``continue_prompt`` hook to :class:`bub.core.Agent`. System prompt sections, in
     order: the framework's ``system_prompt`` hooks, code mode, deferred tools, skills,
     then sections added with ``system_prompt.add``. The framework's interception
     hooks handle events before handlers added with ``events.on``.
@@ -225,11 +224,11 @@ class BubAgent(CoreAgent):
         code_tools = [tool for tool in direct_tools if tool.exposure in ("auto", "code")]
         return [tool for tool in tools if tool.exposure == "direct"], code_tools
 
-    def _hook_prompt(self, context: PromptContext) -> str:
+    def _hook_prompt(self, context: core.PromptContext) -> str:
         return self.framework.get_system_prompt(prompt=context.prompt, state=context.state)
 
     @staticmethod
-    def _code_mode_prompt(context: PromptContext) -> str | None:
+    def _code_mode_prompt(context: core.PromptContext) -> str | None:
         from bub.builtin.codemode import CODE_TOOLS_STATE_KEY, render_code_mode_prompt, write_tool_stub
 
         state = context.state
@@ -240,13 +239,13 @@ class BubAgent(CoreAgent):
         )
         return render_code_mode_prompt(stub_path)
 
-    def _deferred_tools_prompt(self, context: PromptContext) -> str:
+    def _deferred_tools_prompt(self, context: core.PromptContext) -> str:
         from bub.builtin.tools import render_deferred_tools_prompt
 
         tools, _ = self._split_code_mode(context.state)
         return render_deferred_tools_prompt(_deferred_tools(tools))
 
-    def _skills_prompt(self, context: PromptContext) -> str:
+    def _skills_prompt(self, context: core.PromptContext) -> str:
         allowed = context.state.get(ALLOWED_SKILLS_STATE_KEY)
         return self._load_skills_prompt(
             prompt_text(context.prompt), workspace_from_state(context.state), None if allowed is None else set(allowed)

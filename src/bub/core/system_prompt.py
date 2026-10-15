@@ -12,9 +12,9 @@ from bub.prompt import UserContent
 from bub.turn import TurnState
 
 if TYPE_CHECKING:
-    from bub.agent.agent import Agent
-    from bub.tape import Tape
-    from bub.tools import Tool
+    from bub.core.agent import Agent
+    from bub.core.tape import Tape
+    from bub.core.tools import Tool
 
 
 @dataclass(frozen=True)

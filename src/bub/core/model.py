@@ -36,7 +36,7 @@ class ModelClient(Protocol):
     ) -> AbstractAsyncContextManager[tuple[str, republic.Stream[Any]]]:
         """Open a streaming completion for ``spec``; yield the provider name and the stream.
 
-        ``spec`` is the default spec unless a ``BeforeLlmCall`` handler redirected the call;
+        ``spec`` is the default spec unless a ``LLMCallStarted`` handler redirected the call;
         ``options`` are the call's ``republic.ChatOptions``, tools included.
         """
         ...

@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
-# The agent kernel, bub.agent. Everything else (framework, CLI, channels, builtin agent) is in the `app` extra.
+# The agent kernel, bub.core. Everything else (framework, CLI, channels, builtin agent) is in the `app` extra.
 dependencies = [
     "republic>=0.6.0a1",
     "pydantic>=2.12.5",

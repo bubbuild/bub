@@ -1,6 +1,6 @@
 """Bub framework package.
 
-The top-level names are imported on first access, so ``import bub.agent`` does not load
+The top-level names are imported on first access, so ``import bub.core`` does not load
 the framework, its settings or the CLI.
 """
 
@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from bub.configure import Settings, config, ensure_config
+    from bub.core.tools import tool
     from bub.framework import BubFramework
     from bub.hooks import hookimpl
-    from bub.tools import tool
 
     home: Path
 
@@ -37,6 +37,7 @@ _EXPORTS = {
     "config": "bub.configure",
     "ensure_config": "bub.configure",
     "hookimpl": "bub.hooks",
+    "tool": "bub.core.tools",
 }
 
 try:
@@ -49,18 +50,13 @@ except ModuleNotFoundError:
 
 
 def __getattr__(name: str) -> Any:
-    if name == "tool":
-        from bub.tools import tool
-
-        return tool
-    if name != "home" and name not in _EXPORTS:
-        raise AttributeError(f"module {__name__} has no attribute {name}")
-    # The framework loads ``.env`` on import, before settings, plugins or ``home`` read the environment.
-    framework = import_module("bub.framework")
     if name == "home":
+        # Importing bub.configure loads ``.env``, which may set ``BUB_HOME``.
+        from bub.configure import DEFAULT_HOME
+
         if "BUB_HOME" in os.environ:
             return Path(os.path.expanduser(os.environ["BUB_HOME"]))
-        return framework.DEFAULT_HOME
-    value = getattr(import_module(_EXPORTS[name]), name)
-    globals()[name] = value
-    return value
+        return DEFAULT_HOME
+    if name not in _EXPORTS:
+        raise AttributeError(f"module {__name__} has no attribute {name}")
+    return getattr(import_module(_EXPORTS[name]), name)

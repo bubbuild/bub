@@ -86,16 +86,16 @@ Hook declarations and markers live in `bub.hooks`; agent-loop interception paylo
 ```python
 from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl, hookspec
 from bub.hooks.interception import (
-    LlmCallDecision,
-    LlmCallRequest,
-    LlmCallResult,
+    LLMCallDecision,
+    LLMCallRequest,
+    LLMCallResult,
     PluginAgentHooks,
     ToolCall,
     ToolCallDecision,
     ToolCallResult,
 )
 from bub.hooks.runtime import HookRuntime
-from bub.sidecars import TapeSidecar, sidecar_tape_name
+from bub.core.sidecars import TapeSidecar, sidecar_tape_name
 ```
 
 Plugin authors normally need only `hookimpl` plus the payload types used by their hooks. `TapeSidecar` is the minimal named contract returned by `provide_tape_sidecar`; `sidecar_tape_name` resolves its sibling tape name. See the [Hook reference](/docs/reference/hooks/) for dispatch and fault-isolation semantics.

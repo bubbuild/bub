@@ -17,7 +17,7 @@ _MEDIA_TYPES = (republic.Image, republic.Audio, republic.Video)
 
 def to_content(prompt: list[UserContent] | LegacyPrompt) -> list[UserContent]:
     """Return user content, converting text and legacy content blocks by their value."""
-    from bub.tape import to_message
+    from bub.core.tape import to_message
 
     if isinstance(prompt, str):
         return [prompt]

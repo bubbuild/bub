@@ -2,15 +2,15 @@ import subprocess
 import sys
 
 from bub.builtin.store import FuzzyFileTapeStore
-from bub.store import FileTapeStore, TapeQuery
-from bub.tape import TapeEntry
+from bub.core.store import FileTapeStore, TapeQuery
+from bub.core.tape import TapeEntry
 
 APP_MODULES = ("typer", "pluggy", "pydantic_settings", "dotenv", "yaml", "rapidfuzz", "telegram", "rich")
 
 
 def test_importing_core_loads_no_app_dependencies() -> None:
     script = (
-        "import sys, bub.agent\n"
+        "import sys, bub.core\n"
         "loaded = {name.split('.')[0] for name in sys.modules}\n"
         f"print(sorted(loaded & set({APP_MODULES!r})))\n"
         "print('bub.framework' in sys.modules)\n"
