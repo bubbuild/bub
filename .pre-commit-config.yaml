@@ -26,3 +26,14 @@ repos:
       - id: ruff
         args: [--exit-non-zero-on-fix]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: import-linter
+        name: import-linter
+        # Contracts live in pyproject.toml; grimp finds the packages through PYTHONPATH without installing them.
+        entry: env PYTHONPATH=src lint-imports
+        language: python
+        additional_dependencies: ["import-linter==2.15"]
+        pass_filenames: false
+        files: ^(src/.*\.py|pyproject\.toml)$

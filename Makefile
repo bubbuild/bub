@@ -13,15 +13,13 @@ install: ## Sync Python deps, install website deps, and install prek hooks
 	@echo "==> Installing prek hooks"
 	uv run prek install
 
-check: ## Validate lockfile, run prek across the repo, type-check src, and check import contracts
+check: ## Validate lockfile, run prek across the repo, and type-check src
 	@echo "==> Verifying uv.lock matches pyproject.toml"
 	uv lock --locked
 	@echo "==> Running prek hooks"
 	uv run prek run -a
 	@echo "==> Running mypy on src"
 	uv run mypy src
-	@echo "==> Checking import contracts"
-	uv run lint-imports
 
 vulture: ## Run the optional unused-code check
 	@echo "==> Running vulture via prek"
