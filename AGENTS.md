@@ -4,7 +4,7 @@
 
 Core code lives under `src/`:
 
-- `src/bub/__main__.py`: Typer CLI entrypoint.
+- `src/bub/__main__.py`: Typer CLI entrypoint; `main` (the `bub` script) checks the `app` extra before importing the CLI.
 - `src/bub/core/`: agent kernel with no settings or plugin dependencies: agent loop over a tape store (`agent.py`), model protocol and Republic chat model adapter (`model.py`), agent events and their bus (`events.py`), the tape recorder handler (`recorder.py`), system prompt sections (`system_prompt.py`), command prompts (`commands.py`), tools, tape, store, and tape context, plus the kernel vocabulary it shares with the framework (`errors.py`, `prompt.py`, `streaming.py`, `tracing.py`, `turn.py`). Nothing in `bub.core` imports the rest of `bub`; the old top-level paths (`bub.errors`, `bub.store`, ...) are compatibility aliases.
 - `src/bub/framework.py`: turn orchestration and outbound routing.
 - `src/bub/hooks/`: hook specifications, execution helpers, and interception contracts.
@@ -17,7 +17,7 @@ Core code lives under `src/`:
 
 Tests live in `tests/`. The website and docs runtime lives in `website/`.
 
-Packaging: `pip install bub` installs only the kernel's dependencies (republic, pydantic, loguru, typing-extensions). Everything outside `bub.core` (framework, CLI, channels, hooks, skills, builtin) needs the `app` extra, and the `bub` script (`bub._cli:main`) asks for it when it is missing. Add new non-kernel dependencies to `app`, not to `dependencies`.
+Packaging: `pip install bub` installs only the kernel's dependencies (republic, pydantic, loguru, typing-extensions). Everything outside `bub.core` (framework, CLI, channels, hooks, skills, builtin) needs the `app` extra, and the `bub` script (`bub.__main__:main`) asks for it when it is missing. Add new non-kernel dependencies to `app`, not to `dependencies`.
 
 ## Build, Test, and Development Commands
 

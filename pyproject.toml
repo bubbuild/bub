@@ -34,7 +34,7 @@ Repository = "https://github.com/bubbuild/bub"
 Documentation = "https://bub.build"
 
 [project.scripts]
-bub = "bub._cli:main"
+bub = "bub.__main__:main"
 
 [project.optional-dependencies]
 app = [
