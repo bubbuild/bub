@@ -20,6 +20,8 @@ Install Bub in your Python 3.12+ project:
 uv add bub
 ```
 
+This installs only the kernel. Add the `app` extra (`bub[app]`) when you also need the `bub` command, channels, or plugins.
+
 The API below describes this source checkout; use a release containing these interfaces or install the checkout.
 
 ## Create an agent

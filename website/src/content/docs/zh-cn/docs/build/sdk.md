@@ -19,6 +19,8 @@ Bub 自身的运行时也构建在这个内核之上：`bub.builtin.BubAgent` �
 uv add bub
 ```
 
+这只会安装内核。如果还需要 `bub` 命令、channel 或插件，请安装 `app` extra（`bub[app]`）。
+
 下文描述的是当前源码中的 API；请使用包含这些接口的发布版本，或安装当前源码。
 
 ## 创建 Agent

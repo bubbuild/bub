@@ -41,7 +41,7 @@ Bub discovers plugins through Python entry points in the `bub` group. Add the en
 [project]
 name = "bub-myplugin"
 version = "0.1.0"
-dependencies = ["bub>=0.3"]
+dependencies = ["bub[app]>=0.3"]
 
 [project.entry-points."bub"]
 myplugin = "bub_myplugin.plugin"

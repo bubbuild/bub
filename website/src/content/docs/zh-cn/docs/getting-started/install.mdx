@@ -75,15 +75,17 @@ import { TabItem, Tabs } from '@astrojs/starlight/components';
 如果系统中已有 `uv`，等价的用户级安装命令是：
 
 ```bash
-uv tool install "bub@latest"
+uv tool install "bub[app]@latest"
 uv tool update-shell
 ```
 
 如果你倾向使用 `pip`，等价命令是：
 
 ```bash
-pip install bub
+pip install "bub[app]"
 ```
+
+`app` extra 提供 `bub` 命令、channel、插件和 builtin agent。不带 extra 安装的 `bub` 只包含 agent 内核 `bub.core`，用于[在 Python 中嵌入](/zh-cn/docs/build/sdk/)；此时运行 `bub` 命令会提示安装该 extra。
 
 ## 3. 从源码安装
 

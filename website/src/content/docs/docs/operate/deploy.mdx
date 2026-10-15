@@ -56,7 +56,7 @@ docker compose up -d --build
 docker compose logs -f app
 ```
 
-The first run takes a few minutes — the image installs system tools (git, node, jq, etc.) and runs `uv sync --no-dev --no-editable`.
+The first run takes a few minutes — the image installs system tools (git, node, jq, etc.) and runs `uv sync --no-dev --no-editable --extra app`.
 
 ## 4. What `entrypoint.sh` does
 

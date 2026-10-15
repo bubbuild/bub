@@ -43,6 +43,40 @@ jobs:
 
 
 
+  core-only-install:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Build the wheel
+        run: uv build --wheel -o dist
+
+      # `pip install bub` without the app extra installs only the agent kernel.
+      - name: Use bub.core without the app extra
+        run: |
+          uv run --isolated --no-project --with dist/bub-*.whl python - <<'EOF'
+          import importlib.util
+          from bub.core import Agent
+          from bub.core.store import InMemoryTapeStore
+          import bub.errors, bub.store, bub.tape, bub.tools
+
+          Agent(store=InMemoryTapeStore())
+          app_modules = ("typer", "pluggy", "pydantic_settings", "yaml", "rapidfuzz", "telegram", "rich")
+          assert not [m for m in app_modules if importlib.util.find_spec(m)], "app dependencies were installed"
+          EOF
+
+      - name: The bub command asks for the app extra
+        run: |
+          if output=$(uv run --isolated --no-project --with dist/bub-*.whl bub 2>&1); then
+            echo "bub ran without the app extra"; exit 1
+          fi
+          echo "$output"
+          grep -q "bub\[app\]" <<<"$output"
+
   check-docs:
     runs-on: ubuntu-latest
     steps:

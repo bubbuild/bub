@@ -76,15 +76,17 @@ You can inspect the scripts and the versioned preset catalog before running them
 If `uv` is already available, the equivalent user-level installation is:
 
 ```bash
-uv tool install "bub@latest"
+uv tool install "bub[app]@latest"
 uv tool update-shell
 ```
 
 If you prefer `pip`, the equivalent is:
 
 ```bash
-pip install bub
+pip install "bub[app]"
 ```
+
+The `app` extra brings the `bub` command, channels, plugins and the builtin agent. A plain `bub` install contains only the agent kernel `bub.core` for [embedding in Python](/docs/build/sdk/); its `bub` command asks for the extra.
 
 ## 3. Install from source
 

@@ -17,9 +17,11 @@ Core code lives under `src/`:
 
 Tests live in `tests/`. The website and docs runtime lives in `website/`.
 
+Packaging: `pip install bub` installs only the kernel's dependencies (republic, pydantic, loguru, typing-extensions). Everything outside `bub.core` (framework, CLI, channels, hooks, skills, builtin) needs the `app` extra, and the `bub` script (`bub._cli:main`) asks for it when it is missing. Add new non-kernel dependencies to `app`, not to `dependencies`.
+
 ## Build, Test, and Development Commands
 
-- `uv sync`: install or update the Python environment; enough to run Bub from source or for deployment-only hosts.
+- `uv sync`: install or update the Python environment, including the `app` extra through the `dev` group; enough to run Bub from source. Deployment-only hosts use `uv sync --no-dev --extra app`.
 - `make install`: full local development bootstrap; sync Python deps, install website deps, and install `prek` hooks.
 - `uv run bub chat`: run the interactive CLI.
 - `uv run bub gateway`: start channel listener mode.

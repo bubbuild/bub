@@ -41,7 +41,7 @@ Bub 通过 `bub` 组的 Python 入口点发现插件。在 `pyproject.toml` 里�
 [project]
 name = "bub-myplugin"
 version = "0.1.0"
-dependencies = ["bub>=0.3"]
+dependencies = ["bub[app]>=0.3"]
 
 [project.entry-points."bub"]
 myplugin = "bub_myplugin.plugin"

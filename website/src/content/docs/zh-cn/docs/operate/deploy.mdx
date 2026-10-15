@@ -56,7 +56,7 @@ docker compose up -d --build
 docker compose logs -f app
 ```
 
-首次构建需要几分钟 —— 镜像会安装系统工具（git、node、jq 等）并执行 `uv sync --no-dev --no-editable`。
+首次构建需要几分钟 —— 镜像会安装系统工具（git、node、jq 等）并执行 `uv sync --no-dev --no-editable --extra app`。
 
 ## 4. `entrypoint.sh` 做了什么
 
