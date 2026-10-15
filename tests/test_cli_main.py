@@ -45,7 +45,7 @@ def test_bub_command_without_app_extra_exits_with_install_hint(monkeypatch: pyte
 def test_bub_command_runs_the_cli_when_app_extra_is_installed(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
     monkeypatch.setattr(cli, "missing_app_requirements", lambda: [])
-    monkeypatch.setattr(cli, "app", lambda: calls.append("app"), raising=False)
+    monkeypatch.setattr(cli, "create_cli_app", lambda: lambda: calls.append("app"))
 
     cli.main()
 

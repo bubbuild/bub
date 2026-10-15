@@ -10,7 +10,7 @@ import os
 import re
 import sys
 from importlib.metadata import PackageNotFoundError, distribution, requires
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import typer
@@ -86,14 +86,6 @@ def create_cli_app() -> typer.Typer:
     return app
 
 
-def __getattr__(name: str) -> Any:
-    # ``bub.__main__.app`` is the CLI that ``main`` runs, created on first access.
-    if name == "app":
-        app = globals()["app"] = create_cli_app()
-        return app
-    raise AttributeError(f"module {__name__} has no attribute {name}")
-
-
 def main() -> None:
     """Run the ``bub`` command."""
     if missing := missing_app_requirements():
@@ -102,7 +94,7 @@ def main() -> None:
             f"(missing: {', '.join(missing)}).\n"
             "Install it with: uv tool install 'bub[app]'  or  pip install 'bub[app]'"
         )
-    sys.modules[__name__].app()
+    create_cli_app()()
 
 
 if __name__ == "__main__":
