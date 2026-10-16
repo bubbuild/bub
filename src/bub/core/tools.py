@@ -5,6 +5,7 @@ import inspect
 import json
 import time
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal, get_args, get_type_hints, overload
 
@@ -286,12 +287,20 @@ class ToolExecutor:
     With ``render`` (the default) successful results are rendered to model-facing text with
     ``Tool.render``; ``render=False`` returns tools' structured results unchanged, as needed
     when the caller is code rather than the model. ``ToolCallStarted`` and ``ToolCallFinished``
-    events are emitted on ``events``.
+    events are emitted on ``events``. ``max_concurrency`` limits how many of this executor's
+    calls run at once; None leaves them unlimited.
     """
 
-    def __init__(self, events: EventBus | None = None, *, render: bool = True) -> None:
+    def __init__(
+        self, events: EventBus | None = None, *, render: bool = True, max_concurrency: int | None = None
+    ) -> None:
+        if max_concurrency is not None and max_concurrency < 1:
+            raise ValueError("max_concurrency must be a positive integer or None")
         self._events = events
         self._render = render
+        self._limiter: AbstractAsyncContextManager[Any] = (
+            nullcontext() if max_concurrency is None else asyncio.Semaphore(max_concurrency)
+        )
 
     async def execute(
         self,
@@ -347,33 +356,36 @@ class ToolExecutor:
         context: ToolContext | None,
         call_id: str | None,
     ) -> Any:
-        span = Span(
-            f"execute_tool {tool.name}",
-            {
-                "gen_ai.operation.name": "execute_tool",
-                "gen_ai.tool.name": tool.name,
-                "gen_ai.tool.type": "function",
-                "gen_ai.tool.call.id": call_id,
-                "bub.run_id": context.run_id if context else None,
-                "gen_ai.conversation.id": context.state.get("session_id") if context else None,
-            },
-        )
-        try:
-            with span.activate():
-                result = await self._handle_tool_response_async(tool, arguments, context, span=span)
-                if isinstance(result, _FailedToolResult):
-                    span.fail(result.error)
-                    span.set(**{
-                        "gen_ai.tool.call.result": result.error.as_dict() if result.result is None else result.result
-                    })
-                else:
-                    span.set(**{"gen_ai.tool.call.result": result})
-                return result
-        except BaseException as exc:
-            span.fail(exc)
-            raise
-        finally:
-            span.end()
+        async with self._limiter:
+            span = Span(
+                f"execute_tool {tool.name}",
+                {
+                    "gen_ai.operation.name": "execute_tool",
+                    "gen_ai.tool.name": tool.name,
+                    "gen_ai.tool.type": "function",
+                    "gen_ai.tool.call.id": call_id,
+                    "bub.run_id": context.run_id if context else None,
+                    "gen_ai.conversation.id": context.state.get("session_id") if context else None,
+                },
+            )
+            try:
+                with span.activate():
+                    result = await self._handle_tool_response_async(tool, arguments, context, span=span)
+                    if isinstance(result, _FailedToolResult):
+                        span.fail(result.error)
+                        span.set(**{
+                            "gen_ai.tool.call.result": result.error.as_dict()
+                            if result.result is None
+                            else result.result
+                        })
+                    else:
+                        span.set(**{"gen_ai.tool.call.result": result})
+                    return result
+            except BaseException as exc:
+                span.fail(exc)
+                raise
+            finally:
+                span.end()
 
     def _invoke_tool(
         self,

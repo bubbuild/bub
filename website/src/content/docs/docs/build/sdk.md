@@ -88,6 +88,7 @@ continues the conversation stored under `sessions/`.
 | `context`              | A `TapeContext` choosing which tape entries become model context. Defaults to `default_tape_context()`.           |
 | `sidecars`             | `TapeSidecar` capabilities mounted on every tape.                                                                 |
 | `max_steps`            | Maximum model calls in one run.                                                                                   |
+| `max_tool_concurrency`  | Maximum tool calls from one model response that run at once. `None` (the default) runs them all concurrently; `1` runs them one at a time, in order. |
 | `name`                 | Agent name reported in `invoke_agent` traces. Defaults to `"agent"`.                                              |
 | `command_prefix`       | Prefix marking command prompts, such as `","`; see [Commands](#commands). `None` (the default) disables commands. |
 

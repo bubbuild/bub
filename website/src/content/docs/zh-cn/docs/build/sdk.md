@@ -86,6 +86,7 @@ if __name__ == "__main__":
 | `context`         | 决定哪些 tape 条目进入模型上下文的 `TapeContext`。默认 `default_tape_context()`。 |
 | `sidecars`        | 挂载到每条 tape 上的 `TapeSidecar` 能力。                                         |
 | `max_steps`       | 一次运行中最多的模型调用次数。                                                    |
+| `max_tool_concurrency` | 同一次模型回复中可同时执行的工具调用数上限。默认 `None` 即全部并发；`1` 则按顺序逐个执行。 |
 | `name`            | 在 `invoke_agent` trace 中上报的 agent 名称。默认 `"agent"`。                     |
 | `command_prefix`  | 标记命令 prompt 的前缀，例如 `","`；见 [命令](#命令)。默认 `None`，即不启用命令。 |
 
