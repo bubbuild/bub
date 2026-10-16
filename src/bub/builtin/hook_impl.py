@@ -295,9 +295,9 @@ class BuiltinImpl:
     @hookimpl
     def provide_tape_store(self) -> TapeStore:
         import bub
-        from bub.core.store import FileTapeStore
+        from bub.builtin.store import FuzzyFileTapeStore
 
-        return FileTapeStore(directory=bub.home / "tapes")
+        return FuzzyFileTapeStore(directory=bub.home / "tapes")
 
     @hookimpl
     def provide_tape_sidecar(self) -> TapeSidecar:

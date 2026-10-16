@@ -11,12 +11,12 @@ from typing import TYPE_CHECKING, Any
 
 import pluggy
 import typer
-from dotenv import find_dotenv, load_dotenv
 from loguru import logger
 
 from bub import configure
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import ChannelRouter, MessageHandler
+from bub.configure import DEFAULT_HOME
 from bub.core.sidecars import TapeSidecar
 from bub.core.store import AsyncTapeStore, TapeStore
 from bub.core.tape import Tape, TapeContext
@@ -35,8 +35,6 @@ from bub.utils import maybe_context_manager
 if TYPE_CHECKING:
     from bub.channels.base import Channel
 
-load_dotenv(find_dotenv(usecwd=True))
-DEFAULT_HOME = Path.home() / ".bub"
 DEFAULT_CONFIG_FILE = (DEFAULT_HOME / "config.yml").resolve()
 
 

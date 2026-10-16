@@ -7,7 +7,15 @@ from typing import Any
 
 import republic
 
-from bub.core.events import ChatCompleted, CommandFinished, EventBus, RunStarted, StepFinished, StepStarted
+from bub.core.events import (
+    ChatFinished,
+    CommandFinished,
+    EventBus,
+    RunFinished,
+    RunStarted,
+    StepFinished,
+    StepStarted,
+)
 from bub.prompt import UserContent
 
 
@@ -20,15 +28,23 @@ class TapeRecorder:
 
     def subscribe(self, events: EventBus) -> None:
         events.on(RunStarted, self.on_run_started)
+        events.on(RunFinished, self.on_run_finished)
         events.on(StepStarted, self.on_step_started)
         events.on(StepFinished, self.on_step_finished)
-        events.on(ChatCompleted, self.on_chat_completed)
+        events.on(ChatFinished, self.on_chat_finished)
         events.on(CommandFinished, self.on_command_finished)
 
     async def on_run_started(self, event: RunStarted) -> None:
         await event.tape.append_event(
             "loop.start", {"model": event.model, "prompt": prompt_payload(event.prompt), **event.metadata}
         )
+
+    async def on_run_finished(self, event: RunFinished) -> None:
+        payload: dict[str, Any] = {"status": event.status, "steps": event.steps, "elapsed_ms": event.elapsed_ms}
+        if event.error is not None:
+            payload["error"] = event.error
+        payload["date"] = datetime.now(UTC).isoformat()
+        await event.tape.append_event("loop.finish", payload)
 
     async def on_step_started(self, event: StepStarted) -> None:
         prompt = None if event.prompt is None else prompt_payload(event.prompt)
@@ -54,7 +70,7 @@ class TapeRecorder:
             },
         )
 
-    async def on_chat_completed(self, event: ChatCompleted) -> None:
+    async def on_chat_finished(self, event: ChatFinished) -> None:
         await event.tape.record_chat(
             run_id=event.run_id,
             system_prompt=event.system_prompt,

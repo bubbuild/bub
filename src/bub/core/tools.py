@@ -12,7 +12,7 @@ import republic
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, validate_call
 
-from bub.core.events import AfterToolCall, BeforeToolCall, EventBus, ToolCall, ToolCallResult
+from bub.core.events import EventBus, ToolCall, ToolCallFinished, ToolCallResult, ToolCallStarted
 from bub.core.tape import Tape
 from bub.errors import BubError, ErrorKind
 from bub.prompt import UserContent
@@ -285,7 +285,7 @@ class ToolExecutor:
 
     With ``render`` (the default) successful results are rendered to model-facing text with
     ``Tool.render``; ``render=False`` returns tools' structured results unchanged, as needed
-    when the caller is code rather than the model. ``BeforeToolCall`` and ``AfterToolCall``
+    when the caller is code rather than the model. ``ToolCallStarted`` and ``ToolCallFinished``
     events are emitted on ``events``.
     """
 
@@ -467,11 +467,11 @@ class ToolExecutor:
         hook_state: dict[str, Any],
         started: float,
     ) -> tuple[ToolCall, Callable[[], Any] | None]:
-        """Emit BeforeToolCall and translate deny/replace into a short-circuit thunk."""
+        """Emit ToolCallStarted and translate deny/replace into a short-circuit thunk."""
 
         if self._events is None:
             return call, None
-        before = await self._events.emit(BeforeToolCall(state=hook_state, call=call))
+        before = await self._events.emit(ToolCallStarted(state=hook_state, call=call))
         call, decision = before.call, before.decision
         if decision.action == "deny":
             error = BubError(
@@ -504,7 +504,7 @@ class ToolExecutor:
             duration_ms=duration_ms,
         )
         if self._events is not None:
-            await self._events.emit(AfterToolCall(state=state, call=call, result=outcome))
+            await self._events.emit(ToolCallFinished(state=state, call=call, result=outcome))
         return outcome
 
 

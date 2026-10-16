@@ -12,12 +12,15 @@ import republic
 from republic.errors import StreamIncompleteError
 
 from bub.builtin.settings import AgentSettings
+from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.tape import Tape, TapeContext
+from bub.core.tools import Tool, ToolExecutor
 from bub.errors import BubError
 from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
 from bub.hooks.interception import (
-    LlmCallDecision,
-    LlmCallRequest,
-    LlmCallResult,
+    LLMCallDecision,
+    LLMCallRequest,
+    LLMCallResult,
     PluginAgentHooks,
     ToolCall,
     ToolCallDecision,
@@ -25,9 +28,6 @@ from bub.hooks.interception import (
 )
 from bub.hooks.runtime import HookRuntime
 from bub.prompt import to_content
-from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.tape import Tape, TapeContext
-from bub.tools import Tool, ToolExecutor
 from tests.model_fakes import ProviderService, StepRunner, sse
 
 
@@ -39,8 +39,8 @@ def make_hooks(*plugins: Any) -> PluginAgentHooks:
     return PluginAgentHooks(HookRuntime(pm))
 
 
-def request() -> LlmCallRequest:
-    return LlmCallRequest(run_id="run-1", model="openai:gpt-x", messages=[republic.user("hi")])
+def request() -> LLMCallRequest:
+    return LLMCallRequest(run_id="run-1", model="openai:gpt-x", messages=[republic.user("hi")])
 
 
 class TestBeforeLlmCall:
@@ -48,12 +48,12 @@ class TestBeforeLlmCall:
     async def test_chain_folds_modifications_in_order(self) -> None:
         class SwapModel:
             @hookimpl
-            def before_llm_call(self, request: LlmCallRequest, state: dict) -> LlmCallRequest:
+            def before_llm_call(self, request: LLMCallRequest, state: dict) -> LLMCallRequest:
                 return replace(request, model="anthropic:claude")
 
         class AppendMessage:
             @hookimpl
-            def before_llm_call(self, request: LlmCallRequest, state: dict) -> LlmCallRequest:
+            def before_llm_call(self, request: LLMCallRequest, state: dict) -> LLMCallRequest:
                 # must see SwapModel's change (registration-order chaining)
                 assert request.model == "anthropic:claude"
                 return replace(request, messages=[*request.messages, republic.user("extra")])
@@ -69,12 +69,12 @@ class TestBeforeLlmCall:
     async def test_none_and_bad_returns_leave_request_unchanged(self) -> None:
         class Noop:
             @hookimpl
-            def before_llm_call(self, request: LlmCallRequest, state: dict) -> None:
+            def before_llm_call(self, request: LLMCallRequest, state: dict) -> None:
                 return None
 
         class BadReturn:
             @hookimpl
-            def before_llm_call(self, request: LlmCallRequest, state: dict) -> Any:
+            def before_llm_call(self, request: LLMCallRequest, state: dict) -> Any:
                 return "not-a-request"
 
         hooks = make_hooks(Noop(), BadReturn())
@@ -85,12 +85,12 @@ class TestBeforeLlmCall:
     async def test_raising_impl_is_isolated(self) -> None:
         class Boom:
             @hookimpl
-            def before_llm_call(self, request: LlmCallRequest, state: dict) -> LlmCallRequest:
+            def before_llm_call(self, request: LLMCallRequest, state: dict) -> LLMCallRequest:
                 raise RuntimeError("plugin broke")
 
         class After:
             @hookimpl
-            def before_llm_call(self, request: LlmCallRequest, state: dict) -> LlmCallRequest:
+            def before_llm_call(self, request: LLMCallRequest, state: dict) -> LLMCallRequest:
                 return replace(request, model="fallback:model")
 
         hooks = make_hooks(Boom(), After())
@@ -227,20 +227,20 @@ class TestToolExecutorIntegration:
 class TestAfterLlmCall:
     @pytest.mark.asyncio
     async def test_observe_only_and_isolated(self) -> None:
-        observed: list[LlmCallResult] = []
+        observed: list[LLMCallResult] = []
 
         class Boom:
             @hookimpl
-            def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
+            def after_llm_call(self, request: LLMCallRequest, result: LLMCallResult, state: dict) -> None:
                 raise RuntimeError("metrics plugin broke")
 
         class Observe:
             @hookimpl
-            def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
+            def after_llm_call(self, request: LLMCallRequest, result: LLMCallResult, state: dict) -> None:
                 observed.append(result)
 
         hooks = make_hooks(Boom(), Observe())
-        result = LlmCallResult(run_id="run-1", text="hello", usage={"total_tokens": 5}, duration_ms=12)
+        result = LLMCallResult(run_id="run-1", text="hello", usage={"total_tokens": 5}, duration_ms=12)
         await hooks.after_llm_call(request(), result, state={})
         assert observed == [result]
 
@@ -250,12 +250,12 @@ class TestBeforeLlmCallFinish:
     async def test_finish_decision_short_circuits(self) -> None:
         class Limit:
             @hookimpl
-            def before_llm_call(self, request: LlmCallRequest, state: dict) -> LlmCallDecision:
-                return LlmCallDecision.finish("call budget exhausted")
+            def before_llm_call(self, request: LLMCallRequest, state: dict) -> LLMCallDecision:
+                return LLMCallDecision.finish("call budget exhausted")
 
         class Later:
             @hookimpl
-            def before_llm_call(self, request: LlmCallRequest, state: dict) -> None:
+            def before_llm_call(self, request: LLMCallRequest, state: dict) -> None:
                 raise AssertionError("must not run after finish")
 
         hooks = make_hooks(Later(), Limit())  # LIFO: Limit runs first
@@ -283,7 +283,7 @@ class TestModelRunnerHookIntegration:
     ) -> None:
         class Reroute:
             @hookimpl
-            def before_llm_call(self, request: LlmCallRequest, state: dict) -> LlmCallRequest:
+            def before_llm_call(self, request: LLMCallRequest, state: dict) -> LLMCallRequest:
                 return replace(request, model="anthropic:new", max_tokens=42)
 
         provider_transport.reply(
@@ -306,11 +306,11 @@ class TestModelRunnerHookIntegration:
     async def test_after_llm_call_not_fired_on_early_close(
         self, tmp_path: Path, provider_transport: ProviderService
     ) -> None:
-        observed: list[LlmCallResult] = []
+        observed: list[LLMCallResult] = []
 
         class Observe:
             @hookimpl
-            def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
+            def after_llm_call(self, request: LLMCallRequest, result: LLMCallResult, state: dict) -> None:
                 observed.append(result)
 
         provider_transport.reply_chat("done")
@@ -326,11 +326,11 @@ class TestModelRunnerHookIntegration:
     async def test_after_llm_call_fires_exactly_once_on_success(
         self, tmp_path: Path, provider_transport: ProviderService
     ) -> None:
-        observed: list[LlmCallResult] = []
+        observed: list[LLMCallResult] = []
 
         class Observe:
             @hookimpl
-            def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
+            def after_llm_call(self, request: LLMCallRequest, result: LLMCallResult, state: dict) -> None:
                 observed.append(result)
 
         provider_transport.reply_chat("done")
@@ -345,11 +345,11 @@ class TestModelRunnerHookIntegration:
     async def test_failed_stream_reports_partial_text_once_without_trying_fallback(
         self, tmp_path: Path, provider_transport: ProviderService
     ) -> None:
-        observed: list[LlmCallResult] = []
+        observed: list[LLMCallResult] = []
 
         class Observe:
             @hookimpl
-            def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
+            def after_llm_call(self, request: LLMCallRequest, result: LLMCallResult, state: dict) -> None:
                 observed.append(result)
 
         provider_transport.reply(sse([{"choices": [{"delta": {"content": "partial"}}]}]))
@@ -370,11 +370,11 @@ class TestModelRunnerHookIntegration:
     async def test_refusal_text_reaches_the_hook_final_event_and_tape(
         self, tmp_path: Path, provider_transport: ProviderService
     ) -> None:
-        observed: list[LlmCallResult] = []
+        observed: list[LLMCallResult] = []
 
         class Observe:
             @hookimpl
-            def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: dict) -> None:
+            def after_llm_call(self, request: LLMCallRequest, result: LLMCallResult, state: dict) -> None:
                 observed.append(result)
 
         provider_transport.reply(

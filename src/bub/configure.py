@@ -4,7 +4,12 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
+from dotenv import find_dotenv, load_dotenv
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
+
+# Settings read the environment, so load ``.env`` before any of them is created.
+load_dotenv(find_dotenv(usecwd=True))
+DEFAULT_HOME = Path.home() / ".bub"
 
 CONFIG_MAP: dict[str, list[type[BaseSettings]]] = {}
 ROOT = ""

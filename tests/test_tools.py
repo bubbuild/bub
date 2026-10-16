@@ -7,11 +7,11 @@ import pytest
 from loguru import logger
 from pydantic import BaseModel
 
-from bub.core.events import AfterToolCall, BeforeToolCall, EventBus
+from bub.core.events import EventBus, ToolCallFinished, ToolCallStarted
+from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.tape import Tape, TapeContext
+from bub.core.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
 from bub.errors import BubError
-from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.tape import Tape, TapeContext
-from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
 
 
 class EchoInput(BaseModel):
@@ -149,8 +149,8 @@ async def test_tool_executor_logs_arguments_changed_by_handlers(monkeypatch: pyt
     monkeypatch.setattr(logger, "info", lambda message, *args: messages.append(message.format(*args)))
     events = EventBus()
 
-    @events.on(BeforeToolCall)
-    def rewrite(event: BeforeToolCall) -> None:
+    @events.on(ToolCallStarted)
+    def rewrite(event: ToolCallStarted) -> None:
         event.call = replace(event.call, arguments={"value": "rewritten"})
 
     echo = Tool.from_callable(lambda value: value, name="tests.echo")
@@ -233,8 +233,8 @@ async def test_executor_passes_tool_context_to_context_tools_and_hooks(tmp_path)
     seen: dict[str, Any] = {}
 
     events = EventBus()
-    events.on(BeforeToolCall, lambda event: seen.update(before=event.call.context))
-    events.on(AfterToolCall, lambda event: seen.update(after=(event.call.context, event.result.result)))
+    events.on(ToolCallStarted, lambda event: seen.update(before=event.call.context))
+    events.on(ToolCallFinished, lambda event: seen.update(after=(event.call.context, event.result.result)))
 
     def mode(*, context: ToolContext) -> dict[str, bool]:
         return {"code_mode": context.code_mode}
@@ -252,8 +252,8 @@ async def test_executor_passes_tool_context_to_context_tools_and_hooks(tmp_path)
 @pytest.mark.asyncio
 async def test_executor_execute_returns_the_result_or_raises_the_tool_error() -> None:
     events = EventBus()
-    finished: list[AfterToolCall] = []
-    events.on(AfterToolCall, finished.append)
+    finished: list[ToolCallFinished] = []
+    events.on(ToolCallFinished, finished.append)
     executor = ToolExecutor(events, render=False)
 
     def failing_tool() -> str:

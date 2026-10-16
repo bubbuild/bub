@@ -22,7 +22,7 @@ sidebar:
 - 启动带 Phoenix 的 Bub 之前，在已激活的 Bub 虚拟环境中安装 `trace` extra：
 
 ```bash
-uv pip install "bub[trace]"
+uv pip install "bub[app,trace]"
 ```
 
 `trace` extra 包含 OpenTelemetry API、SDK 和 HTTP/protobuf OTLP exporter。以下 Phoenix 流程无需安装或配置 Logfire。
@@ -144,7 +144,7 @@ bub run ",tape.info"
 
 ## 将执行轨迹发送到 Logfire
 
-如需将执行轨迹发送到 Logfire，安装包含 `bub[trace]` 和 Logfire 的 `logfire` extra。没有显式配置 OTLP endpoint 时，Bub CLI 会在启动时配置 Logfire，无需额外的 tracing 插件。
+如需将执行轨迹发送到 Logfire，安装包含 `bub[app,trace]` 和 Logfire 的 `logfire` extra。没有显式配置 OTLP endpoint 时，Bub CLI 会在启动时配置 Logfire，无需额外的 tracing 插件。
 
 从 Phoenix 切换时，先清除两个 OTLP endpoint 环境变量，再登录并选择 Logfire 项目，然后运行 Bub：
 

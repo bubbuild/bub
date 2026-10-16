@@ -20,6 +20,8 @@ Install Bub in your Python 3.12+ project:
 uv add bub
 ```
 
+This installs only the kernel. Add the `app` extra (`bub[app]`) when you also need the `bub` command, channels, or plugins.
+
 The API below describes this source checkout; use a release containing these interfaces or install the checkout.
 
 ## Create an agent
@@ -32,8 +34,9 @@ from pathlib import Path
 
 import republic
 
-from bub.core import Agent, Tool
+from bub.core import Agent
 from bub.core.store import FileTapeStore
+from bub.core.tools import Tool
 
 
 async def lookup_order(order_id: str) -> dict[str, str]:
@@ -106,7 +109,7 @@ async with agent.run(prompt, tape="t") as stream:
 ```
 
 `options` are `republic.ChatOptions` sent with every model call of the run; the loop adds the step's tools.
-A `BeforeLlmCall` handler may redirect a call to another `provider:model` spec: a model of the same provider reuses
+A `LLMCallStarted` handler may redirect a call to another `provider:model` spec: a model of the same provider reuses
 the run model's client, and another provider gets a client configured from Republic's environment.
 
 For a policy of your own, such as fallbacks, per-provider credentials, or a timeout for the whole call, pass an
@@ -117,14 +120,14 @@ provider name and a `republic.Stream`. Bub's own `bub.builtin.model.BubModel` is
 ## Tools
 
 `Tool.from_callable()` derives a schema from annotations and a description from the docstring, without registering
-the tool globally. The `@tool` decorator from `bub.core` builds the same `Tool` and also adds it to Bub's global
+the tool globally. The `@tool` decorator from `bub.core.tools` builds the same `Tool` and also adds it to Bub's global
 registry, which Bub's own agent snapshots.
 
 A tool created with `context=True` receives a `ToolContext` with the run's `tape`, turn `state`, `run_id`, and event
 bus:
 
 ```python
-from bub.core import ToolContext
+from bub.core.tools import ToolContext
 
 
 def remember(note: str, *, context: ToolContext) -> str:
@@ -207,7 +210,7 @@ async with agent.run(",lookup_order order_id=A123", model=model, tape="customer-
 
 Leading and trailing whitespace is ignored and exactly one prefix is removed; a bare prefix raises `ValueError`.
 Prefixes must be non-empty and contain no whitespace. Prompts with media are never commands. Command tool calls emit
-`BeforeToolCall` and `AfterToolCall` like model tool calls, so tool handlers apply to them; their `ToolContext` has
+`ToolCallStarted` and `ToolCallFinished` like model tool calls, so tool handlers apply to them; their `ToolContext` has
 `command` set. `agent.run_command(tape, line)` runs a command on an open tape directly.
 
 ## Events
@@ -215,17 +218,17 @@ Prefixes must be non-empty and contain no whitespace. Prompts with media are nev
 The loop reports its progress as events from `bub.core.events`; register handlers to observe or steer it.
 
 ```python
-from bub.core import AfterToolCall, BeforeToolCall, StepFinished, ToolCallDecision
+from bub.core.events import ToolCallFinished, ToolCallStarted, StepFinished, ToolCallDecision
 
 
-@agent.events.on(BeforeToolCall)
-def guard(event: BeforeToolCall) -> None:
+@agent.events.on(ToolCallStarted)
+def guard(event: ToolCallStarted) -> None:
     if event.call.tool == "lookup_order" and not event.call.arguments.get("order_id"):
         event.decision = ToolCallDecision.deny("order_id is required")
 
 
-@agent.events.on(AfterToolCall)
-async def audit(event: AfterToolCall) -> None:
+@agent.events.on(ToolCallFinished)
+async def audit(event: ToolCallFinished) -> None:
     print("tool", event.call.tool, event.result.duration_ms, "ms")
 
 
@@ -235,12 +238,13 @@ agent.events.on(StepFinished, lambda event: print("step", event.step, event.stat
 | Event                          | When                                                     | Handlers may                                                                                                                     |
 | ------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `RunStarted`                   | A run begins                                             | observe the model spec, prompt, and run metadata                                                                                 |
+| `RunFinished`                  | The run's stream closes                                  | observe the status (`ok`, `error`, or `cancelled`), step count, elapsed time, and error                                          |
 | `StepStarted` / `StepFinished` | A model step begins / ends with a status                 | observe                                                                                                                          |
-| `BeforeLlmCall`                | Before each model call                                   | replace `event.request` (model, messages, `max_tokens`), or set `event.decision = LlmCallDecision.finish(text)` to skip the call |
-| `AfterLlmCall`                 | After each completed or failed model call                | observe text, tool calls, usage, and errors                                                                                      |
-| `BeforeToolCall`               | Before each tool call                                    | replace `event.call` to change arguments, or set `ToolCallDecision.replace(result)` / `deny(message)`                            |
-| `AfterToolCall`                | After each tool call, including denied and replaced ones | assign `event.result.result` to change what the model sees                                                                       |
-| `ChatCompleted`                | A step's exchange is ready to record                     | observe                                                                                                                          |
+| `LLMCallStarted`               | Before each model call                                   | replace `event.request` (model, messages, `max_tokens`), or set `event.decision = LLMCallDecision.finish(text)` to skip the call |
+| `LLMCallFinished`              | After each completed or failed model call                | observe text, tool calls, usage, and errors                                                                                      |
+| `ToolCallStarted`              | Before each tool call                                    | replace `event.call` to change arguments, or set `ToolCallDecision.replace(result)` / `deny(message)`                            |
+| `ToolCallFinished`             | After each tool call, including denied and replaced ones | assign `event.result.result` to change what the model sees                                                                       |
+| `ChatFinished`                 | A step's exchange is ready to record                     | observe                                                                                                                          |
 | `CommandFinished`              | A command prompt ran (see [Commands](#commands))         | observe the command, status, and output                                                                                          |
 
 `agent.events.on(EventType, handler)` registers a sync or async handler and returns it; `@agent.events.on(EventType)`
@@ -261,7 +265,8 @@ Inside a tool, the run's bus is `context.events`:
 ```python
 from dataclasses import dataclass
 
-from bub.core import AgentEvent, ToolContext
+from bub.core.events import AgentEvent
+from bub.core.tools import ToolContext
 
 
 @dataclass(kw_only=True)
@@ -351,7 +356,7 @@ the turn state:
 | `continue_prompt(tape, prompt, state)` | `None`    | Return a user message for the next step after tool calls. |
 
 ```python
-from bub.core import Tape
+from bub.core.tape import Tape
 
 
 class TriageAgent(Agent):

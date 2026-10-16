@@ -9,24 +9,24 @@ import pytest
 import republic
 
 import bub.core
-from bub.core import (
-    AfterLlmCall,
-    AfterToolCall,
-    Agent,
+from bub.core import Agent, PromptContext
+from bub.core.events import (
     AgentEvent,
-    BeforeLlmCall,
-    BeforeToolCall,
-    ChatCompleted,
+    ChatFinished,
     CommandFinished,
     EventBus,
-    LlmCallDecision,
-    PromptContext,
+    LLMCallDecision,
+    LLMCallFinished,
+    LLMCallStarted,
+    RunFinished,
     RunStarted,
     StepFinished,
-    Tool,
     ToolCallDecision,
+    ToolCallFinished,
+    ToolCallStarted,
 )
 from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.tools import Tool
 from bub.errors import BubError
 from tests.model_fakes import ProviderService, chat_events, sse, tool_events
 
@@ -62,8 +62,8 @@ async def test_core_agent_runs_tool_loop_and_emits_events(provider_service: Prov
         async def empty_section(context: PromptContext) -> None:
             return None
 
-        @agent.events.on(BeforeToolCall)
-        def rewrite_path(event: BeforeToolCall) -> None:
+        @agent.events.on(ToolCallStarted)
+        def rewrite_path(event: ToolCallStarted) -> None:
             event.call = replace(event.call, arguments={"path": "README.md"})
 
         assert agent.system_prompt.add("Removed section.") == "Removed section."
@@ -85,39 +85,40 @@ async def test_core_agent_runs_tool_loop_and_emits_events(provider_service: Prov
     assert seen == [
         "RunStarted",
         "StepStarted",
-        "BeforeLlmCall",
-        "AfterLlmCall",
-        "BeforeToolCall",
-        "AfterToolCall",
-        "ChatCompleted",
+        "LLMCallStarted",
+        "LLMCallFinished",
+        "ToolCallStarted",
+        "ToolCallFinished",
+        "ChatFinished",
         "StepFinished",
         "StepStarted",
-        "BeforeLlmCall",
-        "AfterLlmCall",
-        "ChatCompleted",
+        "LLMCallStarted",
+        "LLMCallFinished",
+        "ChatFinished",
         "StepFinished",
+        "RunFinished",
     ]
     # The run's fork merged back into the store's tape.
     tape = agent.tape("session")
     roles = [message.role for message in await tape.read_messages()]
     assert roles[-4:] == ["user", "assistant", "tool", "assistant"]
     names = [entry.payload["name"] for entry in await tape.store.fetch_all(tape.query().kinds("event"))]
-    assert names.index("loop.start") < names.index("loop.step.start") < names.index("run")
+    assert names.index("loop.start") < names.index("loop.step.start") < names.index("run") < names.index("loop.finish")
 
 
 @pytest.mark.asyncio
 async def test_before_events_short_circuit_remaining_handlers(provider_service: ProviderService) -> None:
     provider_service.reply(_tool_call("secret"))
     later: list[str] = []
-    finished: list[ChatCompleted] = []
+    finished: list[ChatFinished] = []
 
     async with provider_service.client() as client:
         model = _model(client)
         agent = Agent(store=InMemoryTapeStore(), tools=[Tool.from_callable(lambda: "x", name="secret")])
-        agent.events.on(BeforeToolCall, lambda event: setattr(event, "decision", ToolCallDecision.deny("no secrets")))
-        agent.events.on(BeforeToolCall, lambda event: later.append("tool"))
-        agent.events.on(BeforeLlmCall, lambda event: later.append("llm"))
-        agent.events.on(ChatCompleted, finished.append)
+        agent.events.on(ToolCallStarted, lambda event: setattr(event, "decision", ToolCallDecision.deny("no secrets")))
+        agent.events.on(ToolCallStarted, lambda event: later.append("tool"))
+        agent.events.on(LLMCallStarted, lambda event: later.append("llm"))
+        agent.events.on(ChatFinished, finished.append)
         async with agent.session("deny") as tape:
             events = [event async for event in agent.run_once(["go"], model=model, tape=tape)]
 
@@ -126,9 +127,9 @@ async def test_before_events_short_circuit_remaining_handlers(provider_service: 
         assert later == ["llm"]
 
         agent.events.on(
-            BeforeLlmCall, lambda event: setattr(event, "decision", LlmCallDecision.finish("budget exhausted"))
+            LLMCallStarted, lambda event: setattr(event, "decision", LLMCallDecision.finish("budget exhausted"))
         )
-        agent.events.on(AfterLlmCall, lambda event: later.append("after"))
+        agent.events.on(LLMCallFinished, lambda event: later.append("after"))
         async with agent.run(["again"], model=model, tape="budget") as stream:
             events = [event async for event in stream]
 
@@ -172,11 +173,12 @@ async def test_core_agent_stops_at_max_steps(provider_service: ProviderService) 
         )
         agent.events.on(StepFinished, lambda event: statuses.append(event.status))
         agent.events.on(RunStarted, lambda event: statuses.append(f"model={event.model}"))
-        agent.events.on(AfterToolCall, lambda event: statuses.append(f"tool={event.result.result}"))
+        agent.events.on(ToolCallFinished, lambda event: statuses.append(f"tool={event.result.result}"))
+        agent.events.on(RunFinished, lambda event: statuses.append(f"run={event.status}:{event.steps}:{event.error}"))
         with pytest.raises(RuntimeError, match="max_steps_reached=1"):
             async with agent.run(["loop"], model=model, tape="steps") as stream:
                 [event async for event in stream]
-    assert statuses == ["model=openai:test", "tool=ok", "continue"]
+    assert statuses == ["model=openai:test", "tool=ok", "continue", "run=error:1:max_steps_reached=1"]
 
 
 @pytest.mark.asyncio
@@ -185,8 +187,8 @@ async def test_redirected_call_reuses_the_provider_of_a_republic_model(provider_
     async with provider_service.client() as client:
         agent = Agent(store=InMemoryTapeStore())
 
-        @agent.events.on(BeforeLlmCall)
-        def reroute(event: BeforeLlmCall) -> None:
+        @agent.events.on(LLMCallStarted)
+        def reroute(event: LLMCallStarted) -> None:
             event.request = replace(event.request, model="openai:other")
 
         async with agent.run(["hi"], model=_model(client), tape="redirect") as stream:
@@ -220,8 +222,10 @@ def test_tapes_share_the_agent_store() -> None:
 @pytest.mark.asyncio
 async def test_leaving_run_early_closes_the_stream_and_merges_the_fork(provider_service: ProviderService) -> None:
     provider_service.reply(sse(chat_events("hello there")))
+    finished: list[RunFinished] = []
     async with provider_service.client() as client:
         agent = Agent()
+        agent.events.on(RunFinished, finished.append)
         async with agent.run(["hi"], model=_model(client), tape="early") as stream:
             async for event in stream:
                 if event.kind == "text":
@@ -231,6 +235,34 @@ async def test_leaving_run_early_closes_the_stream_and_merges_the_fork(provider_
     assert [message.role for message in messages] == []
     names = [entry.payload["name"] for entry in await agent.tape("early").store.fetch_all(agent.tape("early").query())]
     assert "loop.start" in names
+    assert "loop.finish" in names
+    assert [(event.status, event.steps) for event in finished] == [("cancelled", 1)]
+
+
+@pytest.mark.asyncio
+async def test_run_finished_follows_a_run_closed_before_iteration(provider_service: ProviderService) -> None:
+    finished: list[RunFinished] = []
+    async with provider_service.client() as client:
+        agent = Agent()
+        agent.events.on(RunFinished, finished.append)
+        async with agent.run(["hi"], model=_model(client), tape="unread"):
+            pass
+
+    assert [(event.status, event.steps, event.error) for event in finished] == [("cancelled", 0, None)]
+    assert provider_service.requests == []
+
+
+@pytest.mark.asyncio
+async def test_commands_do_not_start_or_finish_a_run() -> None:
+    seen: list[str] = []
+    agent = Agent(tools=[Tool.from_callable(lambda: "tool ran", name="echo")], command_prefix=",")
+    agent.events.on(AgentEvent, lambda event: seen.append(type(event).__name__))
+    async with agent.run([",echo"], tape="command") as stream:
+        [event async for event in stream]
+
+    assert "RunStarted" not in seen
+    assert "RunFinished" not in seen
+    assert "CommandFinished" in seen
 
 
 @pytest.mark.asyncio
@@ -305,8 +337,8 @@ async def test_command_tool_calls_emit_tool_events_that_can_deny_them() -> None:
     agent = Agent(tools=[Tool.from_callable(greet, name="greet")], command_prefix="/")
     calls: list[tuple[str, dict[str, Any]]] = []
 
-    @agent.events.on(BeforeToolCall)
-    def deny_bob(event: BeforeToolCall) -> None:
+    @agent.events.on(ToolCallStarted)
+    def deny_bob(event: ToolCallStarted) -> None:
         calls.append((event.call.tool, event.call.arguments))
         if event.call.arguments["name"] == "bob":
             event.decision = ToolCallDecision.deny("no bob")

@@ -22,7 +22,7 @@ You need:
 - The `trace` extra installed in Bub's activated virtual environment before starting Bub with Phoenix:
 
 ```bash
-uv pip install "bub[trace]"
+uv pip install "bub[app,trace]"
 ```
 
 The `trace` extra includes the OpenTelemetry API, SDK, and HTTP/protobuf OTLP exporter. The Phoenix walkthrough below requires no Logfire installation or configuration.
@@ -144,7 +144,7 @@ Use both when debugging production behavior: start with `,tape.info` to understa
 
 ## Send trajectories to Logfire
 
-To send trajectories to Logfire, install the `logfire` extra, which includes `bub[trace]` and Logfire. With no explicit OTLP endpoint configured, Bub's CLI configures Logfire at startup; no tracing plugin is required.
+To send trajectories to Logfire, install the `logfire` extra, which includes `bub[app,trace]` and Logfire. With no explicit OTLP endpoint configured, Bub's CLI configures Logfire at startup; no tracing plugin is required.
 
 When switching from Phoenix, clear both OTLP endpoint variables, authenticate with your Logfire project, then run Bub:
 

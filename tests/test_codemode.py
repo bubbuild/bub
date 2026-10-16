@@ -23,13 +23,13 @@ from bub.builtin.codemode import (
     write_tool_stub,
 )
 from bub.builtin.environment import LocalEnvironment, LocalProcess
-from bub.core.events import BeforeToolCall, EventBus
+from bub.core.events import EventBus, ToolCallStarted
+from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.tape import Tape, TapeContext
+from bub.core.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
 from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, CodeFailed
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import ToolCallDecision
-from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.tape import Tape, TapeContext
-from bub.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
 
 
 class Order(TypedDict):
@@ -152,13 +152,13 @@ async def test_run_code_returns_printed_output_and_calls_tools_in_code_mode(tmp_
 async def test_run_code_routes_tool_calls_through_hooks(tmp_path: Path) -> None:
     calls: list[tuple[str, bool]] = []
 
-    def before_tool_call(event: BeforeToolCall) -> None:
+    def before_tool_call(event: ToolCallStarted) -> None:
         calls.append((event.call.tool, event.call.context is not None and event.call.context.code_mode))
         if event.call.tool == "blocked":
             event.decision = ToolCallDecision.deny("not allowed")
 
     events = EventBus()
-    events.on(BeforeToolCall, before_tool_call)
+    events.on(ToolCallStarted, before_tool_call)
     order_tool = Tool.from_callable(get_order, name="orders.get", context=True)
     blocked = Tool.from_callable(lambda: "secret", name="blocked")
     code = "try:\n    await tools.blocked()\nexcept Exception as exc:\n    print(type(exc).__name__, exc)\n"
@@ -388,13 +388,13 @@ class _InProcessEnvironment(LocalEnvironment):
 async def test_run_code_delegates_to_the_environment_code_runtime(tmp_path: Path) -> None:
     calls: list[tuple[str, bool]] = []
 
-    def before_tool_call(event: BeforeToolCall) -> None:
+    def before_tool_call(event: ToolCallStarted) -> None:
         calls.append((event.call.tool, event.call.context is not None and event.call.context.code_mode))
         if event.call.tool == "blocked":
             event.decision = ToolCallDecision.deny("not allowed")
 
     events = EventBus()
-    events.on(BeforeToolCall, before_tool_call)
+    events.on(ToolCallStarted, before_tool_call)
     order_tool = Tool.from_callable(get_order, name="orders.get", context=True)
     blocked = Tool.from_callable(lambda: "secret", name="blocked")
     code = (
@@ -469,7 +469,7 @@ async def test_run_code_attaches_media_to_its_result(tmp_path: Path) -> None:
     import republic
 
     from bub.builtin.codemode import attach_audio, attach_image, attach_video
-    from bub.tools import result_content
+    from bub.core.tools import result_content
 
     (tmp_path / "charts").mkdir()
     (tmp_path / "charts" / "chart.png").write_bytes(PNG_BYTES)
@@ -527,8 +527,8 @@ def test_media_tool_results_become_multimodal_tool_messages(tmp_path: Path) -> N
     import republic
 
     from bub.core.context import default_tape_context
-    from bub.tape import TapeEntry
-    from bub.tools import content_result
+    from bub.core.tape import TapeEntry
+    from bub.core.tools import content_result
 
     image = republic.Image("image/png", data=PNG_BYTES)
     entries = [

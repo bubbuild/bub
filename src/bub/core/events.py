@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class LlmCallRequest:
+class LLMCallRequest:
     """Outgoing agent-loop LLM request exposed to interception hooks.
 
     Hooks may return a modified copy (``dataclasses.replace``) to change the
@@ -36,7 +36,7 @@ class LlmCallRequest:
 
 
 @dataclass(frozen=True)
-class LlmCallResult:
+class LLMCallResult:
     """Terminal outcome of one LLM call exposed to interception hooks.
 
     For streaming completions this is the fully accumulated final state, not
@@ -54,14 +54,14 @@ class LlmCallResult:
 
 
 @dataclass(frozen=True)
-class LlmCallDecision:
+class LLMCallDecision:
     """Short-circuit verdict returned by a ``before_llm_call`` hook."""
 
     action: Literal["finish"] = "finish"
     text: str = ""
 
     @classmethod
-    def finish(cls, text: str) -> LlmCallDecision:
+    def finish(cls, text: str) -> LLMCallDecision:
         """Skip the provider call and emit ``text`` as its final output."""
 
         return cls(action="finish", text=text)
@@ -153,6 +153,20 @@ class RunStarted(TapeEvent):
 
 
 @dataclass(kw_only=True)
+class RunFinished(TapeEvent):
+    """A run ended after ``steps`` model steps, with ``status`` ``ok``, ``error`` or ``cancelled``.
+
+    Every ``RunStarted`` is followed by one ``RunFinished`` when the run's stream closes:
+    ``cancelled`` when it closes before the run ends, including before it is iterated.
+    """
+
+    status: str
+    steps: int
+    elapsed_ms: int
+    error: str | None = None
+
+
+@dataclass(kw_only=True)
 class StepStarted(TapeEvent):
     """A model step began; ``prompt`` is None when the step continues the conversation."""
 
@@ -186,15 +200,15 @@ class CommandFinished(TapeEvent):
 
 
 @dataclass(kw_only=True)
-class BeforeLlmCall(TapeEvent):
+class LLMCallStarted(TapeEvent):
     """An LLM call is about to be sent.
 
     Handlers may replace ``request`` (``dataclasses.replace``) or set ``decision`` to
     finish without calling the model; setting a decision stops delivery.
     """
 
-    request: LlmCallRequest
-    decision: LlmCallDecision | None = None
+    request: LLMCallRequest
+    decision: LLMCallDecision | None = None
 
     @property
     def stopped(self) -> bool:
@@ -202,15 +216,15 @@ class BeforeLlmCall(TapeEvent):
 
 
 @dataclass(kw_only=True)
-class AfterLlmCall(TapeEvent):
+class LLMCallFinished(TapeEvent):
     """An LLM call completed or failed with an ``Exception``; cancellation is not observed."""
 
-    request: LlmCallRequest
-    result: LlmCallResult
+    request: LLMCallRequest
+    result: LLMCallResult
 
 
 @dataclass(kw_only=True)
-class BeforeToolCall(AgentEvent):
+class ToolCallStarted(AgentEvent):
     """A tool call is about to run.
 
     Handlers may replace ``call`` to change its arguments, or set ``decision`` to
@@ -226,7 +240,7 @@ class BeforeToolCall(AgentEvent):
 
 
 @dataclass(kw_only=True)
-class AfterToolCall(AgentEvent):
+class ToolCallFinished(AgentEvent):
     """A tool call ended (success, failure, denial or replacement); assign ``result.result`` to change it."""
 
     call: ToolCall
@@ -234,7 +248,7 @@ class AfterToolCall(AgentEvent):
 
 
 @dataclass(kw_only=True)
-class ChatCompleted(TapeEvent):
+class ChatFinished(TapeEvent):
     """One model step's exchange is complete and ready to be recorded.
 
     Also emitted when the step fails before calling the model (``context_error``) or a
@@ -281,8 +295,8 @@ class EventBus:
 
         Without ``handler``, return a decorator registering the decorated function::
 
-            @events.on(BeforeToolCall)
-            def guard(event: BeforeToolCall) -> None: ...
+            @events.on(ToolCallStarted)
+            def guard(event: ToolCallStarted) -> None: ...
         """
         if handler is None:
             return lambda handler: self.on(event_type, handler)

@@ -55,15 +55,15 @@ def main() -> None:
         workspace.mkdir(parents=True, exist_ok=True)
         os.chdir(workspace)
 
-    from bub.__main__ import app
+    from bub.__main__ import main as bub_main
 
-    app()
+    bub_main()
 ```
 
 Two points worth calling out:
 
 - The product resolves a sticky workspace before importing Bub, then `chdir`s into it. [`BubFramework`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py) snapshots `Path.cwd()` as its workspace at construction time, so the `chdir` must happen first.
-- After that, the product hands off to `bub.__main__.app` — the same Typer app the bare `bub` command uses. Every plugin contributing `register_cli_commands` lights up automatically.
+- After that, the product hands off to `bub.__main__.main` — the same entry point as the bare `bub` command, which builds the Typer app with `create_cli_app()` and reports a missing `bub[app]` extra. Every plugin contributing `register_cli_commands` lights up automatically.
 
 Wire the CLI to a script entry point:
 

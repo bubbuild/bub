@@ -39,7 +39,7 @@ from bub.channels.cli.writers import MarkdownWriter
 from bub.channels.contracts import MessageHandler
 from bub.channels.message import ChannelMessage
 from bub.core.commands import strip_command_prefix
-from bub.core.events import AfterToolCall, BeforeToolCall, EventBus
+from bub.core.events import EventBus, ToolCallFinished, ToolCallStarted
 from bub.core.tape import TapeInfo, session_tape_name
 from bub.core.tools import REGISTRY
 from bub.envelope import Envelope, field_of
@@ -191,14 +191,14 @@ class _CliToolCallRenderer:
         self._presenter = presenter
 
     def subscribe(self, events: EventBus) -> None:
-        events.on(BeforeToolCall, self.on_before_tool_call)
-        events.on(AfterToolCall, self.on_after_tool_call)
+        events.on(ToolCallStarted, self.on_before_tool_call)
+        events.on(ToolCallFinished, self.on_after_tool_call)
 
-    async def on_before_tool_call(self, event: BeforeToolCall) -> None:
+    async def on_before_tool_call(self, event: ToolCallStarted) -> None:
         call = event.call
         await self._presenter.write(lambda: self._renderer.tool_call_start(name=call.tool, kwargs=call.arguments))
 
-    async def on_after_tool_call(self, event: AfterToolCall) -> None:
+    async def on_after_tool_call(self, event: ToolCallFinished) -> None:
         result = event.result
         if result.error is None:
             await self._presenter.write(

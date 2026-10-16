@@ -21,22 +21,22 @@ from bub.builtin.spill import (
 )
 from bub.builtin.tools import render_tools_prompt
 from bub.core.context import default_tape_context
-from bub.core.events import AfterToolCall, EventBus
+from bub.core.events import EventBus, ToolCallFinished
+from bub.core.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore, TapeStore
+from bub.core.tape import Tape
+from bub.core.tools import Tool, ToolContext, ToolExecutor, model_tools
 from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
 from bub.hooks.interception import PluginAgentHooks, ToolCall, ToolCallResult
 from bub.hooks.runtime import HookRuntime
-from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore, TapeStore
-from bub.tape import Tape
-from bub.tools import Tool, ToolContext, ToolExecutor, model_tools
 from tests.model_fakes import ProviderService, StepRunner
 
 
 def _spill_events() -> EventBus:
-    async def spill(event: AfterToolCall) -> None:
+    async def spill(event: ToolCallFinished) -> None:
         await BuiltinImpl.after_tool_call(None, event.call, event.result, event.state)  # type: ignore[arg-type]
 
     events = EventBus()
-    events.on(AfterToolCall, spill)
+    events.on(ToolCallFinished, spill)
     return events
 
 
@@ -438,7 +438,7 @@ async def test_result_spill_without_tool_availability_keeps_full_output(tmp_path
 async def test_spill_bounds_text_of_content_results_and_keeps_media(tmp_path: Path) -> None:
     import republic
 
-    from bub.tools import content_result, result_content
+    from bub.core.tools import content_result, result_content
 
     image = republic.Image("image/png", data=b"png")
     root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)

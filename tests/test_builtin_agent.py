@@ -14,14 +14,14 @@ import bub.builtin.tools  # noqa: F401  — registers builtin tools (incl. `mode
 from bub.builtin.agent import BubAgent
 from bub.builtin.settings import AgentSettings
 from bub.builtin.steering import InMemorySteeringInbox
-from bub.core import PromptContext, StepFinished
+from bub.core import PromptContext
 from bub.core.context import default_tape_context
-from bub.core.tape import session_tape_name
+from bub.core.events import StepFinished
+from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.tape import Tape, session_tape_name
+from bub.core.tools import REGISTRY, tool
 from bub.prompt import UserContent
-from bub.store import AsyncTapeStoreAdapter, InMemoryTapeStore
-from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
-from bub.tape import Tape
-from bub.tools import REGISTRY, tool
+from bub.streaming import StreamEvent, StreamState
 from tests.model_fakes import ProviderService
 
 # ---------------------------------------------------------------------------
@@ -172,14 +172,12 @@ async def test_agent_loop_awaits_continue_prompt_hook_with_stream_state(continua
     continuation_prompts: list[list[UserContent] | None] = []
     observed_usage: list[dict[str, Any] | None] = []
 
-    def run_once(prompt: list[UserContent] | None, *, model: Any, tape: Tape, **_: Any) -> AsyncStreamEvents:
+    async def run_once(
+        prompt: list[UserContent] | None, *, model: Any, tape: Tape, state: StreamState, **_: Any
+    ) -> AsyncIterator[StreamEvent]:
         prompts.append(prompt)
-        should_continue = len(prompts) == 1
-
-        async def iterator() -> AsyncIterator[StreamEvent]:
-            yield StreamEvent("final", {"tool_calls": ["call"] if should_continue else []})
-
-        return AsyncStreamEvents(iterator(), state=StreamState(usage={"step": len(prompts)}))
+        state.usage = {"step": len(prompts)}
+        yield StreamEvent("final", {"tool_calls": ["call"] if len(prompts) == 1 else []})
 
     async def continue_prompt(*, prompt: list[UserContent] | None, tape: Tape, state: StreamState) -> str | None:
         continuation_prompts.append(prompt)

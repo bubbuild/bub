@@ -1334,7 +1334,7 @@ async def test_terminal_presenter_redraw_wait_stops_when_prompt_finishes(monkeyp
 async def test_cli_tool_renderer_finishes_before_next_model_output() -> None:
     from bub.channels.cli import _CliToolCallRenderer
     from bub.core.events import EventBus
-    from bub.tools import Tool, ToolExecutor
+    from bub.core.tools import Tool, ToolExecutor
 
     events: list[str] = []
 
@@ -1367,7 +1367,7 @@ async def test_cli_tool_renderer_finishes_before_next_model_output() -> None:
 async def test_cli_tool_renderer_shows_the_error_the_tool_raised() -> None:
     from bub.channels.cli import _CliToolCallRenderer
     from bub.core.events import EventBus
-    from bub.tools import Tool, ToolExecutor
+    from bub.core.tools import Tool, ToolExecutor
 
     errors: list[BaseException] = []
 

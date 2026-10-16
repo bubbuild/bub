@@ -309,7 +309,7 @@ def _ensure_project(project: Path) -> None:
         return
     _uv("init", "--bare", "--name", "bub-project", "--app", cwd=project)
     bub_requirement = _build_bub_requirement()
-    _uv("add", "--active", "--no-sync", *bub_requirement, cwd=project)
+    _uv("add", "--active", "--no-sync", "--extra", "app", *bub_requirement, cwd=project)
 
 
 def install(

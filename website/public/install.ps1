@@ -3,7 +3,7 @@ Set-StrictMode -Version Latest
 
 $UvInstallUrl = "https://astral.sh/uv/install.ps1"
 $DefaultPresetsUrl = "https://bub.build/presets.json"
-$BubPackage = "bub"
+$BubPackage = "bub[app]"
 $BubPython = "3.12"
 $InquirerPackage = "inquirer-textual==0.8.0"
 $script:UvPath = $null
