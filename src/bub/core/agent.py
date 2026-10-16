@@ -73,6 +73,8 @@ class Agent:
             :func:`default_tape_context`, which replays the recorded chat.
         sidecars: Sidecar capabilities mounted on every tape.
         max_steps: Maximum model calls in one run.
+        max_tool_concurrency: Maximum tool calls from one model response that run at
+            once. None runs them all concurrently; 1 runs them one at a time, in order.
         name: Agent name, reported in ``invoke_agent`` traces.
         command_prefix: When set, a text prompt starting with it runs as a command
             (see :meth:`run_command`) instead of the agent loop. None disables commands.
@@ -97,6 +99,7 @@ class Agent:
         context: TapeContext | None = None,
         sidecars: Sequence[TapeSidecar] = (),
         max_steps: int = sys.maxsize,
+        max_tool_concurrency: int | None = None,
         name: str = "agent",
         command_prefix: str | None = None,
     ) -> None:
@@ -117,6 +120,9 @@ class Agent:
             sidecars=tuple(sidecars),
         )
         self.max_steps = max_steps
+        if max_tool_concurrency is not None and max_tool_concurrency < 1:
+            raise ValueError("max_tool_concurrency must be a positive integer or None")
+        self.max_tool_concurrency = max_tool_concurrency
         self.name = name
         self.command_prefix = None if command_prefix is None else validate_command_prefix(command_prefix)
         self.events = EventBus()
@@ -352,7 +358,7 @@ class Agent:
             yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
             turn_state["_runtime_tool_names"] = tuple(tool_map)
             context = ToolContext(tape=tape, run_id=run_id, state=turn_state, events=self.events)
-            execution = await ToolExecutor(events=self.events).execute_many(
+            execution = await ToolExecutor(events=self.events, max_concurrency=self.max_tool_concurrency).execute_many(
                 tool_invocations,
                 context=context,
                 call_ids=[call.id for call in tool_calls],
