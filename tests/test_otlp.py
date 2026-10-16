@@ -75,7 +75,7 @@ else:
     logfire.configure = unexpected_configuration
 from bub.__main__ import _instrument_bub
 from bub.tracing import Span
-_instrument_bub('INFO')  # CLI import already configured it; repeat must not duplicate exports.
+_instrument_bub('INFO')
 root = Span('invoke_agent bub', {'gen_ai.operation.name': 'invoke_agent'})
 with root.activate():
     child = Span('chat test', {'gen_ai.operation.name': 'chat'})

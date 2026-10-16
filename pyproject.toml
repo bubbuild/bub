@@ -20,21 +20,11 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
+# The agent kernel, bub.core. Everything else (framework, CLI, channels, builtin agent) is in the `app` extra.
 dependencies = [
-    "pydantic>=2.12.5",
-    "pydantic-settings>=2.14.2",
-    "pyyaml>=6.0.3",
-    "pluggy>=1.6.0",
-    "inquirer-textual>=0.8.0",
-    "typer>=0.24.1",
     "republic>=0.6.0a1",
-    "rich>=14.3.4",
-    "prompt-toolkit>=3.0.52",
-    "python-telegram-bot>=22.7",
+    "pydantic>=2.12.5",
     "loguru>=0.7.3",
-    "rapidfuzz>=3.14.5",
-    "aiohttp>=3.14.3",
-    "httpx[socks]>=0.28.1",
     "typing-extensions>=4.15.0",
 ]
 
@@ -44,21 +34,35 @@ Repository = "https://github.com/bubbuild/bub"
 Documentation = "https://bub.build"
 
 [project.scripts]
-bub = "bub.__main__:app"
+bub = "bub.__main__:main"
 
 [project.optional-dependencies]
+app = [
+    "pydantic-settings>=2.14.2",
+    "pyyaml>=6.0.3",
+    "pluggy>=1.6.0",
+    "inquirer-textual>=0.8.0",
+    "typer>=0.24.1",
+    "rich>=14.3.4",
+    "prompt-toolkit>=3.0.52",
+    "python-telegram-bot>=22.7",
+    "rapidfuzz>=3.14.5",
+    "aiohttp>=3.14.3",
+    "httpx[socks]>=0.28.1",
+]
 trace = [
     "opentelemetry-api>=1.39.0",
     "opentelemetry-sdk>=1.39.0",
     "opentelemetry-exporter-otlp-proto-http>=1.39.0",
 ]
 logfire = [
-    "bub[trace]",
+    "bub[app,trace]",
     "logfire>=4.32.0",
 ]
 
 [dependency-groups]
 dev = [
+    "bub[app]",
     "pytest>=9.0.3",
     "tox-uv>=1.35.1",
     "types-PyYAML>=6.0.12.20260408",

@@ -185,29 +185,42 @@ wheels = [
 name = "bub"
 source = { editable = "." }
 dependencies = [
-    { name = "aiohttp" },
-    { name = "httpx", extra = ["socks"] },
-    { name = "inquirer-textual" },
     { name = "loguru" },
-    { name = "pluggy" },
-    { name = "prompt-toolkit" },
     { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "python-telegram-bot" },
-    { name = "pyyaml" },
-    { name = "rapidfuzz" },
     { name = "republic" },
-    { name = "rich" },
-    { name = "typer" },
     { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
+app = [
+    { name = "aiohttp" },
+    { name = "httpx", extra = ["socks"] },
+    { name = "inquirer-textual" },
+    { name = "pluggy" },
+    { name = "prompt-toolkit" },
+    { name = "pydantic-settings" },
+    { name = "python-telegram-bot" },
+    { name = "pyyaml" },
+    { name = "rapidfuzz" },
+    { name = "rich" },
+    { name = "typer" },
+]
 logfire = [
+    { name = "aiohttp" },
+    { name = "httpx", extra = ["socks"] },
+    { name = "inquirer-textual" },
     { name = "logfire" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
+    { name = "pluggy" },
+    { name = "prompt-toolkit" },
+    { name = "pydantic-settings" },
+    { name = "python-telegram-bot" },
+    { name = "pyyaml" },
+    { name = "rapidfuzz" },
+    { name = "rich" },
+    { name = "typer" },
 ]
 trace = [
     { name = "opentelemetry-api" },
@@ -217,6 +230,7 @@ trace = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "bub", extra = ["app"] },
     { name = "mypy" },
     { name = "prek" },
     { name = "pytest" },
@@ -228,9 +242,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = ">=3.14.3" },
-    { name = "httpx", extras = ["socks"], specifier = ">=0.28.1" },
-    { name = "inquirer-textual", specifier = ">=0.8.0" },
+    { name = "aiohttp", marker = "extra == 'app'", specifier = ">=3.14.3" },
+    { name = "aiohttp", marker = "extra == 'logfire'", specifier = ">=3.14.3" },
+    { name = "httpx", extras = ["socks"], marker = "extra == 'app'", specifier = ">=0.28.1" },
+    { name = "httpx", extras = ["socks"], marker = "extra == 'logfire'", specifier = ">=0.28.1" },
+    { name = "inquirer-textual", marker = "extra == 'app'", specifier = ">=0.8.0" },
+    { name = "inquirer-textual", marker = "extra == 'logfire'", specifier = ">=0.8.0" },
     { name = "logfire", marker = "extra == 'logfire'", specifier = ">=4.32.0" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "opentelemetry-api", marker = "extra == 'logfire'", specifier = ">=1.39.0" },
@@ -239,22 +256,31 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'trace'", specifier = ">=1.39.0" },
     { name = "opentelemetry-sdk", marker = "extra == 'logfire'", specifier = ">=1.39.0" },
     { name = "opentelemetry-sdk", marker = "extra == 'trace'", specifier = ">=1.39.0" },
-    { name = "pluggy", specifier = ">=1.6.0" },
-    { name = "prompt-toolkit", specifier = ">=3.0.52" },
+    { name = "pluggy", marker = "extra == 'app'", specifier = ">=1.6.0" },
+    { name = "pluggy", marker = "extra == 'logfire'", specifier = ">=1.6.0" },
+    { name = "prompt-toolkit", marker = "extra == 'app'", specifier = ">=3.0.52" },
+    { name = "prompt-toolkit", marker = "extra == 'logfire'", specifier = ">=3.0.52" },
     { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pydantic-settings", specifier = ">=2.14.2" },
-    { name = "python-telegram-bot", specifier = ">=22.7" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "rapidfuzz", specifier = ">=3.14.5" },
+    { name = "pydantic-settings", marker = "extra == 'app'", specifier = ">=2.14.2" },
+    { name = "pydantic-settings", marker = "extra == 'logfire'", specifier = ">=2.14.2" },
+    { name = "python-telegram-bot", marker = "extra == 'app'", specifier = ">=22.7" },
+    { name = "python-telegram-bot", marker = "extra == 'logfire'", specifier = ">=22.7" },
+    { name = "pyyaml", marker = "extra == 'app'", specifier = ">=6.0.3" },
+    { name = "pyyaml", marker = "extra == 'logfire'", specifier = ">=6.0.3" },
+    { name = "rapidfuzz", marker = "extra == 'app'", specifier = ">=3.14.5" },
+    { name = "rapidfuzz", marker = "extra == 'logfire'", specifier = ">=3.14.5" },
     { name = "republic", specifier = ">=0.6.0a1" },
-    { name = "rich", specifier = ">=14.3.4" },
-    { name = "typer", specifier = ">=0.24.1" },
+    { name = "rich", marker = "extra == 'app'", specifier = ">=14.3.4" },
+    { name = "rich", marker = "extra == 'logfire'", specifier = ">=14.3.4" },
+    { name = "typer", marker = "extra == 'app'", specifier = ">=0.24.1" },
+    { name = "typer", marker = "extra == 'logfire'", specifier = ">=0.24.1" },
     { name = "typing-extensions", specifier = ">=4.15.0" },
 ]
-provides-extras = ["logfire", "trace"]
+provides-extras = ["app", "logfire", "trace"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "bub", extras = ["app"] },
     { name = "mypy", specifier = ">=1.20.0" },
     { name = "prek", specifier = ">=0.3.8" },
     { name = "pytest", specifier = ">=9.0.3" },

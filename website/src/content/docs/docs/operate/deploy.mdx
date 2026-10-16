@@ -67,7 +67,7 @@ To build from your local checkout instead, pass `--build`. The local build is ta
 docker compose up -d --build
 ```
 
-A local build takes a few minutes — the image installs system tools (git, node, jq, etc.) and runs `uv sync --no-dev --no-editable`.
+A local build takes a few minutes — the image installs system tools (git, node, jq, etc.) and runs `uv sync --no-dev --no-editable --extra app`.
 
 ### Run without Compose
 

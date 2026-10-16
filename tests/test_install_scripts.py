@@ -173,7 +173,7 @@ def test_install_sh_uses_existing_uv_with_minimal_preset(tmp_path: Path) -> None
     venv_path = tmp_path / "home" / ".bub" / ".venv"
     assert uv_calls[1:] == [
         f"venv --python 3.12 --allow-existing {venv_path}",
-        f"pip install --python {venv_path / 'bin' / 'python'} --upgrade bub",
+        f"pip install --python {venv_path / 'bin' / 'python'} --upgrade bub[app]",
     ]
     executable_link = tmp_path / "home" / ".local" / "bin" / "bub"
     assert executable_link.is_symlink()

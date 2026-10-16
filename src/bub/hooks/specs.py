@@ -11,9 +11,9 @@ import pluggy
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import MessageHandler
 from bub.core.events import (
-    LlmCallDecision,
-    LlmCallRequest,
-    LlmCallResult,
+    LLMCallDecision,
+    LLMCallRequest,
+    LLMCallResult,
     ToolCall,
     ToolCallDecision,
     ToolCallResult,
@@ -148,20 +148,20 @@ class BubHookSpecs:
         """Observe framework errors from any stage."""
 
     @hookspec
-    def before_llm_call(self, request: LlmCallRequest, state: TurnState) -> LlmCallRequest | LlmCallDecision | None:
+    def before_llm_call(self, request: LLMCallRequest, state: TurnState) -> LLMCallRequest | LLMCallDecision | None:
         """Observe, modify or short-circuit an outgoing agent-loop LLM request.
 
         Implementations are chained in pluggy's LIFO order (last registered
         runs first): each receives the
         request as modified by earlier implementations, and may return a
         modified copy (``dataclasses.replace``), ``None`` to leave it
-        unchanged, or ``LlmCallDecision.finish(text)`` to skip the provider
+        unchanged, or ``LLMCallDecision.finish(text)`` to skip the provider
         call and emit ``text`` as the final output (cost guards / call
         limits). Exceptions are logged and skipped, never fatal.
         """
 
     @hookspec
-    def after_llm_call(self, request: LlmCallRequest, result: LlmCallResult, state: TurnState) -> None:
+    def after_llm_call(self, request: LLMCallRequest, result: LLMCallResult, state: TurnState) -> None:
         """Observe the terminal outcome of one agent-loop LLM call.
 
         Fires exactly once per completed call — success (for streaming

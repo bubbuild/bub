@@ -19,6 +19,8 @@ Bub 自身的运行时也构建在这个内核之上：`bub.builtin.BubAgent` �
 uv add bub
 ```
 
+这只会安装内核。如果还需要 `bub` 命令、channel 或插件，请安装 `app` extra（`bub[app]`）。
+
 下文描述的是当前源码中的 API；请使用包含这些接口的发布版本，或安装当前源码。
 
 ## 创建 Agent
@@ -31,8 +33,9 @@ from pathlib import Path
 
 import republic
 
-from bub.core import Agent, Tool
+from bub.core import Agent
 from bub.core.store import FileTapeStore
+from bub.core.tools import Tool
 
 
 async def lookup_order(order_id: str) -> dict[str, str]:
@@ -103,7 +106,7 @@ async with agent.run(prompt, tape="t") as stream:
     ...
 ```
 
-`options` 是随本次运行每次模型调用发送的 `republic.ChatOptions`；循环会加入本步的工具。`BeforeLlmCall`
+`options` 是随本次运行每次模型调用发送的 `republic.ChatOptions`；循环会加入本步的工具。`LLMCallStarted`
 处理器可以把一次调用重定向到其他 `provider:model`：同一 provider 的模型复用运行模型的客户端，其他 provider
 使用从 Republic 环境变量配置的客户端。
 
@@ -114,13 +117,13 @@ Bub 自己的 `bub.builtin.model.BubModel` 就是这样的客户端。
 
 ## 工具
 
-`Tool.from_callable()` 从类型注解生成参数 schema，从 docstring 生成描述，不会注册到全局。`bub.core` 中的
+`Tool.from_callable()` 从类型注解生成参数 schema，从 docstring 生成描述，不会注册到全局。`bub.core.tools` 中的
 `@tool` 装饰器生成同样的 `Tool`，同时把它加入 Bub 的全局注册表，Bub 自己的 agent 会取其快照。
 
 以 `context=True` 创建的工具会收到 `ToolContext`，其中包含本次运行的 `tape`、turn `state`、`run_id` 和事件总线：
 
 ```python
-from bub.core import ToolContext
+from bub.core.tools import ToolContext
 
 
 def remember(note: str, *, context: ToolContext) -> str:
@@ -197,7 +200,7 @@ async with agent.run(",lookup_order order_id=A123", model=model, tape="customer-
 ```
 
 首尾空白会被忽略，且只去掉一个前缀；只有前缀时会抛出 `ValueError`。前缀必须非空且不含空白。带媒体的 prompt 不会作为命令。
-命令调用工具时和模型调用工具一样发出 `BeforeToolCall` 和 `AfterToolCall`，因此工具处理器同样作用于它们；其
+命令调用工具时和模型调用工具一样发出 `ToolCallStarted` 和 `ToolCallFinished`，因此工具处理器同样作用于它们；其
 `ToolContext` 的 `command` 为真。
 `agent.run_command(tape, line)` 可以在已打开的 tape 上直接执行命令。
 
@@ -206,17 +209,17 @@ async with agent.run(",lookup_order order_id=A123", model=model, tape="customer-
 循环通过 `bub.core.events` 中的事件报告进度；注册处理器即可观察或干预它。
 
 ```python
-from bub.core import AfterToolCall, BeforeToolCall, StepFinished, ToolCallDecision
+from bub.core.events import ToolCallFinished, ToolCallStarted, StepFinished, ToolCallDecision
 
 
-@agent.events.on(BeforeToolCall)
-def guard(event: BeforeToolCall) -> None:
+@agent.events.on(ToolCallStarted)
+def guard(event: ToolCallStarted) -> None:
     if event.call.tool == "lookup_order" and not event.call.arguments.get("order_id"):
         event.decision = ToolCallDecision.deny("order_id is required")
 
 
-@agent.events.on(AfterToolCall)
-async def audit(event: AfterToolCall) -> None:
+@agent.events.on(ToolCallFinished)
+async def audit(event: ToolCallFinished) -> None:
     print("tool", event.call.tool, event.result.duration_ms, "ms")
 
 
@@ -226,12 +229,13 @@ agent.events.on(StepFinished, lambda event: print("step", event.step, event.stat
 | 事件                           | 时机                                         | 处理器可以                                                                                                        |
 | ------------------------------ | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `RunStarted`                   | 一次运行开始                                 | 观察模型 spec、prompt 和运行 metadata                                                                             |
+| `RunFinished`                  | 运行的 stream 关闭                           | 观察状态（`ok`、`error` 或 `cancelled`）、步数、耗时和错误                                                        |
 | `StepStarted` / `StepFinished` | 一个模型步骤开始 / 以某个状态结束            | 观察                                                                                                              |
-| `BeforeLlmCall`                | 每次模型调用之前                             | 替换 `event.request`（模型、消息、`max_tokens`），或设置 `event.decision = LlmCallDecision.finish(text)` 跳过调用 |
-| `AfterLlmCall`                 | 每次模型调用完成或失败之后                   | 观察文本、工具调用、用量和错误                                                                                    |
-| `BeforeToolCall`               | 每次工具调用之前                             | 替换 `event.call` 以修改参数，或设置 `ToolCallDecision.replace(result)` / `deny(message)`                         |
-| `AfterToolCall`                | 每次工具调用之后，包括被拒绝和被替换的调用   | 赋值 `event.result.result` 以改变模型看到的结果                                                                   |
-| `ChatCompleted`                | 一个步骤的对话已可记录                       | 观察                                                                                                              |
+| `LLMCallStarted`               | 每次模型调用之前                             | 替换 `event.request`（模型、消息、`max_tokens`），或设置 `event.decision = LLMCallDecision.finish(text)` 跳过调用                   |
+| `LLMCallFinished`              | 每次模型调用完成或失败之后                   | 观察文本、工具调用、用量和错误                                                                                    |
+| `ToolCallStarted`              | 每次工具调用之前                             | 替换 `event.call` 以修改参数，或设置 `ToolCallDecision.replace(result)` / `deny(message)`                         |
+| `ToolCallFinished`             | 每次工具调用之后，包括被拒绝和被替换的调用   | 赋值 `event.result.result` 以改变模型看到的结果                                                                   |
+| `ChatFinished`                 | 一个步骤的对话已可记录                       | 观察                                                                                                              |
 | `CommandFinished`              | 一个命令 prompt 执行完毕（见 [命令](#命令)） | 观察命令、状态和输出                                                                                              |
 
 `agent.events.on(EventType, handler)` 注册同步或异步处理器并返回它；`@agent.events.on(EventType)` 以装饰器形式完成同样的注册，
@@ -250,7 +254,8 @@ agent.events.on(StepFinished, lambda event: print("step", event.step, event.stat
 ```python
 from dataclasses import dataclass
 
-from bub.core import AgentEvent, ToolContext
+from bub.core.events import AgentEvent
+from bub.core.tools import ToolContext
 
 
 @dataclass(kw_only=True)
@@ -335,7 +340,7 @@ async with agent.run("Check order A123", model=model, tape="customer-42") as str
 | `continue_prompt(tape, prompt, state)` | `None`   | 在工具调用后返回下一步的用户消息。 |
 
 ```python
-from bub.core import Tape
+from bub.core.tape import Tape
 
 
 class TriageAgent(Agent):

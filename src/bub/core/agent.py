@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Iterable, Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AsyncExitStack, aclosing, asynccontextmanager
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
@@ -19,14 +19,15 @@ from republic.tools import BuiltinTool
 from bub.core.commands import parse_command, parse_command_args, strip_command_prefix, validate_command_prefix
 from bub.core.context import default_tape_context
 from bub.core.events import (
-    AfterLlmCall,
     AgentEvent,
-    BeforeLlmCall,
-    ChatCompleted,
+    ChatFinished,
     CommandFinished,
     EventBus,
-    LlmCallRequest,
-    LlmCallResult,
+    LLMCallFinished,
+    LLMCallRequest,
+    LLMCallResult,
+    LLMCallStarted,
+    RunFinished,
     RunStarted,
     StepFinished,
     StepStarted,
@@ -78,7 +79,7 @@ class Agent:
 
     The loop reports its progress as events (:mod:`bub.core.events`) on ``events``;
     register handlers with ``agent.events.on``. A :class:`TapeRecorder`, registered first,
-    records them on the run's tape. ``BeforeLlmCall`` and ``BeforeToolCall`` handlers
+    records them on the run's tape. ``LLMCallStarted`` and ``ToolCallStarted`` handlers
     may change or short-circuit the call.
 
     Subclasses customize a run by overriding :meth:`prepare_tools`,
@@ -216,14 +217,11 @@ class Agent:
             with span.activate():
                 span.messages("gen_ai.input.messages", [republic.user(*prompt)])
                 if not any(prompt):
-                    events = events_from([
-                        StreamEvent("text", {"delta": "error: empty prompt"}),
-                        StreamEvent("final", {"text": "error: empty prompt", "ok": False}),
-                    ])
-                else:
-                    session = await stack.enter_async_context(self.session(tape, state=state, merge_back=merge_back))
-                    events = await self.run_on(session, prompt, model=model, options=options, metadata=metadata)
-                    stack.push_async_callback(events.aclose)
+                    return _fixed_stream("error: empty prompt", ok=False, span=span, on_close=stack.aclose)
+                session = await stack.enter_async_context(self.session(tape, state=state, merge_back=merge_back))
+                return await self.run_on(
+                    session, prompt, model=model, options=options, metadata=metadata, span=span, on_close=stack.aclose
+                )
         except BaseException as exc:
             span.fail(exc)
             try:
@@ -232,7 +230,6 @@ class Agent:
             finally:
                 span.end()
             raise
-        return AsyncStreamEvents(_trace_events(events, span), state=events._state, on_close=stack.aclose, span=span)
 
     async def run_on(
         self,
@@ -242,38 +239,156 @@ class Agent:
         model: Model | None = None,
         options: Mapping[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
+        span: Span | None = None,
+        on_close: Callable[[], Awaitable[None]] | None = None,
     ) -> AsyncStreamEvents:
         """Start a run on an already open tape; the caller owns the tape's lifecycle.
 
         A command prompt (see :meth:`command_line`) runs as a command instead, without calling the model.
+        ``span`` traces the run's stream, and ``on_close`` runs after the stream closes.
         """
         if (line := self.command_line(prompt)) is not None:
-            result = await self.run_command(tape, line)
-            return events_from([
-                StreamEvent("text", {"delta": result}),
-                StreamEvent("final", {"text": result, "ok": True}),
-            ])
+            return _fixed_stream(await self.run_command(tape, line), ok=True, span=span, on_close=on_close)
         client = self._model_client(model)
+        started = time.monotonic()
         await self._emit(RunStarted, tape, model=client.spec, prompt=prompt, metadata=dict(metadata or {}))
         state = StreamState()
-        return AsyncStreamEvents(self._run_steps(tape, client, dict(options or {}), prompt, state), state=state)
+        tracker = _RunTracker(span)
 
-    def run_once(
+        async def close() -> None:
+            try:
+                elapsed_ms = int((time.monotonic() - started) * 1000)
+                await self._emit(
+                    RunFinished,
+                    tape,
+                    status=tracker.status,
+                    steps=tracker.steps,
+                    elapsed_ms=elapsed_ms,
+                    error=tracker.error,
+                )
+            finally:
+                if on_close is not None:
+                    await on_close()
+
+        return AsyncStreamEvents(
+            self._run_steps(tape, client, dict(options or {}), prompt, state, tracker),
+            state=state,
+            on_close=close,
+            span=span,
+        )
+
+    async def run_once(
         self,
         prompt: list[UserContent] | None,
         *,
         model: Model | None = None,
         options: Mapping[str, Any] | None = None,
         tape: Tape,
-    ) -> AsyncStreamEvents:
+        state: StreamState | None = None,
+    ) -> AsyncGenerator[StreamEvent, None]:
         """Make one call to ``model``, or the agent's model, on an open tape and execute the tool calls it returns.
 
         ``prompt`` is the new user message; ``None`` continues the existing conversation.
+
+        ``state``, when given, receives the call's usage.
         """
-        state = StreamState()
-        return AsyncStreamEvents(
-            self._run_once(tape, self._model_client(model), dict(options or {}), prompt, state), state=state
+        client = self._model_client(model)
+        options = dict(options or {})
+        if state is None:
+            state = StreamState()
+        turn_state = tape.context.state
+        tools = await self.prepare_tools(tape, prompt)
+        prompt_context = PromptContext(agent=self, tape=tape, prompt=prompt or [], tools=tools, model=client.spec)
+        system_prompt = await self.system_prompt.render(prompt_context) or None
+        if (span := current_span()) and span.recording:
+            span.set(**{"gen_ai.tool.definitions": [tool.to_schema() | {"type": "function"} for tool in tools]})
+        pending = await self.pending_messages(tape)
+
+        run_id = generate_run_id()
+        messages, new_messages = await self._build_messages(
+            tape, model=client.spec, run_id=run_id, system_prompt=system_prompt, prompt=prompt, pending=pending
         )
+        request = LLMCallRequest(
+            run_id=run_id,
+            model=client.spec,
+            messages=messages,
+            tool_names=tuple(tool_item.name for tool_item in tools),
+            max_tokens=options.get("max_tokens", client.max_tokens),
+        )
+        before = await self._emit(LLMCallStarted, tape, request=request)
+        request, decision = before.request, before.decision
+        if decision is not None:
+            await self._emit(
+                ChatFinished,
+                tape,
+                run_id=run_id,
+                model=request.model,
+                system_prompt=system_prompt,
+                new_messages=new_messages,
+                response_text=decision.text,
+            )
+            yield StreamEvent("text", {"delta": decision.text})
+            yield StreamEvent("final", {"ok": True, "text": decision.text})
+            return
+        completion_started = time.monotonic()
+        async with self._traced_completion(tape, client, options, request, tools, state) as (
+            provider,
+            completion,
+            events,
+        ):
+            async for event in events:
+                yield event
+            response = completion.response
+            completion_elapsed = time.monotonic() - completion_started
+        text = response.text or response.refusal or ""
+
+        yield StreamEvent("usage", {"usage": state.usage, "elapsed_seconds": completion_elapsed})
+
+        tool_calls = response.tool_calls
+        if tool_calls:
+            tool_map = {tool_item.name: tool_item for tool_item in tools}
+            serialized_tool_calls = [asdict(tool_call) for tool_call in tool_calls]
+            tool_invocations = [_tool_invocation(tool_call, tool_map) for tool_call in tool_calls]
+            yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
+            turn_state["_runtime_tool_names"] = tuple(tool_map)
+            context = ToolContext(tape=tape, run_id=run_id, state=turn_state, events=self.events)
+            execution = await ToolExecutor(events=self.events).execute_many(
+                tool_invocations,
+                context=context,
+                call_ids=[call.id for call in tool_calls],
+            )
+            tool_results = execution.tool_results
+        else:
+            serialized_tool_calls, tool_results = [], None
+        assistant_fields = {
+            key: value
+            for key, value in {
+                "reasoning": response.reasoning,
+                "provider_data": [
+                    asdict(part) for part in response.message.parts if isinstance(part, republic.ProviderData)
+                ],
+            }.items()
+            if value
+        }
+        await self._emit(
+            ChatFinished,
+            tape,
+            run_id=run_id,
+            model=request.model,
+            system_prompt=system_prompt,
+            new_messages=new_messages,
+            response_text=(text or None) if tool_calls else text,
+            tool_calls=serialized_tool_calls,
+            tool_results=tool_results,
+            usage=state.usage,
+            provider=provider,
+            assistant_fields=assistant_fields,
+        )
+        if tool_calls:
+            yield StreamEvent("tool_result", {"tool_results": tool_results})
+            yield StreamEvent("final", {"ok": True, "tool_calls": serialized_tool_calls, "tool_results": tool_results})
+        else:
+            yield StreamEvent("final", {"ok": True, "text": text})
 
     def _model_client(self, model: Model | None) -> ModelClient:
         if model is None:
@@ -350,159 +465,70 @@ class Agent:
         return await self.events.emit(event_type(state=tape.context.state, tape=tape, **fields))
 
     async def _run_steps(
-        self, tape: Tape, client: ModelClient, options: dict[str, Any], prompt: list[UserContent], state: StreamState
-    ) -> AsyncGenerator[StreamEvent, None]:
-        auto_handoff_remaining = MAX_AUTO_HANDOFF_RETRIES
-        next_prompt: list[UserContent] | None = prompt
-        for step in range(1, self.max_steps + 1):
-            start = time.monotonic()
-            should_continue = False
-            logger.info("loop.step step={} tape={} model={}", step, tape.name, client.spec)
-            await self._emit(StepStarted, tape, step=step, prompt=next_prompt)
-            try:
-                output = self.run_once(next_prompt, model=client, options=options, tape=tape)
-                async with aclosing(output):
-                    async for event in output:
-                        yield event
-                        if event.kind == "error":
-                            await self._record_step(tape, step, start, "error", error=event.data.get("message", ""))
-                        elif event.kind == "final":
-                            should_continue = bool(event.data.get("tool_calls") or event.data.get("tool_results"))
-            except Exception as exc:
-                error_message = f"{exc!s}"
-                if auto_handoff_remaining > 0 and is_context_length_error(error_message):
-                    auto_handoff_remaining -= 1
-                    logger.warning(
-                        "auto_handoff: context length exceeded, performing automatic handoff. tape={} step={}",
-                        tape.name,
-                        step,
-                    )
-                    await tape.handoff(
-                        name="auto_handoff/context_overflow",
-                        state={"reason": "context_length_exceeded", "error": error_message},
-                    )
-                    await self._record_step(tape, step, start, "auto_handoff", error=error_message)
-                    next_prompt = prompt
-                    continue
-                await self._record_step(tape, step, start, "error", error=error_message)
-                raise
-
-            state.error = output.error
-            state.usage = output.usage
-            if not (should_continue or self.has_pending_messages(tape)):
-                await self._record_step(tape, step, start, "ok")
-                return
-
-            next_prompt = await self.continue_prompt(tape, next_prompt, state)
-            await self._record_step(tape, step, start, "continue")
-
-        raise RuntimeError(f"max_steps_reached={self.max_steps}")
-
-    async def _record_step(self, tape: Tape, step: int, start: float, status: str, *, error: str | None = None) -> None:
-        elapsed_ms = int((time.monotonic() - start) * 1000)
-        await self._emit(StepFinished, tape, step=step, status=status, elapsed_ms=elapsed_ms, error=error)
-
-    async def _run_once(
         self,
         tape: Tape,
         client: ModelClient,
         options: dict[str, Any],
-        prompt: list[UserContent] | None,
+        prompt: list[UserContent],
         state: StreamState,
+        tracker: _RunTracker,
     ) -> AsyncGenerator[StreamEvent, None]:
-        turn_state = tape.context.state
-        tools = await self.prepare_tools(tape, prompt)
-        prompt_context = PromptContext(agent=self, tape=tape, prompt=prompt or [], tools=tools, model=client.spec)
-        system_prompt = await self.system_prompt.render(prompt_context) or None
-        if (span := current_span()) and span.recording:
-            span.set(**{"gen_ai.tool.definitions": [tool.to_schema() | {"type": "function"} for tool in tools]})
-        pending = await self.pending_messages(tape)
+        auto_handoff_remaining = MAX_AUTO_HANDOFF_RETRIES
+        next_prompt: list[UserContent] | None = prompt
+        try:
+            for step in range(1, self.max_steps + 1):
+                tracker.steps = step
+                start = time.monotonic()
+                should_continue = False
+                logger.info("loop.step step={} tape={} model={}", step, tape.name, client.spec)
+                await self._emit(StepStarted, tape, step=step, prompt=next_prompt)
+                try:
+                    output = self.run_once(next_prompt, model=client, options=options, tape=tape, state=state)
+                    async with aclosing(output):
+                        async for event in output:
+                            tracker.observe(event)
+                            yield event
+                            if event.kind == "error":
+                                await self._record_step(tape, step, start, "error", error=event.data.get("message", ""))
+                            elif event.kind == "final":
+                                should_continue = bool(event.data.get("tool_calls") or event.data.get("tool_results"))
+                except Exception as exc:
+                    error_message = f"{exc!s}"
+                    if auto_handoff_remaining > 0 and is_context_length_error(error_message):
+                        auto_handoff_remaining -= 1
+                        logger.warning(
+                            "auto_handoff: context length exceeded, performing automatic handoff. tape={} step={}",
+                            tape.name,
+                            step,
+                        )
+                        await tape.handoff(
+                            name="auto_handoff/context_overflow",
+                            state={"reason": "context_length_exceeded", "error": error_message},
+                        )
+                        await self._record_step(tape, step, start, "auto_handoff", error=error_message)
+                        next_prompt = prompt
+                        continue
+                    await self._record_step(tape, step, start, "error", error=error_message)
+                    raise
 
-        run_id = generate_run_id()
-        messages, new_messages = await self._build_messages(
-            tape, model=client.spec, run_id=run_id, system_prompt=system_prompt, prompt=prompt, pending=pending
-        )
-        request = LlmCallRequest(
-            run_id=run_id,
-            model=client.spec,
-            messages=messages,
-            tool_names=tuple(tool_item.name for tool_item in tools),
-            max_tokens=options.get("max_tokens", client.max_tokens),
-        )
-        before = await self._emit(BeforeLlmCall, tape, request=request)
-        request, decision = before.request, before.decision
-        if decision is not None:
-            await self._emit(
-                ChatCompleted,
-                tape,
-                run_id=run_id,
-                model=request.model,
-                system_prompt=system_prompt,
-                new_messages=new_messages,
-                response_text=decision.text,
-            )
-            yield StreamEvent("text", {"delta": decision.text})
-            yield StreamEvent("final", {"ok": True, "text": decision.text})
-            return
-        completion_started = time.monotonic()
-        async with self._traced_completion(tape, client, options, request, tools, state) as (
-            provider,
-            completion,
-            events,
-        ):
-            async for event in events:
-                yield event
-            response = completion.response
-            completion_elapsed = time.monotonic() - completion_started
-        text = response.text or response.refusal or ""
+                if not (should_continue or self.has_pending_messages(tape)):
+                    await self._record_step(tape, step, start, "ok")
+                    tracker.status = "ok"
+                    return
 
-        yield StreamEvent("usage", {"usage": state.usage, "elapsed_seconds": completion_elapsed})
+                next_prompt = await self.continue_prompt(tape, next_prompt, state)
+                await self._record_step(tape, step, start, "continue")
 
-        tool_calls = response.tool_calls
-        if tool_calls:
-            tool_map = {tool_item.name: tool_item for tool_item in tools}
-            serialized_tool_calls = [asdict(tool_call) for tool_call in tool_calls]
-            tool_invocations = [_tool_invocation(tool_call, tool_map) for tool_call in tool_calls]
-            yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
-            turn_state["_runtime_tool_names"] = tuple(tool_map)
-            context = ToolContext(tape=tape, run_id=run_id, state=turn_state, events=self.events)
-            execution = await ToolExecutor(events=self.events).execute_many(
-                tool_invocations,
-                context=context,
-                call_ids=[call.id for call in tool_calls],
-            )
-            tool_results = execution.tool_results
-        else:
-            serialized_tool_calls, tool_results = [], None
-        assistant_fields = {
-            key: value
-            for key, value in {
-                "reasoning": response.reasoning,
-                "provider_data": [
-                    asdict(part) for part in response.message.parts if isinstance(part, republic.ProviderData)
-                ],
-            }.items()
-            if value
-        }
-        await self._emit(
-            ChatCompleted,
-            tape,
-            run_id=run_id,
-            model=request.model,
-            system_prompt=system_prompt,
-            new_messages=new_messages,
-            response_text=(text or None) if tool_calls else text,
-            tool_calls=serialized_tool_calls,
-            tool_results=tool_results,
-            usage=state.usage,
-            provider=provider,
-            assistant_fields=assistant_fields,
-        )
-        if tool_calls:
-            yield StreamEvent("tool_result", {"tool_results": tool_results})
-            yield StreamEvent("final", {"ok": True, "tool_calls": serialized_tool_calls, "tool_results": tool_results})
-        else:
-            yield StreamEvent("final", {"ok": True, "text": text})
+            raise RuntimeError(f"max_steps_reached={self.max_steps}")  # noqa: TRY301
+        except Exception as exc:
+            tracker.status, tracker.error = "error", f"{exc!s}"
+            raise
+        finally:
+            tracker.end_trace()
+
+    async def _record_step(self, tape: Tape, step: int, start: float, status: str, *, error: str | None = None) -> None:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        await self._emit(StepFinished, tape, step=step, status=status, elapsed_ms=elapsed_ms, error=error)
 
     async def _build_messages(
         self,
@@ -518,7 +544,7 @@ class Agent:
             messages = await tape.read_messages()
         except BubError as exc:
             await self._emit(
-                ChatCompleted,
+                ChatFinished,
                 tape,
                 run_id=run_id,
                 model=model,
@@ -542,7 +568,7 @@ class Agent:
         tape: Tape,
         client: ModelClient,
         options: dict[str, Any],
-        request: LlmCallRequest,
+        request: LLMCallRequest,
         tools: list[Tool],
         state: StreamState,
     ) -> AsyncGenerator[tuple[str, republic.Stream[Any], AsyncIterator[StreamEvent]]]:
@@ -587,11 +613,11 @@ class Agent:
         except BaseException as exc:
             span.fail(exc)
             if isinstance(exc, Exception):
-                await self._fire_after_llm_call(tape, request, "".join(text), calls, state, started, error=exc)
+                await self._fire_llm_call_finished(tape, request, "".join(text), calls, state, started, error=exc)
             raise
         else:
             completed = stream.response
-            await self._fire_after_llm_call(
+            await self._fire_llm_call_finished(
                 tape, request, completed.text or completed.refusal or "", completed.tool_calls, state, started
             )
         finally:
@@ -606,10 +632,10 @@ class Agent:
             )
             span.end()
 
-    async def _fire_after_llm_call(
+    async def _fire_llm_call_finished(
         self,
         tape: Tape,
-        request: LlmCallRequest,
+        request: LLMCallRequest,
         text: str,
         tool_calls: list[republic.ToolCall],
         state: StreamState,
@@ -617,7 +643,7 @@ class Agent:
         error: Exception | None = None,
     ) -> None:
         duration_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
-        result = LlmCallResult(
+        result = LLMCallResult(
             run_id=request.run_id,
             text=text or None,
             tool_calls=[asdict(call) for call in tool_calls],
@@ -625,7 +651,7 @@ class Agent:
             error=error,
             duration_ms=duration_ms,
         )
-        await self._emit(AfterLlmCall, tape, request=request, result=result)
+        await self._emit(LLMCallFinished, tape, request=request, result=result)
 
 
 def events_from(items: Iterable[StreamEvent]) -> AsyncStreamEvents:
@@ -638,30 +664,53 @@ def events_from(items: Iterable[StreamEvent]) -> AsyncStreamEvents:
     return AsyncStreamEvents(generator())
 
 
-async def _trace_events(events: AsyncStreamEvents, span: Span) -> AsyncGenerator[StreamEvent, None]:
-    messages: list[dict[str, Any]] = []
-    text: list[str] = []
-    calls: list[dict[str, Any]] = []
-    try:
-        async with aclosing(events):
-            async for event in events:
-                if span.recording:
-                    if event.kind == "text":
-                        text.append(str(event.data.get("delta", "")))
-                    elif event.kind == "tool_call":
-                        calls = event.data.get("tool_calls", [])
-                        messages.append({"role": "assistant", "content": "".join(text), "tool_calls": calls})
-                        text.clear()
-                    elif event.kind == "tool_result":
-                        for call, result in zip(calls, event.data.get("tool_results", []), strict=False):
-                            messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
-                    elif event.kind == "error":
-                        span.fail(RuntimeError(str(event.data.get("message", "agent failed"))))
-                yield event
-    finally:
-        if text:
-            messages.append({"role": "assistant", "content": "".join(text)})
-        span.messages("gen_ai.output.messages", messages)
+def _fixed_stream(
+    text: str, *, ok: bool, span: Span | None, on_close: Callable[[], Awaitable[None]] | None
+) -> AsyncStreamEvents:
+    """Stream a run that answers ``text`` without calling the model, such as a command."""
+    if span is not None:
+        span.messages("gen_ai.output.messages", [{"role": "assistant", "content": text}])
+
+    async def generator() -> AsyncIterator[StreamEvent]:
+        yield StreamEvent("text", {"delta": text})
+        yield StreamEvent("final", {"text": text, "ok": ok})
+
+    return AsyncStreamEvents(generator(), on_close=on_close, span=span)
+
+
+class _RunTracker:
+    """How a run ended, for ``RunFinished``, and its output messages, for its ``invoke_agent`` span."""
+
+    def __init__(self, span: Span | None) -> None:
+        self.status = "cancelled"
+        self.steps = 0
+        self.error: str | None = None
+        self._span = span
+        self._messages: list[dict[str, Any]] = []
+        self._text: list[str] = []
+        self._calls: list[dict[str, Any]] = []
+
+    def observe(self, event: StreamEvent) -> None:
+        if self._span is None or not self._span.recording:
+            return
+        if event.kind == "text":
+            self._text.append(str(event.data.get("delta", "")))
+        elif event.kind == "tool_call":
+            self._calls = event.data.get("tool_calls", [])
+            self._messages.append({"role": "assistant", "content": "".join(self._text), "tool_calls": self._calls})
+            self._text.clear()
+        elif event.kind == "tool_result":
+            for call, result in zip(self._calls, event.data.get("tool_results", []), strict=False):
+                self._messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+        elif event.kind == "error":
+            self._span.fail(RuntimeError(str(event.data.get("message", "agent failed"))))
+
+    def end_trace(self) -> None:
+        if self._span is None:
+            return
+        if self._text:
+            self._messages.append({"role": "assistant", "content": "".join(self._text)})
+        self._span.messages("gen_ai.output.messages", self._messages)
 
 
 def generate_run_id() -> str:
@@ -707,7 +756,7 @@ def _tool_invocation(tool_call: republic.ToolCall, tool_map: dict[str, Tool]) ->
 
     An unknown tool name is not treated as a fatal error: it is surfaced as a
     placeholder ``Tool`` so the invocation flows through ``ToolExecutor`` and
-    ``BeforeToolCall`` handlers can recover it into a guidance
+    ``ToolCallStarted`` handlers can recover it into a guidance
     ``tool_result`` instead of interrupting the turn. If no hook replaces the
     call, the placeholder raises a clear tool error rather than succeeding with
     an empty result.

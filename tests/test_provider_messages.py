@@ -12,12 +12,12 @@ import pytest
 from bub.builtin.settings import AgentSettings
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.core.context import default_tape_context
+from bub.core.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
+from bub.core.tape import Tape, TapeContext
+from bub.core.tools import Tool
 from bub.errors import BubError, ErrorKind
 from bub.framework import BubFramework
 from bub.prompt import to_content
-from bub.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
-from bub.tape import Tape, TapeContext
-from bub.tools import Tool
 from tests.model_fakes import ProviderService, StepRunner, chat_events, sse
 
 
@@ -177,8 +177,8 @@ import httpx2
 from bub.core.context import default_tape_context
 from tests.model_fakes import StepRunner
 from bub.builtin.settings import AgentSettings
-from bub.store import FileTapeStore, AsyncTapeStoreAdapter
-from bub.tape import Tape
+from bub.core.store import FileTapeStore, AsyncTapeStoreAdapter
+from bub.core.tape import Tape
 async def main():
     bodies = []
     def respond(request):

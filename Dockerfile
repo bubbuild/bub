@@ -36,7 +36,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE entrypoint.sh ./
 # Copy the full source and install
 COPY src ./src
-RUN uv sync --locked --no-dev --no-editable && \
+RUN uv sync --locked --no-dev --no-editable --extra app && \
     chmod +x /app/entrypoint.sh
 
 WORKDIR /workspace

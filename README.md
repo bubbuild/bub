@@ -48,7 +48,7 @@ See [Getting Started](https://bub.build/docs/getting-started/) for installer pre
 - **One runtime across surfaces.** The same inbound pipeline runs across CLI, Telegram, and custom channels. Adapters change the surface, not the runtime model.
 - **Batteries included.** CLI, Telegram, tools, skills, and model execution ship with the core runtime. Use the defaults first, replace them later.
 - **Operator equivalence.** Humans and agents work inside the same runtime boundaries, with the same evidence trail and handoff model.
-- **Embeddable Python SDK.** `bub.core` exposes the agent loop on its own — bring your own model, tools, prompts, and tape store, with no settings or plugins required.
+- **Embeddable Python SDK.** `pip install bub` installs only `bub.core`, which exposes the agent loop on its own (the CLI, channels and plugins come with `bub[app]`) — bring your own model, tools, prompts, and tape store, with no settings or plugins required.
 
 ## How It Works
 

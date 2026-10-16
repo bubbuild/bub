@@ -46,7 +46,7 @@ tape_name      = f"{workspace_hash}__{session_hash}"
 
 这意味着同一个 `session_id` 在不同 workspace 会得到不同 tape，两个仓库不会互相串 state。
 
-默认的 `provide_tape_store` 返回根目录在 `~/.bub/tapes/` 的 `FileTapeStore`。插件通过提供自己的 `provide_tape_store`（例如 SQLite 或 HTTP 后端）来替换它。
+默认的 `provide_tape_store` 返回根目录在 `~/.bub/tapes/` 的 `FuzzyFileTapeStore`（来自 `bub.builtin.store`）：它是 `bub.core.store.FileTapeStore` 的子类，文本查询按从新到旧返回去重后的结果，并支持近似匹配。插件通过提供自己的 `provide_tape_store`（例如 SQLite 或 HTTP 后端）来替换它。
 
 ### spill sidecar
 
@@ -69,13 +69,13 @@ spill 写入以 `spill.write` event 记录。框架管理的生命周期结果�
 `default_tape_context()` 构造一个 `TapeContext`，其 `select` 函数（`_select_messages`）遍历 tape entry 并返回 `republic.Message` 列表。映射规则如下：
 
 - `anchor` → 形如 `[Anchor created: <name>]: <state-as-json>` 的 `assistant` 消息。
-- `message` → 用 `bub.tape.to_message` 转换 entry payload。新的用户消息以 `republic.Message.to_dict()` 格式存储；旧版 Bub payload（媒体 URL、`tool_call_id`、`reasoning`、`provider_data`）仍可读取。
+- `message` → 用 `bub.core.tape.to_message` 转换 entry payload。新的用户消息以 `republic.Message.to_dict()` 格式存储；旧版 Bub payload（媒体 URL、`tool_call_id`、`reasoning`、`provider_data`）仍可读取。
 - `tool_call` → 一条包含已保存文本与 `tool_calls` 数组的 `assistant` 消息；无文本的调用（包括旧版 entry）使用空 content。
 - `tool_result` → 每个 result 一条 `republic.tool(...)` 消息，按位置与前一个 `tool_call` entry 中的 call 配对；没有对应 call 的 result 会被跳过。
 
 已保存的 reasoning 与 provider data 总是会带上；Republic 只会把它们发回接受这些数据的 API format。
 
-context selector 本身是个 hook（`build_tape_context`）。自定义 `select` 必须返回 Republic 消息（或返回它们的 awaitable）；`bub.tape.to_messages` 可转换已存储的消息 payload。插件可以用其他策略（压缩、摘要、检索）替换它，而无需触动 pipeline 其余部分。
+context selector 本身是个 hook（`build_tape_context`）。自定义 `select` 必须返回 Republic 消息（或返回它们的 awaitable）；`bub.core.tape.to_messages` 可转换已存储的消息 payload。插件可以用其他策略（压缩、摘要、检索）替换它，而无需触动 pipeline 其余部分。
 
 带有 `context=False` 标记的 entry 会在 selector 运行前被移除。spill 运维 event 因此仍可在 tape 上查询，但不会进入默认 context 或插件自定义 context。
 

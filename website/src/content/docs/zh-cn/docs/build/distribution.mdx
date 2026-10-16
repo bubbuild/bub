@@ -55,15 +55,15 @@ def main() -> None:
         workspace.mkdir(parents=True, exist_ok=True)
         os.chdir(workspace)
 
-    from bub.__main__ import app
+    from bub.__main__ import main as bub_main
 
-    app()
+    bub_main()
 ```
 
 两点值得指出：
 
 - 产品在导入 Bub 之前先解析出粘性工作区，然后 `chdir` 进去。[`BubFramework`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py) 在构造时把 `Path.cwd()` 快照为工作区，所以 `chdir` 必须先发生。
-- 之后产品把控制权交给 `bub.__main__.app` —— 与裸 `bub` 命令使用的是同一个 Typer 应用。每个贡献 `register_cli_commands` 的插件都会自动接入。
+- 之后产品把控制权交给 `bub.__main__.main` —— 与裸 `bub` 命令使用的是同一个入口，它用 `create_cli_app()` 构建 Typer 应用，并在缺少 `bub[app]` extra 时给出提示。每个贡献 `register_cli_commands` 的插件都会自动接入。
 
 把 CLI 接入脚本入口：
 

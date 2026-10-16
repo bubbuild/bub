@@ -633,7 +633,7 @@ def test_ensure_project_initializes_project_and_adds_bub_dependency(tmp_path: Pa
 
     assert captured == [
         (("init", "--bare", "--name", "bub-project", "--app"), project),
-        (("add", "--active", "--no-sync", "--editable", "/tmp/bub"), project),  # noqa: S108
+        (("add", "--active", "--no-sync", "--extra", "app", "--editable", "/tmp/bub"), project),  # noqa: S108
     ]
 
 

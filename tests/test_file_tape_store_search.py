@@ -4,8 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from bub.store import FileTapeStore, TapeQuery
-from bub.tape import TapeEntry
+from bub.builtin.store import FuzzyFileTapeStore
+from bub.core.store import TapeQuery
+from bub.core.tape import TapeEntry
 
 
 @pytest.mark.parametrize(
@@ -23,11 +24,11 @@ from bub.tape import TapeEntry
     ],
 )
 def test_file_search_matches_persisted_payload(tmp_path: Path, content: str, query: str, matches: bool) -> None:
-    store = FileTapeStore(tmp_path)
+    store = FuzzyFileTapeStore(tmp_path)
     store.append("session", TapeEntry.message({"role": "user", "content": content}))
 
     # Reopen the store so the query exercises persisted data rather than its write cache.
-    reopened = FileTapeStore(tmp_path)
+    reopened = FuzzyFileTapeStore(tmp_path)
     search = TapeQuery("session", reopened).query(query)
     entries = list(search.all())
 
@@ -37,7 +38,7 @@ def test_file_search_matches_persisted_payload(tmp_path: Path, content: str, que
 
 @pytest.mark.parametrize("limit", [1, 2, 10])
 def test_fuzzy_search_preserves_filters_order_deduplication_and_limit(tmp_path: Path, limit: int) -> None:
-    store = FileTapeStore(tmp_path)
+    store = FuzzyFileTapeStore(tmp_path)
     entries = [
         TapeEntry.message({"content": "deployment before anchor"}),
         TapeEntry.anchor("start"),
@@ -67,7 +68,7 @@ def test_fuzzy_search_preserves_filters_order_deduplication_and_limit(tmp_path: 
 
 @pytest.mark.parametrize("last", [False, True])
 def test_fuzzy_search_preserves_after_anchor_selection(tmp_path: Path, last: bool) -> None:
-    store = FileTapeStore(tmp_path)
+    store = FuzzyFileTapeStore(tmp_path)
     store.append("session", TapeEntry.message({"content": "deployment before"}))
     store.append("session", TapeEntry.anchor("checkpoint"))
     store.append("session", TapeEntry.message({"content": "deployment after"}))
@@ -78,7 +79,7 @@ def test_fuzzy_search_preserves_after_anchor_selection(tmp_path: Path, last: boo
 
 
 def test_unqueried_file_search_retains_chronological_order(tmp_path: Path) -> None:
-    store = FileTapeStore(tmp_path)
+    store = FuzzyFileTapeStore(tmp_path)
     for content in ("first", "second", "third"):
         store.append("session", TapeEntry.message({"content": content}))
 

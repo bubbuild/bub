@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
 import httpx2
 
 from bub.builtin.settings import AgentSettings
 from bub.core import Agent as CoreAgent
+from bub.core.tape import Tape
+from bub.core.tools import Tool
 from bub.hooks.interception import PluginAgentHooks
 from bub.prompt import UserContent
-from bub.streaming import AsyncStreamEvents
-from bub.tape import Tape
-from bub.tools import Tool
+from bub.streaming import StreamEvent
 
 
 class StepRunner:
@@ -33,7 +33,7 @@ class StepRunner:
         system_prompt: str | None,
         prompt: list[UserContent] | None,
         steering_messages: list[list[UserContent]] | None = None,
-    ) -> AsyncStreamEvents:
+    ) -> AsyncIterator[StreamEvent]:
         class Agent(CoreAgent):
             async def pending_messages(self, tape: Tape) -> list[list[UserContent]]:
                 return steering_messages or []
