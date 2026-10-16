@@ -27,11 +27,19 @@ __all__ = [
     "LLMCallDecision",
     "LLMCallRequest",
     "LLMCallResult",
+    "LlmCallDecision",
+    "LlmCallRequest",
+    "LlmCallResult",
     "PluginAgentHooks",
     "ToolCall",
     "ToolCallDecision",
     "ToolCallResult",
 ]
+
+# Compatibility aliases for the names used before 0.6.0a2.
+LlmCallDecision = LLMCallDecision
+LlmCallRequest = LLMCallRequest
+LlmCallResult = LLMCallResult
 
 
 class PluginAgentHooks:
