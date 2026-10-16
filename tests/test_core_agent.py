@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -179,6 +180,48 @@ async def test_core_agent_stops_at_max_steps(provider_service: ProviderService) 
             async with agent.run(["loop"], model=model, tape="steps") as stream:
                 [event async for event in stream]
     assert statuses == ["model=openai:test", "tool=ok", "continue", "run=error:1:max_steps_reached=1"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("limit", "expected_peak"), [(None, 3), (2, 2), (1, 1)])
+async def test_max_tool_concurrency_limits_tool_calls_of_one_response(
+    provider_service: ProviderService, limit: int | None, expected_peak: int
+) -> None:
+    calls = [
+        {"index": i, "id": f"call-{i}", "function": {"name": "wait", "arguments": f'{{"n": {i}}}'}} for i in range(3)
+    ]
+    provider_service.reply(sse(tool_events(calls)))
+    provider_service.reply(sse(chat_events("done")))
+    running = 0
+    peak = 0
+    started: list[int] = []
+
+    async def wait(n: int) -> str:
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.01)
+        running -= 1
+        return "ok"
+
+    async with provider_service.client() as client:
+        agent = Agent(
+            model=_model(client),
+            tools=[Tool.from_callable(wait, name="wait")],
+            max_tool_concurrency=limit,
+        )
+        agent.events.on(ToolCallStarted, lambda event: started.append(event.call.arguments["n"]))
+        async with agent.run(["go"], tape="concurrency") as stream:
+            [event async for event in stream]
+
+    assert peak == expected_peak
+    assert started == [0, 1, 2]
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_max_tool_concurrency_must_be_positive(limit: int) -> None:
+    with pytest.raises(ValueError, match="max_tool_concurrency"):
+        Agent(max_tool_concurrency=limit)
 
 
 @pytest.mark.asyncio
