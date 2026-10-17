@@ -127,6 +127,8 @@ class MyPlugin:
 
 visual-base 的 [`EyeImpl`](https://github.com/oilbeater/visual-base/blob/main/src/bub_eye/plugin.py) 正是因为这个原因采用可调用形态：它捕获框架，从而 `provide_channels` 时能读到 CLI 处理后的工作区。
 
+`framework.events` 通过 `bub.application` 中的 `CommandChanged`、`WorkChanged` 和 `PromptChanged` 发布命令、通道工作和提示的变化。使用 `framework.events.on(EventType, handler)` 订阅，使用 `framework.events.off(EventType, handler)` 取消订阅。Agent 循环事件仍由 `agent.events` 发布。
+
 :::note
 内置插件最先注册，入口点插件随后注册。在 [`HookRuntime`](https://github.com/bubbuild/bub/blob/main/src/bub/hooks/runtime.py) 中，注册越晚优先级越高 —— 因此你的 `firstresult` 钩子会覆盖内置实现。
 :::

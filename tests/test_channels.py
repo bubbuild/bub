@@ -26,6 +26,7 @@ from bub.channels.handler import BufferedMessageHandler
 from bub.channels.manager import ChannelManager
 from bub.channels.message import ChannelMessage
 from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMessageParser
+from bub.core.events import EventBus
 from bub.streaming import StreamEvent
 from bub.turn import TurnResult
 
@@ -130,6 +131,7 @@ class FakeFramework:
         self.resolved_sessions: dict[str, str] = {}
         self.steering_inbox = None
         self._hook_runtime = SimpleNamespace(notify_error=self._notify_error)
+        self.events = EventBus()
         self.running_entries = 0
         self.running_exits = 0
 
@@ -701,56 +703,22 @@ async def test_channel_manager_cleans_up_started_channels_when_startup_fails(
 
 
 @pytest.mark.asyncio
-async def test_channel_manager_listen_and_run_passes_stream_output_setting(
-    monkeypatch: pytest.MonkeyPatch, load_config
-) -> None:
+async def test_channel_manager_listen_and_run_passes_stream_output_setting(load_config) -> None:
     _load_channel_config(load_config, enabled_channels="telegram", stream_output=True)
-    framework = FakeFramework({"telegram": FakeChannel("telegram")})
+    channel = FakeChannel("telegram")
+    framework = FakeFramework({"telegram": channel})
+    process_inbound = framework.process_inbound
 
-    import bub.channels.manager as manager_module
+    async def process(message, stream_output=False):
+        result = await process_inbound(message, stream_output)
+        channel.stop_event.set()
+        return result
 
+    framework.process_inbound = process
     manager = ChannelManager(framework)
-    calls = 0
-    spawned_coroutines = []
-    original_create_task = manager_module.asyncio.create_task
-
-    class DummyTask:
-        def add_done_callback(self, callback) -> None:
-            return None
-
-        def cancel(self) -> None:
-            return None
-
-        def exception(self):
-            return None
-
-    def create_task(coro):
-        spawned_coroutines.append(coro)
-        return DummyTask()
-
-    async def wait_until_stopped(awaitable, current_stop_event):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            return await awaitable
-        close = getattr(awaitable, "close", None)
-        if callable(close):
-            close()
-        raise asyncio.CancelledError
-
-    async def shutdown() -> None:
-        return None
-
-    manager.shutdown = shutdown  # type: ignore[method-assign]
-    monkeypatch.setattr(manager_module.asyncio, "create_task", create_task)
-    monkeypatch.setattr(manager_module, "wait_until_stopped", wait_until_stopped)
-
-    listen_task = original_create_task(manager.listen_and_run())
-    await asyncio.sleep(0)
     await manager.on_receive(_message("hello", channel="telegram"))
-    await listen_task
-    assert len(spawned_coroutines) == 1
-    await spawned_coroutines[0]
+    async with asyncio.timeout(2):
+        await manager.listen_and_run()
 
     assert len(framework.process_calls) == 1
     message, stream_output = framework.process_calls[0]
@@ -1895,3 +1863,48 @@ def _async_return(value):
         return value
 
     return runner
+
+
+@pytest.mark.parametrize("redirected", [False, True])
+def test_run_preserves_output_and_reports_status_only_on_a_terminal(redirected: bool) -> None:
+    script = textwrap.dedent(
+        """
+        from bub.framework import BubFramework
+        from bub.hooks import hookimpl
+        from bub.core.events import LLMCallDecision
+
+        class Reply:
+            @hookimpl
+            def before_llm_call(self, request, state):
+                return LLMCallDecision.finish("actual response")
+
+        framework = BubFramework()
+        framework.load_builtin_hooks()
+        framework.plugin_manager.register(Reply())
+        app = framework.create_cli_app()
+        app(["run", "request"])
+        """
+    )
+    if redirected:
+        result = subprocess.run(
+            [sys.executable, "-c", script], stdin=subprocess.DEVNULL, capture_output=True, timeout=10
+        )
+        assert result.returncode == 0, result.stderr.decode(errors="replace")
+        assert result.stdout == b"[cli:local]\nactual response\n"
+        return
+    master_fd, slave_fd = pty.openpty()
+    process = subprocess.Popen([sys.executable, "-c", script], stdin=slave_fd, stdout=slave_fd, stderr=slave_fd)
+    os.close(slave_fd)
+    try:
+        raw = _read_pty_until_exit(master_fd, process, timeout=10)
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=1)
+        os.close(master_fd)
+    assert process.wait(timeout=1) == 0, raw.decode(errors="replace")
+    positions = {}
+    for frame in re.finditer(rb"\x1b]7501;([^\x1b\x07]*)(?:\x1b\\|\x07)", raw):
+        fields = dict(pair.split(b"=", 1) for pair in frame.group(1).split(b":"))
+        positions.setdefault(fields[b"state"], frame.start())
+    assert positions[b"working"] < raw.index(b"actual response") < positions[b"done"]
