@@ -78,6 +78,30 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 `run_code` 会把代码和一个 `call_tool` 回调一起交给当前 session [执行环境](#在执行环境中运行工具)的 `run_code` 执行。工具调用始终经这个回调在宿主上执行，所以 hook 仍能看到每一次调用。超过 `timeout_seconds` 时会取消执行环境里的执行。builtin 的 `LocalEnvironment` 每次调用都会启动一个新的 Python 进程（使用 `sys.executable`，工作目录为 workspace），工具调用以 JSON 行的形式经进程的 stdin/stdout 转发，因此参数和结果都必须能 JSON 序列化。代码执行完、出错或超时后，它会杀掉该进程及其启动的所有子进程。这个进程直接跑在宿主上，权限与 `bash` 相同，因此只应在允许使用 `bash` 的场景下开启 code mode。stub 中的结果类型来自工具函数的返回注解（手动构造的工具则来自 `Tool.output_schema`）。
 
 
+#### 在自己的 agent 中使用 code mode
+
+Code mode 属于内核（`bub.core.codemode`），基于 `bub.core.Agent` 构建的 agent 不安装 `app` extra 也能使用。`CodeMode` 持有可在代码中调用的工具，并提供 `run_code` 工具和一个 system prompt 片段：
+
+```python
+from bub.core import Agent
+from bub.core.codemode import CodeMode
+from bub.environment import LocalEnvironment
+
+code_mode = CodeMode(
+    [search, fetch],                      # 在 run_code 中以 tools.<name>(...) 调用的工具
+    environment=LocalEnvironment("/work"),  # 代码运行的位置，默认是当前目录
+    models="openai:gpt-5",                # 代码里 republic.get_model() 对应的模型
+)
+agent = Agent(model=model, tools=[code_mode.run_code], system_prompt=["You are ...", code_mode.prompt])
+```
+
+- `tools` 也可以是以 turn state 为参数的函数，返回本次运行的工具，返回 `None` 表示关闭 code mode；`environment` 同样可以是 state 的函数。
+- `models` 是默认的 `provider:model` spec，或一个 resolver `(spec, context) -> (republic_spec, client_kwargs)`，凭据始终留在宿主侧。不传时代码必须显式给出 spec，客户端从环境变量读取凭据。
+- stub 默认直接放进 system prompt；传入 `stub_dir=` 则写入文件并在 prompt 中引用路径，适合能读文件的 agent。
+- `media_tools=True`（默认）会额外提供 `attach_image`、`attach_audio` 和 `attach_video`。
+
+代码发起的调用同样经过 agent 的 `ToolCallStarted`/`ToolCallFinished` 事件，且 `context.code_mode` 为真，因此用 `agent.events.on` 注册的处理器都能看到。Bub 自己的 agent 使用的也是这个类（`bub.builtin.codemode.CODE_MODE`），只是接入了 session 设置、执行环境和模型配置。
+
 ### 按需加载工具
 
 给工具标记 `deferred=True`（可用于 `@tool`、`Tool.from_callable`，或 `dataclasses.replace(tool, deferred=True)`），它的定义就不会进入模型请求，直到被加载。未标记的工具直接加载。
@@ -95,10 +119,10 @@ Code mode 让模型在 Python 中调用工具，而不必一次只发起一个�
 - `spawn(command, *, cwd=None, env=None)` 返回一个 `Process`：传字符串时经 shell 执行，传序列时作为参数列表直接执行。进程提供 `stdout`/`stderr` 流、`write_stdin`、`wait` 和 `signal(kill=...)`，其中 `signal` 必须作用到整个进程树。
 - `read_text(path)` 和 `write_text(path, content)` 读写执行环境内的文件。`read_bytes(path)` 读取二进制文件；默认实现会用执行环境的 `python` 输出文件内容，能直接访问文件的执行环境应覆盖它。
 - `workspace` 是执行环境内的工作目录，`resolve_path` 基于它解析相对路径。
-- `run_code(code, *, tools, call_tool, write)` 执行 Python 代码，代码里的 `await tools.<name>(**kwargs)` 会调用 `call_tool(name, kwargs)`。`republic` 模块会以 `republic.` 前缀的名字调用 `call_tool`，Republic 值以带 `"$republic"` 键的 JSON 对象传输；子进程 runner 已经提供了这个模块。代码写到 stdout 的内容要实时交给 `write`；代码抛异常时抛出 `CodeFailed`；被取消时要停止代码。具体怎么执行由执行环境决定。有 Python 解释器的执行环境可以直接复用 `bub.builtin.codemode.code_runner.run_code_in_subprocess`，它会用 `spawn` 启动进程来执行代码。
+- `run_code(code, *, tools, call_tool, write)` 执行 Python 代码，代码里的 `await tools.<name>(**kwargs)` 会调用 `call_tool(name, kwargs)`。`republic` 模块会以 `republic.` 前缀的名字调用 `call_tool`，Republic 值以带 `"$republic"` 键的 JSON 对象传输；子进程 runner 已经提供了这个模块。代码写到 stdout 的内容要实时交给 `write`；代码抛异常时抛出 `CodeFailed`；被取消时要停止代码。具体怎么执行由执行环境决定。有 Python 解释器的执行环境可以直接复用 `bub.core.codemode.runner.run_code_in_subprocess`，它会用 `spawn` 启动进程来执行代码。
 - `close()` 释放执行环境。
 
-通过 `provide_environment(session_id, workspace)` hook 为每个 session 提供执行环境。Bub 在 session 的第一个 turn 调用它，把结果放进 `state["_runtime_environment"]`，并在 `framework.running()` 退出时关闭。Bub 的 builtin hook 提供 `LocalEnvironment`（见 [`bub.builtin.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/environment.py)），直接在宿主上运行；插件提供的实现会优先于它。自定义工具可以用 `bub.builtin.environment.environment_from_state(context.state)` 使用同一个环境。
+通过 `provide_environment(session_id, workspace)` hook 为每个 session 提供执行环境。Bub 在 session 的第一个 turn 调用它，把结果放进 `state["_runtime_environment"]`，并在 `framework.running()` 退出时关闭。Bub 的 builtin hook 提供 `LocalEnvironment`（见 [`bub.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/environment.py)），直接在宿主上运行；插件提供的实现会优先于它。自定义工具可以用 `bub.builtin.environment.environment_from_state(context.state)` 使用同一个环境。
 
 ## 工具如何变得可用
 

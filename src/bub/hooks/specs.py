@@ -139,7 +139,7 @@ class BubHookSpecs:
 
         Called once per session and cached until ``framework.running()`` exits,
         which closes it with ``Environment.close()``. ``workspace`` is the host
-        workspace. Bub's builtin hooks provide a host environment (``bub.builtin.environment.LocalEnvironment``);
+        workspace. Bub's builtin hooks provide a host environment (``bub.environment.LocalEnvironment``);
         a higher-priority plugin replaces it.
         """
 

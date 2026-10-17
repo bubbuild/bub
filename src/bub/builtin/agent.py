@@ -229,15 +229,9 @@ class BubAgent(core.Agent):
 
     @staticmethod
     def _code_mode_prompt(context: core.PromptContext) -> str | None:
-        from bub.builtin.codemode import CODE_TOOLS_STATE_KEY, render_code_mode_prompt, write_tool_stub
+        from bub.builtin.codemode import CODE_MODE
 
-        state = context.state
-        if (code_tools := state.get(CODE_TOOLS_STATE_KEY)) is None:
-            return None
-        stub_path = write_tool_stub(
-            code_tools, session_id=str(state.get("session_id", "")), workspace=workspace_from_state(state)
-        )
-        return render_code_mode_prompt(stub_path)
+        return CODE_MODE.prompt(context)
 
     def _deferred_tools_prompt(self, context: core.PromptContext) -> str:
         from bub.builtin.tools import render_deferred_tools_prompt

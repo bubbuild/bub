@@ -288,7 +288,7 @@ class BuiltinImpl:
 
     @hookimpl
     def provide_environment(self, session_id: str, workspace: Path) -> Environment:
-        from bub.builtin.environment import LocalEnvironment
+        from bub.environment import LocalEnvironment
 
         return LocalEnvironment(workspace)
 
