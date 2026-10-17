@@ -8,8 +8,7 @@ from collections.abc import AsyncIterator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
-from bub.builtin.environment import LocalEnvironment
-from bub.environment import Environment, Process
+from bub.environment import Environment, LocalEnvironment, Process
 
 
 @dataclass(eq=False)

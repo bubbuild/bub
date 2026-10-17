@@ -22,12 +22,11 @@ from bub.builtin.codemode import (
     set_code_mode,
     write_tool_stub,
 )
-from bub.builtin.environment import LocalEnvironment, LocalProcess
 from bub.core.events import EventBus, ToolCallStarted
 from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
 from bub.core.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
-from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, CodeFailed
+from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, CodeFailed, LocalEnvironment, LocalProcess
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import ToolCallDecision
 
@@ -588,8 +587,8 @@ async def test_run_code_republic_models_are_served_by_bub_settings(
     import republic
     from republic.decisions import Noul
 
-    from bub.builtin.codemode import republic_bridge
     from bub.builtin.settings import AgentSettings
+    from bub.core.codemode import republic_bridge
 
     _FakeChatModel.calls = []
     for getter in ("get_model", "get_embedding_model", "get_decision_model"):
@@ -673,8 +672,8 @@ class _FakeStreamingModel:
 
 
 def _patch_streaming_model(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    from bub.builtin.codemode import republic_bridge
     from bub.builtin.settings import AgentSettings
+    from bub.core.codemode import republic_bridge
 
     _FakeStream.closed = []
     monkeypatch.setattr(republic_bridge.republic, "get_model", lambda spec, **kwargs: _FakeStreamingModel())

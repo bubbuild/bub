@@ -1,6 +1,6 @@
 """Run ``Environment.run_code`` code in a Python process started with ``Environment.spawn``.
 
-The process runs ``code_runner_child`` and talks to Bub over stdin/stdout with
+The process runs ``runner_child`` and talks to Bub over stdin/stdout with
 JSON lines; see that module for the protocol.
 """
 
@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic_core import to_jsonable_python
 
-from bub.builtin.codemode import code_runner_child
+from bub.core.codemode import runner_child
 from bub.environment import CodeFailed
 from bub.errors import BubError, ErrorKind
 
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from bub.environment import CallTool, Environment, Process
 
 _STOP_TIMEOUT_SECONDS = 3.0
-_CHILD_SOURCE = Path(code_runner_child.__file__).read_text(encoding="utf-8")
+_CHILD_SOURCE = Path(runner_child.__file__).read_text(encoding="utf-8")
 
 
 class _Session:
