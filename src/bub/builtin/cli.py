@@ -173,7 +173,7 @@ def onboard(
     enabled_channels = str(config_data.get("enabled_channels", "")).strip()
     if not enabled_channels or not is_gateway_service_supported():
         return
-    if not bub_inquirer.ask_confirm("Install gateway as a background service?", default=False):
+    if not bub_inquirer.ask_confirm("Install gateway as a background service?", default=False, kind="permission"):
         return
 
     try:
