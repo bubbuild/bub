@@ -1,7 +1,8 @@
-"""Serve the ``republic`` module of ``run_code``: Republic values over JSON and model calls made in Bub.
+"""Serve the ``republic`` module of ``run_code``: Republic values over JSON and model calls made by the host.
 
 Model-written code never sees provider credentials: its models are proxies whose calls arrive
-here as tool calls named ``republic.<operation>`` (see ``code_runner_child``).
+here as tool calls named ``republic.<operation>`` (see ``runner_child``), and a
+:data:`ModelResolver` turns their specs into Republic specs and client options.
 """
 
 from __future__ import annotations
@@ -34,6 +35,23 @@ from bub.errors import BubError, ErrorKind
 
 REPUBLIC_CALL_PREFIX = "republic."
 REPUBLIC_KEY = "$republic"
+
+ModelResolver = Callable[[str | None, ToolContext], tuple[str, Mapping[str, Any]]]
+"""Resolve the spec the code passed to ``republic.get_*model`` (None for ``get_model()``) to a Republic
+``provider:model`` spec and the client options to open it with. Raise ``ValueError`` to reject the spec."""
+
+
+def default_model_resolver(default: str | None = None) -> ModelResolver:
+    """Pass specs through, with ``default`` for ``get_model()``; clients read credentials from the environment."""
+
+    def resolve(spec: str | None, context: ToolContext) -> tuple[str, Mapping[str, Any]]:
+        spec = spec or default
+        if not spec:
+            raise ValueError("No default model: pass a 'provider:model' spec.")
+        return spec, {}
+
+    return resolve
+
 
 _MEDIA_CLASSES: dict[str, type[republic.Image | republic.Audio | republic.Video]] = {
     "image": republic.Image,
@@ -96,21 +114,6 @@ def _encode_message(message: republic.Message) -> dict[str, Any]:
         if isinstance(part, republic.Text | republic.Image | republic.Audio | republic.Video)
     ]
     return {REPUBLIC_KEY: "message", "role": message.role, "content": content}
-
-
-def _model_spec(context: ToolContext, spec: str | None) -> tuple[str, dict[str, Any]]:
-    """Resolve a spec, or the session's model, to a Republic spec and client options from Bub's settings."""
-    agent = context.state.get("_runtime_agent")
-    settings = getattr(agent, "settings", None)
-    if settings is None:
-        raise BubError(ErrorKind.INVALID_INPUT, "Republic models need a running Bub agent.")
-    spec = spec or context.state.get("model") or settings.model
-    try:
-        candidate = settings.model_candidates(spec)[0]
-    except ValueError as exc:
-        raise BubError(ErrorKind.INVALID_INPUT, str(exc)) from exc
-    client_kwargs = settings.model_client_kwargs(candidate.provider_name or candidate.provider)
-    return f"{candidate.provider}:{candidate.model_id}", client_kwargs
 
 
 def _chat_messages(messages: list[Any], options: dict[str, Any]) -> list[republic.Message]:
@@ -196,8 +199,9 @@ class _StreamPump:
 class RepublicSession:
     """Serve the ``republic.<operation>`` calls of one ``run_code``; ``aclose`` closes streams left open."""
 
-    def __init__(self, context: ToolContext) -> None:
+    def __init__(self, context: ToolContext, resolve_model: ModelResolver) -> None:
         self.context = context
+        self._resolve_model = resolve_model
         self._streams: dict[str, _StreamPump] = {}
         self._operations: dict[str, Callable[..., Awaitable[Any]]] = {
             "chat": self._chat,
@@ -222,20 +226,26 @@ class RepublicSession:
         except Exception as exc:
             raise BubError(ErrorKind.TOOL, f"{name} failed: {type(exc).__name__}: {exc}") from exc
 
+    def _model_spec(self, spec: str | None) -> tuple[str, Mapping[str, Any]]:
+        try:
+            return self._resolve_model(spec, self.context)
+        except ValueError as exc:
+            raise BubError(ErrorKind.INVALID_INPUT, str(exc)) from exc
+
     async def aclose(self) -> None:
         streams, self._streams = list(self._streams.values()), {}
         await asyncio.gather(*(stream.aclose() for stream in streams), return_exceptions=True)
 
     async def _chat(self, spec: str | None, messages: list[Any], options: dict[str, Any]) -> Any:
         messages = _chat_messages(messages, options)
-        model_spec, client_kwargs = _model_spec(self.context, spec)
+        model_spec, client_kwargs = self._model_spec(spec)
         async with republic.get_model(model_spec, **client_kwargs) as model:
             response = await model.chat(messages, **options)
         return _encode_response(response)
 
     async def _stream_open(self, spec: str | None, messages: list[Any], options: dict[str, Any]) -> Any:
         messages = _chat_messages(messages, options)
-        model_spec, client_kwargs = _model_spec(self.context, spec)
+        model_spec, client_kwargs = self._model_spec(spec)
         async with AsyncExitStack() as stack:
             model = await stack.enter_async_context(republic.get_model(model_spec, **client_kwargs))
             stream = await stack.enter_async_context(model.stream(messages, **options))
@@ -257,7 +267,7 @@ class RepublicSession:
             await pump.aclose()
 
     async def _embed(self, spec: str, texts: list[str], dimensions: int | None = None) -> Any:
-        model_spec, client_kwargs = _model_spec(self.context, spec)
+        model_spec, client_kwargs = self._model_spec(spec)
         async with republic.get_embedding_model(model_spec, **client_kwargs) as model:
             response = await model.embed_many(texts, dimensions=dimensions)
         return {"vectors": response.vectors, "model": response.model, "token_usage": asdict(response.token_usage)}
@@ -265,7 +275,7 @@ class RepublicSession:
     async def _decide(self, spec: str, state: Any, questions: dict[str, Question]) -> Any:
         if not all(isinstance(question, Noul | Choice | Score) for question in questions.values()):
             raise BubError(ErrorKind.INVALID_INPUT, "decide() takes republic.decisions questions.")
-        model_spec, client_kwargs = _model_spec(self.context, spec)
+        model_spec, client_kwargs = self._model_spec(spec)
         async with republic.get_decision_model(model_spec, **client_kwargs) as model:
             response = await model.decide(state, questions=questions)
         return {

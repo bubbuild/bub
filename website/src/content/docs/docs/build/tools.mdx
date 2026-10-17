@@ -77,6 +77,30 @@ Nested calls run with `ToolContext.code_mode` set to `True` (hooks see it as `ca
 
 `run_code` hands the code to the session [environment](#run-tools-in-an-environment)'s `run_code`, together with a `call_tool` callback. Tool calls always run on the host through that callback, so hooks still see every call. `timeout_seconds` cancels the environment call. The builtin `LocalEnvironment` starts a fresh Python process for every call (`sys.executable`, working directory is the workspace) and forwards tool calls as JSON lines over its stdin and stdout, so arguments and results must be JSON-serializable. When the code finishes, fails or times out, it kills the process and everything it started. That process runs on the host with the same permissions as `bash`, so enable code mode only where `bash` would be acceptable. The return annotation of a tool function (or `Tool.output_schema`, for tools built by hand) determines the result type shown in the stub.
 
+#### Code mode in your own agent
+
+Code mode lives in the kernel (`bub.core.codemode`), so an agent built on `bub.core.Agent` can use it without the `app` extra. A `CodeMode` holds the tools callable from code and provides the `run_code` tool and a system prompt section:
+
+```python
+from bub.core import Agent
+from bub.core.codemode import CodeMode
+from bub.environment import LocalEnvironment
+
+code_mode = CodeMode(
+    [search, fetch],                      # tools callable as tools.<name>(...) inside run_code
+    environment=LocalEnvironment("/work"),  # where the code runs; defaults to the current directory
+    models="openai:gpt-5",                # what republic.get_model() in the code resolves to
+)
+agent = Agent(model=model, tools=[code_mode.run_code], system_prompt=["You are ...", code_mode.prompt])
+```
+
+- `tools` can also be a function of the turn state returning the tools for that run, or `None` to turn code mode off; `environment` can likewise be a function of the state.
+- `models` is a default `provider:model` spec, or a resolver `(spec, context) -> (republic_spec, client_kwargs)` that keeps credentials on the host. Without it the code must pass explicit specs and clients read credentials from the environment.
+- The stub goes into the system prompt itself; pass `stub_dir=` to write it to a file and reference the path instead, for agents that can read files.
+- `media_tools=True` (default) adds `attach_image`, `attach_audio` and `attach_video`.
+
+Calls made from code go through the agent's `ToolCallStarted`/`ToolCallFinished` events with `context.code_mode` set, so handlers registered with `agent.events.on` see them. Bub's own agents use the same class (`bub.builtin.codemode.CODE_MODE`), wired to session settings, environments and model settings.
+
 ### Load tools on demand
 
 Mark a tool `deferred=True` (on `@tool`, `Tool.from_callable`, or with `dataclasses.replace(tool, deferred=True)`) to keep its definition out of model requests until it is needed. Tools without the flag are loaded directly.
@@ -94,10 +118,10 @@ Mark a tool `deferred=True` (on `@tool`, `Tool.from_callable`, or with `dataclas
 - `spawn(command, *, cwd=None, env=None)` returns a `Process`: a string runs through the shell, a sequence runs as an argument vector. The process exposes `stdout`/`stderr` streams, `write_stdin`, `wait`, and `signal(kill=...)`, which must reach the whole process tree.
 - `read_text(path)` and `write_text(path, content)` access files inside the environment. `read_bytes(path)` reads binary files; its default runs the environment's `python` to print the file, so override it when the environment has direct file access.
 - `workspace` is the working directory inside the environment; `resolve_path` resolves relative paths against it.
-- `run_code(code, *, tools, call_tool, write)` runs Python code in which `await tools.<name>(**kwargs)` calls `call_tool(name, kwargs)`. The `republic` module calls `call_tool` with names prefixed `republic.`, and Republic values travel as JSON objects with a `"$republic"` key; the subprocess runner provides it. It passes the code's stdout to `write` as it arrives, raises `CodeFailed` when the code raises, and stops the code when cancelled. How it runs is up to the environment. An environment that has a Python interpreter can reuse `bub.builtin.codemode.code_runner.run_code_in_subprocess`, which runs the code in a process started with `spawn`.
+- `run_code(code, *, tools, call_tool, write)` runs Python code in which `await tools.<name>(**kwargs)` calls `call_tool(name, kwargs)`. The `republic` module calls `call_tool` with names prefixed `republic.`, and Republic values travel as JSON objects with a `"$republic"` key; the subprocess runner provides it. It passes the code's stdout to `write` as it arrives, raises `CodeFailed` when the code raises, and stops the code when cancelled. How it runs is up to the environment. An environment that has a Python interpreter can reuse `bub.core.codemode.runner.run_code_in_subprocess`, which runs the code in a process started with `spawn`.
 - `close()` releases the environment.
 
-Provide one per session with the `provide_environment(session_id, workspace)` hook. Bub calls it on the session's first turn, puts the result in `state["_runtime_environment"]`, and closes it when `framework.running()` exits. Bub's builtin hooks provide `LocalEnvironment` (in [`bub.builtin.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/environment.py)), which runs everything on the host; a plugin's implementation takes precedence over it. Your own tools can use the same environment through `bub.builtin.environment.environment_from_state(context.state)`.
+Provide one per session with the `provide_environment(session_id, workspace)` hook. Bub calls it on the session's first turn, puts the result in `state["_runtime_environment"]`, and closes it when `framework.running()` exits. Bub's builtin hooks provide `LocalEnvironment` (in [`bub.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/environment.py)), which runs everything on the host; a plugin's implementation takes precedence over it. Your own tools can use the same environment through `bub.builtin.environment.environment_from_state(context.state)`.
 
 ## How tools become available
 
