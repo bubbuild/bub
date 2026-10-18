@@ -1,9 +1,9 @@
 ---
-title: CLI
-description: Every bub command, its options, defaults, and behavior notes.
+title: CLI reference
+description: Built-in application commands, options, and defaults.
 ---
 
-This page lists every command exposed by the `bub` CLI entry point. Commands are registered through the builtin `register_cli_commands` hook (`src/bub/builtin/hook_impl.py`); plugins may add more.
+These commands run the Bub application and require its [application dependencies](/docs/getting-started/install/). The table covers built-in commands; plugins can add their own. Use `bub --help` to inspect the commands available in your environment.
 
 ## Global options
 
@@ -14,7 +14,7 @@ bub [OPTIONS] COMMAND [ARGS]...
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--workspace`, `-w` | TEXT | current working directory | Path to the workspace; sets `BubFramework.workspace`. |
-| `--help` | flag | — | Show help and exit. |
+| `--help` | flag | N/A | Show help and exit. |
 
 The framework is created in `bub/__main__.py`, which calls `BubFramework().load_hooks()` and then `create_cli_app()`. The active framework is stored on `ctx.obj`.
 
@@ -36,7 +36,7 @@ bub run [OPTIONS] MESSAGE
 
 Behavior notes:
 
-- Opens `framework.running()` for the duration of one turn — `provide_tape_store` is entered and exited around the call.
+- Opens `framework.running()` for the duration of one turn: `provide_tape_store` is entered and exited around the call.
 - Outbounds are formatted as `[channel:chat_id]\n<content>`.
 - Streaming output is **not** enabled; the model hook is invoked through `HookRuntime.run_model`.
 
@@ -104,7 +104,7 @@ Omit the name to run all onboarding hooks.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--help` | flag | — | Show help and exit. |
+| `--help` | flag | N/A | Show help and exit. |
 
 Behavior notes:
 
@@ -146,7 +146,7 @@ Behavior notes:
 - With no specs, runs `uv sync --active --inexact`.
 - With specs, runs `uv add --active <requirements>`.
 
-Exit codes mirror `uv` — non-zero from the underlying `subprocess.run` is propagated.
+Exit codes mirror `uv`; non-zero from the underlying `subprocess.run` is propagated.
 
 ## `bub uninstall`
 
@@ -187,7 +187,7 @@ bub login [OPTIONS] COMMAND [ARGS]...
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--help` | flag | — | Show help and exit. |
+| `--help` | flag | N/A | Show help and exit. |
 
 ### `bub login codex`
 

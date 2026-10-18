@@ -5,9 +5,7 @@ sidebar:
   order: 3
 ---
 
-This tutorial shows how to run Bub against a local `llama.cpp` server. By the end, Bub will send model calls to a GGUF Gemma model running on your machine instead of a hosted API.
-
-Use this path when you want a local model for development, private experiments, offline demos, or latency-sensitive tasks near your application. This tutorial does not cover model benchmarking, fine-tuning, production hardening, or choosing the best model for every workload.
+Connect the Bub application to a local `llama.cpp` server. This guide starts a GGUF Gemma model, checks its OpenAI-compatible endpoint, and sets the app's model connection.
 
 The example uses [`ggml-org/gemma-4-E2B-it-GGUF`](https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF), a GGUF build of Google's Gemma 4 E2B instruction-tuned model. Google's [Gemma 4 overview](https://deepmind.google/models/gemma/gemma-4/) describes E2B and E4B as efficient models for mobile and edge devices, and the [Gemma 4 model card](https://ai.google.dev/gemma/docs/core/model_card_4) documents capabilities, limits, and responsible-use considerations.
 
@@ -109,9 +107,9 @@ When you switch the model or quantization, check the upstream model documentatio
 
 - The Hugging Face GGUF card lists supported local runtimes and the available quantized files.
 - The Gemma 4 model card documents input modalities, context windows, intended use, license, and risks.
-- Local execution does not remove the need for evaluation. A local model can still produce incorrect, biased, or unsafe output.
+- Evaluate the model on representative tasks, checking for incorrect, biased, or unsafe output.
 
-Use small local models for workloads where their latency, privacy, cost, or offline behavior matters more than maximum model quality. For higher-stakes or product-facing workflows, evaluate the model on representative tasks before routing real users to it.
+Try a small local model when latency, privacy, cost, or offline access matter to your task. Check its answer quality on actual tasks before making it available to users.
 
 ## Clean up
 

@@ -1,81 +1,44 @@
 ---
-title: CLI channel
-description: 通过终端运维 Bub —— bub chat 提供交互式 REPL，bub run 执行单次 turn，逗号命令绕过模型。
+title: 使用终端
+description: 用 bub chat 继续对话，或用 bub run 从 shell 执行一个任务。
 ---
 
-本页说明 CLI channel 的运行行为：何时被激活、如何命名 session、以及为什么它被刻意排除在 gateway 之外。
+Bub 应用提供两种终端用法：`bub chat` 用于交互式对话，`bub run` 用于执行一条消息。先[配置模型](/zh-cn/docs/operate/configure/)。
 
-CLI 本身就是一个 channel，注册名为 `cli`。它实现了与 Telegram 或任何插件提供面相同的 `Channel` 接口 —— 但因为它独占运维者的终端，Bub 把它视为前台工具，而不是后台监听器。
-
-## 开始之前
-
-- Bub 已配置可用的模型 —— 参见 [配置](/zh-cn/docs/operate/configure/)。
-
-## 1. 启动交互式 REPL
-
-`bub chat` 会基于 `cli` channel 打开一个 prompt-toolkit REPL：
+## 继续一段对话
 
 ```bash
 bub chat
 ```
 
-默认值：
+每次输入会提交一条消息。按 Ctrl-D，或输入 `,quit`、`,exit` 退出。默认会话 ID 为 `cli_session`。
 
-- `chat_id` = `local`
-- `session_id` = `cli_session`（字面值，不是 `cli:local`）
+底部工具栏显示最近一次模型调用的输出速度。该数值包含请求延迟，不包含工具执行时间；提供商未返回用量时显示 `speed:- token/s`。
 
-任意一个都可以用参数覆盖：
-
-```bash
-bub chat --chat-id review --session-id cli:review
-```
-
-每行输入对应一条入站 `ChannelMessage`。Ctrl-D 退出，`,quit` 与 `,exit` 也会干净退出。
-
-底部工具栏通过 `speed:42.1 token/s` 显示最近一次模型调用的平均速度：模型返回的输出 token 数除以调用耗时，
-包含请求等待时间，不包含工具执行时间。每次模型调用完成后更新，并在两轮对话之间保留；未返回用量时显示 `speed:- token/s`。
-
-## 2. 从 shell 跑一次 turn
-
-`bub run "..."` 把单条消息送入框架，并打印每条出站：
+## 从 shell 执行一个任务
 
 ```bash
 bub run "summarize CHANGELOG.md"
 ```
 
-输出按出站分块：
+命令会打印渠道标记和响应内容，默认会话 ID 为 `cli:local`。要与交互式对话共用会话，请显式指定相同 ID：
 
-```text
-[cli:local]
-<rendered content>
+```bash
+bub chat --session-id cli:review
+bub run --session-id cli:review "Summarize our decisions."
 ```
 
-默认 session id 是 `<channel>:<chat_id>`，所以无参数的 `bub run "..."` 写入 `cli:local`。如果要与 `bub chat` 会话共享状态，使用 `--session-id`。
+保持相同的工作区和存储配置，才能读取同一份会话历史。
 
-## 3. 用逗号命令绕过模型
+## 直接执行命令
 
-任何以 `,` 开头的输入都是 **逗号命令**：它走内置工具或 shell，而不进入模型。逗号命令会跳过 LLM 调用以及 channel 的防抖逻辑。
+默认前缀为逗号。命令直接调用工具或 shell，跳过模型调用：
 
 ```bash
 bub run ",help"
 bub run ",fs.read path=README.md"
-bub run ",echo hello"   # 找不到的命令会回落到 shell
 ```
 
-在 `bub chat` 内同样有效。`Ctrl-X` 切换 "shell mode"，会把 `,` 自动加在每行前。
+在交互式对话中也可以输入这些命令。Ctrl-X 切换 shell 模式，为输入自动添加命令前缀。
 
-## 4. 为什么 `cli` 不在 `bub gateway` 中
-
-`bub gateway` 监听所有已启用 channel。它的默认 —— `--enable-channel` 留空 —— 会展开为所有已启用且不是 `Interface` 的 channel，其中包括 listener 和 `Lifecycle` 后台服务。`cli` interface 会被排除，否则它会抢占运维者用来运行 gateway 的终端。
-
-要打开 REPL，使用 `bub chat`（它强制 `enabled_channels=["cli"]` 并启用 `stream_output=True`）。要只跑 Telegram，使用 `bub gateway --enable-channel telegram`。
-
-## 5. 为什么 `cli` 不防抖
-
-防抖把短时间内的多条入站消息合并为一次 turn。这对聊天平台合理 —— 用户一次会发很多短消息。CLI 是单线程的 —— 一次提示、一次输入、一次 turn —— 防抖只会徒增延迟。`CliChannel.needs_debounce` 为 `False`，所以每行 REPL 输入即时分发。
-
-## 后续阅读
-
-- [CLI 参考](/zh-cn/docs/reference/cli/) —— 全部子命令与参数。
-- [Channels 总览](/zh-cn/docs/operate/channels/) —— 防抖参数与 `enabled_channels`。
-- [Telegram](/zh-cn/docs/operate/channels/telegram/) —— 远程 channel 的标准示例。
+CLI 使用前台终端，因此网关默认不启动它。网关的渠道选择和消息合并规则见[渠道](/zh-cn/docs/operate/channels/)，全部参数见 [CLI 参考](/zh-cn/docs/reference/cli/)。

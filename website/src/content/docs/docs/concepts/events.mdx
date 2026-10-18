@@ -1,0 +1,133 @@
+---
+title: Events and call control
+description: Observe agent progress, intercept model and tool calls, and choose which business events to record.
+sidebar:
+  order: 4
+---
+
+Use agent events to observe a run or make a decision before a model or tool call. Every Agent creates an `EventBus` and subscribes a `TapeRecorder`. You can add handlers through `agent.events`.
+
+Three kinds of information serve different purposes:
+
+| Type | Purpose | Access |
+| --- | --- | --- |
+| `AgentEvent` | Internal lifecycle and call interception. | `agent.events.on(...)` |
+| `StreamEvent` | Output for the caller, such as text and tool progress. | Iterate the stream returned by `agent.run()`. |
+| `TapeEntry` | Saved conversation and selected runtime records. | Query the [Tape](/docs/concepts/tape-and-context/). |
+
+The agent's loop controls execution and invokes event handlers inline at defined points. TapeRecorder saves selected exchanges and lifecycle records; your handlers can record other events you need to keep.
+
+<a id="delivery"></a>
+
+## Register a handler
+
+With the `agent` from the [SDK guide](/docs/build/sdk/):
+
+```python
+from bub.core.events import StepFinished, ToolCallFinished
+
+
+@agent.events.on(ToolCallFinished)
+async def report_tool(event: ToolCallFinished) -> None:
+    print(event.call.tool, event.result.duration_ms, "ms")
+
+
+def report_step(event: StepFinished) -> None:
+    print("step", event.step, event.status)
+
+
+agent.events.on(StepFinished, report_step)
+```
+
+Remove a registration with `agent.events.off(StepFinished, report_step)`. A handler for a base class receives its subclasses; a handler for `AgentEvent` receives every delivered agent event.
+
+For each emission, matching handlers run in registration order. The bus waits for each asynchronous handler before moving to the next. A handler's return value is ignored. Exceptions propagate to the caller of `emit()` and can fail a run. To let work continue after an observer fails, handle its exceptions inside the observer.
+
+This ordering applies to one emission. Concurrent tool calls or runs can emit events at the same time, so shared handler state still needs appropriate coordination.
+
+<a id="control"></a>
+
+## Change or stop a call
+
+To stop a call, assign a decision to the event's `decision` field:
+
+```python
+from bub.core.events import ToolCallDecision, ToolCallStarted
+
+
+@agent.events.on(ToolCallStarted)
+def require_refund_permission(event: ToolCallStarted) -> None:
+    if event.call.tool == "refund_order" and not event.state.get("refunds_allowed"):
+        event.decision = ToolCallDecision.deny("Refunds require approval.")
+```
+
+`deny()` skips the tool and produces a tool error. `replace(result)` skips the tool and supplies a result. Both stop delivery to later handlers for that `ToolCallStarted` event. The executor still emits `ToolCallFinished` for the outcome. A model loop receives the error as a tool result; a direct command propagates it to its caller.
+
+To change arguments and continue, replace `event.call` with `dataclasses.replace(event.call, arguments=...)`. To finish before a model call, set `event.decision = LLMCallDecision.finish(text)` on `LLMCallStarted`. This stops later handlers and skips the provider call. A skipped provider call does not emit `LLMCallFinished`.
+
+| Event | When it occurs | Supported control |
+| --- | --- | --- |
+| `RunStarted` | A model run begins. | Observe prompt, model, and metadata. |
+| `RunFinished` | Its stream closes. | Observe status, step count, elapsed time, and error. |
+| `StepStarted`, `StepFinished` | A model step begins or ends. | Observe progress. |
+| `LLMCallStarted` | Before a provider call. | Replace `request`, or set `LLMCallDecision.finish(text)`. |
+| `LLMCallFinished` | A provider call completes or fails with an exception. | Observe the accumulated result; cancellation and consumer close are not reported here. |
+| `ToolCallStarted` | Before a tool executes. | Replace `call`, deny, or replace the result. |
+| `ToolCallFinished` | A tool succeeds, fails, is denied, or is replaced. | Assign `event.result.result` to change the returned result. |
+| `ChatFinished` | A step's exchange is ready to record. | Observe the exchange. |
+| `CommandFinished` | A direct command finishes or fails. | Observe command, status, and output. |
+
+Command prompts execute tools directly, emitting tool events and `CommandFinished`. See [Commands](/docs/build/tools/#commands).
+
+All events carry turn `state`. Events derived from `TapeEvent` also carry the active tape. For tool events, the tool context is available as `event.call.context` when the invocation has one.
+
+<a id="recording"></a>
+
+## Understand what is recorded
+
+Agent registers TapeRecorder before your handlers. It records `RunStarted`, `RunFinished`, `StepStarted`, `StepFinished`, `ChatFinished`, and `CommandFinished`. The `ChatFinished` handler writes messages and tool exchanges that later model calls read as context.
+
+Recording is part of normal agent operation. It writes to the configured store, which is in memory unless you supply another. Recording works independently of tracing configuration.
+
+To save a custom event, add a handler that writes it to the tape. Use call interception events to change requests or results; a `ChatFinished` observer runs after the default recorder has already saved that exchange.
+
+<a id="custom-events"></a>
+
+## Record a business event
+
+Define a dataclass derived from `AgentEvent`, or from `TapeEvent` when handlers need a tape. This example explicitly records a business event:
+
+```python
+from dataclasses import dataclass
+
+from bub.core.events import TapeEvent
+
+
+@dataclass(kw_only=True)
+class OrderReviewed(TapeEvent):
+    order_id: str
+
+
+@agent.events.on(OrderReviewed)
+async def record_review(event: OrderReviewed) -> None:
+    await event.tape.append_event("order.reviewed", {"order_id": event.order_id})
+
+
+async def mark_reviewed() -> None:
+    tape = agent.tape("customer-42")
+    await agent.events.emit(
+        OrderReviewed(state=tape.context.state, tape=tape, order_id="A123")
+    )
+```
+
+`emit()` returns the event after handlers have run. A custom mutable event can carry a response back to its emitter; override its `stopped` property if delivery should end once that response is set. Tools can emit through `context.events`, using the same turn state.
+
+<a id="application-hooks"></a>
+
+## Use events from an application plugin
+
+BubAgent connects its `before_llm_call`, `after_llm_call`, `before_tool_call`, and `after_tool_call` hooks to these events. Plugins return the values required by the hook contract; the adapter updates the corresponding event.
+
+This adapter follows plugin hook ordering and catches exceptions from individual interception hooks, logging and skipping them. To deny a call, return the appropriate decision. Other application hooks follow their own error contracts.
+
+Use [application hooks](/docs/build/hooks/) for plugin examples and the [hooks reference](/docs/reference/hooks/) for ordering and signatures. EventBus is included in the base SDK installation.

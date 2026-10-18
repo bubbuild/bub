@@ -1,104 +1,116 @@
 ---
-title: Tape 与 context
-description: tape 原语、append-only 不变式、spill sidecar、anchor 与 handoff，以及 Bub 如何把 per-session tape 转成模型 context window。
+title: 会话历史与上下文
+description: 用 Tape 保存会话，选择模型读取的内容，并决定哪些信息需要跨运行保留。
 sidebar:
   order: 3
 ---
 
-本页解释 Bub 使用的 context 模型：每个 session 一条 append-only tape、标记重建点的 anchor、改变阶段的 handoff，以及把 tape entry 转成模型消息列表的 context selector。
+Agent 既需要工作记录，也需要适合下一次模型调用的消息。Bub 用 Tape 保存记录，再从中选择条目构建模型上下文。这样可以保留历史，同时调整模型读取的内容。
 
-更深入的模型见 [tape.systems](https://tape.systems)。本页只覆盖 Bub 的具体实现；需要完整理论时请查阅上游模型。
+`core.Agent` 和 `BubAgent` 共用这套机制，但默认存储和会话命名方式不同。
 
-## tape 原语
+<a id="storage"></a>
 
-Bub 复用了 tape 模型的四个原语：
+## 选择历史存储位置
 
-- **Tape** — 单个 session 的事实序列，按时间排列。
-- **Entry** — tape 上的一条不可变记录（message、tool call、tool result、event、anchor）。
-- **Anchor** — 携带结构化 state 负载的检查点。可以从 anchor 重建 context，无需重扫整条 tape。
-- **View** — 由 entry 派生的、面向具体任务的 context window。
-
-恒守三条不变式：
-
-1. 历史是 append-only —— entry 永不被覆写。
-2. 派生物从不替换原始事实 —— 摘要是派生 view，而非编辑。
-3. context 是构造出来的，而不是整体继承 —— 每次 turn 都派生一份新的 view。
-
-### anchor 是重建标记
-
-anchor **不是** 删除点。tape 完整保留 anchor 之前的所有内容；anchor 只告诉 context 构造从哪里开始重建。anchor 的 state 负载提供下一阶段所需的最小继承状态。
-
-### handoff 是带状态的阶段过渡
-
-*handoff* 是受约束的过渡：写入新 anchor、附上最小继承 state、把执行起点推过新 anchor。在 Bub 中，调用 handoff 时给出名字与可选 state dict；结果是同一条 tape 上新增一条 anchor entry。
-
-## Bub 的具体实现
-
-### per-session tape
-
-每个 session 对应一条 tape。Bub 用 workspace 路径与 session id 计算 tape 名（`TapeService.session_tape`）：
+普通 `Agent` 默认创建 `InMemoryTapeStore`，历史只在该存储实例存活期间保留。传入文件存储，可以在程序重启后继续使用：
 
 ```python
-workspace_hash = md5(str(workspace.resolve()).encode()).hexdigest()[:16]
-session_hash   = md5(session_id.encode()).hexdigest()[:16]
-tape_name      = f"{workspace_hash}__{session_hash}"
+from pathlib import Path
+
+from bub.core import Agent
+from bub.core.store import FileTapeStore
+
+agent = Agent(store=FileTapeStore(Path("sessions")))
 ```
 
-这意味着同一个 `session_id` 在不同 workspace 会得到不同 tape，两个仓库不会互相串 state。
+每次 `agent.run(..., tape="customer-42")` 都使用这个存储中的指定 Tape。复用名称可以继续会话；使用不同名称可以隔离会话。Agent 直接使用你传入的名称；应用层有自己的工作区与会话命名规则。
 
-默认的 `provide_tape_store` 返回根目录在 `~/.bub/tapes/` 的 `FuzzyFileTapeStore`（来自 `bub.builtin.store`）：它是 `bub.core.store.FileTapeStore` 的子类，文本查询按从新到旧返回去重后的结果，并支持近似匹配。插件通过提供自己的 `provide_tape_store`（例如 SQLite 或 HTTP 后端）来替换它。
+`agent.tape(name)` 可以在运行之外访问 Tape，写入会直接进入存储：
 
-### spill sidecar
+```python
+async def inspect_history() -> None:
+    tape = agent.tape("customer-42")
+    messages = await tape.read_messages()
+    entries = list(await tape.query().all())
+    print(len(messages), "model messages;", len(entries), "stored entries")
+```
 
-builtin spill 插件通过 `provide_tape_sidecar` 挂载 `SpillStore`、注册 `spill.read`，并通过现有 `after_tool_call` hook 限制大结果。Bub 按模型实际看到的形式计算结果大小：字符串保留为纯文本，结构化值渲染为 JSON，错误从结构化 payload 渲染。小结果保留原值；大结果替换为 spill 引用，同时不清除执行的失败状态。sidecar 本身没有工具结果拦截约定。较大的结果存放在名为 `<session-tape>__sidecar__spill` 的 sibling tape 中。sidecar 与 session tape 使用同一个 `TapeStore`，因此现有存储插件不需要实现 spill 专用接口。Bub 依次写入 UTF-8 安全的 chunk，最后写入 manifest；manifest 是该结果已完整存储的提交标记。
+自定义存储需要实现 `bub.core.store` 中的 `TapeStore` 或 `AsyncTapeStore`。直接传给 `Agent(store=my_store)` 即可。
 
-主 tape 只保留有界预览和 opaque handle，不保存完整结果。`spill.read` 工具按 handle 与 cursor 有界读取，也支持从末尾开始读取。由 `spill.read` 明确返回的内容会作为普通的有界 tool result 记录。`spill.read` 的 `exposure` 是 `"direct"`，因此返回纯文本，并且在 code mode 下仍然直接可调用，而不必经过 `run_code`。
+| 方法 | 职责 |
+| --- | --- |
+| `list_tapes()` | 返回已保存的 Tape 名称。 |
+| `fetch_all(query)` | 按 `TapeQuery` 的过滤与顺序规则返回条目。 |
+| `append(tape, entry)` | 向指定 Tape 追加条目。 |
+| `reset(tape)` | 清空指定 Tape。 |
 
-sidecar 与 session tape 一起参与 fork、merge、archive 和 reset，但始终是独立 tape，构造主 context 时不会扫描它。也可以通过 `Tape.reset_sidecar("spill")` 单独 reset sidecar，或通过 `bub.builtin.archive.archive_sidecar(tape, "spill", directory)` 单独 archive。当 `tape.reset` 要求先 archive 时，如果 archive 失败，Bub 会保留 sidecar。
+`TapeStore` 使用同步方法，`AsyncTapeStore` 使用异步方法。Agent 会把同步存储适配为异步调用。持久化和跨进程协调由存储与应用负责。
 
-spill 配置归 sidecar 插件自己所有：在 `config.yml` 使用 `spill.threshold`，或设置环境变量 `BUB_SPILL_THRESHOLD`。设为 `0` 只停止新写入，不会卸载 sidecar，因此已有 handle 仍可读取，tape 生命周期操作也仍会包含它。
+<a id="context"></a>
 
-spill 写入以 `spill.write` event 记录。框架管理的生命周期结果使用 `sidecar.archive`、`sidecar.reset` 和 `sidecar.merge`，其数据会标明受影响的 sidecar 或物理 tape。它们会在任何 context selector 运行前被排除，因此可用于运维和审计，同时不会改变模型消息或 prompt cache 前缀。sidecar 持久化失败会被记录，但不会阻止主 tape merge 或 reset。
+## 选择模型读取的内容
 
-### ensure_bootstrap_anchor
+Tape 条目包括消息、工具调用、工具结果、事件和锚点。正常记录会追加条目；需要清空历史时，可以显式调用 `Tape.reset()` 等操作。
 
-在某条 tape 的第一次 turn 之前，`TapeService.ensure_bootstrap_anchor` 会检查是否存在 anchor entry。如果没有，则写入一条 `session/start` handoff，`state={"owner": "human"}`。这保证每条 tape 在 context 重建时都有起始 anchor。
+默认 `TapeContext` 选择最近锚点之后的会话条目，并转换成 Republic 消息：
 
-### default_tape_context：entry → 模型消息
+| 条目 | 模型上下文 |
+| --- | --- |
+| `anchor` | 默认查询不包含锚点。自定义查询包含锚点时，默认选择器将其转换为 assistant 消息。 |
+| `message` | 保存的消息。 |
+| `tool_call` | 包含工具调用的 assistant 消息。 |
+| `tool_result` | 与前面的调用配对的工具消息。 |
+| 其他事件 | 默认选择器忽略。 |
 
-`default_tape_context()` 构造一个 `TapeContext`，其 `select` 函数（`_select_messages`）遍历 tape entry 并返回 `republic.Message` 列表。映射规则如下：
+锚点标记上下文的新起点。`handoff()` 写入锚点，但保留此前的历史：
 
-- `anchor` → 形如 `[Anchor created: <name>]: <state-as-json>` 的 `assistant` 消息。
-- `message` → 用 `bub.core.tape.to_message` 转换 entry payload。新的用户消息以 `republic.Message.to_dict()` 格式存储；旧版 Bub payload（媒体 URL、`tool_call_id`、`reasoning`、`provider_data`）仍可读取。
-- `tool_call` → 一条包含已保存文本与 `tool_calls` 数组的 `assistant` 消息；无文本的调用（包括旧版 entry）使用空 content。
-- `tool_result` → 每个 result 一条 `republic.tool(...)` 消息，按位置与前一个 `tool_call` entry 中的 call 配对；没有对应 call 的 result 会被跳过。
+```python
+async def start_next_phase() -> None:
+    await agent.tape("customer-42").handoff(
+        name="order-reviewed",
+        state={"summary": "Order A123 has shipped; the customer needs tracking details."},
+    )
+```
 
-已保存的 reasoning 与 provider data 总是会带上；Republic 只会把它们发回接受这些数据的 API format。
+这里的 `state` 保存在锚点上，位于默认查询的起点之前。要在下一阶段继续使用摘要，需要将它放入下一次 prompt，或在自己的上下文策略中显式选择。将其中的值恢复到本轮可变状态字典，也需要自己编写加载逻辑。新会话会自动获得一个 `session/start` 锚点。
 
-context selector 本身是个 hook（`build_tape_context`）。自定义 `select` 必须返回 Republic 消息（或返回它们的 awaitable）；`bub.core.tape.to_messages` 可转换已存储的消息 payload。插件可以用其他策略（压缩、摘要、检索）替换它，而无需触动 pipeline 其余部分。
+向 `Agent` 传入 `context=TapeContext(...)`，可以选择其他锚点，或提供自己的 `select(entries, context)` 函数。选择器返回 Republic 消息，也支持异步结果。`default_tape_context()` 包含工具交互；未指定 `select` 的普通 `TapeContext` 使用更简单的消息转换。标记为 `context=False` 的条目会在默认或自定义选择器运行前排除。
 
-带有 `context=False` 标记的 entry 会在 selector 运行前被移除。spill 运维 event 因此仍可在 tape 上查询，但不会进入默认 context 或插件自定义 context。
+遇到可识别的上下文长度错误时，Agent 会自动 handoff 一次，再用缩短后的上下文重试。需要保留前面历史的摘要时，应在 handoff 前生成。剩余请求仍然太大时，重试也可能失败。
 
-### fork_tape
+<a id="state"></a>
 
-`TapeService.fork_tape(tape_name, merge_back=True)` 是由 `ForkTapeStore.fork` 支撑的 async context manager。块内的写入发生在 fork 后的 tape 上；退出时合并回父 tape（若 `merge_back=False` 则丢弃）。可以用它跑子任务，避免污染父 session 的历史，直到决定保留结果。
+## 决定哪些信息需要保留
 
-### context 溢出时的 auto_handoff
+传给 `agent.run()` 的 `state` 是可变字典，由本轮的工具、提示词片段和事件处理器共用。持久化由你的应用负责：可以把业务数据放入自己的存储，也可以把选定事实写到 Tape，在需要时显式读回。
 
-内置 `Agent` 循环会捕捉匹配 `_is_context_length_error` 的模型错误（如 `context length`、`maximum context`、`token limit`、`prompt too long`）。当此类错误触发且 `MAX_AUTO_HANDOFF_RETRIES`（当前为 `1`）尚未耗尽时，循环会：
+默认 [TapeRecorder](/zh-cn/docs/concepts/events/#recording)保存会话交互和部分生命周期记录。需要保留的其他变量、自定义事件或决策，由应用显式记录。
 
-1. 写入名为 `auto_handoff/context_overflow` 的 handoff，`state={"reason": "context_length_exceeded", "error": <message>}`。
-2. 记录 `loop.step` 事件，`status="auto_handoff"`。
-3. 用同一 prompt 重试 —— 默认 `TapeContext` 会选择最新 anchor 之后的 entry，因此重试使用更短的重建历史。
+<a id="forks"></a>
 
-每次 turn 仅重试一次。如果 prompt 或保留 state 仍然过大，重试仍可能失败；此时错误会正常抛出。
+## 分支与部分结果
 
-:::tip
-同样的 anchor 机制可以通过 `,tape.handoff` comma 命令以及 `tape.handoff` tool 手动触发。当你完成一个阶段并希望下一阶段从干净检查点开始时使用它。
-:::
+每次 `agent.run()` 都打开当前 Tape 的分支。关闭流时，分支会把新条目追加到父 Tape。异常退出或提前取消也会合并，因此失败的运行仍可能留下有用的部分历史。
 
-## 下一步
+传入 `merge_back=False`，可以在退出时丢弃分支记录。它只影响 Tape 写入。工具已经发送的请求、修改的文件等副作用仍然保留。
 
-- [Surfaces](/zh-cn/docs/concepts/surfaces/) — channel 与 tool 与 tape 的关系。
-- [Turn pipeline](/zh-cn/docs/concepts/turn-pipeline/) — context 构造在一次 turn 中的位置。
-- [tape.systems](https://tape.systems) — 更深入的模型与参考资料。
+自己管理一段工作时，可以使用 `agent.session(name, merge_back=...)` 或 `tape.fork_tape(merge_back=...)`。两者默认都在退出时合并，包括异常退出。
+
+如果同一 Tape 上的运行需要看到前一轮的完整结果，应让它们依次执行。会话锁由你的应用提供。[FastAPI 示例](/zh-cn/docs/tutorials/fastapi/)展示单进程内的锁；多个 worker 需要跨进程协调。
+
+## 将大型结果放在会话旁边
+
+`TapeSidecar` 用独立的 Tape 保存关联数据。挂载的 sidecar 随主 Tape 一起分支、合并和重置，其条目不进入主上下文。自己的应用需要这项能力时，可以通过 `Agent(sidecars=...)` 显式传入。
+
+Bub 应用为大型工具结果挂载 spill sidecar。会话中保留有限预览和句柄，Agent 可以通过 `spill.read` 分段读取。合并分支或重置 Tape 时，sidecar 的失败会单独记录，主 Tape 操作仍可完成。应用的 spill 限制属于[配置](/zh-cn/docs/operate/configure/)。
+
+<a id="application-storage"></a>
+
+## Bub 应用中的存储
+
+BubAgent 使用 BubFramework 提供的存储。内置应用使用 Bub home 下的 `FuzzyFileTapeStore`，通常位于 `~/.bub/tapes/`。Tape 名称由工作区路径和会话 ID 的哈希组合而成，因此不同工作区中相同的会话 ID 拥有独立历史。
+
+应用通过 `provide_tape_store` 替换存储，通过 `build_tape_context` 选择上下文。[SQLAlchemy 指南](/zh-cn/docs/tutorials/tapestore-sqlalchemy/)展示这条插件路线。直接使用 SDK 的服务则按本页前面的方式，把实现传给 `Agent(store=...)`。
+
+内置应用会从 Tape 记录恢复选定的会话设置。其他本轮状态需要单独实现持久化。

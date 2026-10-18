@@ -1,13 +1,32 @@
 ---
 title: Reference
-description: Lookup tables for hooks, CLI commands, settings, and public types in Bub.
+description: Find the Agent interfaces, shared capability contracts, and Bub application APIs.
 ---
 
-This page indexes the four reference tables for Bub's public surface. Each page lists names, signatures, and short descriptions; for the **why** see [Concepts](/docs/concepts/), for the **how** see [Build](/docs/build/) and [Operate](/docs/operate/).
+Look up the interface used by your code. The Agent interfaces and application extension points have different responsibilities; [shared concepts](/docs/concepts/) explain how they fit together.
 
-| Page | Scope |
+<a id="agent"></a>
+
+## Agent interfaces
+
+| Interface | Reference |
 | --- | --- |
-| [Hooks](/docs/reference/hooks/) | Every spec in `BubHookSpecs` with kind, parameters, return type, invocation site. |
-| [CLI](/docs/reference/cli/) | Every `bub` command and subcommand, with options, defaults, and behavior notes. |
-| [Settings](/docs/reference/settings/) | All `BUB_*` environment variables, `pydantic-settings` classes, and `~/.bub/config.yml` keys. |
-| [Core contracts](/docs/reference/types/) | Subsystem-owned contracts: envelopes, turns, model selection, streaming, hooks, channels, and `BubFramework`. |
+| Agent construction and model clients | [Agent parameters](/docs/build/sdk/#agent-parameters) and [models](/docs/build/sdk/#models) |
+| Runs and stream ownership | [Streams and lifecycle](/docs/build/sdk/#streams-and-lifecycle) |
+| Prompt sections and loop customization | [System prompt](/docs/build/sdk/#system-prompt) and [customize the loop](/docs/build/sdk/#customize-the-loop) |
+| Tools and CodeMode | [Tools](/docs/build/tools/) |
+| Tape, storage, and context | [Tape and context](/docs/concepts/tape-and-context/) |
+| Event delivery and decisions | [Agent events](/docs/concepts/events/) |
+
+<a id="application"></a>
+
+## Bub application
+
+| Interface | Reference |
+| --- | --- |
+| Plugin hook names, signatures, and return values | [Hooks](/docs/reference/hooks/) |
+| CLI commands and options | [CLI](/docs/reference/cli/) |
+| Environment variables and configuration keys | [Settings](/docs/reference/settings/) |
+| Framework, channels, envelopes, and application types | [Application contracts](/docs/reference/types/) |
+
+[Upgrade to 0.6.0](/docs/reference/versions/) explains the dependency change for existing applications.

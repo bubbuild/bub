@@ -1,9 +1,9 @@
 ---
-title: CLI
-description: 每个 bub 命令的选项、默认值与行为说明。
+title: CLI 参考
+description: 应用内置命令的选项、默认值和行为。
 ---
 
-本页列出 `bub` CLI 入口注册的全部命令。命令通过 builtin 的 `register_cli_commands` 钩子(`src/bub/builtin/hook_impl.py`)注册;插件可以追加更多。
+这些命令运行 Bub 应用，需要安装[应用依赖](/zh-cn/docs/getting-started/install/)。本页记录内置命令，插件可以添加自己的命令。运行 `bub --help` 可查看当前环境提供的命令。
 
 ## 全局选项
 
@@ -13,14 +13,14 @@ bub [OPTIONS] COMMAND [ARGS]...
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
-| `--workspace`, `-w` | TEXT | 当前工作目录 | 工作区路径,赋值给 `BubFramework.workspace`。 |
-| `--help` | flag | — | 显示帮助并退出。 |
+| `--workspace`, `-w` | TEXT | 当前工作目录 | 工作区路径，赋值给 `BubFramework.workspace`。 |
+| `--help` | 开关 | 不适用 | 显示帮助并退出。 |
 
-框架在 `bub/__main__.py` 中创建:先 `BubFramework().load_hooks()`,再 `create_cli_app()`。当前 framework 实例存放在 `ctx.obj` 上。
+框架在 `bub/__main__.py` 中创建：先 `BubFramework().load_hooks()`，再 `create_cli_app()`。当前 framework 实例存放在 `ctx.obj` 上。
 
 ## `bub run`
 
-将一条 `ChannelMessage` 通过 `BubFramework.process_inbound` 跑完整条流水线,并把每个 outbound 打印到 stdout。
+将一条 `ChannelMessage` 通过 `BubFramework.process_inbound` 跑完整条流水线，并把每个出站消息打印到 stdout。
 
 ```text
 bub run [OPTIONS] MESSAGE
@@ -28,21 +28,21 @@ bub run [OPTIONS] MESSAGE
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
-| `MESSAGE` (arg) | TEXT | required | inbound 消息内容。 |
-| `--channel` | TEXT | `cli` | 写入 inbound envelope 的 channel 名称。 |
-| `--chat-id` | TEXT | `local` | 写入 inbound envelope 的 chat id。 |
-| `--sender-id` | TEXT | `human` | 发送方 id,放进 `context.sender_id`。 |
-| `--session-id` | TEXT | `{channel}:{chat_id}` | 覆盖 session id。 |
+| `MESSAGE` (arg) | TEXT | 必填 | 入站消息内容。 |
+| `--channel` | TEXT | `cli` | 写入入站信封的渠道名称。 |
+| `--chat-id` | TEXT | `local` | 写入入站信封的聊天 ID。 |
+| `--sender-id` | TEXT | `human` | 发送方 id，放进 `context.sender_id`。 |
+| `--session-id` | TEXT | `{channel}:{chat_id}` | 覆盖会话 ID。 |
 
-行为说明:
+行为说明：
 
-- 在该次 turn 周围打开 `framework.running()` —— `provide_tape_store` 在调用前进入,调用后退出。
-- outbound 以 `[channel:chat_id]\n<content>` 的格式打印。
-- **不** 启用流式输出;模型钩子通过 `HookRuntime.run_model` 调用。
+- 在该次轮次周围打开 `framework.running()`：`provide_tape_store` 在调用前进入，调用后退出。
+- 出站消息以 `[channel:chat_id]\n<content>` 的格式打印。
+- **不** 启用流式输出；模型钩子通过 `HookRuntime.run_model` 调用。
 
 ## `bub chat`
 
-启动一个由 `cli` channel 支撑的交互式 REPL。
+启动一个由 `cli` 渠道支撑的交互式 REPL。
 
 ```text
 bub chat [OPTIONS] [INITIAL_PROMPT]
@@ -53,18 +53,18 @@ bub chat [OPTIONS] [INITIAL_PROMPT]
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
-| `--chat-id` | TEXT | `local` | CLI channel 上报的 chat id。 |
-| `--session-id` | TEXT | none | 可选的显式 session id。 |
+| `--chat-id` | TEXT | `local` | CLI 渠道上报的聊天 ID。 |
+| `--session-id` | TEXT | 无 | 可选的显式会话 ID。 |
 
-行为说明:
+行为说明：
 
-- 构造一个 `enabled_channels=["cli"]`、`stream_output=True` 的 `ChannelManager`,然后调用 `manager.listen_and_run()`。
-- 没有插件提供名为 `cli` 的 channel 时,以退出码 `1` 退出。
-- CLI channel 使用 `prompt_toolkit` 与 `rich` 渲染流式事件。
+- 构造一个 `enabled_channels=["cli"]`、`stream_output=True` 的 `ChannelManager`，然后调用 `manager.listen_and_run()`。
+- 没有插件提供名为 `cli` 的渠道时，以退出码 `1` 退出。
+- CLI 渠道使用 `prompt_toolkit` 与 `rich` 渲染流式事件。
 
 ## `bub gateway`
 
-启动所有已启用的 channel listener(Telegram、自定义插件 channel 等)。
+启动所有已启用的渠道监听器(Telegram、自定义插件渠道等)。
 
 ```text
 bub gateway [OPTIONS]
@@ -72,58 +72,58 @@ bub gateway [OPTIONS]
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
-| `--enable-channel` | TEXT (repeatable) | 空列表(读取 `BUB_ENABLED_CHANNELS`) | 限制 gateway 仅启用列出的 channel 名。可重复传入。 |
-| `--install` | flag | 关闭 | 把 gateway 安装并启动为当前用户的后台服务。 |
-| `--uninstall` | flag | 关闭 | 停止并卸载当前用户的 gateway 后台服务。 |
+| `--enable-channel` | TEXT (repeatable) | 空列表(读取 `BUB_ENABLED_CHANNELS`) | 限制网关仅启用列出的渠道名。可重复传入。 |
+| `--install` | 开关 | 关闭 | 把网关安装并启动为当前用户的后台服务。 |
+| `--uninstall` | 开关 | 关闭 | 停止并卸载当前用户的网关后台服务。 |
 
-行为说明:
+行为说明：
 
-- 未传 `--enable-channel` 时,Manager 读取 `ChannelSettings.enabled_channels`(`BUB_ENABLED_CHANNELS`,默认 `all`)。
-- `all` 会启动所有已启用且不是 `Interface` 的 channel。显式列出且至少包含一个非 `Lifecycle` channel 时，会自动附着已启用的 `Lifecycle` 后台服务；可用 `!name` 排除其中某个 channel。
-- `framework.running()` 持续到 manager 主循环退出;关闭时执行 `provide_tape_store` 的清理。
+- 未传 `--enable-channel` 时，Manager 读取 `ChannelSettings.enabled_channels`(`BUB_ENABLED_CHANNELS`，默认 `all`)。
+- `all` 会启动所有已启用且不是 `Interface` 的渠道。显式列出且至少包含一个非 `Lifecycle` 渠道时，会自动附着已启用的 `Lifecycle` 后台服务；可用 `!name` 排除其中某个渠道。
+- `framework.running()` 持续到 manager 主循环退出；关闭时执行 `provide_tape_store` 的清理。
 - Linux 上，`--install` 会把 `bub-gateway.service` 写入 `${XDG_CONFIG_HOME:-~/.config}/systemd/user/`，为用户的 default target 启用它，并启动或重启服务；如需在退出登录后继续运行，需另行执行 `loginctl enable-linger`。
 - Windows 上，`--install` 会注册并启动当前用户的 `Bub Gateway` Task Scheduler 任务。任务在该用户登录时以有限权限运行，并在失败后重启。
-- 安装会固化当前 Python 解释器、workspace 与显式传入的 `--enable-channel`。重复执行会替换并重启现有服务；移动或替换 Python 环境后应重新执行安装命令。
-- `--uninstall` 会停止并删除对应的 systemd user unit 或 Windows 计划任务。服务已经不存在时仍视为成功，且不要求当前存在已启用的 channel。
+- 安装会固化当前 Python 解释器、工作区与显式传入的 `--enable-channel`。重复执行会替换并重启现有服务；移动或替换 Python 环境后应重新执行安装命令。
+- `--uninstall` 会停止并删除对应的 systemd user unit 或 Windows 计划任务。服务已经不存在时仍视为成功，且不要求当前存在已启用的渠道。
 - `--install` 与 `--uninstall` 不能同时使用。
 
 部署细节见 [运维 › Channels](/zh-cn/docs/operate/channels/)。
 
 ## `bub onboard`
 
-通过 `onboard_config` 钩子交互式收集插件配置,并写入 `~/.bub/config.yml`(或 `framework.config_file` 解析出的路径)。
+通过 `onboard_config` 钩子交互式收集插件配置，并写入 `~/.bub/config.yml`(或 `framework.config_file` 解析出的路径)。
 
 ```text
 bub onboard [OPTIONS] [PLUGIN_NAME]
 ```
 
 传入注册的插件名称可只配置对应插件，例如 `bub onboard builtin`。
-其他配置会保留，定向配置不会询问是否安装 gateway。
+其他配置会保留，定向配置不会询问是否安装网关。
 插件不存在或未提供 `onboard_config` 钩子时，以退出码 `1` 退出且不保存。
 省略插件名则运行全部配置钩子。
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
-| `--help` | flag | — | 显示帮助并退出。 |
+| `--help` | 开关 | 不适用 | 显示帮助并退出。 |
 
-行为说明:
+行为说明：
 
-- 所有 provider 使用同一流程：选择 provider、填写连接信息、检查连接、选择模型，再配置 channel 和流式输出。
-- 选项明确区分 **OpenAI (official API)**（官方接口）与 **OpenAI-compatible (custom URL / local server)**（兼容接口或本地服务）。兼容服务保存为 `openai:<model>`，并使用你填写的 API base URL 和 `client_args.api_format: chat`。
-- 托管服务使用默认地址，通常只询问 API key。兼容服务、Azure OpenAI、Ollama、其他 provider 以及前序钩子提供的自定义地址会额外询问 URL。API key 留空会保留本轮为相同地址提供的 key，或使用环境变量中的凭证，包括 `OPENAI_API_KEY`、`BUB_API_KEY` 和 `BUB_OPENAI_API_KEY`。环境变量中的 key 不会复制到配置文件。
-- Bub 获取 provider 的模型列表，异步超时为 10 秒，随后支持搜索选择或手动输入模型。检查只验证模型列表接口可访问，不发起模型生成请求。获取失败时可修改 URL/key、重试或手动输入；不支持模型发现的 provider（如 Codex）会说明限制并直接进入手动输入，不提供重试菜单。
-- 选择 Codex provider 时会跳过模型发现，直接手动输入模型。界面显示的默认 URL 不会写入配置。URL 留空可保留默认地址；明确输入 URL 时会保存该地址，即使它与显示的默认值相同。
-- 每个插件的 `onboard_config` 钩子拿到已加载配置的副本，以及此前钩子的累计更新；已有字段会保留，除非被钩子覆盖。返回值不是 dict 时抛 `TypeError` 并中止。
-- 合并后的 dict 会经过 `configure.validate` 验证后才写入。
+- 所有提供商使用同一流程：选择提供商、填写连接信息、检查连接、选择模型，再配置渠道和流式输出。
+- 选项明确区分 **OpenAI (official API)**（官方接口）与 **OpenAI-compatible (custom URL / local server)**（兼容接口或本地服务）。兼容服务保存为 `openai:<model>`，并使用你填写的 API 基础 URL 和 `client_args.api_format: chat`。
+- 托管服务使用默认地址，通常只询问 API 密钥。兼容服务、Azure OpenAI、Ollama、其他提供商以及前序钩子提供的自定义地址会额外询问 URL。API 密钥留空会保留本轮为相同地址提供的 key，或使用环境变量中的凭证，包括 `OPENAI_API_KEY`、`BUB_API_KEY` 和 `BUB_OPENAI_API_KEY`。环境变量中的 key 不会复制到配置文件。
+- Bub 获取提供商的模型列表，异步超时为 10 秒，随后支持搜索选择或手动输入模型。检查只验证模型列表接口可访问，不发起模型生成请求。获取失败时可修改 URL/key、重试或手动输入；不支持模型发现的提供商（如 Codex）会说明限制并直接进入手动输入，不提供重试菜单。
+- 选择 Codex 提供商时会跳过模型发现，直接手动输入模型。界面显示的默认 URL 不会写入配置。URL 留空可保留默认地址；明确输入 URL 时会保存该地址，即使它与显示的默认值相同。
+- 每个插件的 `onboard_config` 钩子拿到已加载配置的副本，以及此前钩子的累计更新；已有字段会保留，除非被钩子覆盖。返回值不是字典时抛 `TypeError` 并中止。
+- 合并后的字典会经过 `configure.validate` 验证后才写入。
 - `onboard` 是交互命令，连接检查结果会决定后续提示。无人值守配置请直接生成配置文件。内置安装器仅在交互模式下启动 `onboard`。
-- Linux 或 Windows 上保存了至少一个 channel 后，onboarding 会询问是否把 gateway 安装为当前用户的后台服务，默认选择否。安装失败不会回滚已保存的配置，并以退出码 `1` 结束。
+- Linux 或 Windows 上保存了至少一个渠道后，onboarding 会询问是否把网关安装为当前用户的后台服务，默认选择否。安装失败不会回滚已保存的配置，并以退出码 `1` 结束。
 
-退出码:
+退出码：
 
 | 退出码 | 含义 |
 | --- | --- |
 | `0` | 配置已保存。 |
-| `1` | 验证、写入或用户请求的 gateway 安装失败;错误信息打印到 stderr。 |
+| `1` | 验证、写入或用户请求的网关安装失败；错误信息打印到 stderr。 |
 
 ## `bub install`
 
@@ -135,18 +135,18 @@ bub install [OPTIONS] [SPECS]...
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
-| `SPECS` (args) | one or more strings | 空列表 | 包规格:PyPI 名称、`owner/repo[@ref]`、`git+...`,或以 `name@ref` 形式解析到 `https://github.com/bubbuild/bub-contrib.git` 的 bub-contrib 子包。 |
+| `SPECS` (args) | 一个或多个字符串 | 空列表 | 包规格：PyPI 名称、`owner/repo[@ref]`、`git+...`，或以 `name@ref` 形式解析到 `https://github.com/bubbuild/bub-contrib.git` 的 bub-contrib 子包。 |
 | `--project` | PATH | `BUB_HOME/bub-project`；未设置 `BUB_HOME` 时为 `~/.bub/bub-project`(env: `BUB_PROJECT`) | Bub 插件项目目录。 |
 
-行为说明:
+行为说明：
 
-- 需要 `uv` 在 `PATH` 上,且 Bub 自身运行在 virtualenv 内 (`sys.prefix != sys.base_prefix`),否则以退出码 `1` 退出。
-- 首次使用时通过 `uv init --bare --name bub-project --app` 初始化项目,并把 Bub 自身作为依赖添加(根据本地安装方式选择 editable / file:// / VCS / PyPI)。
+- 需要 `uv` 在 `PATH` 上，且 Bub 自身运行在虚拟环境内 (`sys.prefix != sys.base_prefix`)，否则以退出码 `1` 退出。
+- 首次使用时通过 `uv init --bare --name bub-project --app` 初始化项目，并把 Bub 自身作为依赖添加(根据本地安装方式选择 editable / file:// / VCS / PyPI)。
 - 默认项目目录会自动创建。显式传入 `--project` 时，该目录必须已经存在。
 - 不传 spec 时执行 `uv sync --active --inexact`。
 - 传入 spec 时执行 `uv add --active <requirements>`。
 
-退出码沿用 `uv`:底层 `subprocess.run` 的非零退出码会被透传。
+退出码沿用 `uv`：底层 `subprocess.run` 的非零退出码会被透传。
 
 ## `bub uninstall`
 
@@ -156,7 +156,7 @@ bub uninstall [OPTIONS] PACKAGES...
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
-| `PACKAGES` (args) | one or more strings | required | 项目 `pyproject.toml` 中记录的包名。 |
+| `PACKAGES` (args) | 一个或多个字符串 | 必填 | 项目 `pyproject.toml` 中记录的包名。 |
 | `--project` | PATH | `BUB_HOME/bub-project`；未设置 `BUB_HOME` 时为 `~/.bub/bub-project`(env: `BUB_PROJECT`) | 插件项目目录。 |
 
 在 `--project` 内执行 `uv remove --active <packages>`。
@@ -169,10 +169,10 @@ bub update [OPTIONS] [PACKAGES]...
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
-| `PACKAGES` (args) | zero or more strings | 空列表 | 需要升级的包名;留空表示全部。 |
+| `PACKAGES` (args) | 零个或多个字符串 | 空列表 | 需要升级的包名；留空表示全部。 |
 | `--project` | PATH | `BUB_HOME/bub-project`；未设置 `BUB_HOME` 时为 `~/.bub/bub-project`(env: `BUB_PROJECT`) | 插件项目目录。 |
 
-行为说明:
+行为说明：
 
 - 不传包名 → `uv sync --active --upgrade --inexact`。
 - 传入包名 → 为每个包追加 `--upgrade-package <name>` 并执行 `uv sync --active --inexact`。
@@ -187,7 +187,7 @@ bub login [OPTIONS] COMMAND [ARGS]...
 
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
-| `--help` | flag | — | 显示帮助并退出。 |
+| `--help` | 开关 | 不适用 | 显示帮助并退出。 |
 
 ### `bub login codex`
 
@@ -200,12 +200,12 @@ bub login codex [OPTIONS]
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
 | `--executable` | TEXT | `codex` | Codex CLI 可执行文件。 |
-| `--device-auth` | flag | off | 使用设备授权，适用于没有浏览器的终端。 |
+| `--device-auth` | 开关 | off | 使用设备授权，适用于没有浏览器的终端。 |
 | `--codex-home` | PATH | `$CODEX_HOME` 或 `~/.codex` | 登录子进程使用的凭据目录。 |
 
-行为说明:
+行为说明：
 
-- 成功时打印 `login: ok`、account id，并提示设置 `BUB_MODEL=codex:<model>` 且不再提供 `BUB_API_KEY`。
+- 成功时打印 `login: ok`、账户 ID，并提示设置 `BUB_MODEL=codex:<model>` 且不再提供 `BUB_API_KEY`。
 - 认证失败时以退出码 `1` 退出；找不到可执行文件时提示安装 CLI。
 - 凭据保存到 `$CODEX_HOME/auth.json` 或 `~/.codex/auth.json`。使用 `--codex-home` 指定目录，无浏览器登录使用 `--device-auth`。
 
@@ -217,4 +217,4 @@ bub login codex [OPTIONS]
 bub hooks
 ```
 
-注册时使用 `hidden=True`,因此不会出现在顶层 `--help` 列表中。输出每行一个钩子:`hook_name: adapter1, adapter2, …`。它适合确认实现是否被发现；如果要据此推断 firstresult 优先级，请先阅读 [Hooks › How hooks are invoked](/zh-cn/docs/reference/hooks/#how-hooks-are-invoked)。
+注册时使用 `hidden=True`，因此不会出现在顶层 `--help` 列表中。输出每行一个钩子：`hook_name: adapter1, adapter2, …`。它适合确认实现是否被发现；如果要据此推断 firstresult 优先级，请先阅读 [Hooks › How hooks are invoked](/zh-cn/docs/reference/hooks/#how-hooks-are-invoked)。

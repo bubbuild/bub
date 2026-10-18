@@ -1,64 +1,24 @@
 ---
-title: 概念
-description: 如何阅读本节、一图速览的 turn 流程，以及随时回查的术语表。
+title: 公共概念与能力
+description: 理解自己的 Agent 与 Bub 应用共用的组件。
 sidebar:
   order: 0
 ---
 
-本节解释 Bub 的设计模型：内核为何小、一次 turn 究竟做了什么、context 如何从 tape 重建，以及三个扩展面在哪里相遇。
+两条路线使用相同的工具、会话历史和事件接口。需要理解组件或选择接入方式时，可以查阅这些页面。也可以先从[自己的 Agent](/zh-cn/docs/build/sdk/) 或 [Bub 应用](/zh-cn/docs/build/)开始，遇到具体问题再回到这里。
 
-## 如何阅读本节
+| 想了解什么 | 阅读 |
+| --- | --- |
+| 内核与应用如何配合 | [设计选择](/zh-cn/docs/concepts/philosophy/) |
+| 当前任务适合哪个扩展点 | [选择扩展方式](/zh-cn/docs/concepts/surfaces/) |
+| 怎样定义动作或使用生成的 Python | [工具与 CodeMode](/zh-cn/docs/build/tools/) |
+| 保存哪些信息，模型读取哪些信息 | [会话历史与上下文](/zh-cn/docs/concepts/tape-and-context/) |
+| 怎样观察、修改或停止调用 | [事件与调用控制](/zh-cn/docs/concepts/events/) |
 
-第一遍按顺序读完四个页面。每页都很短且自洽：
+## 几个常用术语
 
-1. [Philosophy](/zh-cn/docs/concepts/philosophy/) — 内核为何严格、插件为何宽松，以及 operator 为何对等。
-2. [Turn pipeline](/zh-cn/docs/concepts/turn-pipeline/) — `process_inbound` 顺序执行了什么、各处 fallback 何时生效。
-3. [Tape and context](/zh-cn/docs/concepts/tape-and-context/) — append-only 的 tape 如何变成模型 context window。
-4. [Surfaces](/zh-cn/docs/concepts/surfaces/) — channel、skill 与 tool 这三条独立扩展轴。
+**Agent** 执行模型与工具循环。一轮**运行（run）**处理一个 prompt，可能包含多个模型步骤。**工具（tool）**是 Agent 可以执行的带类型动作。
 
-第一遍之后，把每页当参考，按需返回查阅。
+**Tape** 保存会话记录，**条目（entry）**包括消息、工具调用、结果和事件。**锚点（anchor）**标记上下文的起点，**handoff** 写入新锚点。本轮可变**状态（state）**是另一个字典，由工具和处理器共用。
 
-## 一图速览 turn 流程
-
-下面这张图会在 [Turn pipeline](/zh-cn/docs/concepts/turn-pipeline/) 中详细展开：
-
-```mermaid
-flowchart TB
-  subgraph row1[" "]
-    direction LR
-    inbound(["inbound envelope"]) --> resolve["resolve_session"]
-    resolve --> load["load_state"]
-    load --> prompt["build_prompt"]
-    prompt --> model["run_model<br/>[_stream]"]
-  end
-  subgraph row2[" "]
-    direction RL
-    save["save_state<br/>(finally)"] --> render["render_outbound"]
-    render --> dispatch["dispatch_outbound"]
-  end
-  model --> save
-  style row1 fill:transparent,stroke:transparent
-  style row2 fill:transparent,stroke:transparent
-```
-
-`save_state` 始终在 `finally` 块中执行；`render_outbound` 与 `dispatch_outbound` 仅在 turn 成功时执行。
-
-## 术语表
-
-每个术语跳到其定义所在页面：
-
-- [Hook](/zh-cn/docs/concepts/turn-pipeline/) — 内核在一次 turn 中调用的 [pluggy](https://pluggy.readthedocs.io/) 扩展点。
-- [Plugin](/zh-cn/docs/concepts/philosophy/) — 任何注册到 `bub` entry-point 组的包。
-- [Tape](/zh-cn/docs/concepts/tape-and-context/) — 单个 session 的 append-only 事实序列。
-- [Entry](/zh-cn/docs/concepts/tape-and-context/) — tape 上的一条不可变记录。
-- [Anchor](/zh-cn/docs/concepts/tape-and-context/) — 内核可据以重建 context 的检查点。
-- [Handoff](/zh-cn/docs/concepts/tape-and-context/) — 受约束的阶段过渡，会写入新的 anchor。
-- [Channel](/zh-cn/docs/concepts/surfaces/) — 对外 I/O 表面（CLI、Telegram 等）。
-- [Skill](/zh-cn/docs/concepts/surfaces/) — operator（人或 agent）按名字调用的可复用流程。
-- [Tool](/zh-cn/docs/concepts/surfaces/) — 模型可调用的有类型动作。
-- [Envelope](/zh-cn/docs/concepts/surfaces/) — 在 turn pipeline 中传递的 duck-typed 负载。
-
-## 下一步
-
-- [Philosophy](/zh-cn/docs/concepts/philosophy/) — 进入本节。
-- [Hooks 参考](/zh-cn/docs/reference/hooks/) — 需要时查阅完整 hookspec 签名。
+Bub 应用还提供用于接入 Python hooks 的**插件**、提供可复用指令的 **skills**，以及收发消息的**渠道**。[应用消息处理流程](/zh-cn/docs/concepts/turn-pipeline/)将这些组件连接到 Agent 周围。

@@ -1,15 +1,13 @@
 ---
 title: 使用本地 llama.cpp 模型运行 Bub
-description: 启动本地 llama.cpp server，并把 Bub 配置为使用这个 OpenAI-compatible 模型后端。
+description: 启动本地 llama.cpp 服务，并把 Bub 配置为使用这个 OpenAI 兼容模型后端。
 sidebar:
   order: 3
 ---
 
-本教程演示如何让 Bub 使用本地 `llama.cpp` server。完成后，Bub 的模型调用会发往你机器上运行的 GGUF Gemma 模型，而不是托管 API。
+让 Bub 应用调用本机的 `llama.cpp` 服务。本指南启动一个 GGUF Gemma 模型，检查其 OpenAI 兼容端点，再设置应用的模型地址。
 
-当你需要在开发环境、私有实验、离线 demo，或贴近应用的低延迟任务中使用本地模型时，可以使用这条路径。本教程不覆盖模型 benchmark、fine-tuning、生产加固，也不讨论如何为所有工作负载选择最佳模型。
-
-示例使用 [`ggml-org/gemma-4-E2B-it-GGUF`](https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF)，这是 Google Gemma 4 E2B instruction-tuned 模型的 GGUF 版本。Google 的 [Gemma 4 overview](https://deepmind.google/models/gemma/gemma-4/) 把 E2B 和 E4B 描述为适合移动和边缘设备的高效模型；[Gemma 4 model card](https://ai.google.dev/gemma/docs/core/model_card_4) 记录了能力、限制和负责任使用相关注意事项。
+示例使用 [`ggml-org/gemma-4-E2B-it-GGUF`](https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF)，这是 Google Gemma 4 E2B 经过指令微调的模型的 GGUF 版本。Google 的 [Gemma 4 overview](https://deepmind.google/models/gemma/gemma-4/) 把 E2B 和 E4B 描述为适合移动和边缘设备的高效模型；[Gemma 4 model card](https://ai.google.dev/gemma/docs/core/model_card_4) 记录了能力、限制和负责任使用相关注意事项。
 
 ## 开始前
 
@@ -18,7 +16,7 @@ sidebar:
 - Bub 已安装，且 `bub --help` 可以运行。
 - 已安装 Docker。
 - `~/.cache/llama.cpp/` 下有 GGUF 模型文件。
-- 系统内存足够运行所选量化版本。Gemma 4 E2B 的 Q8 GGUF 文件约 5 GB；实际运行内存还会受上下文长度、batching、GPU offload 等设置影响。
+- 系统内存足够运行所选量化版本。Gemma 4 E2B 的 Q8 GGUF 文件约 5 GB；实际运行内存还会受上下文长度、批处理、GPU 卸载等设置影响。
 
 本教程使用下面两个文件名：
 
@@ -31,7 +29,7 @@ sidebar:
 
 ## 1. 启动本地 server
 
-先为本地 server 设置一个 API key：
+先为本地服务设置一个 API 密钥：
 
 ```bash
 export LLAMA_API_KEY="${LLAMA_API_KEY:-test}"
@@ -53,11 +51,11 @@ sudo docker run --rm -it \
   --mmproj /root/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_mmproj-gemma-4-E2B-it-Q8_0.gguf
 ```
 
-Docker 端口绑定到 `127.0.0.1`，因此这个 server 只在本机可访问。只有在明确需要其他机器访问时，才调整端口绑定。
+Docker 端口绑定到 `127.0.0.1`，因此这个服务只在本机可访问。只有在明确需要其他机器访问时，才调整端口绑定。
 
 在 SELinux 系统上，`--security-opt label=disable` 可以避免容器读取 `~/.cache/llama.cpp` 下模型文件时遇到 bind mount 权限问题。如果只需要文本输入，可以删除 `--mmproj` 那一行。
 
-如果 Docker 输出 `no ROCm-capable device is detected`，容器仍然可能回退到 CPU inference。这足够验证接入路径，但响应速度会更慢。
+如果 Docker 输出 `no ROCm-capable device is detected`，容器仍然可能回退到 CPU 推理。这足够验证接入路径，但响应速度会更慢。
 
 ## 2. 测试 OpenAI-compatible API
 
@@ -75,11 +73,11 @@ curl http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-正常工作的 server 会返回一个 `chat.completion` JSON 对象，其中包含 assistant message。
+正常工作的服务会返回一个 `chat.completion` JSON 对象，其中包含助手消息。
 
 ## 3. 配置 Bub
 
-把 Bub 指向本地 server：
+把 Bub 指向本地服务：
 
 ```bash
 export BUB_API_BASE="http://localhost:8080/v1"
@@ -87,13 +85,13 @@ export BUB_API_KEY="$LLAMA_API_KEY"
 export BUB_MODEL="openai:gemma-4-E2B-it"
 ```
 
-运行一个 Bub turn：
+运行一个 Bub 轮次：
 
 ```bash
 bub run "Reply with one short sentence: hello from a local model."
 ```
 
-现在 Bub 会通过本地 OpenAI-compatible endpoint 进行模型调用。turn pipeline、channels、tools 和 tapes 都不需要改变。
+现在 Bub 会通过本地 OpenAI 兼容端点进行模型调用。应用轮次流程、渠道、tools 和 Tape 都不需要改变。
 
 ```bash
 ~/bubbuild/bub$ bub run "Reply with one short sentence: hello from a local model."
@@ -109,15 +107,15 @@ hello from a local model.
 
 - Hugging Face GGUF card 会列出支持的本地运行方式和可用量化文件。
 - Gemma 4 model card 会说明输入模态、上下文窗口、预期用途、许可和风险。
-- 本地运行不等于免评测。本地模型仍然可能生成错误、有偏见或不安全的输出。
+- 用有代表性的任务评估模型，检查回答中的错误、偏见和安全问题。
 
-适合优先尝试小型本地模型的，是那些更看重延迟、隐私、成本或离线能力，而不是最高模型质量的工作负载。对于高风险或面向产品的工作流，应先在有代表性的任务上评估模型，再接入真实用户路径。
+如果任务更看重延迟、隐私、成本或离线能力，可以先尝试小型本地模型。面向用户上线前，用实际任务确认回答质量。
 
 ## 清理
 
 用 `Ctrl-C` 停止 Docker 容器。
 
-如果要恢复到之前的 provider，清理 Bub 覆盖配置：
+如果要恢复到之前的提供商，清理 Bub 覆盖配置：
 
 ```bash
 unset BUB_API_BASE BUB_API_KEY BUB_MODEL LLAMA_API_KEY

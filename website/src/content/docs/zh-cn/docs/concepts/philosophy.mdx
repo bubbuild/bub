@@ -1,56 +1,32 @@
 ---
-title: 设计哲学
-description: 为什么 Bub 采用严格的微内核加 vibe 化插件、把人和 agent 视为对等 operator，并用社会化评估检验协作。
+title: 设计选择
+description: Bub 为什么区分 Agent 循环、应用默认行为和会话上下文。
 sidebar:
   order: 1
 ---
 
-本页解释 Bub 的设计选择：仅承载 turn pipeline 的严格微内核、可宽松甚至由 agent 编写的插件、人与 agent 的 operator 对等，以及把社会化评估当作系统能否在共享环境中立得住的检验标准。
+你可以把 Agent 内核接入已有程序，也可以定制已经能运行的 Bub 应用。两条路线使用相同的模型与工具循环，由你选择复用多少应用能力。
 
-## 微内核与插件
+## 组合程序需要的组件
 
-Bub 把职责拆成两层，两者维护模型截然不同：
+`core.Agent` 接收你直接提供的模型、工具、提示词片段和 Tape 存储。一个小型 Python 服务使用内核依赖即可运行。
 
-- **内核** — 小、稳定、手工编写、由维护者把控质量。内核承载 turn pipeline（[resolve_session → ... → dispatch_outbound](/zh-cn/docs/concepts/turn-pipeline/)）以及让插件参与的 hook 契约。
-- **插件** — 通过 Python entry points（`group="bub"`）发现。它们可以以任何方式编写，包括由 coding agent 在本地生成；也可独立安装与卸载。
+`BubAgent` 增加应用的默认能力：设置、skills、命令、工具选择和运行中的消息引导。`BubFramework` 在外围管理插件、消息处理和出站路由。需要复用这些行为时，可以直接使用。
 
-内核不附带 CLI 与 Telegram 之外的 channel adapter，不绑定具体的 tape backend，也不强制全局 state schema。任何随部署而变化的事物都属于插件。
+[安装指南](/zh-cn/docs/getting-started/install/)说明依赖选择，[SDK 指南](/zh-cn/docs/build/sdk/)和[应用指南](/zh-cn/docs/build/)分别展示如何使用。
 
-正是这种切分，让一位运维者可以只跑三个插件、另一位跑三十个，而双方都不用为不需要的能力买单。
+## 分开保存历史与构建上下文
 
-:::note
-完整论证见 [Why we rewrote Bub](/zh-cn/posts/why-rewrite-bub/) 一文。如果你即将编写插件或维护发行版，请先读一遍。
-:::
+完整会话可能比下一步需要的上下文更长。Tape 保留已经记录的历史，上下文选择器决定模型读取什么。锚点让新的上下文从指定位置开始，同时保留此前的工作。
 
-## 操作者对等
+这样既能查看保存的消息和工具结果，也能让下一次请求聚焦当前任务。历史是否持久保留仍取决于选择的存储，自定义应用状态也需要明确的保存方式。详见[会话历史与上下文](/zh-cn/docs/concepts/tape-and-context/)。
 
-Bub 把人与 agent 视作同一 workspace 上的对等 operator。两者面对同样的边界：
+## 明确扩展改变什么
 
-- 同样的指令面 — `AGENTS.md` 与 `.agents/skills/` 下的项目 skill
-- 同样的执行证据 — 每次 turn 都写入 [tape](/zh-cn/docs/concepts/tape-and-context/)
-- 同样的 handoff 语义 — 无论由人还是 agent 触发，anchor 与 handoff 行为一致
+工具描述一个动作，skill 描述一种工作方法，渠道把应用接到人们工作的地方。区分这些职责，才能找到适合当前任务的修改位置。
 
-正因如此，workspace 文件（`AGENTS.md`、`.agents/skills/`）遵循 [agents.md](https://agents.md/) 与 [Agent Skills](https://agentskills.io/) 约定，而非 Bub 私有格式：阅读它们的 operator 可能是 code review 中的人、turn 中的 agent，或别的工具。
+运行时，事件提供模型与工具调用的接入点；应用 hooks 还负责配置、资源准备和消息路由。它们各自有执行顺序和错误规则，[扩展方式指南](/zh-cn/docs/concepts/surfaces/)会引导你找到对应接口。
 
-## 社会化评估
+## 背景阅读
 
-能力 demo 回答的是“模型能做 X 吗？”。真实部署回答的是“工作变得棘手时，团队还能信任它吗？”。Bub 把后者作为设计目标。
-
-具体落实为：
-
-- 决策与 tool 调用作为事实写入 tape，而非沉没在进程内存。
-- anchor 与 handoff 让任何 operator 都能从已知检查点继续工作。
-- turn pipeline 通过 hook（`on_error`、`dispatch_outbound`）可观测，审阅者无需阅读 agent 内部即可审计发生了什么。
-
-该提法源于 [Bub: Socialized Evaluation and Agent Partnership](/zh-cn/posts/socialized-evaluation/) 一文。
-
-## 延伸阅读
-
-- [Why we rewrote Bub](/zh-cn/posts/why-rewrite-bub/) — 微内核加插件的维护性论据。
-- [Bub: Socialized Evaluation and Agent Partnership](/zh-cn/posts/socialized-evaluation/) — operator 对等的论据。
-
-## 下一步
-
-- [Turn pipeline](/zh-cn/docs/concepts/turn-pipeline/) — 看本页所主张的内核契约具体是什么。
-- [Tape and context](/zh-cn/docs/concepts/tape-and-context/) — 社会化评估背后的证据模型。
-- [Build plugins](/zh-cn/docs/build/plugins/) — 宽松层的契约。
+[为什么重写 Bub](/zh-cn/posts/why-rewrite-bub/)和[社会化评估与智能体伙伴关系](/zh-cn/posts/socialized-evaluation/)介绍项目早期的设计思路。当前接口与行为以现行指南和参考为准。

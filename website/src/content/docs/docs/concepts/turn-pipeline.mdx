@@ -1,104 +1,48 @@
 ---
-title: Turn pipeline
-description: What process_inbound runs end to end, including prompt and model fallbacks, save_state in finally, render_outbound fallback, and on_error semantics.
+title: How the app handles a message
+description: Follow a message through BubFramework, from session selection to outbound delivery.
 sidebar:
   order: 2
 ---
 
-This page explains what `BubFramework.process_inbound` does for one inbound message, in source order, and what falls back when a hook returns nothing or raises.
+BubFramework connects the agent to application concerns: session identity, turn state, prompt preparation, and message delivery. Each stage exposes hooks so a plugin can change that part of the application.
 
-A *turn* is one full pass: one inbound envelope in, zero or more outbound envelopes out, and one or more entries appended to the session [tape](/docs/concepts/tape-and-context/).
+This pipeline belongs to `bub[app]`. A direct `core.Agent.run()` starts the agent loop with the prompt, state, and tape you provide.
 
-## End-to-end flow
+## Follow one message
 
-```mermaid
-flowchart TD
-  inbound(["inbound envelope"]) --> resolve["resolve_session<br/>firstresult<br/>(fallback: channel:chat)"]
-  resolve --> load["load_state<br/>many → reverse → merge<br/>(seed _runtime_ workspace)"]
-  load --> prompt["build_prompt<br/>firstresult<br/>(fallback: inbound text)"]
-  prompt --> model["run_model_stream<br/>↕ adapts to run_model<br/>firstresult"]
-  model -->|always| save["save_state<br/>many, in finally"]
-  save --> render["render_outbound<br/>many → flatten<br/>(fallback: one envelope from output)"]
-  render --> dispatch["dispatch_outbound<br/>many, per outbound"]
-```
+`framework.process_inbound(message)` runs these stages:
 
-## Stages, in source order
+| Stage | What it does |
+| --- | --- |
+| `resolve_session` | Select the session ID for the inbound message. |
+| `load_state` | Collect the current turn's state from hook implementations. |
+| `build_prompt` | Turn inbound content into a prompt. |
+| `run_model` / `run_model_stream` | Produce the model output, through either a final result or a stream. |
+| `save_state` | Finish work associated with the model stage. Runs in its `finally` block. |
+| `render_outbound` | Turn the result into outbound envelopes. |
+| `dispatch_outbound` | Deliver each outbound envelope. |
 
-### resolve_session
+The built-in plugin supplies the application defaults. Plugins can contribute or replace behavior according to each hook's contract; [Hooks reference](/docs/reference/hooks/) defines first-result hooks, combined results, and priority rules.
 
-`firstresult`: returns a session id for the inbound envelope. If every implementation returns `None`, the kernel falls back to `f"{channel}:{chat_id}"` (each defaulting to `"default"`).
+## Where the agent runs
 
-The resolved id is also written back into the envelope's `session_id` slot when the envelope is a mutable mapping.
+The built-in `run_model_stream` hook calls `BubAgent.run_stream()`. BubAgent uses the core model and tool loop, adding settings, skills, commands, steering, and application tool policies.
 
-### load_state
+The framework adapts between streaming and non-streaming hook results. `process_inbound(..., stream_output=True)` lets the channel router consume incremental output and returns a completed `TurnResult` after consumption.
 
-Broadcast: every implementation contributes a state dict. The kernel calls implementations in priority order, collects the results, then reverses those results before merging. Low-priority state is merged first and high-priority state last, so later-registered plugins win on key collisions.
+Replacing `run_model` with a plugin changes this behavior. For example, an echo plugin can return text without ever creating an agent run. Core events and tape recording occur when the chosen implementation actually uses the core agent.
 
-### build_prompt
+## Resource ownership and failures
 
-`firstresult`: returns either a string or a list of multimodal content parts (OpenAI format). `HookRuntime.call_first` stops at the first non-`None` return value. If no implementation returns a non-`None` value, or the selected value is falsy, `process_inbound` falls back to the inbound envelope's plain `content`; a falsy selected value does not cause lower-priority implementations to run.
+Use `async with framework.running():` when hooks provide stores or other application resources. It opens those resources and releases them on exit. The built-in per-message lifespan opens during state loading and closes in `save_state`.
 
-### run_model and run_model_stream
+`save_state` runs once execution reaches the model stage, including when that stage raises. A failure in session resolution, state loading, or prompt construction happens before this `finally` block and does not trigger it. Plugins that acquire resources in those earlier stages must account for that boundary.
 
-Both are `firstresult`. Implementations should provide one or the other, not both:
+The built-in `save_state` closes the per-message lifespan. The application records selected settings separately; saving other state requires an explicit persistence policy.
 
-- `run_model` returns a final string in one call.
-- `run_model_stream` returns an `AsyncStreamEvents` iterator of chunks (`text`, `error`, ...).
+If the model stage raises an unhandled exception, the framework runs `save_state`, then skips normal rendering and dispatch. The outer error path calls `on_error(stage="turn", ...)` and re-raises the exception. The built-in error observer can send an error response through outbound dispatch. Failures in individual `on_error` observers are isolated so other observers can run.
 
-The hook runtime adapts between them: if a plugin only implements `run_model_stream` and the framework was asked for a non-streaming output, the kernel collects every `text` event's `delta` and joins them. If only `run_model` is implemented, it is wrapped as a stream of one text chunk when the caller asked for streaming. A streaming implementation is expected to return an `AsyncStreamEvents`; returning `None` from `run_model_stream` in the non-streaming adapter path is currently an error rather than a clean fallback.
+## Extend the app
 
-If neither hook returns output (every implementation returns `None`), the kernel notifies `on_error(stage="run_model", ...)` and falls back so `save_state` and the outbound stages still run. A string prompt is returned unchanged; a multimodal list prompt falls back to the inbound envelope's plain `content`.
-
-While streaming, every `error` event is forwarded through `on_error(stage="run_model", ...)`. A bound `ChannelRouter` may also wrap the stream to push partial chunks to the channel before the turn finishes.
-
-### save_state
-
-Broadcast, **always invoked** in a `finally` block — even if `run_model` raises. Implementations receive `session_id`, `state`, the inbound `message`, and the captured `model_output` (which may be empty if the model raised).
-
-This is the place to flush per-turn lifespans, persist state mutations, or close per-message resources. Built-in `BuiltinImpl.save_state` reads `sys.exc_info()` so a per-message lifespan context can observe the failure.
-
-### render_outbound
-
-Broadcast: every implementation returns a list of outbound envelopes. The kernel flattens all batches.
-
-If every implementation returns an empty list, the kernel emits one fallback envelope built from `model_output` plus the inbound `channel` and `chat_id`.
-
-### dispatch_outbound
-
-Broadcast, called per outbound envelope. Implementations may return `True` once the envelope is delivered. The built-in implementation also forwards the envelope to a bound `ChannelRouter` for actual channel I/O.
-
-## on_error semantics for `stage="turn"`
-
-If any stage above raises an unhandled exception, `process_inbound`:
-
-1. Logs the exception.
-2. Calls `on_error(stage="turn", error=exc, message=inbound)` so observer plugins can react.
-3. Re-raises the original exception.
-
-The default observer (`BuiltinImpl.on_error`) sends an error envelope through `dispatch_outbound` so the failure is visible on the inbound channel rather than only in logs.
-
-`on_error` is observer-safe: the runtime does not propagate exceptions raised by individual observers, so one failing observer does not block the others.
-
-## What the default plugin actually implements
-
-`BuiltinImpl` (registered as `builtin`) implements every hook above with sensible defaults:
-
-- `resolve_session` — uses the envelope's `session_id` if present, otherwise `f"{channel}:{chat_id}"`.
-- `load_state` — opens the inbound's optional `lifespan`, seeds `session_id` and an internal `_runtime_agent`, and restores session settings (model, reasoning effort, code mode) recorded on the session tape.
-- `build_prompt` — marks command prompts (`,help`, `,skill`, ...) and passes them through unchanged for the agent to run, wraps other text with timestamp and context, and emits multimodal parts when media is attached.
-- `run_model_stream` — runs the turn with `BubAgent.run_stream()`, built on the `bub.core` agent loop with [Republic](https://github.com/bubbuild/republic) models, tool use, commands, and auto-handoff (see [Tape and context](/docs/concepts/tape-and-context/)). The builtin plugin does not implement `run_model`; non-streaming callers get the collected text through the adapter described above.
-- `save_state` — closes the per-message lifespan with the captured exception info.
-- `render_outbound` — wraps `model_output` into one `ChannelMessage` carrying the inbound's routing fields.
-- `dispatch_outbound` — forwards through the bound `ChannelRouter`.
-- `system_prompt` — combines a default prompt with the workspace `AGENTS.md`.
-- `provide_tape_store` — file-backed tape store under `~/.bub/tapes`.
-- `provide_tape_sidecar` — the configured builtin spill sidecar.
-- `provide_channels` — registers the built-in `cli` and `telegram` adapters.
-
-Plugins override any of these by registering a higher-priority implementation; later-registered plugins run first.
-
-## Next steps
-
-- [Tape and context](/docs/concepts/tape-and-context/) — what the `run_model_stream` stage actually reconstructs.
-- [Surfaces](/docs/concepts/surfaces/) — how channels, skills, and tools meet on the envelope and state.
-- [Hooks reference](/docs/reference/hooks/) — full hookspec signatures.
+Use [plugin setup](/docs/build/plugins/) to register your implementation, [hook recipes](/docs/build/hooks/) for specific changes, and the [hooks reference](/docs/reference/hooks/) for exact signatures and ordering.

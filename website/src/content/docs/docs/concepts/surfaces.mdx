@@ -1,79 +1,33 @@
 ---
-title: Surfaces
-description: The three decoupled extension surfaces — channels, skills, and tools — and how they meet on the envelope and shared state.
+title: Choose an extension point
+description: Decide whether your task needs a tool, event handler, skill, plugin, or channel.
 sidebar:
-  order: 4
+  order: 5
 ---
 
-This page explains the three extension surfaces Bub exposes and why each one is decoupled from the others.
+Start with the behavior you want to add. A new action needs a tool; a new place to receive messages needs a channel. You can combine these capabilities without giving them the same job.
 
-Most agent frameworks conflate "talks to a chat platform", "knows how to do a procedure", and "calls an action on the model's behalf" into a single concept. Bub keeps them separate so each can evolve and be replaced independently.
+| You want to | Use | Where it belongs |
+| --- | --- | --- |
+| Let the agent query or change something | A [tool](/docs/build/tools/). | Shared core capability. Pass it to Agent, or register it with the app. |
+| Observe or intercept a model or tool call | An [event handler](/docs/concepts/events/). | Core EventBus; app plugins can use the corresponding interception hooks. |
+| Change which history becomes model messages | A [TapeContext](/docs/concepts/tape-and-context/#context). | Pass it to Agent, or provide it through an app hook. |
+| Teach a reusable procedure | A [skill](/docs/build/skills/). | Discovered and loaded by the Bub application. |
+| Change application setup or message processing | A [plugin](/docs/build/plugins/). | BubFramework and its hooks. |
+| Connect a messaging service | A [channel](/docs/operate/channels/). | The application's inbound and outbound routing. |
 
-## The three surfaces
+## Actions and instructions
 
-```mermaid
-flowchart LR
-  channels["Channels<br/>outward I/O"] --> envelope_io["Envelope<br/>(in & out of the<br/>turn pipeline)"]
-  skills["Skills<br/>operator procedures"] --> envelope_prompt["Envelope<br/>(loaded into the<br/>prompt as text)"]
-  tools["Tools<br/>model-callable actions"] --> state["TurnState<br/>(per-turn dict<br/>with _runtime_*)"]
-```
+A tool executes Python and returns a result. A skill is a directory containing `SKILL.md` and optional supporting files. Its instructions can tell the agent how to use tools. You supply the Python implementations those instructions refer to separately.
 
-All three surfaces meet on two small kernel contracts:
+Plain Agent uses the tools and prompt sections you supply. The Bub application discovers skills and reads `AGENTS.md`; see [Skills](/docs/build/skills/) and [Application tools](/docs/build/app-tools/).
 
-- **`Envelope`** — the duck-typed payload moving through the turn pipeline. It is intentionally weakly typed (`Any`) and accessed through helpers (`field_of`, `content_of`).
-- **`TurnState`** — a per-turn dict from [`bub.turn`](https://github.com/bubbuild/bub/blob/main/src/bub/turn.py) that hooks contribute to via [`load_state`](/docs/concepts/turn-pipeline/), and that survives until [`save_state`](/docs/concepts/turn-pipeline/) finishes.
+A tool can also be called by a [text command](/docs/build/tools/#commands) or by generated Python through CodeMode. These invocation paths share the same tool implementation.
 
-### Channels — outward I/O
+## Messages and application state
 
-A channel is anything that delivers inbound messages into the turn pipeline and accepts outbound messages from it. The contract is `bub.channels.base.Channel`:
+Channels deliver an inbound envelope and send outbound envelopes. The application uses these envelopes for content, routing, and session identity. Its hooks share a mutable `TurnState` dictionary for the current turn.
 
-- `start(stop_event)` — start the listener loop.
-- `stop()` — clean up.
-- `send(message)` — deliver one outbound envelope.
-- `stream_events(message, stream)` — optionally wrap the model's stream for incremental rendering.
+The [application turn pipeline](/docs/concepts/turn-pipeline/) prepares that state and prompt before it calls the agent. Direct SDK callers supply their prompt and state to Agent themselves.
 
-Why decoupled: the kernel does not care whether messages arrive over the CLI, Telegram, a webhook, or a hardware device. New channels are added by implementing this class and registering them via the `provide_channels` hook.
-
-For specific built-in channels and how to enable them, see [Operate Bub: channels](/docs/operate/channels/).
-
-### Skills — operator procedures
-
-A skill is a directory containing `SKILL.md` (frontmatter + body) plus optional scripts and assets. A skill is invokable by **any operator** — human or agent — by name.
-
-The contract is intentionally not a Python interface: skills are markdown procedures. Bub discovers them from three roots in priority order: project (`.agents/skills/`), user (`~/.agents/skills/`), and built-in.
-
-Why decoupled: skills migrate between agents (Bub follows the [Agent Skills](https://agentskills.io/) format). They are not tied to a specific model, channel, or runtime. The same `SKILL.md` works whether the operator is a teammate reading the file in code review or an agent calling it during a turn.
-
-### Tools — model-callable actions
-
-A tool is a typed Python function the model can call during a turn. Tools are registered via `bub.tool` and exposed to the model through the agent loop.
-
-Why decoupled: tools are the only surface that the model itself invokes. Skills tell the operator *what* to do; tools are *what the agent can actually do*. Keeping them separate makes it possible to add a skill without giving the model new powers, or to add a tool that humans never invoke directly.
-
-## Why these three, not more
-
-The split mirrors three different control flows:
-
-- A **channel** is invoked by the outside world.
-- A **skill** is invoked by an operator naming it.
-- A **tool** is invoked by the model on its own initiative.
-
-Conflating them makes it impossible to reason about authority. Keeping them apart lets each surface have its own contract: channels have a lifecycle, skills have a discovery and naming convention, tools have a typed signature and registry.
-
-## Where they meet
-
-The pipeline is the only place these surfaces interact directly:
-
-- A channel produces an `Envelope` that enters [`process_inbound`](/docs/concepts/turn-pipeline/).
-- `load_state` (and the built-in agent) loads applicable skills into the prompt and the active tool set.
-- The model may call tools, whose results land back on the [tape](/docs/concepts/tape-and-context/).
-- `render_outbound` produces envelopes, and `dispatch_outbound` hands them to channels.
-
-Nothing else couples the three. This is what lets a plugin add a Discord channel without touching skills, or a workspace add a `repo-map` skill without touching channels or tools.
-
-## Next steps
-
-- [Build channels](/docs/build/hooks/#6-add-a-channel) — implement and register a channel via `provide_channels`.
-- [Build skills](/docs/build/skills/) — author skills, including bundled assets.
-- [Build tools](/docs/build/tools/) — register typed tools the model can call.
-- [Core contracts reference](/docs/reference/types/) — subsystem-owned types and accessor helpers.
+Choose dependencies for the capabilities you need, and choose the calling interface for your host. A Python service can reuse application plugins while retaining its own request handling and streams. [Reuse plugins in your agent](/docs/build/reuse-plugins/) shows direct component reuse and how framework hooks fit into an embedded host.

@@ -1,33 +1,24 @@
 ---
-title: Run Your First Turn
-description: Create a workspace, write AGENTS.md, run a comma command, and send your first model-backed turn.
+title: Run Bub for the first time
+description: Give Bub a workspace, add your instructions, and complete a conversation.
 sidebar:
   order: 2
 ---
 
-This tutorial walks through one full turn — the framework's name for one inbound message processed end to end.
+Start with the Bub app, then adapt it to your work. This tutorial gives it a workspace and instructions, checks that commands work, and runs a conversation with a model.
 
-## Before you begin
+Follow [Install Bub](/docs/getting-started/install/) for the application setup and choose a model in [Configure Bub](/docs/operate/configure/). The model-backed step needs the credentials for that provider. The command check works without them.
 
-You should have:
+## Give Bub a workspace
 
-- [Bub installed](/docs/getting-started/install/) and `bub hooks` reporting the `builtin` plugin
-- one model access path: an API key exported as `BUB_API_KEY` or a provider-specific `BUB_<PROVIDER>_API_KEY`; alternatively, OpenAI Codex OAuth via `bub login codex` with `BUB_MODEL=codex:<model>`
-
-## 1. Create a workspace
-
-A workspace is the directory Bub treats as the project root. Create one and move into it:
+The workspace is the directory Bub uses for your project. Create one and run the remaining commands there:
 
 ```bash
 mkdir hello-bub
 cd hello-bub
 ```
 
-Bub uses `Path.cwd()` as the workspace, so every subsequent `bub` command in this directory shares the same context.
-
-## 2. Write AGENTS.md
-
-`AGENTS.md` is the per-workspace instruction file. Bub reads it for model-backed turns and appends it to the system prompt.
+Put your working instructions in `AGENTS.md`:
 
 ```bash
 cat > AGENTS.md <<'EOF'
@@ -37,61 +28,36 @@ Keep replies short and specific.
 EOF
 ```
 
-Bub follows the [agents.md](https://agents.md/) convention, so an `AGENTS.md` written for another compatible agent works here unchanged.
+The application reads this file when it builds the system prompt. You can change it as you learn which instructions help with your work.
 
-## 3. Run a comma command
-
-Comma commands are runtime tools you can invoke without calling the model. Try the built-in help command:
+## Check a command
 
 ```bash
 bub run ",help"
 ```
 
-Expected output (abridged):
+The output lists commands such as `,skill` and `,tape.info`. This checks the application's command path without calling a model.
 
-```text
-Commands use ',' at line start.
-Known internal commands:
-  ,help
-  ,skill name=foo
-  ,tape.info
-  ...
-```
+Commands begin with a comma at the start of a line. An unknown command falls back to a shell command, so use a known command for this check.
 
-If you see this list, the kernel resolved the session, built the prompt, and routed the comma command through the built-in tool registry — without contacting any model.
+## Start a conversation
 
-:::tip
-Anything starting with a comma at the line start is a comma command. Unknown commands fall back to a shell call via `bash`.
-:::
-
-## 4. Run a model-backed turn
-
-With your provider configured, run a one-shot turn:
+With your model configured, run:
 
 ```bash
 bub run "Summarize the purpose of this workspace."
 ```
 
-Bub will resolve the session, load state, build the user prompt, call the model with a system prompt that includes your `AGENTS.md`, render an outbound message, and print that outbound from the CLI command.
-
-For interactive use, start a chat session instead:
+Bub passes the message and workspace instructions to its agent, records the conversation, and prints the response. For an interactive conversation, use:
 
 ```bash
 bub chat
 ```
 
-## 5. Optional: use your ChatGPT plan
+If a command works but a conversation fails, check the model name and credentials in [Configure Bub](/docs/operate/configure/). If a plugin is missing, `bub hooks` shows which hook implementations the application discovered.
 
-Install the Codex CLI, then log in to use your ChatGPT plan:
+## Make it your own
 
-```bash
-bub login codex
-```
-
-The Codex CLI stores the credential in its local file store; Republic reads and refreshes it. Use it by setting `BUB_MODEL=codex:<model>` for a model available to your Codex account, leaving `BUB_API_KEY` unset, and not setting a custom `BUB_API_BASE`.
-
-## Next steps
-
-- [Author Your First Skill](/docs/getting-started/first-skill/) — add a project skill the agent can call.
-- [Turn pipeline](/docs/concepts/turn-pipeline/) — see exactly which hooks ran in step 4.
-- [Configure Bub](/docs/operate/configure/) — switch providers, channels, and tape storage.
+- Add a [project skill](/docs/getting-started/first-skill/) for a procedure you want Bub to follow.
+- Add an [application tool](/docs/build/app-tools/) when it needs to call your code.
+- Write a [plugin](/docs/getting-started/first-plugin/) to change application behavior.

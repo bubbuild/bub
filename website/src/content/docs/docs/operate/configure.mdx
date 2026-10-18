@@ -1,11 +1,11 @@
 ---
-title: Configure
-description: Set the model, the API endpoint, and channel credentials through ~/.bub/config.yml and BUB_* environment variables.
+title: Configure the app
+description: Set the Bub application's model, provider credentials, and channels.
 sidebar:
   order: 1
 ---
 
-This page shows how to configure Bub: which model to call, which provider to call it through, and which channel credentials to load on startup.
+Choose the model the Bub application calls and the channels it connects to. These settings belong to the application. When you construct `core.Agent` directly, pass its model and components in Python; see [Build your own agent](/docs/build/sdk/).
 
 Bub reads its own configuration from these places, in order of precedence (highest first):
 
@@ -28,7 +28,7 @@ When no explicit Bub key is supplied, Bub reads `<PROVIDER>_API_KEY` and `<PROVI
 bub onboard
 ```
 
-The file lives at `~/.bub/config.yml` by default. `BUB_HOME` controls `bub.home`, including history, tapes, and the managed plugin project; it does not move the default config file. Use `BubFramework(config_file=...)` when embedding Bub and you need a different config path.
+The config file defaults to `~/.bub/config.yml`. `BUB_HOME` sets a separate path for runtime data: command history, tapes, and the managed plugin project. Use `BubFramework(config_file=...)` when embedding Bub and you need a different config path.
 
 :::note
 `bub onboard` only collects what the loaded plugins ask for via the `onboard_config` hook. If you install a plugin that adds new settings, run `onboard` again.
@@ -51,7 +51,7 @@ Top-level keys map to `AgentSettings` in [src/bub/builtin/settings.py](https://g
 
 ## 3. Override at runtime with environment variables
 
-Every YAML key has a matching environment variable. The pattern is `BUB_<UPPERCASE_KEY>`:
+Override application settings with environment variables. Common settings use the `BUB_<UPPERCASE_KEY>` pattern:
 
 | Variable | Purpose |
 |---|---|
@@ -83,23 +83,16 @@ For the message-handling and access-control behavior these variables drive, see 
 
 ## 5. Verify
 
-Print the loaded hook mapping:
-
-```bash
-bub hooks
-```
-
-Then run one turn end-to-end:
+Run one conversation turn with the configured model:
 
 ```bash
 bub run "say hi"
 ```
 
-Expected output prints each outbound as a prefix line (`[<channel>:<chat_id>]`) followed by the message content.
+The command prints a routing label (`[<channel>:<chat_id>]`) followed by the response. If you need to check whether a configuration plugin loaded, inspect it with `bub hooks`.
 
 ## Next steps
 
-- [Channels](/docs/operate/channels/) — choose which surfaces Bub listens on.
-- [Telegram](/docs/operate/channels/telegram/) — wire up the bot.
-- [Settings reference](/docs/reference/settings/) — full env-var table.
-- [Deploy](/docs/operate/deploy/) — package this config into a container.
+- [Channels](/docs/operate/channels/): choose which surfaces Bub listens on.
+- [Settings reference](/docs/reference/settings/): full env-var table.
+- [Deploy](/docs/operate/deploy/): package this config into a container.

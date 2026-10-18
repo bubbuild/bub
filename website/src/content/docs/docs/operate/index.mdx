@@ -1,30 +1,21 @@
 ---
-title: Operate
-description: Configure Bub, enable channels, and run it as a long-lived service.
+title: Run the Bub app
+description: Configure your Bub application, connect a channel, and deploy it as a service.
 sidebar:
   order: 0
 ---
 
-This section shows how to run Bub as a product: pick a model, enable the channels you want, and keep the service alive.
+Once you have [run your first conversation](/docs/getting-started/first-turn/), choose how you want to use Bub day to day. Keep it in the terminal, connect a Telegram bot, or run a gateway on a server.
 
-Use this section when you have already completed [Getting Started](/docs/getting-started/) and now need a stable runtime — for example, a Telegram bot fronting a workspace, or a containerised gateway on a small VM.
+These guides use the Bub application and its configuration, plugins, and channels. Install the application dependencies using the [installation guide](/docs/getting-started/install/).
 
-## Before you begin
+## Choose your next step
 
-- Bub is installed and one model call has succeeded — see [Run Your First Turn](/docs/getting-started/first-turn/).
-- You have a writable `~/.bub/` (or a path you control via `BUB_HOME`).
-- You have a model provider key. The default is OpenRouter; any provider supported by `BUB_MODEL` works.
+- [Configure the app](/docs/operate/configure/): select a model and set provider credentials.
+- [Connect channels](/docs/operate/channels/): choose which services receive messages and how they group them into turns.
+- [Use the terminal](/docs/operate/channels/cli/): run one task or continue a conversation.
+- [Connect Telegram](/docs/operate/channels/telegram/): set up a bot and choose who can use it.
+- [Deploy the app](/docs/operate/deploy/): build the container and keep its data across restarts.
+- [Inspect a run](/docs/tutorials/observability/): check conversation history and export execution traces.
 
-## What is in this section
-
-1. [Configure](/docs/operate/configure/) — write `~/.bub/config.yml`, set `BUB_*` env vars, point at a provider.
-2. [Channels](/docs/operate/channels/) — enable, disable, and tune the surfaces Bub listens on.
-   - [CLI](/docs/operate/channels/cli/) — `bub chat` and `bub run`.
-   - [Telegram](/docs/operate/channels/telegram/) — token, allowlists, debounce.
-3. [Deploy](/docs/operate/deploy/) — Docker / docker-compose, persistent state, safe upgrades.
-
-## Next steps
-
-- New to the runtime model? Read [Turn pipeline](/docs/concepts/turn-pipeline/) first.
-- Need to add a custom channel or hook? See [Build](/docs/build/).
-- Need the full env-var table? See [Settings reference](/docs/reference/settings/).
+For a service that directly owns a `core.Agent`, follow [Serve an agent with FastAPI](/docs/tutorials/fastapi/). That route manages models and storage in Python.

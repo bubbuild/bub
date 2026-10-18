@@ -1,0 +1,107 @@
+---
+title: 添加应用工具
+description: 为 BubAgent 注册工具，并选择应用如何向模型提供它们。
+sidebar:
+  order: 3
+---
+
+给 Bub 应用添加工作中需要执行的动作。[公共工具指南](/zh-cn/docs/build/tools/)说明函数参数、结果和工具上下文。本页介绍应用注册，以及 `BubAgent` 执行的工具策略。
+
+## 注册工具
+
+在插件的 `tools.py` 中定义工具：
+
+```python
+from bub import tool
+
+
+@tool(name="orders.get")
+def get_order(order_id: str) -> dict[str, str]:
+    """Look up an order by id."""
+    return {"id": order_id, "status": "shipped"}
+```
+
+装饰器在导入时创建 `Tool` 并加入共享 `REGISTRY`。从[插件入口点](/zh-cn/docs/build/plugins/)导入工具模块：
+
+```python
+from . import tools  # noqa: F401
+```
+
+`BubAgent(tools=None)` 在构造时获取注册表快照，因此需要提前导入工具。之后要添加工具，直接更新该实例的 `tools` 字典。
+
+在运行 Bub 的环境中检查注册：
+
+```bash
+python -c "import bub_myplugin.plugin; from bub.core.tools import REGISTRY; print(sorted(REGISTRY))"
+```
+
+把导入路径替换为自己的插件模块。输出应包含 `orders.get`；模型使用的名称是 `orders_get`。用这条注册表命令检查工具，用 `bub hooks` 检查 hook 绑定。
+
+## 选择本轮可用的工具
+
+调用 `BubAgent.run_stream` 时，传入 `allowed_tools` 限制本轮模型可用的工具。它接受运行时名称或模型名称。`None` 允许全部实例工具，空集合不允许任何工具。未知名称会抛出 `ValueError`。
+
+这个筛选适用于模型和代码模式中的工具。逗号命令直接使用 agent 实例的工具。如果规则也需要约束命令执行，使用[工具调用 decision](/zh-cn/docs/build/hooks/#control-calls)。
+
+<a id="load-tools-on-demand"></a>
+
+## 按需加载工具
+
+设置 `deferred=True`，让工具的完整定义暂时不进入最初的模型请求：
+
+```python
+from bub import tool
+
+
+@tool(name="orders.get", deferred=True)
+def get_order(order_id: str) -> dict[str, str]:
+    """Look up an order by id."""
+    return {"id": order_id, "status": "shipped"}
+```
+
+`BubAgent` 在系统提示词中列出允许使用的延迟工具；只要还有这样的工具，就提供 `tool_describe`。模型调用它来加载定义。应用记录 `tool.loaded` 条目，让已加载的工具在后续步骤和轮次中继续可用，直到 tape 被重置。
+
+本轮允许列表同时约束工具的展示和加载。代码模式中，允许使用的 `auto` 和 `code` 工具立即可供 Python 调用；延迟策略只作用于仍直接提供给模型的工具。
+
+<a id="code-mode"></a>
+
+## 在应用中使用代码模式
+
+为当前会话启用代码模式：
+
+```text
+,code_mode enable=true
+```
+
+设置从下一轮开始生效，并被记录以便重启后恢复。使用 `,code_mode enable=false` 关闭。直接调用 `BubAgent` 并传入自有状态时，可以为本次运行设置 `state["code_mode"] = True`。
+
+允许使用 `run_code` 时，应用按 `exposure` 选择工具：
+
+| `exposure` | 代码模式关闭 | 代码模式开启 |
+| --- | --- | --- |
+| `auto` | 直接提供给模型 | 通过 `run_code` 调用 |
+| `direct` | 直接提供给模型 | 直接提供，不出现在 `tools.*` 下 |
+| `code` | 不提供给模型 | 通过 `run_code` 调用 |
+| `command` | 仅逗号命令 | 仅逗号命令 |
+
+如果排除了 `run_code`，本轮按关闭代码模式时的规则选择工具。应用把 Python 工具声明文件写入 `<BUB_HOME>/codemode/`，并把路径加入系统提示词。`await tools.orders_get(order_id="123")` 这样的 Python 调用使用已选工具，并经过应用的拦截 hooks。
+
+应用把 CodeMode 接到会话的执行环境和模型设置上。代码可以使用 [CodeMode](/zh-cn/docs/build/tools/#code-mode) 中介绍的 Republic bridge 和媒体附加工具。通过 bridge 使用模型时，凭据保留在宿主侧；默认的本地执行环境仍在这个宿主上运行代码。
+
+`BubAgent` 读取 `state["code_mode"]` 和 `deferred` 标记，执行这些筛选规则。使用普通 `core.Agent` 时，需要[显式组合 CodeMode](/zh-cn/docs/build/tools/#code-mode)；如需延迟加载，也由你提供相应策略。
+
+<a id="run-tools-in-an-environment"></a>
+
+## 选择执行环境
+
+内置 `bash`、`bash.output`、`bash.kill`、`fs.*` 和 `run_code` 使用会话的 `Environment`。默认是运行在宿主上的 `LocalEnvironment`。
+
+插件通过 `provide_environment(session_id, workspace)` hook 提供其他环境。Framework 为每个会话缓存一个环境，并在退出 `framework.running()` 时关闭。[公共工具指南](/zh-cn/docs/build/tools/#run-tools-in-an-environment)说明环境接口。
+
+自定义应用工具可以用 `bub.builtin.environment` 中的 `environment_from_state(context.state)` 取得环境。Python 工具本身在宿主侧运行，需要时再显式调用环境来完成相应操作。
+
+## 配合工具添加指令
+
+把工作区通用指令写入 `AGENTS.md`，用 [skills](/zh-cn/docs/build/skills/)提供按任务加载的流程。Skill 可以告诉模型何时调用工具，Python 函数则定义工具执行的动作。
+
+逗号命令让使用者无需请求模型，就能调用已注册的工具。语法见[文本命令](/zh-cn/docs/build/tools/#commands)。

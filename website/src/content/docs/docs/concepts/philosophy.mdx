@@ -1,56 +1,32 @@
 ---
-title: Philosophy
-description: Why Bub uses a strict microkernel with vibe-coded plugins, treats humans and agents as equivalent operators, and evaluates collaboration socially.
+title: Design choices
+description: Why Bub separates the agent loop, application defaults, and conversation context.
 sidebar:
   order: 1
 ---
 
-This page explains the design choices behind Bub: a strict microkernel that ships only the turn pipeline, plugins that can be written loosely or even by an agent, operator equivalence between humans and agents, and socialized evaluation as the test of whether the system holds up in shared environments.
+Bub lets you choose how much of the application to use. You can connect the agent core to a program you already have, or customize the working Bub application. Both routes use the same model and tool loop.
 
-## Microkernel and plugins
+## Assemble what your program needs
 
-Bub splits responsibility into two layers with different maintenance models:
+`core.Agent` accepts a model, tools, prompt sections, and a tape store. You provide these components directly, so a small Python service can use the core dependency set.
 
-- **Kernel** — small, stable, hand-written, quality-controlled by the maintainers. The kernel ships the turn pipeline ([resolve_session → ... → dispatch_outbound](/docs/concepts/turn-pipeline/)) and the hook contracts that let plugins participate.
-- **Plugins** — discovered through Python entry points (`group="bub"`). They can be written however contributors want, including via a coding agent locally, and they can be installed and removed independently.
+`BubAgent` adds the application's defaults: settings, skills, commands, tool selection, and steering. `BubFramework` manages plugins, message processing, and outbound routing around it. Choose them when you want to reuse that behavior.
 
-The kernel does not ship channel adapters beyond CLI and Telegram, does not lock in a specific tape backend, and does not enforce a global state schema. Anything that varies by deployment lives in a plugin.
+The [installation guide](/docs/getting-started/install/) explains the dependency choices. The [SDK guide](/docs/build/sdk/) and [application guide](/docs/build/) show how to put them to work.
 
-This split is what lets one operator run Bub with three plugins and another operator run it with thirty, without either of them paying for capabilities they don't use.
+## Keep history and context separate
 
-:::note
-The full reasoning is in the [Why we rewrote Bub](/posts/why-rewrite-bub/) post. Read it once if you are about to author a plugin or maintain a distribution.
-:::
+A conversation can be longer than the context needed for the next step. Tape keeps the recorded history; context selection decides what the model reads. An anchor starts a new context without deleting earlier work.
 
-## Operator equivalence
+That makes it possible to inspect saved messages and tool results while keeping the next request focused. Persistence still depends on the store you choose, and custom application state needs an explicit storage policy. See [Conversation history and context](/docs/concepts/tape-and-context/).
 
-Bub treats humans and agents as equivalent operators on the same workspace. The same boundaries apply to both:
+## Make extension behavior visible
 
-- the same instruction surface — `AGENTS.md` and project skills under `.agents/skills/`
-- the same execution evidence — every turn writes to a [tape](/docs/concepts/tape-and-context/)
-- the same handoff semantics — anchors and handoffs work identically whether a human or an agent emits them
+A tool describes an action. A skill describes a procedure. A channel connects the application to a place where people work. Keeping these roles distinct helps you choose what to change.
 
-This is why the workspace files (`AGENTS.md`, `.agents/skills/`) follow the [agents.md](https://agents.md/) and [Agent Skills](https://agentskills.io/) conventions rather than Bub-specific formats: the operator who reads them might be a human in code review, an agent in a turn, or another tool entirely.
+At runtime, events expose model and tool calls. Application hooks also cover configuration, resource setup, and message routing. Each has an ordering and error contract; the [extension guide](/docs/concepts/surfaces/) points to the appropriate one.
 
-## Socialized evaluation
+## Background
 
-A capability demo answers "can the model do X?". A real deployment answers "can a team trust this when work gets messy?". Bub treats the second question as the design target.
-
-Concretely:
-
-- Decisions and tool calls are recorded as facts on the tape, not buried in process memory.
-- Anchors and handoffs let any operator continue work from a known checkpoint.
-- The turn pipeline is observable through hooks (`on_error`, `dispatch_outbound`) so reviewers can audit what happened without reading agent internals.
-
-The framing comes from the [Bub: Socialized Evaluation and Agent Partnership](/posts/socialized-evaluation/) post.
-
-## Further reading
-
-- [Why we rewrote Bub](/posts/why-rewrite-bub/) — the maintenance argument for microkernel + plugins.
-- [Bub: Socialized Evaluation and Agent Partnership](/posts/socialized-evaluation/) — the operator-equivalence argument.
-
-## Next steps
-
-- [Turn pipeline](/docs/concepts/turn-pipeline/) — see the kernel contract this page argues for.
-- [Tape and context](/docs/concepts/tape-and-context/) — the evidence model behind socialized evaluation.
-- [Build plugins](/docs/build/plugins/) — the contract for the loose layer.
+[Why we rewrote Bub](/posts/why-rewrite-bub/) and [Socialized evaluation and agent partnership](/posts/socialized-evaluation/) describe the project's earlier design reasoning. Use the current guides and references for today's interfaces and behavior.

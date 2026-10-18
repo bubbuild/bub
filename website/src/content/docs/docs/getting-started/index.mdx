@@ -1,52 +1,26 @@
 ---
-title: Getting Started
-description: Pick the path that matches your role — operator, plugin author, or distribution author — and run Bub end to end.
+title: Build your Bub
+description: Put an agent in your own Python program, or customize the Bub application.
 sidebar:
   order: 0
 ---
 
-This page introduces Bub and helps you pick one of three usage paths so the rest of this section reads in the right order.
+Put an agent in your own Python program, or start with the Bub application and customize it. The application uses the same agent kernel and adds configuration, plugins, and channel integration.
 
-Bub is a small Python framework for building agents that run in shared environments. The kernel handles a single turn pipeline; everything else is a plugin. You opt into channels, tools, skills, and storage backends as you need them.
+## Build your own agent
 
-## Before you begin
+Choose a model and tools, assemble an agent with `bub.core.Agent`, and connect it to your program. Start by defining a tool that looks up an order, then let the agent call it.
 
-You should have:
+[Build your own agent](/docs/build/sdk/) takes you through the Python example. When you need an HTTP endpoint, continue with [FastAPI](/docs/tutorials/fastapi/).
 
-- `curl` on macOS and Linux, or PowerShell on Windows
-- a network connection that can reach `bub.build`, `astral.sh`, and PyPI
-- one model access path for the model-backed step:
-  - an API key exported as `BUB_API_KEY` or as a provider-specific `BUB_<PROVIDER>_API_KEY`, or
-  - OpenAI Codex OAuth via `bub login codex` with `BUB_MODEL=codex:<model>`
+## Customize the Bub app
 
-If you only want to inspect Bub without running a model turn, the API key is optional — comma commands such as `,help` work without one.
+Run Bub, then use configuration and plugins to add the behavior you need. This route also covers skills, channels, and deployment.
 
-## Three usage paths
+[Run your first conversation](/docs/getting-started/first-turn/) gets the app running. [Customize the Bub app](/docs/build/) helps you choose what to extend next.
 
-Bub serves three audiences. Pick the one that matches your goal today:
+## Read the common explanations as you need them
 
-- **Operator** — you want to run a Bub instance, configure channels, and ship it.
-  Read this section for the first turn, then move to [Operate Bub](/docs/operate/) for configuration, channels, and deployment.
-- **Plugin author** — you want to extend Bub with new hooks, tools, or skills.
-  Read this section through [Build Your First Plugin](/docs/getting-started/first-plugin/), then move to [Build Plugins](/docs/build/) for the full extension contract.
-- **Distribution author** — you want to package Bub plus a curated plugin set for a specific scenario.
-  Read this section first, then go to [Distribution](/docs/build/distribution/) for packaging conventions.
+Tools, conversation history, and events share one set of [explanations](/docs/concepts/). Each route gives you its own setup steps and default behavior.
 
-All three audiences share the same starting point: install Bub, run one turn, and confirm the runtime is healthy.
-
-## Recommended path
-
-Work through these pages in order:
-
-1. [Install Bub](/docs/getting-started/install/) — install from PyPI or from source, pin Bub as a framework dependency, verify with `bub hooks`.
-2. [Run Your First Turn](/docs/getting-started/first-turn/) — create a workspace, write `AGENTS.md`, send `,help`, then run a model-backed turn.
-3. [Author Your First Skill](/docs/getting-started/first-skill/) — write a project skill under `.agents/skills/` and call it from a turn.
-4. [Build Your First Plugin](/docs/getting-started/first-plugin/) — ship a minimal plugin via Python entry points and verify it loads.
-
-If you want the conceptual model first, read [Concepts](/docs/concepts/) before any of the tutorials.
-
-## Next steps
-
-- [Install Bub](/docs/getting-started/install/) — start the recommended path.
-- [Concepts](/docs/concepts/) — read the kernel model before extending Bub.
-- [CLI reference](/docs/reference/cli/) — see every command this section uses.
+[Install Bub](/docs/getting-started/install/) for your chosen route, then run its first example.

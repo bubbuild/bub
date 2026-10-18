@@ -1,82 +1,44 @@
 ---
-title: CLI channel
-description: Operate Bub through the terminal — bub chat for an interactive REPL, bub run for one-shot turns, and comma commands that bypass the model.
+title: Use the terminal
+description: Continue a conversation with bub chat or run one task from the shell with bub run.
 ---
 
-This page explains how the CLI channel works at runtime: when it is active, how it names sessions, and why it is intentionally excluded from the gateway.
+The Bub app has two terminal entry points: `bub chat` for a conversation and `bub run` for one message. [Configure a model](/docs/operate/configure/) before calling it.
 
-The CLI is itself a channel, registered under the name `cli`. It implements the same `Channel` interface as Telegram or any plugin-provided surface — but it owns the operator's terminal, so Bub treats it as a foreground tool rather than a background listener.
-
-## Before you begin
-
-- Bub is configured with a working model — see [Configure](/docs/operate/configure/).
-
-## 1. Start an interactive REPL
-
-`bub chat` opens a prompt-toolkit REPL backed by the `cli` channel:
+## Continue a conversation
 
 ```bash
 bub chat
 ```
 
-By default this sets:
+Each input submits a message. Press Ctrl-D or enter `,quit` or `,exit` to leave. The default session ID is `cli_session`.
 
-- `chat_id` = `local`
-- `session_id` = `cli_session` (literal — not `cli:local`)
+The toolbar shows output speed for the latest model call. It includes request latency and excludes tool execution. When the provider does not report usage, it shows `speed:- token/s`.
 
-Override either with flags:
-
-```bash
-bub chat --chat-id review --session-id cli:review
-```
-
-Each line you type becomes one inbound `ChannelMessage`. Ctrl-D exits, `,quit` and `,exit` also exit cleanly.
-
-The bottom toolbar shows `speed:42.1 token/s` for the latest completed model call. This is the provider's
-output token count divided by the call duration, including request latency but excluding tool execution.
-It updates after each model call and stays visible between turns. If usage is unavailable, it shows `speed:- token/s`.
-
-## 2. Run one turn from the shell
-
-`bub run "..."` sends a single message through the framework and prints every outbound:
+## Run a task from the shell
 
 ```bash
 bub run "summarize CHANGELOG.md"
 ```
 
-Output is one block per outbound:
+The command prints a channel label and the response. Its default session ID is `cli:local`. To share history with an interactive conversation, supply the same ID:
 
-```text
-[cli:local]
-<rendered content>
+```bash
+bub chat --session-id cli:review
+bub run --session-id cli:review "Summarize our decisions."
 ```
 
-The default session id is `<channel>:<chat_id>`, so `bub run "..."` with no flags writes to `cli:local`. Pass `--session-id` to share state with a `bub chat` session.
+Use the same workspace and storage configuration to read the same conversation history.
 
-## 3. Use comma commands to bypass the model
+## Run a command directly
 
-Any input that starts with `,` is a **comma command**: it routes to a builtin tool or shell command instead of going to the model. Comma commands skip both the LLM call and the channel's debounce logic.
+The default command prefix is a comma. Commands call tools or the shell without a model request:
 
 ```bash
 bub run ",help"
 bub run ",fs.read path=README.md"
-bub run ",echo hello"   # falls through to shell
 ```
 
-Inside `bub chat`, the same prefix works at any prompt. `Ctrl-X` toggles "shell mode", which auto-prepends `,` to every line.
+You can enter these commands in an interactive conversation too. Ctrl-X toggles shell mode, which adds the command prefix to your input.
 
-## 4. Why `cli` is excluded from `bub gateway`
-
-`bub gateway` listens on every enabled channel. Its default — `--enable-channel` left empty — expands to every enabled non-`Interface` channel, including listener channels and `Lifecycle` runtimes. The CLI interface is excluded so it does not grab the controlling terminal that the operator is using to run the gateway itself.
-
-To open a REPL, use `bub chat` (which forces `enabled_channels=["cli"]` and `stream_output=True`). To run only Telegram, use `bub gateway --enable-channel telegram`.
-
-## 5. Why `cli` does not debounce
-
-Debouncing batches bursts of inbound messages into one turn. That makes sense for chat platforms, where users send many short messages. The CLI is single-threaded — one prompt, one input, one turn — so debounce would only add latency. The `CliChannel.needs_debounce` property is `False`, so each REPL line is dispatched immediately.
-
-## Next steps
-
-- [CLI reference](/docs/reference/cli/) — all subcommands and flags.
-- [Channels overview](/docs/operate/channels/) — debounce knobs and `enabled_channels`.
-- [Telegram](/docs/operate/channels/telegram/) — the canonical remote-channel example.
+The CLI owns the foreground terminal, so the gateway excludes it by default. See [Channels](/docs/operate/channels/) for gateway selection and batching, or the [CLI reference](/docs/reference/cli/) for every option.

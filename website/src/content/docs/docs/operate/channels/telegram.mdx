@@ -1,9 +1,9 @@
 ---
-title: Telegram channel
-description: Configure the builtin Telegram bot — token, allowlists, session ids, debounce behavior, and how to launch the gateway.
+title: Connect Telegram
+description: Configure the builtin Telegram bot; token, allowlists, session ids, debounce behavior, and how to launch the gateway.
 ---
 
-This page shows how to operate the builtin Telegram channel: which environment variables it reads, how it names sessions, and how it debounces inbound messages.
+Connect the Bub application to a Telegram bot, choose who can use it, and start the gateway.
 
 The Telegram channel is registered under the name `telegram`. It uses long polling via `python-telegram-bot`, and it is enabled at runtime when `BUB_TELEGRAM_TOKEN` is set.
 
@@ -11,7 +11,7 @@ The Telegram channel is registered under the name `telegram`. It uses long polli
 
 - A bot exists in [@BotFather](https://t.me/BotFather) and you have its token.
 - For group chats, **Privacy Mode is disabled** in BotFather. Otherwise the bot only sees commands, and the inbound filter cannot decide whether to respond.
-- Bub is configured with a working model — see [Configure](/docs/operate/configure/).
+- Bub is configured with a working model: see [Configure](/docs/operate/configure/).
 
 ## 1. Set the token
 
@@ -69,7 +69,7 @@ The Telegram channel uses `telegram:<chat_id>` as the session id. That keeps a p
 Inbound handling:
 
 - `/start` is handled internally; the bot replies with a fixed greeting (or the "not allowed" message in disallowed chats).
-- `/bub <text>` is normalized — the `/bub ` prefix is stripped and the rest becomes the prompt content.
+- `/bub <text>` is normalized: the `/bub ` prefix is stripped and the rest becomes the prompt content.
 - In private chats, every non-command message is ingested.
 - In group chats, every non-command message reaches the Telegram channel. Messages that mention `@<bot_username>`, contain the keyword `bub`, or reply to one of the bot's own messages are marked active. Other group messages are ignored unless an active conversation for the same session is open within `BUB_ACTIVE_TIME_WINDOW`, in which case they join that batch.
 
@@ -89,6 +89,6 @@ Comma commands are different: they keep `output_channel="telegram"`, so their to
 
 ## Next steps
 
-- [Channels overview](/docs/operate/channels/) — debounce, `enabled_channels`, session ids.
-- [Deploy](/docs/operate/deploy/) — package the bot into a container with persistent state.
-- [Settings reference](/docs/reference/settings/) — every `BUB_TELEGRAM_*` variable.
+- [Channels overview](/docs/operate/channels/): debounce, `enabled_channels`, session ids.
+- [Deploy](/docs/operate/deploy/): package the bot into a container with persistent state.
+- [Settings reference](/docs/reference/settings/): every `BUB_TELEGRAM_*` variable.

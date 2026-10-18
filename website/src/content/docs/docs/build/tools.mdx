@@ -1,41 +1,46 @@
 ---
-title: Tools
-description: Define tools the model can call with @tool, register them via the import-time side effect, and contrast tools with operator-callable comma commands.
+title: Tools and CodeMode
+description: Define an action once, then give it to an Agent directly or compose it with CodeMode.
 sidebar:
   order: 3
 ---
 
-This guide shows how to define a Bub **tool** — a Python function the model can call during a turn — and how to make sure your plugin actually registers it.
+A tool gives your agent an action: look up an order, read a file, or call a service. `Tool` describes the action's name, parameters, and result. You can pass it directly to an Agent or register it with the [Bub application](/docs/build/app-tools/).
 
-## Before you begin
+This page covers the shared tool contract and direct SDK use. For installation and a complete model loop, start with [Build your own agent](/docs/build/sdk/).
 
-- A plugin package wired to the `bub` entry-point group (see [Plugins](/docs/build/plugins/)).
-- The marker `from bub import tool` available in your module.
+<a id="define-a-tool"></a>
 
-## Define a tool
+## Define the action
 
-Decorate any function with `@tool`. The decorator builds a [`Tool`](https://github.com/bubbuild/bub/blob/main/src/bub/core/tools.py) object, wraps it with timing logs, and inserts it into the central `REGISTRY`:
+`Tool.from_callable()` reads parameter types from annotations and a description from the docstring. It accepts synchronous and asynchronous functions and returns a tool for you to pass to an Agent.
 
 ```python
-from bub import tool
+from bub.core import Agent
+from bub.core.tools import Tool
 
 
-@tool
 def add(a: int, b: int) -> int:
-    """Add two integers and return the sum."""
+    """Add two integers."""
     return a + b
+
+
+add_tool = Tool.from_callable(add, name="math.add")
+agent = Agent(tools=[add_tool])
 ```
 
-The tool's name defaults to the function name. Override it with `@tool(name="math.add")` or pass `description=` to control how it appears in the model prompt. Dotted registry names are preserved for runtime lookup and comma commands, but model-facing tool names replace dots with underscores (`math.add` becomes `math_add`). Async functions are supported — the wrapper awaits them.
+The runtime keeps the name `math.add`; model-facing names replace dots with underscores, so the model sees `math_add`. Use `description=` to supply a description explicitly.
 
-## Return structured results
+Plain `Agent` offers all supplied tools except those marked `exposure="command"`. Deferred loading, the `allowed_tools` state value, and the `state["code_mode"]` switch are [BubAgent policies](/docs/build/app-tools/). To choose tools per step in your own agent, override [`prepare_tools()`](/docs/build/sdk/#customize-the-loop).
 
-Tools should return structured data — a `dict`, `TypedDict`, list, or Pydantic model — rather than pre-formatted prose. The exceptions are tools with `exposure="direct"` or `exposure="command"` (see [Code mode](#code-mode)): code never calls them, so they return plain text. Pass `renderer=` to control how that result is turned into the plain text the model reads:
+<a id="structured-results"></a>
+
+## Return data the caller can use
+
+Return a dictionary, list, typed value, or string that represents the result. A `renderer` can turn structured data into text when the model calls the tool directly:
 
 ```python
 from typing import TypedDict
-
-from bub import tool
 
 
 class Order(TypedDict):
@@ -43,137 +48,121 @@ class Order(TypedDict):
     status: str
 
 
-@tool(name="orders.get", renderer=lambda order: f"order {order['id']}: {order['status']}")
-def get_order(order_id: str) -> Order:
+def lookup_order(order_id: str) -> Order:
     """Look up an order by id."""
     return {"id": order_id, "status": "shipped"}
-```
 
-`Tool.render(result)` applies the renderer; without one, strings pass through and other values are serialized as JSON. When the model calls a tool directly, the executor renders the result before `after_tool_call` hooks and tape recording, so hooks see the same text the model will. Rendering is a property of the `ToolExecutor`: the model-facing executor renders, while `ToolExecutor(render=False)` — used by `run_code` — returns structured results unchanged.
 
-### Code mode
-
-Code mode lets the model call tools from Python instead of one tool call at a time. It is a per-session switch: send the comma command `,code_mode enable=true` (or `,code_mode enable=false`) to turn it on or off. The change applies from the next turn and persists across restarts. SDK callers can set `state["code_mode"] = True` instead. In a code-mode turn where `run_code` is among the allowed tools:
-
-- The model sees only tools with `exposure="direct"` (`bash`, `bash.output`, `bash.kill`, `fs.read`, `fs.write`, `fs.edit`, `spill.read`) plus `run_code(code: str) -> str`. Direct tools are called directly only; they are not available under `tools.*`.
-- Every other allowed tool is an async function inside `run_code`, named after its model-facing name (`tape.info` becomes `await tools.tape_info()`). Top-level `await` is allowed and `asyncio.gather` runs calls concurrently. Calls take keyword arguments, go through the usual `before_tool_call`/`after_tool_call` hooks, return structured results, and raise on failure.
-- Bub writes a Python stub with one function per allowed `auto` or `code` tool — parameter and return types plus docstring — under `~/.bub/codemode/` and puts its path in the system prompt. The path stays the same for a session as long as its tool set does not change.
-- `run_code(code, timeout_seconds=120)` returns what the code writes to stdout. An uncaught exception becomes a tool error whose details carry the printed output and the traceback.
-- The code also gets a `republic` module (preset as a global and importable), documented at the end of the stub. It has the media classes `republic.Image`, `Audio` and `Video`. `republic.get_model(spec=None)` returns a chat model — without a spec, the model running the session — with `chat()` and `stream()` (`async with model.stream(...) as stream: async for event in stream`, events from `republic.events`), and `republic.get_embedding_model(spec)` and `republic.get_decision_model(spec)` return embedding and decision models. These are proxies: requests are made by Bub with its provider settings and credentials, which never reach the code.
-- The code-only tools `tools.attach_image(image=...)`, `tools.attach_audio(audio=...)` and `tools.attach_video(video=...)` attach media to the `run_code` result, so the model can look at a chart or screenshot the code produced. Besides a `republic` media object, they accept a file path in the environment (relative to its workspace), an http(s)/gs URL or a data URL, and load it themselves, reading files with the environment's `read_bytes`. A result with media is recorded as `{"type": "tool_content", "content": [...]}` (build one with `bub.core.tools.content_result`) and sent to the model as a multimodal tool message; spilling bounds only its text.
-
-If `run_code` is not allowed (for example, a subagent restricted with `allowed_tools`), that turn falls back to direct tool calls.
-
-The `exposure` option of `@tool` and `Tool.from_callable` decides where a tool can be called from:
-
-| `exposure` | Outside code mode | In code mode |
-| --- | --- | --- |
-| `"auto"` (default) | Model calls it directly | Only from `run_code` |
-| `"direct"` | Model calls it directly | Model calls it directly; not under `tools.*` |
-| `"code"` | Unavailable; `tool_describe` does not describe it | Only from `run_code` |
-| `"command"` | Comma command only | Comma command only |
-
-Nested calls run with `ToolContext.code_mode` set to `True` (hooks see it as `call.context.code_mode`); their results are not rendered or spilled.
-
-`run_code` hands the code to the session [environment](#run-tools-in-an-environment)'s `run_code`, together with a `call_tool` callback. Tool calls always run on the host through that callback, so hooks still see every call. `timeout_seconds` cancels the environment call. The builtin `LocalEnvironment` starts a fresh Python process for every call (`sys.executable`, working directory is the workspace) and forwards tool calls as JSON lines over its stdin and stdout, so arguments and results must be JSON-serializable. When the code finishes, fails or times out, it kills the process and everything it started. That process runs on the host with the same permissions as `bash`, so enable code mode only where `bash` would be acceptable. The return annotation of a tool function (or `Tool.output_schema`, for tools built by hand) determines the result type shown in the stub.
-
-#### Code mode in your own agent
-
-Code mode lives in the kernel (`bub.core.codemode`), so an agent built on `bub.core.Agent` can use it without the `app` extra. A `CodeMode` holds the tools callable from code and provides the `run_code` tool and a system prompt section:
-
-```python
-from bub.core import Agent
-from bub.core.codemode import CodeMode
-from bub.environment import LocalEnvironment
-
-code_mode = CodeMode(
-    [search, fetch],                      # tools callable as tools.<name>(...) inside run_code
-    environment=LocalEnvironment("/work"),  # where the code runs; defaults to the current directory
-    models="openai:gpt-5",                # what republic.get_model() in the code resolves to
+order_tool = Tool.from_callable(
+    lookup_order,
+    renderer=lambda order: f"Order {order['id']}: {order['status']}",
 )
-agent = Agent(model=model, tools=[code_mode.run_code], system_prompt=["You are ...", code_mode.prompt])
 ```
 
-- `tools` can also be a function of the turn state returning the tools for that run, or `None` to turn code mode off; `environment` can likewise be a function of the state.
-- `models` is a default `provider:model` spec, or a resolver `(spec, context) -> (republic_spec, client_kwargs)` that keeps credentials on the host. Without it the code must pass explicit specs and clients read credentials from the environment.
-- The stub goes into the system prompt itself; pass `stub_dir=` to write it to a file and reference the path instead, for agents that can read files.
-- `media_tools=True` (default) adds `attach_image`, `attach_audio` and `attach_video`.
+`Tool.render(result)` applies the renderer. By default, strings pass through, Pydantic models and JSON-serializable values become JSON, and other values use `str()`. The model-facing executor renders before `ToolCallFinished`, so handlers see the result that will be sent to the model. The executor used by CodeMode keeps structured results intact.
 
-Calls made from code go through the agent's `ToolCallStarted`/`ToolCallFinished` events with `context.code_mode` set, so handlers registered with `agent.events.on` see them. Bub's own agents use the same class (`bub.builtin.codemode.CODE_MODE`), wired to session settings, environments and model settings.
+Tool execution errors become tool results in the model loop, giving the model a chance to respond or retry. A direct command call propagates its error to the caller. [Event handlers](/docs/concepts/events/#delivery) have their own exception behavior.
 
-### Load tools on demand
+<a id="tool-context"></a>
 
-Mark a tool `deferred=True` (on `@tool`, `Tool.from_callable`, or with `dataclasses.replace(tool, deferred=True)`) to keep its definition out of model requests until it is needed. Tools without the flag are loaded directly.
+## Use the current conversation
 
-- The system prompt lists the model-facing names of all allowed deferred tools in a `<deferred_tools>` block, and the model gets `tool_describe(names)`. It is exposed only when at least one allowed deferred tool exists.
-- `tool_describe` returns the name, description, and parameters of each requested tool and appends a `tool.loaded` tape event with the runtime names of newly loaded deferred tools. Unknown or disallowed names are returned under `unknown`.
-- On every model request Bub reads all `tool.loaded` events from the tape and appends those tools, in load order, after the direct tools. Loaded tools stay available for later steps and turns of the session until the tape is reset.
-- `allowed_tools` filters direct and deferred tools alike: a deferred tool outside the scope is neither listed nor loadable.
-- Calling a deferred tool before loading it returns guidance to call `tool_describe` first. Code mode sees every allowed tool: deferred `auto` and `code` tools appear in the stub without loading, and deferral applies only to the remaining model-facing tools.
-
-## Run tools in an environment
-
-`bash`, `bash.output`, `bash.kill` and `fs.*` do not touch the host directly: they run on the session's `Environment` (from [`bub.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/environment.py)), which spawns processes, reads and writes text files, and runs code for `run_code`. Bub keeps the tool behavior — background shells, timeouts, rendering, hooks — on the host, so an environment only needs to implement a few operations:
-
-- `spawn(command, *, cwd=None, env=None)` returns a `Process`: a string runs through the shell, a sequence runs as an argument vector. The process exposes `stdout`/`stderr` streams, `write_stdin`, `wait`, and `signal(kill=...)`, which must reach the whole process tree.
-- `read_text(path)` and `write_text(path, content)` access files inside the environment. `read_bytes(path)` reads binary files; its default runs the environment's `python` to print the file, so override it when the environment has direct file access.
-- `workspace` is the working directory inside the environment; `resolve_path` resolves relative paths against it.
-- `run_code(code, *, tools, call_tool, write)` runs Python code in which `await tools.<name>(**kwargs)` calls `call_tool(name, kwargs)`. The `republic` module calls `call_tool` with names prefixed `republic.`, and Republic values travel as JSON objects with a `"$republic"` key; the subprocess runner provides it. It passes the code's stdout to `write` as it arrives, raises `CodeFailed` when the code raises, and stops the code when cancelled. How it runs is up to the environment. An environment that has a Python interpreter can reuse `bub.core.codemode.runner.run_code_in_subprocess`, which runs the code in a process started with `spawn`.
-- `close()` releases the environment.
-
-Provide one per session with the `provide_environment(session_id, workspace)` hook. Bub calls it on the session's first turn, puts the result in `state["_runtime_environment"]`, and closes it when `framework.running()` exits. Bub's builtin hooks provide `LocalEnvironment` (in [`bub.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/environment.py)), which runs everything on the host; a plugin's implementation takes precedence over it. Your own tools can use the same environment through `bub.builtin.environment.environment_from_state(context.state)`.
-
-## How tools become available
-
-The `REGISTRY` lives in [`bub.core.tools`](https://github.com/bubbuild/bub/blob/main/src/bub/core/tools.py):
+Pass `context=True` to receive a `ToolContext` as the keyword argument `context`. It carries the current tape, turn state, run ID, and event bus.
 
 ```python
-# from src/bub/core/tools.py
-REGISTRY: dict[str, Tool] = {}
+from bub.core.tools import ToolContext
+
+
+async def remember(note: str, *, context: ToolContext) -> str:
+    """Record a note for this conversation."""
+    await context.tape.append_event("note", {"text": note})
+    return "Recorded."
+
+
+remember_tool = Tool.from_callable(remember, context=True)
 ```
 
-Every `@tool` call mutates this dict at **import time**. `BubAgent(tools=None)` snapshots it when created; later imports do not update existing agents. Add tools to an instance's `BubAgent.tools`, and mark them `deferred=True` to [load them on demand](#load-tools-on-demand).
+This writes a business event to the tape. The default context selector reads conversation messages and tool exchanges; including this event in a model request requires your own selection logic. Use [Tape and context](/docs/concepts/tape-and-context/#context) to decide which saved information the model should read.
 
-## Import the tools module from your plugin
+<a id="code-mode"></a>
 
-Because registration is an import-time side effect, the module that defines `@tool` functions must actually be imported before Bub asks for tools. Inside your plugin's entry-point module, add:
+## Compose tools with CodeMode
+
+CodeMode lets the model write Python that calls your tools. It provides a `run_code` tool and a prompt section describing the tools available inside that code. Add both explicitly to a plain Agent:
 
 ```python
-# bub_myplugin/plugin.py
-from bub import hookimpl
+from bub.core.codemode import CodeMode
 
-from . import tools  # noqa: F401  — registers @tool decorators
+code_mode = CodeMode([add_tool, order_tool])
+agent = Agent(
+    tools=[code_mode.run_code],
+    system_prompt=[
+        "Use the available tools to answer the user's question.",
+        code_mode.prompt,
+    ],
+)
 ```
 
-If that import is missing, the tool module never runs, nothing lands in `REGISTRY`, and the model never sees the tool.
+Run this agent with the model lifecycle shown in the [SDK guide](/docs/build/sdk/#models). The model can call `run_code` with code such as:
 
-The builtin runtime follows the same pattern — see [`BuiltinImpl.__init__`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/hook_impl.py#L62-L66), which imports `bub.builtin.tools` for the same reason.
-
-## Tools versus comma commands
-
-Both are callable units inside Bub, but they are operated by different actors:
-
-| Surface           | Caller    | Trigger                             |
-|-------------------|-----------|-------------------------------------|
-| **Tool**          | The model | Tool-call message during a turn     |
-| **Comma command** | The human | Inbound text starting with a comma  |
-
-A line like `,skill name=hello` is a comma command — the operator typed it, and Bub's [builtin `build_prompt`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/hook_impl.py#L131-L139) marks the message as `kind="command"` so it bypasses the model. Tools, by contrast, are invoked by the model itself when it produces a tool-call event.
-
-See [Surfaces](/docs/concepts/surfaces/) for the full split between operator and model surfaces.
-
-## Verify your tool is registered
-
-Tools do not appear in `bub hooks`, but you can confirm registration with a Python one-liner:
-
-```bash
-uv run python -c "import bub_myplugin.plugin; from bub.core.tools import REGISTRY; print(sorted(REGISTRY))"
+```python
+order = await tools.lookup_order(order_id="A123")
+print(order["status"])
 ```
 
-The output should include your tool's name. From there, run a turn that asks the model to call it.
+Inside `run_code`, tool names use underscores, calls take keyword arguments, and results retain their structured form. Top-level `await` is supported. Calls pass through `ToolCallStarted` and `ToolCallFinished` with `context.code_mode=True`.
 
-## Next steps
+`CodeMode` takes the tools you supply, excluding `exposure="command"`. BubAgent groups `auto`, `direct`, and `code` tools through its [application code mode settings](/docs/build/app-tools/).
 
-- [Hooks](/docs/build/hooks/) — combine tools with hooks to build a complete plugin
-- [Skills](/docs/build/skills/) — package model-facing instructions alongside tools
-- [Surfaces](/docs/concepts/surfaces/) — operator vs model surfaces
+| Option | Behavior |
+| --- | --- |
+| `tools` | A tool collection, or a function of turn state returning that collection. Return `None` to disable code execution for a run. |
+| `environment` | Where code runs. Defaults to `LocalEnvironment()` in the current directory. May also be a function of turn state. |
+| `models` | Default `provider:model` for Republic calls made by the code, or a resolver returning a model spec and client options. Without it, code must supply a spec and Republic uses environment credentials. |
+| `stub_dir` | Optional directory for the generated Python tool definitions. By default, the definitions appear in the system prompt. A file-based stub requires an agent that can read that file. |
+| `media_tools` | `True` by default. Adds `attach_image`, `attach_audio`, and `attach_video` for returning media. |
+
+The code receives a Republic bridge for chat, embedding, and decision model calls. Requests go through the host's model resolver. The host handles provider credentials for these calls.
+
+`run_code` returns printed output and attached media. Its default timeout is 120 seconds; callers may pass `timeout_seconds`. With `LocalEnvironment`, each call starts a Python process with the host user's permissions and stops that process and its descendants on completion or cancellation. Choose another environment when you need a different execution boundary.
+
+<a id="run-tools-in-an-environment"></a>
+
+## Choose an execution environment
+
+The `Environment` interface in `bub.environment` supplies process execution, file access, and Python execution. `CodeMode(environment=...)` uses the environment you provide. In the Bub application, the [`provide_environment` hook](/docs/reference/hooks/) selects an environment per session.
+
+| Operation | Responsibility |
+| --- | --- |
+| `spawn(command, *, cwd, env)` | Return a process with output streams, input, wait, and process-tree signalling. |
+| `read_text`, `write_text`, `read_bytes` | Access files inside the environment. |
+| `workspace`, `resolve_path` | Define its working directory and resolve relative paths. |
+| `run_code(code, *, tools, call_tool, write)` | Run Python, route tool calls through `call_tool`, and send stdout to `write`. Stop execution when cancelled. |
+| `close()` | Release resources owned by the environment. |
+
+The environment runs the generated code and calls back to the host to execute your Python tools. Close custom environments when your application stops using them.
+
+<a id="commands"></a>
+
+## Call a tool without a model
+
+Set `command_prefix` to accept text commands. This example uses the `add_tool` defined above and needs no model credentials:
+
+```python
+import asyncio
+
+
+async def calculate() -> None:
+    agent = Agent(tools=[add_tool], command_prefix=",")
+    async with agent.run(",math.add a=2 b=3", tape="calculator") as stream:
+        async for event in stream:
+            if event.kind == "text":
+                print(event.data["delta"])
+
+
+asyncio.run(calculate())
+```
+
+It prints `5`. Commands invoke supplied tools and emit tool events plus `CommandFinished`; they bypass the model loop. Prefixes must be non-empty and contain no whitespace. The parser accepts positional arguments followed by `key=value` arguments. A command that does not name a tool falls back to the agent's `bash` tool if one was supplied.
+
+The [Bub application](/docs/build/app-tools/) supplies commands such as `,skill` and `,code_mode`.

@@ -1,143 +1,153 @@
 ---
-title: 钩子配方
-description: 常见 Bub 钩子模式手册 —— 覆盖提示、替换模型、包裹父级流、持久化状态、提供磁带库、新增通道、注册 CLI 命令、参与引导。
+title: 改变应用行为
+description: 通过 hooks 调整提示词、控制调用、保存应用状态并提供资源。
 sidebar:
   order: 2
 ---
 
-本页汇总最常用钩子模式的可运行配方。每个配方都基于 [`src/bub/hooks/specs.py`](https://github.com/bubbuild/bub/blob/main/src/bub/hooks/specs.py) 中的真实签名。完整钩子契约 —— 参数类型、同步/异步规则、`firstresult` 语义 —— 见[钩子参考](/zh-cn/docs/reference/hooks/)。
+在你想改变的位置选择 hook，其余部分继续使用 Bub 应用的实现。提示词 hook 改变输入，工具 decision 控制一次调用，存储 provider 决定会话历史保存在哪里。
 
-## 开始之前
+把这些例子放进[插件](/zh-cn/docs/build/plugins/)。模块级函数可以使用模块入口点；类需要注册实例，或使用接收 framework 的工厂。
 
-- 一个已经接入 `bub` 入口点组的插件包（见[插件](/zh-cn/docs/build/plugins/)）。
-- 模块中可用的 `from bub import hookimpl` 标记。
+[Hooks 参考](/zh-cn/docs/reference/hooks/)定义了签名、优先级和生命周期规则。
 
-**钩子**是声明在 `BubHookSpecs` 上的具名扩展点；插件贡献的实现会在轮次中被 Bub 调用。
+## 调整提示词
 
-下面多个 recipe 使用插件类。请通过 `pkg.plugin:MyPlugin` 这样的 callable entry point 注册类，或者创建模块级实例并让 entry point 指向该实例。裸模块目标只会注册模块级 `@hookimpl` 函数。
-
-## 1. 覆盖提示
-
-替换 Bub 发给模型的文本。`build_prompt` 是 `firstresult`，优先级最高的实现胜出。
+用 `build_prompt` 替换收到的内容：
 
 ```python
 from bub import hookimpl
-
-
-class PrefixPrompt:
-    @hookimpl
-    def build_prompt(self, message, session_id, state):
-        content = message["content"] if isinstance(message, dict) else message.content
-        return f"[prefix] {content}"
-```
-
-若要直接观察该行为，请配套一个返回 prompt 的 echo `run_model` hook，或在测试中检查 prompt。普通 `uv run bub run "hello"` 打印的是最终 outbound 文本，不是发给模型的原始 prompt。
-
-## 2. 替换模型
-
-实现 `run_model` 把模型阶段换成任意返回字符串的可调用对象。下面的形态镜像 [`bub-codex`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-codex)，它把模型委派给另一个代理 CLI：
-
-```python
-import asyncio
-
-from bub import hookimpl
-from bub.turn import TurnState
+from bub.envelope import content_of
 
 
 @hookimpl
-async def run_model(prompt: str, session_id: str, state: TurnState) -> str:
-    proc = await asyncio.create_subprocess_exec(
-        "codex", "e", prompt,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    return stdout.decode()
+def build_prompt(message, session_id, state):
+    return f"Answer using the project's terminology.\n\n{content_of(message)}"
 ```
 
-:::caution
-实现 `run_model` **或** `run_model_stream`，二选一。如果某个插件只实现 `run_model`，框架会在需要流式输出时把结果包成单段流。
-:::
+这个纯文本例子通过 `content_of` 读取消息。包含媒体时，返回[参考文档](/zh-cn/docs/reference/hooks/#prompt-content)中说明的用户内容类型。
 
-## 3. 包裹父级流
-
-如果你想观察或转换现有模型流而不替换它，实现 `run_model_stream`，并用 pluggy 的 `subset_hook_caller` 在**剔除自身**之后调用钩子链：
-
-```python
-from bub.streaming import AsyncStreamEvents
-
-from bub import BubFramework, hookimpl
-
-
-class StreamTap:
-    def __init__(self, framework: BubFramework) -> None:
-        self.framework = framework
-
-    @hookimpl
-    async def run_model_stream(self, prompt, session_id, state):
-        parent = self.framework._plugin_manager.subset_hook_caller(
-            "run_model_stream", remove_plugins=[self]
-        )
-        upstream = await parent(prompt=prompt, session_id=session_id, state=state)
-        if upstream is None:
-            raise RuntimeError("no parent run_model_stream implementation")
-
-        async def iterator():
-            async for event in upstream:
-                if event.kind == "text":
-                    print(event.data.get("delta", ""), end="")
-                yield event
-
-        return AsyncStreamEvents(iterator(), state=upstream._state)
-```
-
-适用于日志、脱敏或遥测，而不必重新实现底层模型调用。
-
-## 4. 跨轮次持久化状态
-
-`load_state` 在每轮开始运行；`save_state` 在产生模型输出之后的 `finally` 中运行。两者配合可以让你把每会话数据带到下一轮，并安全地拆解。lifespan 交接是经典案例：
+如果想保留收到的提示词，只添加系统指令，可以提供 `system_prompt` 片段：
 
 ```python
 from bub import hookimpl
 
 
-class SessionStorePlugin:
+@hookimpl
+def system_prompt(prompt, state):
+    return "Explain which files support your answer."
+```
+
+<a id="control-calls"></a>
+
+## 控制一次模型或工具调用
+
+保留内置 agent，并调整某次调用时，使用 agent 拦截 hooks。例如，限制一次请求的输出 token 数：
+
+```python
+from dataclasses import replace
+
+from bub import hookimpl
+from bub.hooks.interception import LLMCallRequest
+
+
+@hookimpl
+def before_llm_call(request: LLMCallRequest, state):
+    return replace(request, max_tokens=min(request.max_tokens or 512, 512))
+```
+
+需要阻止工具执行时，返回 decision：
+
+```python
+from bub import hookimpl
+from bub.hooks.interception import ToolCall, ToolCallDecision
+
+
+@hookimpl
+def before_tool_call(call: ToolCall, state):
+    if call.tool == "orders.cancel" and not state.get("can_cancel_orders", False):
+        return ToolCallDecision.deny("This session cannot cancel orders.")
+    return None
+```
+
+由你的授权逻辑设置 `can_cancel_orders`，hook 根据这个值允许或拒绝调用。
+
+这些拦截 hooks 抛出的异常会被记录并跳过。要控制执行，使用 `deny`、`replace` 或 `LLMCallDecision.finish`。[拦截契约](/zh-cn/docs/reference/hooks/#agent-loop-hooks-pluginagenthooks)说明了 decision 何时终止调用链。
+
+## 观察已经完成的调用
+
+统计调用情况时，使用完成 hooks：
+
+```python
+from bub import hookimpl
+
+
+@hookimpl
+def after_llm_call(request, result, state):
+    print(f"model={request.model} duration_ms={result.duration_ms} error={result.error!r}")
+
+
+@hookimpl
+def after_tool_call(call, result, state):
+    print(f"tool={call.tool} duration_ms={result.duration_ms} error={result.error!r}")
+```
+
+这些 hooks 观察已经完成的调用，包括普通异常导致的失败，但不报告取消。需要逐块处理输出时，在宿主程序或渠道中使用流接口，并遵守[关闭规则](/zh-cn/docs/reference/types/#streaming)。
+
+如果要替换整个模型阶段，实现 `run_model` 或 `run_model_stream` 中的一个。[第一个插件](/zh-cn/docs/getting-started/first-plugin/)演示了文本替换。替换实现负责自己的执行和记录行为；只有使用内置 agent 时，才会运行它的拦截 hooks。
+
+## 跨轮次保留应用状态
+
+Framework 为每轮入站消息构建新的状态字典。使用 `load_state` 和 `save_state`，保留应用自己的值：
+
+```python
+from bub import hookimpl
+
+
+class TurnCounter:
     def __init__(self) -> None:
-        self._sessions: dict[str, list[dict[str, object]]] = {}
+        self.counts: dict[str, int] = {}
 
     @hookimpl
     def load_state(self, message, session_id):
-        return {"history": self._sessions.get(session_id, [])}
+        return {"completed_turns": self.counts.get(session_id, 0)}
 
     @hookimpl
     def save_state(self, session_id, state, message, model_output):
-        history = state.get("history", [])
-        history.append({"in": message, "out": model_output})
-        self._sessions[session_id] = history
+        self.counts[session_id] = state["completed_turns"] + 1
+
+
+turn_counter = TurnCounter()
 ```
 
-**state** 字典是贯穿每个阶段的每轮工作区。它与录制的磁带的关系见[磁带与上下文](/zh-cn/docs/concepts/tape-and-context/)。
+这个内存示例统计模型阶段退出的次数，包括失败。进程退出后计数会丢失，并且它假定同一会话一次只处理一轮。生产环境应使用持久化存储，并选择合适的并发策略。
 
-## 5. 提供磁带库
+`save_state` 位于模型阶段的 `finally` 块中，前提是会话解析、状态加载和提示词准备已经成功。这些准备阶段发生错误时，会跳过保存 hook。会话历史另有 [Tape 生命周期](/zh-cn/docs/concepts/tape-and-context/#state)。
 
-**磁带**是被记录的对话线索。`provide_tape_store` 是 `firstresult`，在框架运行时作用域开启时解析。返回一个库实例，或 yield 一个用于 setup/teardown。
+<a id="provide-a-tape-store"></a>
+
+## 提供会话存储
+<span id="5-provide-a-tape-store"></span>
+
+返回希望应用使用的 store：
 
 ```python
+from pathlib import Path
+
 from bub import hookimpl
+from bub.core.store import FileTapeStore
 
 
 @hookimpl
 def provide_tape_store():
-    from bub_tapestore_sqlite.store import SQLiteTapeStore
-
-    return SQLiteTapeStore(path="/var/lib/bub/tapes.sqlite3")
+    return FileTapeStore(Path("./application-tapes"))
 ```
 
-完整插件位于 [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite)。需要清理的库可改为返回生成器 —— Bub 会以上下文管理器对待它。
+这个例子选择当前目录下的普通 JSONL 文件存储。Bub 应用的内置存储还提供应用所需的搜索行为；按任务选择存储实现。需要数据库存储时，参见 [SQLAlchemy 集成](/zh-cn/docs/tutorials/tapestore-sqlalchemy/)。
 
-### 挂载 tape sidecar
+Framework 在进入 `framework.running()` 时解析一次 provider。Provider 也可以 yield 一个 store，并在 `finally` 中释放资源。[参考文档](/zh-cn/docs/reference/hooks/#runtime-resources)说明了这个生命周期，以及对应的 `provide_lifespan` hook。
 
-当插件需要一个与 session tape 共享生命周期的 sibling tape 时，使用 `provide_tape_sidecar`。sidecar 只声明稳定的 `name`；配置与数据格式由插件自己管理。
+插件还可以提供一个具名的关联 tape：
 
 ```python
 from bub import hookimpl
@@ -152,53 +162,11 @@ def provide_tape_sidecar():
     return ArtifactSidecar()
 ```
 
-对名为 `session` 的 tape，这会在 active `TapeStore` 中挂载 `session__sidecar__artifacts`。工具代码可通过 `context.tape.get_sidecar("artifacts")` 取得 provider，并用 `context.tape.sidecar_tape_name("artifacts")` 得到物理名称。每个 hook implementation 提供一个 sidecar。主 tape 负责所有已挂载 sidecar 的 fork、merge、archive 和 reset。同名 provider 遵循普通 hook 优先级：最先出现的实现生效。
+[公共 Tape 说明](/zh-cn/docs/concepts/tape-and-context/)介绍了 sidecar 的命名和合并行为。
 
-builtin spill 插件拥有 `SpillStore`、`spill.read` 工具、数据格式和 `SpillSettings`。核心层不导入或识别 spill 实现。配置使用 `spill:` section 和 `BUB_SPILL_*` 环境变量，与 `AgentSettings` 相互独立。
+## 添加应用命令
 
-## 6. 新增通道
-
-**通道**是一个收发端 —— CLI、Telegram、微信、定时触发器。`provide_channels` 让插件贡献一个或多个 `Channel` 子类。
-
-最小要求：设置 `name`、实现 `start` 与 `stop`，可选实现 `send` 或 `stream_events`：
-
-```python
-import asyncio
-
-from bub import hookimpl
-from bub.channels import Channel
-from bub.channels.contracts import MessageHandler
-
-
-class WebhookChannel(Channel):
-    name = "webhook"
-
-    def __init__(self, message_handler: MessageHandler) -> None:
-        self._handler = message_handler
-        self._task: asyncio.Task | None = None
-
-    async def start(self, stop_event: asyncio.Event) -> None:
-        # 绑定你的传输（HTTP 服务器、消息队列等）
-        await stop_event.wait()
-
-    async def stop(self) -> None:
-        if self._task:
-            self._task.cancel()
-
-
-class WebhookPlugin:
-    @hookimpl
-    def provide_channels(self, message_handler):
-        return [WebhookChannel(message_handler)]
-```
-
-[`bub-wechat`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-wechat) 是自定义通道的范本：实现入站接收和出站 `send`，并暴露一个模型可调用的 `wechat` 工具。
-
-`provide_channels` 也是**承载非聊天背景服务**的合适钩子。visual-base 的 [`EyeChannel`](https://github.com/oilbeater/visual-base/blob/main/src/bub_eye/channel.py) 用它来托管一个 FFmpeg 监督进程和屏幕理解循环 —— `send` 是空操作，但 `start`/`stop` 给了服务一条与 `bub gateway` 绑定的生命周期。
-
-## 7. 注册 CLI 命令
-
-`register_cli_commands` 在 CLI 启动时被调用一次，参数是根 [`typer.Typer`](https://typer.tiangolo.com/) 应用。直接在上面追加命令或子应用：
+`register_cli_commands` 接收根 Typer app：
 
 ```python
 import typer
@@ -206,111 +174,13 @@ import typer
 from bub import hookimpl
 
 
-class HelloPlugin:
-    @hookimpl
-    def register_cli_commands(self, app: typer.Typer) -> None:
-        @app.command()
-        def hello(name: str = "world") -> None:
-            """Say hello."""
-            typer.echo(f"hello, {name}")
+@hookimpl
+def register_cli_commands(app: typer.Typer):
+    @app.command()
+    def hello(name: str = "world") -> None:
+        typer.echo(f"hello, {name}")
 ```
 
-运行 `uv run bub hello --name bub` 触发它。该钩子是同步运行的 —— 异步函数会被跳过并发出告警。
+安装插件后运行 `bub hello --name bub`。这个 hook 必须同步实现。
 
-## 8. 参与引导
-
-`onboard_config(current_config)` 让插件向交互式 `bub onboard` 流程贡献字段。每个实现都会拿到累积到目前的字典，并返回要合入的片段。
-
-```python
-from bub import hookimpl
-
-
-class WeatherPlugin:
-    @hookimpl
-    def onboard_config(self, current_config):
-        existing = current_config.get("weather", {})
-        return {
-            "weather": {
-                "api_key": existing.get("api_key", ""),
-                "enabled": True,
-            }
-        }
-```
-
-返回 `None` 表示跳过且不修改累积配置。返回非 dict 会抛 `TypeError` 并中止引导。运行 `uv run bub onboard` 并查看保存的配置文件来验证。
-
-## 9. 拦截 agent loop 的 LLM 与工具调用
-
-agent loop 暴露四个拦截钩子(完整契约见 [参考 › 钩子](/zh-cn/docs/reference/hooks/))。`before_*` 按 LIFO 链式执行,可修改或短路;`after_*` 观察终态,成功与 `Exception` 失败各恰好一次(取消不观察)。
-
-模型路由、限次、脱敏 —— `before_llm_call`:
-
-```python
-from dataclasses import replace
-
-from bub import hookimpl
-from bub.hooks.interception import LLMCallDecision, LLMCallRequest
-
-
-class RouteAndBudget:
-    @hookimpl
-    def before_llm_call(self, request: LLMCallRequest, state):
-        # `state` persists for the session (it is not reset per turn), so
-        # this is a session-wide budget. For a per-turn budget, reset the
-        # counter yourself at a turn boundary (e.g. in build_prompt).
-        calls = state.get("session_llm_calls", 0)
-        state["session_llm_calls"] = calls + 1
-        if calls >= 10:
-            # Skip the provider entirely; this text becomes the final output.
-            return LLMCallDecision.finish("LLM call budget exhausted for this session.")
-        # Rewrites are honored end-to-end: the provider receives this model
-        # and max_tokens, and the tape records the effective model.
-        return replace(request, model="openai:gpt-4o-mini", max_tokens=512)
-```
-
-工具策略 —— `before_tool_call` 用 decision 表达否决,不要抛异常:
-
-```python
-from bub import hookimpl
-from bub.hooks.interception import ToolCall, ToolCallDecision
-
-
-class ShellPolicy:
-    @hookimpl
-    def before_tool_call(self, call: ToolCall, state):
-        if call.tool == "shell" and "rm -rf" in str(call.arguments):
-            return ToolCallDecision.deny("Destructive shell commands are blocked.")
-        if call.tool == "web_search":
-            # Serve from cache without running the tool.
-            if cached := state.get("search_cache", {}).get(str(call.arguments)):
-                return ToolCallDecision.replace(cached)
-        return None  # proceed unchanged
-```
-
-处理终态 —— `after_llm_call` / `after_tool_call` 在失败时拿到**原始异常对象**（`result.error`）；被取消的调用不产生观察。`after_tool_call` 实现可以通过赋值 `result.result` 替换成功结果：
-
-```python
-from bub import hookimpl
-
-
-class Metrics:
-    @hookimpl
-    def after_llm_call(self, request, result, state):
-        usage = result.usage or {}
-        print(f"llm {request.model} {result.duration_ms}ms tokens={usage.get('total_tokens')} error={result.error!r}")
-
-    @hookimpl
-    def after_tool_call(self, call, result, state):
-        print(f"tool {call.tool} {result.duration_ms}ms error={result.error!r}")
-        if result.error is None and call.tool == "web_search":
-            result.result = str(result.result)[:4_000]
-```
-
-所有载荷携带 `run_id`,与 tape 条目 meta 对应,指标可与记录的会话对齐。
-
-## 下一步
-
-- [钩子参考](/zh-cn/docs/reference/hooks/) —— 完整签名表、优先级与同步/异步规则
-- [工具](/zh-cn/docs/build/tools/) —— 注册可被模型调用的工具
-- [发行版](/zh-cn/docs/build/distribution/) —— 把钩子打包为产品
-- [轮次管线](/zh-cn/docs/concepts/turn-pipeline/) —— 每个钩子在一次轮次中的位置
+其他应用任务可以使用 `onboard_config` 提供配置、`provide_channels` 接入渠道，或 `provide_environment` 选择内置工具的执行环境。输入和返回值见 [Hooks 参考](/zh-cn/docs/reference/hooks/)。
