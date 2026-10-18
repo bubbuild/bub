@@ -88,12 +88,13 @@ from bub_context_budget import plugin as context_budget
 from bub import BubFramework
 from bub.builtin.tools import tape_handoff
 from bub.core import Agent
+from bub.hooks.agent import AgentPlugins
 
 
 def add_context_budget(agent: Agent) -> None:
     framework = BubFramework(config_file=Path("bub.yml"))
     framework.plugin_manager.register(context_budget, name="context-budget")
-    framework.get_agent_hooks().subscribe(agent.events)
+    AgentPlugins(framework).attach(agent)
     agent.tools[tape_handoff.name] = tape_handoff
 ```
 
@@ -105,9 +106,44 @@ Set the context limit with `BUB_CONTEXT_BUDGET_MAX_CONTEXT_TOKENS` or `context-b
 
 A handoff saves its summary on the anchor. To carry that summary into the next model request, include it through your [context selection](/docs/concepts/tape-and-context/#context) or next prompt.
 
-Register and subscribe once during service startup. This plugin runs entirely through call hooks. Registration belongs to the Framework, and subscription connects its interception hooks to the selected Agent. Every session using that Agent shares those hooks. Separate Framework instances and subscriptions are needed for different plugin sets; configuration remains process-wide.
+Register and attach once during service startup. This plugin runs entirely through call hooks. Registration belongs to the Framework, and `attach()` connects its agent-loop hooks to the selected Agent's events. Every session using that Agent shares those hooks. Separate Framework instances are needed for different plugin sets; configuration remains process-wide.
 
 The adapter catches ordinary plugin exceptions and skips the failed hook. A hook that blocks a tool must return `ToolCallDecision.deny(...)`; see [Agent events](/docs/concepts/events/) for interception semantics.
+
+<a id="agent-plugins"></a>
+
+## Connect a plugin's other agent-loop hooks
+
+`AgentPlugins` connects every hook that shapes the agent loop, not only call interception. Each hook maps to a core Agent extension point:
+
+| Hook | Core Agent extension point |
+| --- | --- |
+| `before_llm_call`, `after_llm_call`, `before_tool_call`, `after_tool_call` | Call events, through `attach(agent)`. |
+| `continue_prompt` | `StepEnding`: the hook's text becomes the next step's user message. |
+| `provide_steering_inbox` | `MessagesPending` drains the inbox; `StepEnding` continues the run while messages are waiting. |
+| `system_prompt` | The `plugins.system_prompt` prompt section. |
+| `provide_tape_store`, `build_tape_context`, `provide_tape_sidecar` | `store`, `context` and `sidecars` from `plugins.components()`. |
+| `load_state`, `provide_environment` | The run's state from `await plugins.build_state(session_id)`. |
+
+```python
+from bub.hooks.agent import AgentPlugins
+
+plugins = AgentPlugins(framework)
+
+async with framework.running():
+    agent = Agent(
+        system_prompt=[plugins.system_prompt, "Answer in plain text."],
+        **plugins.components(),
+    )
+    plugins.attach(agent)
+    state = await plugins.build_state("customer-42", agent=agent)
+    async with agent.run(prompt, model=model, tape="customer-42", state=state) as stream:
+        ...
+```
+
+`components()` leaves out what no hook provides, so the Agent keeps its defaults; arguments you pass yourself take their place. A hook-provided store and steering inbox exist only inside `framework.running()`. Attach before registering your own handlers so they see the hooks' changes. Place `plugins.system_prompt` among your sections where its text belongs.
+
+Message-pipeline hooks, such as `build_prompt`, `run_model`, `save_state`, `render_outbound`, and `dispatch_outbound`, are not part of the agent loop and only run in `process_inbound()`. Bub's builtin hooks are not loaded unless you call `framework.load_hooks()`; their system prompt asks the agent to reply through channels.
 
 ## Choose the connection each plugin needs
 
@@ -116,7 +152,7 @@ The plugin's implementation determines what your host must provide:
 | Plugin capability | How to reuse it |
 | --- | --- |
 | Tools or a store | Import the public component and pass it to Agent. For example, `bub_tapestore_sqlalchemy.store.SQLAlchemyTapeStore` accepts a database URL and can be passed as `store=`. |
-| Model or tool interception | Register the selected plugin and subscribe its hooks as above. Check any state fields or tools the plugin expects. |
+| Model or tool interception, system prompt, continuation, or steering | Register the selected plugin and [attach `AgentPlugins`](#agent-plugins). Check any state fields or tools the plugin expects. |
 | Message preparation, model-stage replacement, state saving, or delivery | [Embed the application pipeline](/docs/build/distribution/#programmatic-embedding) in your host. It runs these stages and returns a `TurnResult`. |
 | Background connections or discovered tools | Open the service, wait until it is ready, attach its tools, then close it with the host. Follow the plugin's own lifecycle API. |
 

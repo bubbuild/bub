@@ -27,8 +27,10 @@ from bub.core.events import (
     LLMCallRequest,
     LLMCallResult,
     LLMCallStarted,
+    MessagesPending,
     RunFinished,
     RunStarted,
+    StepEnding,
     StepFinished,
     StepStarted,
     TapeEvent,
@@ -84,9 +86,9 @@ class Agent:
     records them on the run's tape. ``LLMCallStarted`` and ``ToolCallStarted`` handlers
     may change or short-circuit the call.
 
-    Subclasses customize a run by overriding :meth:`prepare_tools`,
-    :meth:`pending_messages`, :meth:`has_pending_messages` and :meth:`continue_prompt`,
-    each of which receives the run's tape.
+    ``MessagesPending`` handlers add user messages that arrived during the run, and
+    ``StepEnding`` handlers decide whether the run takes another step and with what prompt.
+    Subclasses choose the model-facing tools of each step by overriding :meth:`prepare_tools`.
     """
 
     def __init__(
@@ -308,7 +310,7 @@ class Agent:
         system_prompt = await self.system_prompt.render(prompt_context) or None
         if (span := current_span()) and span.recording:
             span.set(**{"gen_ai.tool.definitions": [tool.to_schema() | {"type": "function"} for tool in tools]})
-        pending = await self.pending_messages(tape)
+        pending = (await self._emit(MessagesPending, tape, prompt=prompt)).messages
 
         run_id = generate_run_id()
         messages, new_messages = await self._build_messages(
@@ -453,20 +455,6 @@ class Agent:
         """Return the model-facing tools for the next model call."""
         return model_tools(self.tools.values())
 
-    async def pending_messages(self, tape: Tape) -> list[list[UserContent]]:
-        """Return user messages that arrived during the run, sent before the next prompt."""
-        return []
-
-    def has_pending_messages(self, tape: Tape) -> bool:
-        """Return whether messages are waiting, which continues the run for another step."""
-        return False
-
-    async def continue_prompt(
-        self, tape: Tape, prompt: list[UserContent] | None, state: StreamState
-    ) -> list[UserContent] | None:
-        """Return a user message for the next step, or None to continue the conversation as is."""
-        return None
-
     async def _emit(self, event_type: type[T], tape: Tape, **fields: Any) -> T:
         return await self.events.emit(event_type(state=tape.context.state, tape=tape, **fields))
 
@@ -517,12 +505,15 @@ class Agent:
                     await self._record_step(tape, step, start, "error", error=error_message)
                     raise
 
-                if not (should_continue or self.has_pending_messages(tape)):
+                ending = await self._emit(
+                    StepEnding, tape, step=step, prompt=next_prompt, stream=state, continue_run=should_continue
+                )
+                if not ending.continue_run:
                     await self._record_step(tape, step, start, "ok")
                     tracker.status = "ok"
                     return
 
-                next_prompt = await self.continue_prompt(tape, next_prompt, state)
+                next_prompt = ending.next_prompt
                 await self._record_step(tape, step, start, "continue")
 
             raise RuntimeError(f"max_steps_reached={self.max_steps}")  # noqa: TRY301

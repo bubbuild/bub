@@ -19,8 +19,10 @@ from bub.core.events import (
     LLMCallDecision,
     LLMCallFinished,
     LLMCallStarted,
+    MessagesPending,
     RunFinished,
     RunStarted,
+    StepEnding,
     StepFinished,
     ToolCallDecision,
     ToolCallFinished,
@@ -38,6 +40,45 @@ def _model(client: Any) -> republic.ChatModel:
 
 def _tool_call(name: str) -> object:
     return sse(tool_events([{"index": 0, "id": "call-1", "function": {"name": name, "arguments": "{}"}}]))
+
+
+@pytest.mark.asyncio
+async def test_core_agent_events_add_pending_messages_and_continue_the_run(provider_service: ProviderService) -> None:
+    provider_service.reply(sse(chat_events("first")))
+    provider_service.reply(sse(chat_events("second")))
+    waiting: list[list[Any]] = [["steer"]]
+    endings: list[tuple[int, bool]] = []
+    async with provider_service.client() as client:
+        agent = Agent(model=_model(client))
+
+        @agent.events.on(MessagesPending)
+        def drain(event: MessagesPending) -> None:
+            event.messages.extend(waiting)
+            waiting.clear()
+
+        @agent.events.on(StepEnding)
+        def follow_up(event: StepEnding) -> None:
+            endings.append((event.step, event.continue_run))
+            if event.step == 1:
+                event.continue_run = True
+                event.next_prompt = ["go on"]
+
+        async with agent.run("hello", tape="session") as stream:
+            events = [event async for event in stream]
+
+    assert [event.data.get("text") for event in events if event.kind == "final"] == ["first", "second"]
+    assert endings == [(1, False), (2, False)]
+    assert provider_service.body(0)["messages"][-2:] == [
+        {"role": "user", "content": "steer"},
+        {"role": "user", "content": "hello"},
+    ]
+    assert await agent.tape("session").read_messages() == [
+        republic.user("steer"),
+        republic.user("hello"),
+        republic.assistant("first"),
+        republic.user("go on"),
+        republic.assistant("second"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -86,16 +127,20 @@ async def test_core_agent_runs_tool_loop_and_emits_events(provider_service: Prov
     assert seen == [
         "RunStarted",
         "StepStarted",
+        "MessagesPending",
         "LLMCallStarted",
         "LLMCallFinished",
         "ToolCallStarted",
         "ToolCallFinished",
         "ChatFinished",
+        "StepEnding",
         "StepFinished",
         "StepStarted",
+        "MessagesPending",
         "LLMCallStarted",
         "LLMCallFinished",
         "ChatFinished",
+        "StepEnding",
         "StepFinished",
         "RunFinished",
     ]

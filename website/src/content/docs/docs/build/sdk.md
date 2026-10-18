@@ -169,14 +169,31 @@ The agent keeps supplied `Tool` objects in `agent.tools` by name and provider to
 
 ## Customize how a step is prepared
 
-Subclass `Agent` when selecting tools or accepting messages needs application logic. Each method receives the active tape; its `context.state` is the run's state.
+Subclass `Agent` and override `prepare_tools(tape, prompt)` when selecting tools needs application logic. By default it offers the supplied tools except those marked `exposure="command"`. The tape's `context.state` is the run's state.
 
-| Method | Default behavior |
-| --- | --- |
-| `prepare_tools(tape, prompt)` | Offers supplied tools except those marked `exposure="command"`. |
-| `pending_messages(tape)` | Returns no additional user messages. |
-| `has_pending_messages(tape)` | Returns `False`. |
-| `continue_prompt(tape, prompt, state)` | Returns `None`; continues after tool calls without an additional user message. Here `state` is the stream state. |
+Handle two loop events to send messages that arrive during a run or to keep the run going:
+
+| Event | Default | Control |
+| --- | --- | --- |
+| `MessagesPending` | No additional user messages. | Append contents to `event.messages`; they are sent before the step's prompt and recorded with it. |
+| `StepEnding` | `continue_run` is true only when the step made tool calls; `next_prompt` is `None`. | Set `continue_run` to take another step and `next_prompt` to give it a user message. `event.stream` holds the run's usage. |
+
+```python
+from bub.core.events import MessagesPending, StepEnding
+
+inbox: dict[str, list[str]] = {}
+
+
+@agent.events.on(MessagesPending)
+def send_queued(event: MessagesPending) -> None:
+    event.messages.extend([text] for text in inbox.pop(event.tape.name, []))
+
+
+@agent.events.on(StepEnding)
+def wait_for_queued(event: StepEnding) -> None:
+    if inbox.get(event.tape.name):
+        event.continue_run = True
+```
 
 For a tape whose lifecycle you manage, open `agent.session(name, state=...)` and use `agent.run_on(tape, prompt, model=...)`. It returns a stream you must close. `agent.run_once(prompt, model=..., tape=...)` yields one model step when you need to drive the loop yourself.
 
