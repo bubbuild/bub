@@ -4,6 +4,8 @@ Astro builds this site. Starlight serves the docs. The landing page, the blog, a
 
 In `website/`, run `pnpm install`, `pnpm dev`, `pnpm build`, or `pnpm preview`. From the repository root, `make docs`, `make docs-test`, and `make docs-preview` call these scripts.
 
+Mermaid code fences are rendered by `src/integrations/pele.mjs` before Starlight runs. Pele generates SVG at build time and mounts it in the browser for responsive layout and zoom. Theme colors use CSS variables.
+
 ## Files
 
 English URLs have no prefix. Chinese URLs use the prefix `/zh-cn/`.

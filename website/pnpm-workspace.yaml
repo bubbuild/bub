@@ -5,6 +5,10 @@ engineStrict: true
 # frozen install also fails while any lockfile entry is younger.
 minimumReleaseAge: 4320
 
+# Allow the pinned Pele release used for this migration.
+minimumReleaseAgeExclude:
+  - pele@1.6.0
+
 # Patch pinned transitive dependencies until upstream adopts these fixes.
 overrides:
   # https://github.com/advisories/GHSA-px8p-9vwx-vf98

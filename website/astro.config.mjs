@@ -4,7 +4,7 @@ import { defineConfig, envField } from 'astro/config';
 import tailwindcss from '@tailwindcss/vite';
 import starlight from '@astrojs/starlight';
 import cloudflare from '@astrojs/cloudflare';
-import mermaid from 'astro-mermaid';
+import peleDiagrams from './src/integrations/pele.mjs';
 
 const astro_image_mode =
   process.env.BUB_ASTRO_IMAGE_MODE ?? (process.argv.includes('dev') ? 'dev' : 'build');
@@ -47,12 +47,8 @@ export default defineConfig({
     },
   },
   integrations: [
-    // Must come BEFORE starlight so its Markdown plugin transforms `mermaid`
-    // code blocks before Starlight's markdown pipeline highlights them.
-    mermaid({
-      theme: 'neutral',
-      autoTheme: true,
-    }),
+    // Transform Mermaid fences before Starlight highlights code blocks.
+    peleDiagrams(),
     starlight({
       title: 'Bub',
       description: 'A tiny agent runtime, composable with plugins.',

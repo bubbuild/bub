@@ -352,3 +352,35 @@
         scroll-behavior: auto !important;
     }
 }
+
+/* Pele diagrams inherit the same monochrome palette as the surrounding docs. */
+.pele-diagram {
+    --pele-bg: var(--background);
+    --pele-fg: var(--foreground);
+    --pele-muted: var(--muted-foreground);
+    --pele-line: var(--foreground);
+    --pele-surface: var(--muted);
+    --pele-surface-alt: var(--secondary);
+    --pele-border: var(--border);
+    --pele-accent: var(--foreground);
+    --pele-font: var(--font-sans);
+    --pele-font-mono: var(--font-mono);
+    --pele-zoom-top: auto;
+    --pele-zoom-bottom: 0;
+    padding-block-end: 2.5rem;
+    width: 100%;
+    margin-block: 2rem;
+    overflow-x: auto;
+}
+
+.pele-diagram > svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin-inline: auto;
+}
+
+/* Keep Pele's inline-positioned controls clear of node labels. */
+.pele-diagram > .pele-zoom {
+    flex-direction: row !important;
+}
