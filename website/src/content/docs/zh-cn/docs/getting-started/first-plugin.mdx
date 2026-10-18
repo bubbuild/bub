@@ -1,33 +1,30 @@
 ---
-title: 构建你的第一个插件
-description: 构建一个最小 echo 插件，可编辑安装到本地，并验证 Bub 加载了它的 hook。
+title: 编写第一个插件
+description: 安装一个简单的回声插件，确认 Bub 会使用它。
 sidebar:
   order: 4
 ---
 
-本教程引导你编写一个最小 Bub 插件，用 echo 响应覆写 model 阶段，将其安装到活动环境，并确认框架已识别。
+插件可以改变 Bub 应用处理任务的方式。这个插件用回声回复替代模型阶段，让你无需模型凭据就能检查插件发现和轮次处理。需要内置 agent 的模型调用与会话记录时，保留它的模型实现。
 
-该插件无需模型凭据，可同时作为冒烟测试和真实插件的起点模板。
+## 开始之前
 
-## 在开始之前
+按[安装 Bub](/zh-cn/docs/getting-started/install/)中的说明准备 Python 3.12+ 和 uv。这篇教程会创建一个同时包含 Bub 0.6.0 和插件的项目环境。
 
-你需要准备：
+## 创建包
 
-- 已在 `uv` 管理的环境中 [安装 Bub](/zh-cn/docs/getting-started/install/)
-- 在 workspace 之外有一个空闲目录用于 scaffold 插件包
+创建以下包目录：
 
-## 1. 搭建包结构
-
-创建包结构：
-
-```bash
-mkdir bub-echo-plugin
-cd bub-echo-plugin
-mkdir -p src/bub_echo_plugin
-touch src/bub_echo_plugin/__init__.py
+```text
+bub-echo-plugin/
+├── pyproject.toml
+└── src/
+    └── bub_echo_plugin/
+        ├── __init__.py
+        └── plugin.py
 ```
 
-创建 `pyproject.toml`。`[project.entry-points."bub"]` 段是让插件可被发现的关键：
+将 `__init__.py` 留空。在 `pyproject.toml` 中写入：
 
 ```toml
 [build-system]
@@ -38,7 +35,7 @@ build-backend = "hatchling.build"
 name = "bub-echo-plugin"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["bub[app]>=0.1"]
+dependencies = ["bub[app]>=0.6.0"]
 
 [project.entry-points."bub"]
 echo = "bub_echo_plugin.plugin:echo_plugin"
@@ -47,74 +44,51 @@ echo = "bub_echo_plugin.plugin:echo_plugin"
 packages = ["src/bub_echo_plugin"]
 ```
 
-## 2. 实现插件
+`bub` 入口点组告诉应用到哪里寻找插件。
 
-创建 `src/bub_echo_plugin/plugin.py`。插件是任何方法被 `@hookimpl` 装饰的对象：
+## 实现回复
+
+在 `src/bub_echo_plugin/plugin.py` 中写入：
 
 ```python
-from __future__ import annotations
-
 from bub import hookimpl
 
 
 class EchoPlugin:
     @hookimpl
-    def build_prompt(self, message, session_id, state):
-        if hasattr(message, "content"):
-            return str(message.content)
-        if isinstance(message, dict):
-            return str(message.get("content", ""))
-        return str(message)
-
-    @hookimpl
     def run_model(self, prompt, session_id, state):
-        text = prompt if isinstance(prompt, str) else str(prompt)
-        return f"[echo:{session_id}] {text}"
+        return f"[echo:{session_id}] {prompt}"
 
 
 echo_plugin = EchoPlugin()
 ```
 
-`build_prompt` 是 `firstresult` hook —— 第一个非 None 的返回值胜出。`run_model` 同样是 `firstresult`，所以本实现完全覆写了内置 agent。
+应用仍会构建收到的提示词。你的 `run_model` 实现提供回复，替代内置 agent 的执行。
 
-## 3. 创建插件环境
+## 安装并试运行
 
-从插件目录把插件包及其依赖同步到该插件项目的 `.venv`：
+在插件目录安装项目和依赖：
 
 ```bash
 uv sync
-```
-
-`uv sync` 默认以 editable 方式安装当前插件包。下面的 `uv run bub ...` 命令会在同一个包含插件 entry point 的环境中运行 Bub。
-
-如果你想把插件安装到已有 Bub checkout 的虚拟环境中，请先激活目标虚拟环境，再运行 `uv pip install -e .`。
-
-## 4. 验证 Bub 已加载
-
-请求 Bub 输出 hook 报告：
-
-```bash
 uv run bub hooks
 ```
 
-你应当在 `build_prompt` 与 `run_model` hook 项下看到 `echo` 与 `builtin` 并列。
+`uv sync` 会以可编辑模式安装这个包。在同一个项目中通过 `uv run` 运行 Bub，它就能发现插件。
 
-接着运行一次单次 turn：
+报告应在 `run_model` 下列出 `echo`。内置 agent 则出现在 `run_model_stream` 下。
 
 ```bash
-uv run bub run "hello from plugin tutorial"
+uv run bub run "hello from my plugin"
 ```
 
-outbound 消息应当包含：
+没有其他插件覆盖模型阶段时，回复包含：
 
 ```text
-[echo:cli:local] hello from plugin tutorial
+[echo:cli:local] hello from my plugin
 ```
 
-如果响应来自真实模型，说明插件未加载——请在插件项目中重跑 `uv sync`，或确认插件已安装到运行 `bub` 的虚拟环境中，然后重新检查 `bub hooks`。
+如果没有看到 `echo`，检查安装插件的环境是否就是运行 `bub` 的环境。如果已经列出却返回其他回复，检查其他模型 hooks 及其[优先级](/zh-cn/docs/reference/hooks/#iteration-order)。
 
-## 下一步
-
-- [Build plugins](/zh-cn/docs/build/plugins/) — 包结构、生命周期与发现细节。
-- [Hooks 参考](/zh-cn/docs/reference/hooks/) — 每条 hookspec 及其签名。
-- [Distribution](/zh-cn/docs/build/distribution/) — 将插件与 skill 一起打包发布。
+- [打包插件](/zh-cn/docs/build/plugins/)说明发现机制和入口点形式。
+- [改变应用行为](/zh-cn/docs/build/hooks/)帮助你选择适合当前任务的 hook。

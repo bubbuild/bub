@@ -11,28 +11,26 @@ sidebar:
 
 接入插件位于
 [`bub-contrib`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-agent-plugins)。
-Bub 的 Python 插件仍通过[原有入口点机制](/zh-cn/docs/build/plugins/)加载。
+Bub 的 Python 插件仍通过[Python 插件入口点](/zh-cn/docs/build/plugins/)加载。
 
 ## 前提条件
 
-- 已[安装 Bub](/zh-cn/docs/getting-started/install/)，并确认 `bub --help` 可用。
-- `PATH` 中有 `uvx`，用于启动下面的时间服务器。独立安装器会随 `uv` 一起安装它。
+- 已[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并确认 `bub --help` 可用。
+- `PATH` 中有随 `uv` 提供的 `uvx`，用于启动下面的时间服务器。
 - 选择一个工作区目录，并在该目录中运行示例。
 
-验证命令会直接调用工具，不需要模型 API key。
+验证命令会直接调用工具，不需要模型 API 密钥。
 
 ## 1. 安装接入插件
 
-独立安装器的 `recommended` 预设已包含两个接入插件。对于已有安装或 minimal 安装，请将两者装入运行 Bub 的同一环境：
+把两个接入插件都安装到当前 Bub 所在的环境：
 
 ```bash
 bub install bub-mcp@main bub-agent-plugins@main
 bub hooks
 ```
 
-`bub-agent-plugins` 要求 `bub-mcp>=0.2.0`，仅启用 skills 时也需要安装。这个运行时依赖需要显式安装，
-不会作为 Python 传递依赖自动安装。从源码 checkout 运行时，请使用
-`uv run bub install bub-mcp@main bub-agent-plugins@main`，并在后续 `bub` 命令前加上 `uv run`。
+请显式安装 `bub-mcp>=0.2.0` 和 `bub-agent-plugins`，仅启用 skills 时也需要同时安装。
 
 在 hook 报告的 `load_state` 和 `provide_channels` 行中查找 `agent-plugins`。
 这表示 Python 接入插件已加载；接下来验证一个可移植插件包。
@@ -89,7 +87,7 @@ bub --workspace . run ',skill name=plugin-summary'
 ```
 
 第一条命令应列出 `plugin-summary`，第二条应打印它的位置和刚保存的指令。
-加载 skills 不需要后台 channel，因此可以使用 `bub run`。
+加载 skills 不需要后台渠道，因此可以使用 `bub run`。
 
 ## 4. 添加并调用 MCP 服务器
 
@@ -110,7 +108,7 @@ bub --workspace . run ',skill name=plugin-summary'
 
 可移植格式要求 `$schema`，且每个服务器都必须声明 `type`：`stdio`、`streamable-http` 或 `sse`。
 远程服务器使用 `url` 和可选的 `headers`；除回环地址外，URL 必须使用 HTTPS。
-这个格式与 Bub home 目录中的配置不同，后者由 `bub-mcp` 使用 `transport` 声明远程服务器的传输方式。
+这个格式与 Bub 数据目录中的配置不同，后者由 `bub-mcp` 使用 `transport` 声明远程服务器的传输方式。
 
 启动聊天界面：
 
@@ -118,7 +116,7 @@ bub --workspace . run ',skill name=plugin-summary'
 bub --workspace . chat
 ```
 
-`bub chat` 会自动附着已启用的生命周期 channel。加载该插件包后，其 MCP 服务器在 `agent-plugins.mcp`
+`bub chat` 会自动附着已启用的生命周期渠道。加载该插件包后，其 MCP 服务器在 `agent-plugins.mcp`
 中运行。等待服务器连接后，输入：
 
 ```text
@@ -132,19 +130,18 @@ bub --workspace . chat
 
 ## 与现有 MCP 服务器一起使用
 
-两个接入插件分别管理自己的配置和生命周期 channel：
+两个接入插件分别管理自己的配置和生命周期渠道：
 
-| 配置来源 | 生命周期 channel | 工具名称格式 |
+| 配置来源 | 生命周期渠道 | 工具名称格式 |
 | --- | --- | --- |
 | `~/.bub/mcp.json` | `mcp.lifecycle` | `mcp.<server>_<tool>` |
 | `<plugin>/mcp.json` | `agent-plugins.mcp` | `mcp.<plugin>.<server>_<tool>` |
 
-因此，原有名为 `time` 的服务器与本插件包中的 `time` 服务器使用不同的工具名称。
-`bub-agent-plugins` 读取插件包的 MCP 定义，不会将它们写入 `~/.bub/mcp.json`。
-`bub mcp add`、`remove` 和 `list` 命令继续管理 home 目录中的配置，不管理或列出插件包的服务器。
-要验证插件包中的服务器，请查看启动日志中是否有错误，并在运行中的 chat 或 gateway 中调用包含插件名的工具。
+原有名为 `time` 的服务器与本插件包中的 `time` 服务器使用不同的工具名称。
+`bub-agent-plugins` 直接读取各插件包的 MCP 定义。`bub mcp add`、`remove` 和 `list` 管理另一份配置：`~/.bub/mcp.json`。
+要验证插件包中的服务器，请检查启动日志，并在运行中的 chat 或网关中调用包含插件名的工具。
 
-要以 CLI 作为 gateway 的输入 channel，同时运行两个接入插件：
+要以 CLI 作为网关的输入渠道，同时运行两个接入插件：
 
 ```bash
 bub --workspace . gateway \
@@ -153,14 +150,14 @@ bub --workspace . gateway \
   --enable-channel agent-plugins.mcp
 ```
 
-生命周期 channel 默认自动启用，除非被显式排除。如果 gateway 使用了 `BUB_ENABLED_CHANNELS`，
+生命周期渠道默认自动启用，除非被显式排除。如果网关使用了 `BUB_ENABLED_CHANNELS`，
 请检查是否存在 `!agent-plugins.mcp` 或 `!mcp.lifecycle` 等排除项。
-`bub run` 不会启动生命周期 channel，因此调用插件包的 MCP 工具应使用 `bub chat` 或 `bub gateway`。
+`bub run` 不会启动生命周期渠道，因此调用插件包的 MCP 工具应使用 `bub chat` 或 `bub gateway`。
 
 ## 配置发现路径与组件
 
 默认情况下，Bub 扫描 `<workspace>/.agents/plugins/` 和 `~/.agents/plugins/` 的直接子目录。
-如果要从其他位置加载插件包，可以在 `~/.bub/config.yml`（或 `$BUB_HOME/config.yml`）中添加 `agent-plugins` 配置：
+如果要从其他位置加载插件包，可以在 `~/.bub/config.yml`中添加 `agent-plugins` 配置：
 
 ```yaml
 agent-plugins:
@@ -172,12 +169,12 @@ agent-plugins:
   data_root: ~/.bub/agent-plugins
 ```
 
-`paths` 的每一项都应指向包含 `plugin.json` 的插件根目录，而非待扫描的父目录。
+`paths` 的每一项都应直接指向包含 `plugin.json` 的插件根目录。
 相对路径基于当前工作区解析。显式路径优先，其次是工作区目录，再其次是用户目录。
 若多个插件包的清单名称相同，采用第一个有效插件包。
 
-设置 `auto_discover: false` 后只使用显式路径。`skills_enabled` 和 `mcp_enabled` 分别控制两种可移植组件；
-关闭其中任意一项都不会关闭普通 Bub skills 或 home MCP 配置中的服务器。
+设置 `auto_discover: false` 后只使用显式路径。`skills_enabled` 和 `mcp_enabled` 分别控制两种可移植组件。
+普通 Bub skills 和 home MCP 服务器各自使用自己的配置。
 
 环境变量以 `BUB_AGENT_PLUGINS_` 为前缀，列表值使用 JSON。例如：
 
@@ -193,7 +190,7 @@ stdio 服务器会收到绝对路径形式的 `PLUGIN_ROOT` 和 `PLUGIN_DATA` �
 `PLUGIN_DATA` 指向 `data_root` 下以插件名命名的持久化目录。省略 `data_root` 时，默认为
 `$BUB_HOME/agent-plugins` 或 `~/.bub/agent-plugins`；上面 YAML 中的显式值会覆盖该默认值。
 
-修改插件包或设置后，请重启 Bub。接入插件负责加载磁盘上已有的目录，不负责下载或更新可移植插件包。
+在磁盘上下载或更新可移植插件包后，重启 Bub 以加载新的包和设置。
 
 ## 排查问题
 
@@ -202,11 +199,11 @@ stdio 服务器会收到绝对路径形式的 `PLUGIN_ROOT` 和 `PLUGIN_DATA` �
 | `bub hooks` 中没有 `agent-plugins` | 确认两个接入插件都安装在 Bub 的活动环境中。缺少 `bub-mcp` 或版本过旧时，加载错误会指出原因。 |
 | 插件包被拒绝 | 检查 `plugin.json`，包括必填的 `$schema` 和 `name`，并查看 `bub-agent-plugins:` 启动日志。其他插件包仍可加载。 |
 | skill 未出现 | 检查 frontmatter 中的名称是否与目录一致，以及 `skills_enabled` 是否开启。工作区或用户目录中的同名 skill 可能优先。 |
-| MCP 工具未出现 | 检查插件包的 `mcp.json`、`mcp_enabled`、已启用的 channels 和连接日志。等待 bootstrap 完成后再调用工具。 |
+| MCP 工具未出现 | 检查插件包的 `mcp.json`、`mcp_enabled`、已启用的渠道和连接日志。等待 bootstrap 完成后再调用工具。 |
 | skills 可用但 MCP 不可用 | MCP 校验和连接失败不会影响 skills。无效服务器条目会被跳过，同文件中的其他有效服务器仍可加载。 |
 
 ## 下一步
 
-- [连接 MCP 服务器](/zh-cn/docs/tutorials/mcp/) — 管理 Bub home 配置中的服务器。
-- [构建 skills](/zh-cn/docs/build/skills/) — 编写并验证 Bub skills。
-- [构建插件](/zh-cn/docs/build/plugins/) — 使用 Python 包扩展 Bub hooks。
+- [连接 MCP 服务器](/zh-cn/docs/tutorials/mcp/)：管理 Bub 数据目录配置中的服务器。
+- [构建 skills](/zh-cn/docs/build/skills/)：编写并验证 Bub skills。
+- [构建插件](/zh-cn/docs/build/plugins/)：使用 Python 包扩展 Bub hooks。

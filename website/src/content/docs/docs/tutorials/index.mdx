@@ -1,24 +1,26 @@
 ---
-title: Tutorials
-description: Practical lessons for operating Bub with feedback from the runtime.
+title: Connect Bub to your tools
+description: Add an HTTP service, an editor, a model server, or an application integration.
 sidebar:
   order: 0
 ---
 
-Tutorials are hands-on lessons. Use this section when you want to learn a workflow end to end before turning it into an operating runbook.
+Choose an integration for the way you use Bub. Each guide names the components it needs and gives you a way to check the result.
 
-## What is in this section
+## Build your own agent
 
-1. [Observe Bub with tapes and Phoenix](/docs/tutorials/observability/) — inspect Bub's own tape first, then export OpenTelemetry GenAI traces to Phoenix.
-2. [Connect MCP Servers with bub-mcp](/docs/tutorials/mcp/) — install the MCP plugin, wire up a time server, and call it from a Bub turn.
-3. [Persist tapes in SQLite with SQLAlchemy](/docs/tutorials/tapestore-sqlalchemy/) — replace the file-based tape store with a local SQLite database.
-4. [Run Bub with a local llama.cpp model](/docs/tutorials/local-llama-cpp/) — expose a GGUF Gemma model as a local OpenAI-compatible endpoint.
-5. [Load Agent Plugins](/docs/tutorials/agent-plugins/) — load a portable skill and MCP server alongside existing Bub integrations.
-6. [Experimental: Extend Bub with Other Languages](/docs/tutorials/language-extensions/) — keep Bub in Python, move selected hooks into Go, Rust, or other languages, and wire them back through pluggy, WebAssembly, and Extism.
-7. [Use Bub as an ACP agent](/docs/tutorials/acp-server/) — connect Bub to ACP-compatible graphical clients such as Zed.
-8. [Serve a Bub agent with FastAPI](/docs/tutorials/fastapi/) — expose a `bub.core` agent over HTTP, with one conversation per session.
+- [Serve an agent with FastAPI](/docs/tutorials/fastapi/): expose `core.Agent` over HTTP and manage conversation storage in your service.
 
-## Next steps
+## Customize the Bub app
 
-- Need the runtime model first? Read [Turn pipeline](/docs/concepts/turn-pipeline/).
-- Need persistent deployment settings? Read [Configure](/docs/operate/configure/).
+These guides use the app's CLI, configuration, or plugin system. Start with the [app installation](/docs/getting-started/install/) and use the same environment for Bub and its plugins.
+
+- [Connect MCP servers](/docs/tutorials/mcp/): call tools supplied by an MCP server.
+- [Load Agent Plugins](/docs/tutorials/agent-plugins/): load a portable package of skills and MCP servers.
+- [Connect an ACP editor](/docs/tutorials/acp-server/): use Bub from an editor such as Zed.
+- [Use a local llama.cpp model](/docs/tutorials/local-llama-cpp/): point the app at a local model server.
+- [Store conversation history in SQLite](/docs/tutorials/tapestore-sqlalchemy/): replace the app's file store through a plugin.
+- [Inspect runs with tapes and traces](/docs/tutorials/observability/): inspect local records or export traces to Phoenix and Logfire.
+- [Implement hooks in another language](/docs/tutorials/language-extensions/): try the experimental WebAssembly integration.
+
+Each integration guide links to the plugin's documentation for package-specific setup.

@@ -1,131 +1,92 @@
 ---
-title: 发行版
-description: 把 Bub 包装为产品 —— 锁定框架、提供自定义 CLI、捆绑插件与技能、并以编程方式嵌入 BubFramework。
+title: 打包 Bub 应用
+description: 嵌入应用框架，或发布包含自有插件和 skills 的 CLI。
 sidebar:
   order: 5
 ---
 
-本页展示如何把 Bub 作为你自己产品的运行时内核进行打包。贯穿全文的案例是 [`visual-base`](https://github.com/oilbeater/visual-base) —— 一个锁定 `bub`、提供自己的 `visual-base` CLI、并捆绑两个插件（`bub_kimi` 与 `bub_eye`）与一个技能包的发行版。
+如果产品需要 Bub 的配置、插件和消息路由，可以在 Bub 应用上继续构建。你可以把 `BubFramework` 放进现有进程，也可以发布一个启动它的命令。
 
-## 开始之前
+这条路径使用[安装 Bub](/zh-cn/docs/getting-started/install/)中说明的应用依赖。如果希望直接组合 Agent 和各个组件，请从[构建自己的 Agent](/zh-cn/docs/build/sdk/)开始。
 
-- 已经准备好一两个待发布的插件（见[插件](/zh-cn/docs/build/plugins/)）。
-- 一个基于 `pyproject.toml` 的构建后端（`hatchling`、`uv_build` 或 `pdm-backend`）。
+<a id="programmatic-embedding"></a>
 
-## 1. 锁定 Bub 内核
+## 嵌入应用
 
-发行版首先是一个把 Bub 列入依赖的 Python 包。锁一个紧致的范围，避免 Bub 的次要新版静默改变用户行为：
-
-```toml
-[project]
-name = "visual-base"
-version = "0.2.0"
-dependencies = [
-    "bub>=0.3.6,<0.4",
-    "loguru>=0.7",
-]
-```
-
-Bub 遵循[稳定性承诺](/zh-cn/docs/build/#stability-promise) —— 内核硬化、插件松散。`>=0.3.6,<0.4` 这个范围让你接收 `0.3` 次要线内的补丁修复。
-
-## 2. 提供自定义 CLI
-
-为基于 Bub 的产品做品牌化，最干净的做法是写一个薄 CLI，把活儿交给 Bub 自己的 Typer 应用。visual-base 的 [`cli.py`](https://github.com/oilbeater/visual-base/blob/main/src/visual_base/cli.py) 是参考模式：
-
-```python
-# src/visual_base/cli.py
-from __future__ import annotations
-
-import os
-import sys
-
-from visual_base.settings import VisualBaseSettings
-
-
-def _has_explicit_workspace_flag(argv: list[str]) -> bool:
-    return any(
-        arg == "--workspace" or arg == "-w" or arg.startswith("--workspace=")
-        for arg in argv
-    )
-
-
-def main() -> None:
-    if not _has_explicit_workspace_flag(sys.argv[1:]):
-        workspace = VisualBaseSettings().resolve_workspace()
-        workspace.mkdir(parents=True, exist_ok=True)
-        os.chdir(workspace)
-
-    from bub.__main__ import main as bub_main
-
-    bub_main()
-```
-
-两点值得指出：
-
-- 产品在导入 Bub 之前先解析出粘性工作区，然后 `chdir` 进去。[`BubFramework`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py) 在构造时把 `Path.cwd()` 快照为工作区，所以 `chdir` 必须先发生。
-- 之后产品把控制权交给 `bub.__main__.main` —— 与裸 `bub` 命令使用的是同一个入口，它用 `create_cli_app()` 构建 Typer 应用，并在缺少 `bub[app]` extra 时给出提示。每个贡献 `register_cli_commands` 的插件都会自动接入。
-
-把 CLI 接入脚本入口：
-
-```toml
-[project.scripts]
-visual-base = "visual_base.cli:main"
-```
-
-终端用户运行 `visual-base chat` 而不是 `bub chat`，但拿到的是完整管线。
-
-## 3. 在一个发行版里分发多个插件
-
-并不强制每个包只装一个插件。一个发行版可以在同一个 wheel 下托管多个插件模块，每个通过自己的入口点键注册。来自 visual-base 的 [`pyproject.toml`](https://github.com/oilbeater/visual-base/blob/main/pyproject.toml)：
-
-```toml
-[project.entry-points.bub]
-kimi = "bub_kimi.plugin"
-eye = "bub_eye.plugin:EyeImpl"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/visual_base", "src/bub_kimi", "src/bub_eye", "src/skills"]
-```
-
-`bub_kimi` 是模块形态插件（一个把模型委派给 Kimi CLI 的 `run_model` 钩子）。`bub_eye` 是持有框架引用的可调用类插件（一个录屏的背景通道）。一次 `uv pip install visual-base` 就把两者都注册进 Bub。
-
-## 4. 随发行版分发技能
-
-在 `[tool.hatch.build.targets.wheel] packages` 里列出 `src/skills`，会把技能目录放上 Bub 的内置发现根。完整机制见[技能 → 随包分发技能](/zh-cn/docs/build/skills/#3-ship-skills-with-your-package)。
-
-## 5. 编程方式嵌入
-
-如果你的产品在自己的进程里承载 Bub —— HTTP API、worker、笔记本 —— 跳过 CLI，直接驱动 [`BubFramework`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py)。**信封**是承载一条入站消息穿过管线的字典（或消息对象）。
+用 `BubFramework.process_inbound` 执行应用的完整轮次：解析会话、加载状态、准备提示词、执行、保存状态、生成并发送出站消息。
 
 ```python
 import asyncio
 
 from bub import BubFramework
+from bub.envelope import content_of
 
 
-async def run_one_turn() -> None:
+async def main() -> None:
     framework = BubFramework()
     framework.load_hooks()
-    inbound = {
-        "session_id": "embedded:demo",
-        "channel": "embedded",
-        "chat_id": "demo",
-        "content": "hello from a host process",
-    }
     async with framework.running():
-        result = await framework.process_inbound(inbound)
-    for outbound in result.outbounds:
-        print(outbound["content"])
+        result = await framework.process_inbound({
+            "session_id": "embedded:demo",
+            "channel": "embedded",
+            "chat_id": "demo",
+            "content": "Describe what you can help with.",
+        })
+        for outbound in result.outbounds:
+            print(content_of(outbound))
 
 
-asyncio.run(run_one_turn())
+asyncio.run(main())
 ```
 
-`framework.running()` 是解析[`provide_tape_store`](/zh-cn/docs/build/hooks/#5-provide-a-tape-store)与其他生命周期相关钩子的异步上下文。在长生命周期进程里，请围绕服务的整个生命周期开启它一次，而不是每轮一次。
+运行前先配置模型。`load_hooks()` 会加载内置 hooks 和已安装插件的入口点。示例打印返回的消息；接入的渠道或插件也可以发送这些消息。
 
-## 下一步
+让 `framework.running()` 覆盖服务的整个生命周期。它获取 hooks 提供的资源，并在退出时执行相应上下文管理器中的清理逻辑。创建需要使用 framework 存储的 agent 前，先进入这个作用域；同一个 framework 实例不要使用相互重叠的作用域。
 
-- [插件](/zh-cn/docs/build/plugins/) —— 你将捆绑的插件的包结构
-- [技能](/zh-cn/docs/build/skills/) —— 把技能打入发行版 wheel
-- [部署](/zh-cn/docs/operate/deploy/) —— 在生产中运行你的发行版
-- [设置参考](/zh-cn/docs/reference/settings/) —— 内核读取的环境变量
+`process_inbound` 返回已经完成的 `TurnResult`。设置 `stream_output=True` 后，它先通过绑定的渠道 router 消费流，再返回结果。宿主程序负责并发消息调度，并按需要管理会话锁。
+
+<a id="需要自行消费流时使用-bubagent"></a>
+
+## 在自己的服务中复用插件
+
+宿主可以使用插件提供的工具、存储或 hooks，同时保留自己的 API 和流处理方式。按[在 Agent 中复用插件](/zh-cn/docs/build/reuse-plugins/)中的步骤，把这些能力接到 `core.Agent` 上。
+
+`BubAgent` 还包含应用的提示词和渠道发送约定。需要这些应用行为时，可以选择它，并在宿主中接好对应的输出处理。
+
+## 发布自己的命令
+
+包可以用自己的命令名调用 Bub 的入口：
+
+```python
+# src/my_bub/cli.py
+def main() -> None:
+    from bub.__main__ import main as bub_main
+
+    bub_main()
+```
+
+```toml
+[project.scripts]
+my-bub = "my_bub.cli:main"
+```
+
+用户随后可以运行 `my-bub chat` 或 `my-bub gateway`。如果应用需要固定的工作目录，在调用 Bub 前设置；framework 会使用当前目录作为初始工作区。
+
+声明 `bub[app]>=0.6.0` 应用依赖。更新已有发行包时，按[升级到 0.6.0](/zh-cn/docs/reference/versions/)调整。
+
+## 一起分发插件和 skills
+
+一个 wheel 可以提供多个入口点：
+
+```toml
+[project.entry-points."bub"]
+models = "my_bub.models"
+channels = "my_bub.channels:ChannelPlugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/my_bub", "src/skills"]
+```
+
+每个目标都遵循[插件注册规则](/zh-cn/docs/build/plugins/)。任务指令按 [skills 包目录结构](/zh-cn/docs/build/skills/#ship-skills-with-your-package)加入发行包。
+
+发布前，把构建好的 wheel 安装到独立环境，运行命令、核对插件报告、加载打包的 skill，再完成一次有代表性的对话。对于宿主应用，还应检查流或后台工具运行期间的关闭行为。

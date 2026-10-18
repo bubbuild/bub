@@ -1,26 +1,23 @@
 ---
-title: "Experimental: Extending Bub with Other Languages"
-description: Keep Bub as a Python host while implementing select hooks in Go, Rust, or other languages—using pluggy, WebAssembly, and Extism.
+title: Implement hooks in another language
+description: Use the experimental Extism plugin to implement selected application hooks in WebAssembly.
 sidebar:
   order: 5
 ---
 
-This tutorial is experimental. It demonstrates **how to extend Bub from other languages**—not how to rewrite Bub itself as a multi-language project.
+Implement selected Bub application hooks in Go, Rust, or another language through the experimental `bub-extism` plugin. Bub runs the Python application; Extism loads the WebAssembly modules that implement your hooks.
 
-Many teams want to write business logic in languages they already know well, or they want the runtime boundary to sit closer to their existing stack. Splitting the Bub core across multiple languages would make maintenance significantly harder. Bub takes a different approach: **keep the Python host**, and use [pluggy](https://pluggy.readthedocs.io/en/stable/), [WebAssembly](https://webassembly.org/), and [Extism](https://extism.org/) to let other languages implement select hooks.
-
-The goal here is not to replace the Bub kernel. It's to provide a pragmatic extension boundary—one that's useful whenever a hook makes more sense to write in Go, Rust, or something else entirely.
+This guide connects two example modules. Check the plugin's supported hooks and value conversions before choosing this integration for your application.
 
 ## Before you start
 
 Make sure you have:
 
-- Bub installed with the standalone installer or into an active virtual environment, with `bub --help` working. Both paths satisfy the virtual-environment requirement of `bub install`.
-- The `bub-extism` plugin installed from [`bub-contrib`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism).
+- The [Bub application](/docs/getting-started/install/#app-install), with `bub --help` working.
 - A Go toolchain if you plan to build the Go example.
 - A Rust toolchain with the `wasm32-unknown-unknown` target if you plan to build the Rust example.
 
-You'll probably want to keep these references handy:
+The plugin documentation covers the supported hooks and module format:
 
 - [`bub-extism` README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism)
 - [`bub-extism` examples](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples)
@@ -45,7 +42,7 @@ You should see `extism` listed alongside `builtin`.
 
 ## 2. Implement one hook in Go and one in Rust
 
-We'll use the two verified example modules that ship with `bub-extism`:
+Use the two example modules shipped with `bub-extism`:
 
 - `go-build-prompt` implements the `build_prompt` hook
 - `rust-run-model` implements the `run_model` hook
@@ -102,7 +99,7 @@ Create an `extism.json` in your project root that binds the prompt hook to the G
 }
 ```
 
-A few things to note about this structure:
+The configuration connects the modules to the application:
 
 - `manifest` follows the standard Extism manifest format.
 - `hooks` maps Bub hook names to wasm exports.
@@ -139,18 +136,14 @@ You can expect output similar to:
 
 The Go module wraps the inbound prompt with a `[go-build-prompt:<chat_id>]` prefix; the Rust module then wraps the Go output with `[rust-run-model:<chat_id>]`. The leading `[cli:local]` line is the channel header emitted by the CLI adapter.
 
-## 5. Know the boundary
+## 5. Check the integration boundary
 
-This path works well when:
+The Go module builds the prompt and the Rust module formats a response from it. These examples verify hook loading and data exchange. To use the builtin agent's model calls and conversation recording, keep its `run_model` implementation.
 
-- A particular hook genuinely fits better in another language
-- A team wants more direct ownership of the implementation
-- You still want Bub to act as the orchestration host
-
-**Don't** treat this as a reason to fragment the Bub core into separate rewrites in multiple languages. That would reintroduce exactly the kind of maintenance burden this architecture was designed to avoid. This is an extension path—not a rewrite plan.
+Check that the plugin supports the hooks you need, and verify the arguments and return values passed between Python and WebAssembly.
 
 ## Next steps
 
-- [Building plugins](/docs/build/plugins/) — learn the structure of first-party Bub plugins.
-- [`bub-extism` README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) — read the package conventions and supported hooks.
-- [Extism overview](https://extism.org/docs/overview) — understand how Extism runs wasm modules across languages.
+- [Building plugins](/docs/build/plugins/): package a Python integration for the Bub application.
+- [`bub-extism` README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism): read the package conventions and supported hooks.
+- [Extism overview](https://extism.org/docs/overview): understand how Extism runs wasm modules across languages.

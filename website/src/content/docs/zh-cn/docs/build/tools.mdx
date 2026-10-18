@@ -1,41 +1,46 @@
 ---
-title: 工具
-description: 用 @tool 定义模型可调用的工具，通过导入时副作用注册它们，并理解工具与操作者侧逗号命令的区别。
+title: 工具与 CodeMode
+description: 定义一个动作，再直接交给 Agent，或通过 CodeMode 从 Python 调用。
 sidebar:
   order: 3
 ---
 
-本指南展示如何定义一个 Bub **工具** —— 一个可在轮次内被模型调用的 Python 函数 —— 并确保你的插件确实注册了它。
+工具让 Agent 执行动作：查询订单、读取文件，或调用一个服务。`Tool` 描述动作的名称、参数和结果。你可以把它直接传给 Agent，也可以在 [Bub 应用](/zh-cn/docs/build/app-tools/)中注册。
 
-## 开始之前
+本页说明共同的工具接口和 SDK 接入方式。安装步骤与完整的模型循环示例见[构建自己的 Agent](/zh-cn/docs/build/sdk/)。
 
-- 一个已经接入 `bub` 入口点组的插件包（见[插件](/zh-cn/docs/build/plugins/)）。
-- 模块中可用的 `from bub import tool` 标记。
+<a id="define-a-tool"></a>
 
 ## 定义工具
 
-用 `@tool` 装饰任意函数。装饰器会构造一个 [`Tool`](https://github.com/bubbuild/bub/blob/main/src/bub/core/tools.py) 对象，套上计时日志，并写入中央 `REGISTRY`：
+`Tool.from_callable()` 从类型注解生成参数定义，从 docstring 读取描述。它支持同步和异步函数，返回的工具由你传给 Agent。
 
 ```python
-from bub import tool
+from bub.core import Agent
+from bub.core.tools import Tool
 
 
-@tool
 def add(a: int, b: int) -> int:
-    """Add two integers and return the sum."""
+    """Add two integers."""
     return a + b
+
+
+add_tool = Tool.from_callable(add, name="math.add")
+agent = Agent(tools=[add_tool])
 ```
 
-工具名默认为函数名。可用 `@tool(name="math.add")` 覆写，也可传 `description=` 控制它在模型提示中的呈现。带点的 registry 名会保留给运行时查找和逗号命令使用，但面向模型的工具名会把点替换为下划线（`math.add` 会变成 `math_add`）。支持异步函数 —— 包装器会 await 它们。
+运行时保留 `math.add` 这个名称；提供给模型时，点会换成下划线，因此模型看到的是 `math_add`。也可以通过 `description=` 显式提供描述。
 
-## 返回结构化结果
+普通 `Agent` 会把传入的工具提供给模型，仅排除 `exposure="command"`。延迟加载、`allowed_tools` 状态和 `state["code_mode"]` 开关属于 [BubAgent 的应用策略](/zh-cn/docs/build/app-tools/)。在自己的 Agent 中按步骤选择工具，可以覆写 [`prepare_tools()`](/zh-cn/docs/build/sdk/#customize-the-loop)。
 
-工具应返回结构化数据 —— `dict`、`TypedDict`、列表或 Pydantic 模型 —— 而不是预先排版好的文本。例外是 `exposure="direct"` 或 `exposure="command"` 的工具（见 [Code mode](#code-mode)）：代码永远不会调用它们，因此返回纯文本。通过 `renderer=` 控制如何把结果转换成模型读取的纯文本：
+<a id="structured-results"></a>
+
+## 返回调用方需要的数据
+
+工具可以返回字典、列表、带类型的值或字符串。模型直接调用工具时，可以用 `renderer` 将结构化结果转成文本：
 
 ```python
 from typing import TypedDict
-
-from bub import tool
 
 
 class Order(TypedDict):
@@ -43,138 +48,121 @@ class Order(TypedDict):
     status: str
 
 
-@tool(name="orders.get", renderer=lambda order: f"order {order['id']}: {order['status']}")
-def get_order(order_id: str) -> Order:
+def lookup_order(order_id: str) -> Order:
     """Look up an order by id."""
     return {"id": order_id, "status": "shipped"}
-```
-
-`Tool.render(result)` 会调用 renderer；未提供时，字符串原样返回，其他值序列化为 JSON。模型直接调用工具时，执行器会在 `after_tool_call` hook 和写入 tape 之前完成渲染，因此 hook 看到的就是模型将读到的文本。是否渲染由 `ToolExecutor` 决定：面向模型的执行器会渲染，而 `run_code` 使用的 `ToolExecutor(render=False)` 原样返回结构化结果。
-
-### Code mode
-
-Code mode 让模型在 Python 中调用工具，而不必一次只发起一个工具调用。它是按 session 生效的开关：发送逗号命令 `,code_mode enable=true`（或 `,code_mode enable=false`）来开启或关闭，从下一个 turn 起生效，并在重启后保留。SDK 调用方也可以直接设置 `state["code_mode"] = True`。在开启 code mode 的 turn 中，只要 `run_code` 在允许的工具之内：
-
-- 模型只直接看到 `exposure="direct"` 的工具（`bash`、`bash.output`、`bash.kill`、`fs.read`、`fs.write`、`fs.edit`、`spill.read`）以及 `run_code(code: str) -> str`。direct 工具只能直接调用，不会出现在 `tools.*` 中。
-- 其他允许的工具在 `run_code` 中都是异步函数，名称使用面向模型的形式（`tape.info` 对应 `await tools.tape_info()`）。支持顶层 `await`，可以用 `asyncio.gather` 并发调用。调用只接受关键字参数，照常经过 `before_tool_call`/`after_tool_call` hook，返回结构化结果，失败时抛出异常。
-- Bub 会在 `~/.bub/codemode/` 下为允许的 `auto` 和 `code` 工具生成一个 Python stub 文件，每个工具对应一个函数，包含参数类型、返回类型和 docstring，并把文件路径写入 system prompt。只要工具集合不变，同一个 session 中这个路径保持不变。
-- `run_code(code, timeout_seconds=120)` 返回代码写到 stdout 的内容。未捕获的异常会变成工具错误，错误详情中包含已打印的输出和 traceback。
-- 代码里还有一个 `republic` 模块（已作为全局变量预置，也可以 `import`），其用法写在 stub 文件末尾。其中有媒体类 `republic.Image`、`Audio` 和 `Video`。`republic.get_model(spec=None)` 返回对话模型——不传 spec 时就是当前会话使用的模型——支持 `chat()` 和 `stream()`（`async with model.stream(...) as stream: async for event in stream`，事件类型在 `republic.events` 中）；`republic.get_embedding_model(spec)` 和 `republic.get_decision_model(spec)` 分别返回 embedding 模型和决策模型。它们都是代理：请求由 Bub 使用自己的 provider 配置和凭证发出，凭证不会进入代码。
-- 仅代码可用的工具 `tools.attach_image(image=...)`、`tools.attach_audio(audio=...)` 和 `tools.attach_video(video=...)` 会把媒体附加到这次 `run_code` 的结果里，模型因此可以看到代码生成的图表或截图。除了 `republic` 媒体对象，它们也接受执行环境内的文件路径（相对路径基于其 workspace）、http(s)/gs URL 或 data URL，并自行加载，文件通过执行环境的 `read_bytes` 读取。带媒体的结果以 `{"type": "tool_content", "content": [...]}` 记录（可用 `bub.core.tools.content_result` 构造），并作为多模态工具消息发给模型；spill 只截断其中的文本。
-
-如果 `run_code` 不在允许范围内（例如被 `allowed_tools` 限制的 subagent），该 turn 会退回直接调用工具的方式。
-
-`@tool` 和 `Tool.from_callable` 的 `exposure` 选项决定工具能从哪里调用：
-
-| `exposure` | code mode 之外 | code mode 下 |
-| --- | --- | --- |
-| `"auto"`（默认） | 模型直接调用 | 只能在 `run_code` 中调用 |
-| `"direct"` | 模型直接调用 | 模型直接调用；不出现在 `tools.*` 中 |
-| `"code"` | 不可用；`tool_describe` 也不会描述它 | 只能在 `run_code` 中调用 |
-| `"command"` | 只作为逗号命令 | 只作为逗号命令 |
-
-嵌套调用时 `ToolContext.code_mode`（hook 中通过 `call.context.code_mode` 读取）为 `True`，结果不会被渲染或 spill。
-
-`run_code` 会把代码和一个 `call_tool` 回调一起交给当前 session [执行环境](#在执行环境中运行工具)的 `run_code` 执行。工具调用始终经这个回调在宿主上执行，所以 hook 仍能看到每一次调用。超过 `timeout_seconds` 时会取消执行环境里的执行。builtin 的 `LocalEnvironment` 每次调用都会启动一个新的 Python 进程（使用 `sys.executable`，工作目录为 workspace），工具调用以 JSON 行的形式经进程的 stdin/stdout 转发，因此参数和结果都必须能 JSON 序列化。代码执行完、出错或超时后，它会杀掉该进程及其启动的所有子进程。这个进程直接跑在宿主上，权限与 `bash` 相同，因此只应在允许使用 `bash` 的场景下开启 code mode。stub 中的结果类型来自工具函数的返回注解（手动构造的工具则来自 `Tool.output_schema`）。
 
 
-#### 在自己的 agent 中使用 code mode
-
-Code mode 属于内核（`bub.core.codemode`），基于 `bub.core.Agent` 构建的 agent 不安装 `app` extra 也能使用。`CodeMode` 持有可在代码中调用的工具，并提供 `run_code` 工具和一个 system prompt 片段：
-
-```python
-from bub.core import Agent
-from bub.core.codemode import CodeMode
-from bub.environment import LocalEnvironment
-
-code_mode = CodeMode(
-    [search, fetch],                      # 在 run_code 中以 tools.<name>(...) 调用的工具
-    environment=LocalEnvironment("/work"),  # 代码运行的位置，默认是当前目录
-    models="openai:gpt-5",                # 代码里 republic.get_model() 对应的模型
+order_tool = Tool.from_callable(
+    lookup_order,
+    renderer=lambda order: f"Order {order['id']}: {order['status']}",
 )
-agent = Agent(model=model, tools=[code_mode.run_code], system_prompt=["You are ...", code_mode.prompt])
 ```
 
-- `tools` 也可以是以 turn state 为参数的函数，返回本次运行的工具，返回 `None` 表示关闭 code mode；`environment` 同样可以是 state 的函数。
-- `models` 是默认的 `provider:model` spec，或一个 resolver `(spec, context) -> (republic_spec, client_kwargs)`，凭据始终留在宿主侧。不传时代码必须显式给出 spec，客户端从环境变量读取凭据。
-- stub 默认直接放进 system prompt；传入 `stub_dir=` 则写入文件并在 prompt 中引用路径，适合能读文件的 agent。
-- `media_tools=True`（默认）会额外提供 `attach_image`、`attach_audio` 和 `attach_video`。
+`Tool.render(result)` 使用这个 renderer。默认情况下，字符串直接保留，Pydantic 模型与可序列化的值转为 JSON，其他值使用 `str()`。面向模型的执行器在 `ToolCallFinished` 之前渲染结果，因此处理器看到的是将交给模型的内容。CodeMode 使用的执行器会保留结构化结果。
 
-代码发起的调用同样经过 agent 的 `ToolCallStarted`/`ToolCallFinished` 事件，且 `context.code_mode` 为真，因此用 `agent.events.on` 注册的处理器都能看到。Bub 自己的 agent 使用的也是这个类（`bub.builtin.codemode.CODE_MODE`），只是接入了 session 设置、执行环境和模型配置。
+在模型循环中，工具执行错误会作为工具结果交回模型，让模型决定如何回答或重试。直接通过命令调用时，错误会传播给调用方。[事件处理器](/zh-cn/docs/concepts/events/#delivery)有自己的异常规则。
 
-### 按需加载工具
+<a id="tool-context"></a>
 
-给工具标记 `deferred=True`（可用于 `@tool`、`Tool.from_callable`，或 `dataclasses.replace(tool, deferred=True)`），它的定义就不会进入模型请求，直到被加载。未标记的工具直接加载。
+## 访问当前会话
 
-- 系统提示词的 `<deferred_tools>` 块列出所有允许范围内按需加载工具的模型名称，模型可调用 `tool_describe(names)` 加载它们。只有存在至少一个允许的按需加载工具时才会暴露该工具。
-- `tool_describe` 返回所请求工具的名称、描述和参数，并把新加载的按需工具的运行时名称作为 `tool.loaded` 事件写入 tape。未知或不允许的名称放在 `unknown` 中返回。
-- 每次请求模型时，Bub 从 tape 读取所有 `tool.loaded` 事件，按加载顺序把这些工具追加到直接加载的工具之后。已加载的工具在该 session 后续的步骤和轮次中持续可用，直到 tape 被重置。
-- `allowed_tools` 同时过滤直接加载和按需加载的工具：范围外的按需工具既不会被列出，也无法加载。
-- 未加载就调用按需工具时，会返回提示，要求先调用 `tool_describe`。code mode 能看到所有允许的工具：`auto` 和 `code` 的按需工具无需加载即出现在 stub 中，按需加载只作用于剩下的模型可见工具。
-
-## 在执行环境中运行工具
-
-`bash`、`bash.output`、`bash.kill` 和 `fs.*` 不直接操作宿主机，而是在当前 session 的 `Environment`（见 [`bub.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/environment.py)）里启动进程、读写文本文件，`run_code` 的代码也在这里执行。工具本身的行为（后台 shell、超时、渲染、hook）都留在宿主上，所以一个执行环境只需要实现几个操作：
-
-- `spawn(command, *, cwd=None, env=None)` 返回一个 `Process`：传字符串时经 shell 执行，传序列时作为参数列表直接执行。进程提供 `stdout`/`stderr` 流、`write_stdin`、`wait` 和 `signal(kill=...)`，其中 `signal` 必须作用到整个进程树。
-- `read_text(path)` 和 `write_text(path, content)` 读写执行环境内的文件。`read_bytes(path)` 读取二进制文件；默认实现会用执行环境的 `python` 输出文件内容，能直接访问文件的执行环境应覆盖它。
-- `workspace` 是执行环境内的工作目录，`resolve_path` 基于它解析相对路径。
-- `run_code(code, *, tools, call_tool, write)` 执行 Python 代码，代码里的 `await tools.<name>(**kwargs)` 会调用 `call_tool(name, kwargs)`。`republic` 模块会以 `republic.` 前缀的名字调用 `call_tool`，Republic 值以带 `"$republic"` 键的 JSON 对象传输；子进程 runner 已经提供了这个模块。代码写到 stdout 的内容要实时交给 `write`；代码抛异常时抛出 `CodeFailed`；被取消时要停止代码。具体怎么执行由执行环境决定。有 Python 解释器的执行环境可以直接复用 `bub.core.codemode.runner.run_code_in_subprocess`，它会用 `spawn` 启动进程来执行代码。
-- `close()` 释放执行环境。
-
-通过 `provide_environment(session_id, workspace)` hook 为每个 session 提供执行环境。Bub 在 session 的第一个 turn 调用它，把结果放进 `state["_runtime_environment"]`，并在 `framework.running()` 退出时关闭。Bub 的 builtin hook 提供 `LocalEnvironment`（见 [`bub.environment`](https://github.com/bubbuild/bub/blob/main/src/bub/environment.py)），直接在宿主上运行；插件提供的实现会优先于它。自定义工具可以用 `bub.builtin.environment.environment_from_state(context.state)` 使用同一个环境。
-
-## 工具如何变得可用
-
-`REGISTRY` 位于 [`bub.core.tools`](https://github.com/bubbuild/bub/blob/main/src/bub/core/tools.py)：
+传入 `context=True`，工具就会通过关键字参数 `context` 接收 `ToolContext`。其中包含当前 Tape、本轮状态、run ID 和事件总线。
 
 ```python
-# 来自 src/bub/core/tools.py
-REGISTRY: dict[str, Tool] = {}
+from bub.core.tools import ToolContext
+
+
+async def remember(note: str, *, context: ToolContext) -> str:
+    """Record a note for this conversation."""
+    await context.tape.append_event("note", {"text": note})
+    return "Recorded."
+
+
+remember_tool = Tool.from_callable(remember, context=True)
 ```
 
-每一次 `@tool` 调用都会在**导入时**修改这个字典。`BubAgent(tools=None)` 在创建时取得其快照，之后导入的工具不会自动更新已有 Agent。可直接向实例的 `BubAgent.tools` 添加工具，标记 `deferred=True` 即可[按需加载](#按需加载工具)。
+这会在 Tape 中写入一条业务事件。默认上下文选择器读取会话消息与工具交互；要把这条事件交给模型，需要提供自己的选择逻辑。哪些已保存的信息应交给模型，由[会话历史与上下文](/zh-cn/docs/concepts/tape-and-context/#context)中的选择规则决定。
 
-## 在插件里导入工具模块
+<a id="code-mode"></a>
 
-由于注册是导入时副作用，定义 `@tool` 函数的模块必须在 Bub 询问工具之前真的被导入。在插件的入口模块里加入：
+## 组合工具与 CodeMode
+
+CodeMode 让模型编写 Python 来调用工具。它提供 `run_code` 工具，以及描述代码中可用工具的提示词片段。使用普通 Agent 时，需要显式加入这两部分：
 
 ```python
-# bub_myplugin/plugin.py
-from bub import hookimpl
+from bub.core.codemode import CodeMode
 
-from . import tools  # noqa: F401  —— 触发 @tool 注册
+code_mode = CodeMode([add_tool, order_tool])
+agent = Agent(
+    tools=[code_mode.run_code],
+    system_prompt=[
+        "Use the available tools to answer the user's question.",
+        code_mode.prompt,
+    ],
+)
 ```
 
-如果缺少这个导入，工具模块永远不会运行，`REGISTRY` 里也不会出现条目，模型自然看不到这个工具。
+按 [SDK 指南](/zh-cn/docs/build/sdk/#models)中的方式管理模型并运行 Agent。模型可以向 `run_code` 传入这样的代码：
 
-内置运行时也走相同模式 —— 见 [`BuiltinImpl.__init__`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/hook_impl.py#L62-L66)，它出于同样原因导入 `bub.builtin.tools`。
-
-## 工具与逗号命令
-
-二者都是 Bub 内的可调用单元，但操作者不同：
-
-| 表面               | 调用者 | 触发方式                       |
-|-------------------|------|------------------------------|
-| **工具**           | 模型  | 一次轮次中的工具调用消息          |
-| **逗号命令**        | 人类  | 以逗号开头的入站文本             |
-
-像 `,skill name=hello` 这样的一行就是逗号命令 —— 由操作者键入，Bub 内置的 [`build_prompt`](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/hook_impl.py#L131-L139) 会把消息标记为 `kind="command"`，从而绕过模型。工具则相反，由模型在产出工具调用事件时自行触发。
-
-操作者面与模型面的完整划分见[表面](/zh-cn/docs/concepts/surfaces/)。
-
-## 验证工具已注册
-
-工具不会出现在 `bub hooks` 中，但可以用一行 Python 验证注册：
-
-```bash
-uv run python -c "import bub_myplugin.plugin; from bub.core.tools import REGISTRY; print(sorted(REGISTRY))"
+```python
+order = await tools.lookup_order(order_id="A123")
+print(order["status"])
 ```
 
-输出应包含你的工具名。然后运行一次让模型调用它的轮次。
+在 `run_code` 中，工具名称使用下划线，调用使用关键字参数，结果保留结构化形式。代码支持顶层 `await`。工具调用经过 `ToolCallStarted` 和 `ToolCallFinished`，其中 `context.code_mode=True`。
 
-## 下一步
+`CodeMode` 使用你传入的工具，并排除 `exposure="command"`。BubAgent 通过[应用代码模式设置](/zh-cn/docs/build/app-tools/)对 `auto`、`direct`、`code` 工具分组。
 
-- [钩子](/zh-cn/docs/build/hooks/) —— 把工具与钩子结合构造完整插件
-- [技能](/zh-cn/docs/build/skills/) —— 与工具一起打包面向模型的指令
-- [表面](/zh-cn/docs/concepts/surfaces/) —— 操作者面 vs 模型面
+| 选项 | 行为 |
+| --- | --- |
+| `tools` | 工具集合，或根据本轮状态返回工具集合的函数。返回 `None` 可以禁止本轮执行代码。 |
+| `environment` | 代码运行的位置。默认是在当前目录运行的 `LocalEnvironment()`，也可以是根据状态选择环境的函数。 |
+| `models` | 代码调用 Republic 时使用的默认 `provider:model`，或返回模型标识与客户端选项的解析函数。不设置时，代码需要给出模型标识，Republic 从环境读取凭据。 |
+| `stub_dir` | 保存生成的 Python 工具定义的目录。默认直接把定义放入系统提示词；写入文件时，Agent 需要有读取该文件的能力。 |
+| `media_tools` | 默认 `True`。增加用于返回媒体的 `attach_image`、`attach_audio`、`attach_video`。 |
+
+代码可以通过 Republic 桥接接口调用聊天、嵌入和决策模型。请求经过宿主进程的模型解析器，由宿主处理这些调用的供应商凭据。
+
+`run_code` 返回打印的输出和附带媒体，默认超时为 120 秒，可以通过 `timeout_seconds` 调整。使用 `LocalEnvironment` 时，每次调用都会启动一个拥有宿主用户权限的 Python 进程，在完成或取消时停止它及其子进程。如果需要不同的执行边界，请选择其他环境。
+
+<a id="run-tools-in-an-environment"></a>
+
+## 选择执行环境
+
+`bub.environment` 中的 `Environment` 接口提供进程执行、文件访问和 Python 执行能力。`CodeMode(environment=...)` 使用你传入的环境。在 Bub 应用中，[`provide_environment` hook](/zh-cn/docs/reference/hooks/)负责为会话选择环境。
+
+| 操作 | 职责 |
+| --- | --- |
+| `spawn(command, *, cwd, env)` | 返回进程，提供输出流、输入、等待和进程树信号控制。 |
+| `read_text`、`write_text`、`read_bytes` | 访问环境内的文件。 |
+| `workspace`、`resolve_path` | 定义工作目录并解析相对路径。 |
+| `run_code(code, *, tools, call_tool, write)` | 执行 Python，通过 `call_tool` 调用工具，通过 `write` 输出 stdout，并在取消时停止执行。 |
+| `close()` | 释放环境持有的资源。 |
+
+环境执行生成的代码，通过回调交给宿主执行你的 Python 工具。应用不再使用自定义环境时，需要关闭它。
+
+<a id="commands"></a>
+
+## 不经过模型调用工具
+
+设置 `command_prefix` 后，就可以接收文本命令。下面使用前面定义的 `add_tool`，不需要模型凭据：
+
+```python
+import asyncio
+
+
+async def calculate() -> None:
+    agent = Agent(tools=[add_tool], command_prefix=",")
+    async with agent.run(",math.add a=2 b=3", tape="calculator") as stream:
+        async for event in stream:
+            if event.kind == "text":
+                print(event.data["delta"])
+
+
+asyncio.run(calculate())
+```
+
+它会打印 `5`。命令直接调用传入的工具，发出工具事件和 `CommandFinished`，不进入模型循环。前缀不能为空，也不能包含空白字符。参数可以先按位置传入，再使用 `key=value`。如果命令不是工具名称，而 Agent 提供了 `bash` 工具，就会交给它执行。
+
+[Bub 应用](/zh-cn/docs/build/app-tools/)提供 `,skill`、`,code_mode` 等命令。

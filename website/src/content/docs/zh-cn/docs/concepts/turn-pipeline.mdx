@@ -1,104 +1,48 @@
 ---
-title: Turn 流水线
-description: process_inbound 端到端的执行流程，包括 prompt 与 model fallback、save_state 的 finally 语义、render_outbound fallback 与 on_error 行为。
+title: 应用如何处理消息
+description: 跟随一条消息经过 BubFramework，了解会话选择、Agent 调用和出站交付。
 sidebar:
   order: 2
 ---
 
-本页解释 `BubFramework.process_inbound` 对一条 inbound 消息按源码顺序执行的内容，以及 hook 返回空或抛错时各处 fallback 的行为。
+BubFramework 将 Agent 接到应用所需的会话标识、本轮状态、prompt 准备和消息交付上。每个阶段都提供 hooks，插件可以在对应位置改变应用行为。
 
-一次 *turn* 是一次完整流转：一条 inbound envelope 进入，零或多条 outbound envelope 输出，并向 session [tape](/zh-cn/docs/concepts/tape-and-context/) 追加一条或多条 entry。
+这条流程属于 `bub[app]`。直接调用 `core.Agent.run()` 时，Agent 使用你提供的 prompt、state 和 Tape 开始循环。
 
-## 端到端流程
+## 一条消息经过哪些阶段
 
-```mermaid
-flowchart TD
-  inbound(["inbound envelope"]) --> resolve["resolve_session<br/>firstresult<br/>(fallback: channel:chat)"]
-  resolve --> load["load_state<br/>many → reverse → merge<br/>(seed _runtime_ workspace)"]
-  load --> prompt["build_prompt<br/>firstresult<br/>(fallback: inbound text)"]
-  prompt --> model["run_model_stream<br/>↕ adapts to run_model<br/>firstresult"]
-  model -->|always| save["save_state<br/>many, in finally"]
-  save --> render["render_outbound<br/>many → flatten<br/>(fallback: one envelope from output)"]
-  render --> dispatch["dispatch_outbound<br/>many, per outbound"]
-```
+`framework.process_inbound(message)` 依次执行以下阶段：
 
-## 各阶段（按源码顺序）
+| 阶段 | 职责 |
+| --- | --- |
+| `resolve_session` | 为入站消息选择会话 ID。 |
+| `load_state` | 汇集各 hook 提供的本轮状态。 |
+| `build_prompt` | 将入站内容转换为 prompt。 |
+| `run_model` / `run_model_stream` | 通过完整结果或流生成模型输出。 |
+| `save_state` | 完成与模型阶段关联的收尾工作，在该阶段的 `finally` 块中运行。 |
+| `render_outbound` | 将结果转换为出站 envelope。 |
+| `dispatch_outbound` | 交付每个出站 envelope。 |
 
-### resolve_session
+内置插件提供应用默认行为。其他插件按各 hook 的规则补充或替换行为；[Hooks 参考](/zh-cn/docs/reference/hooks/)说明首个有效结果、结果合并和优先级。
 
-`firstresult`：为 inbound envelope 返回 session id。如果所有实现都返回 `None`，内核 fallback 为 `f"{channel}:{chat_id}"`（两者各自缺省 `"default"`）。
+## Agent 在哪里运行
 
-当 envelope 是可变映射时，解析得到的 id 也会被写回 envelope 的 `session_id` 字段。
+内置 `run_model_stream` hook 调用 `BubAgent.run_stream()`。BubAgent 使用内核的模型与工具循环，并增加设置、skills、命令、运行中消息引导和应用工具策略。
 
-### load_state
+框架负责适配流式和非流式 hook 结果。`process_inbound(..., stream_output=True)` 让渠道路由器消费增量输出，并在消费结束后返回已完成的 `TurnResult`。
 
-广播：每个实现贡献一份 state dict。内核先用 `_runtime_workspace` 初始化 state，然后按优先级调用实现、收集结果，再反转结果列表后合并。低优先级 state 先合并，高优先级 state 后合并，因此晚注册的插件在键冲突时胜出。
+插件替换 `run_model` 后，执行行为随之改变。例如，echo 插件可以直接返回文本，不创建 Agent 运行。只有选中的实现实际使用内核 Agent，才会产生相应的核心事件与 Tape 记录。
 
-### build_prompt
+## 资源由谁管理，失败如何处理
 
-`firstresult`：返回字符串或多模态内容片段列表（OpenAI 格式）。`HookRuntime.call_first` 会停在第一个非 `None` 返回值。如果没有实现返回非 `None` 值，或选中的值为 falsy，`process_inbound` 会 fallback 为 inbound envelope 的纯 `content` 字段；已选中的 falsy 值不会触发继续尝试低优先级实现。
+当 hooks 提供存储或其他应用资源时，使用 `async with framework.running():` 打开它们，并在退出时释放。内置的单条消息 lifespan 在加载状态时打开，在 `save_state` 中关闭。
 
-### run_model 与 run_model_stream
+执行到模型阶段后，无论该阶段是否抛出异常，都会运行 `save_state`。会话解析、状态加载或 prompt 构建失败发生在这个 `finally` 块之前，因此不会触发它。插件在较早阶段获取资源时，需要考虑这个边界。
 
-两者都是 `firstresult`。实现应当二选一：
+内置 `save_state` 负责关闭单条消息 lifespan。应用会另外记录选定设置，保存其他状态需要明确的持久化方式。
 
-- `run_model` 一次返回最终字符串。
-- `run_model_stream` 返回 `AsyncStreamEvents` 的 chunk 流（`text`、`error` 等）。
+模型阶段抛出未处理异常时，框架先运行 `save_state`，再跳过正常的渲染与分发。外层错误路径调用 `on_error(stage="turn", ...)` 后重新抛出异常。内置错误观察器可以通过出站分发发送错误响应。单个 `on_error` 观察器失败不会阻止其他观察器执行。
 
-hook 运行时会在两者间互相适配：若插件只实现 `run_model_stream` 且框架要求非流式输出，内核会收集每个 `text` 事件的 `delta` 并拼接；若只实现 `run_model` 且调用方要求流式，则被包装为单个 text chunk 的流。`run_model_stream` 实现应返回 `AsyncStreamEvents`；当前非流式适配路径中返回 `None` 会成为错误，而不是干净 fallback。
+## 扩展应用
 
-如果两者都没有返回输出（每个实现都返回 `None`），内核会通过 `on_error(stage="run_model", ...)` 通知并 fallback，使 `save_state` 与后续 outbound 阶段仍能运行。字符串 prompt 会原样返回；多模态 list prompt 会 fallback 为 inbound envelope 的纯 `content` 字段。
-
-流式过程中，每个 `error` 事件都会通过 `on_error(stage="run_model", ...)` 转发。绑定的 `ChannelRouter` 也可在 turn 结束前包装该流，将增量 chunk 推送到 channel。
-
-### save_state
-
-广播，**始终在 `finally` 块中调用** —— 即便 `run_model` 抛错。实现接收 `session_id`、`state`、inbound `message`，以及已捕获的 `model_output`（模型抛错时可能为空字符串）。
-
-这里适合 flush per-turn lifespan、持久化 state 变更或关闭 per-message 资源。内置 `BuiltinImpl.save_state` 会读取 `sys.exc_info()`，使 per-message lifespan context 可观察到失败。
-
-### render_outbound
-
-广播：每个实现返回 outbound envelope 列表，内核将所有批次拍平。
-
-如果所有实现都返回空列表，内核会用 `model_output` 加 inbound 的 `channel`、`chat_id` 构造一条 fallback envelope。
-
-### dispatch_outbound
-
-广播，按每条 outbound envelope 调用一次。实现可在投递完成后返回 `True`。内置实现还会把 envelope 转发到绑定的 `ChannelRouter` 进行实际 channel I/O。
-
-## `stage="turn"` 的 on_error 语义
-
-如果上述任一阶段抛出未处理异常，`process_inbound` 会：
-
-1. 记录异常日志。
-2. 调用 `on_error(stage="turn", error=exc, message=inbound)`，让 observer 插件可以响应。
-3. 将原异常重新抛出。
-
-默认 observer（`BuiltinImpl.on_error`）会通过 `dispatch_outbound` 发送一条错误 envelope，使失败在 inbound channel 可见，而不仅停留在日志。
-
-`on_error` 是 observer-safe 的：runtime 不会传播单个 observer 抛出的异常，因此一个失败的 observer 不会阻塞其他 observer。
-
-## 默认插件实际实现了什么
-
-`BuiltinImpl`（注册名 `builtin`）以合理默认实现上述每个 hook：
-
-- `resolve_session` — 优先使用 envelope 的 `session_id`，否则 `f"{channel}:{chat_id}"`。
-- `load_state` — 打开 inbound 的可选 `lifespan`，初始化 `session_id` 与内部 `_runtime_agent`，并恢复 session tape 上记录的会话设置（模型、reasoning effort、code mode）。
-- `build_prompt` — 标记命令 prompt（`,help`、`,skill` 等）并原样传给 agent 执行，用时间戳与上下文包裹其他文本，并在附带媒体时输出多模态片段。
-- `run_model_stream` — 通过 `BubAgent.run_stream()` 运行 turn，它构建在 `bub.core` 的 agent loop 之上，使用 [Republic](https://github.com/bubbuild/republic) 模型，支持工具调用、命令和 auto-handoff（见 [Tape and context](/zh-cn/docs/concepts/tape-and-context/)）。builtin 插件不实现 `run_model`；非流式调用方通过上文描述的适配获得拼接后的文本。
-- `save_state` — 用捕获的异常信息关闭 per-message lifespan。
-- `render_outbound` — 将 `model_output` 包装为携带 inbound 路由字段的 `ChannelMessage`。
-- `dispatch_outbound` — 转发到绑定的 `ChannelRouter`。
-- `system_prompt` — 将默认 prompt 与 workspace 的 `AGENTS.md` 拼接。
-- `provide_tape_store` — 位于 `~/.bub/tapes` 下的文件型 tape store。
-- `provide_tape_sidecar` — 使用当前配置的 builtin spill sidecar。
-- `provide_channels` — 注册内置的 `cli` 与 `telegram` adapter。
-
-插件通过注册更高优先级的实现来覆写其中任一项；晚注册的插件先执行。
-
-## 下一步
-
-- [Tape and context](/zh-cn/docs/concepts/tape-and-context/) — `run_model_stream` 阶段实际重建了什么。
-- [Surfaces](/zh-cn/docs/concepts/surfaces/) — channel、skill 与 tool 如何在 envelope 与 state 上相遇。
-- [Hooks 参考](/zh-cn/docs/reference/hooks/) — 完整 hookspec 签名。
+按照[插件指南](/zh-cn/docs/build/plugins/)注册实现，通过 [Hooks 示例](/zh-cn/docs/build/hooks/)完成具体修改，精确签名和顺序见 [Hooks 参考](/zh-cn/docs/reference/hooks/)。

@@ -1,0 +1,143 @@
+---
+title: Reuse application plugins
+description: Bring plugin tools and hooks into your own agent while keeping your existing service and calling code.
+sidebar:
+  order: 1
+---
+
+Use Bub's application plugins in your existing Python service. Your host keeps its HTTP routes, task handlers, and output handling. Choose the agent and runtime according to the application behavior you want to reuse.
+
+`BubAgent` is Bub's existing combination of the core loop, settings, plugin hooks, skills, and tool policies. Its [direct stream entry point](#app-runtime) also works inside a host application. Use `BubFramework.process_inbound()` when you want the full message pipeline.
+
+With `core.Agent`, you choose the components and connect the hooks yourself. The examples below take a search tool from one plugin and adapt the call hooks of another. Each example covers that plugin's dependencies; background services need their own startup and shutdown.
+
+## Add a search plugin to your agent
+
+[`bub-web-search`](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-web-search) exposes a search tool that works with `core.Agent`. Install it in the environment that runs your service. These examples use plugin packages from the `dev` branch of `bub-contrib`:
+
+```bash
+uv add "bub[app]" \
+  "bub-web-search @ git+https://github.com/bubbuild/bub-contrib.git@dev#subdirectory=packages/bub-web-search"
+```
+
+The plugin uses application configuration code, so it needs the `app` dependencies. Your program can continue using `core.Agent` with its own model, tape names, and run lifecycle.
+
+For Jina search, set `BUB_SEARCH_PROVIDER=jina` and `BUB_SEARCH_JINA_API_KEY` before starting the process. Set `REPUBLIC_OPENAI_API_KEY` for the model in this example. Save this as `search_agent.py`:
+
+```python
+import asyncio
+from pathlib import Path
+
+import republic
+from bub_web_search.tools import register_tools
+
+from bub.core import Agent
+from bub.core.store import FileTapeStore
+
+
+async def main() -> None:
+    search = register_tools()
+    if search is None:
+        raise RuntimeError("Configure a search provider with BUB_SEARCH_* first.")
+
+    agent = Agent(
+        store=FileTapeStore(Path("sessions")),
+        tools=[search],
+        system_prompt="Search for sources before answering. Include their URLs.",
+    )
+    async with republic.get_model("openai:gpt-5-mini") as model:
+        async with agent.run(
+            "Find the official Python asyncio documentation.",
+            model=model,
+            tape="research-42",
+            options={"max_tokens": 4096},
+        ) as stream:
+            async for event in stream:
+                if event.kind == "text":
+                    print(event.data.get("delta", ""), end="", flush=True)
+                elif event.kind == "error":
+                    raise RuntimeError(str(event.data.get("message", "Agent failed")))
+        print()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Run `uv run python search_agent.py`. The plugin handles the search request and its HTTP connection. The Agent records the conversation under `sessions/`, and your code consumes the reply.
+
+For an existing Agent, add the returned tool with `agent.tools[search.name] = search` during startup. Its name is `web.search`; the model sees `web_search`. You can keep the rest of your calling code, including a [FastAPI endpoint](/docs/tutorials/fastapi/).
+
+`register_tools()` also updates the process-wide tool registry, so do this setup during startup. An Agent uses the tools you explicitly pass or add to it. This example takes the returned search tool; add the package's other tools, such as Jina's `web.read`, separately if needed.
+
+## Advanced: connect one plugin's call hooks
+
+[`bub-context-budget`](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-context-budget) runs before and after model calls. When its estimate crosses a threshold, it adds an instruction asking the model to call `tape.handoff`. Give the Agent that tool and subscribe the plugin's hooks to its events.
+
+```bash
+uv add "bub-context-budget @ git+https://github.com/bubbuild/bub-contrib.git@dev#subdirectory=packages/bub-context-budget"
+```
+
+Add this function to your program, then call `add_context_budget(agent)` after creating the Agent and before its first run:
+
+```python
+from pathlib import Path
+
+from bub_context_budget import plugin as context_budget
+
+from bub import BubFramework
+from bub.builtin.tools import tape_handoff
+from bub.core import Agent
+
+
+def add_context_budget(agent: Agent) -> None:
+    framework = BubFramework(config_file=Path("bub.yml"))
+    framework.plugin_manager.register(context_budget, name="context-budget")
+    framework.get_agent_hooks().subscribe(agent.events)
+    agent.tools[tape_handoff.name] = tape_handoff
+```
+
+The adapter connects this plugin's `before_llm_call` and `after_llm_call` hooks to your Agent. Your model, prompt sections, store, and `agent.run()` stay in place. This example supplies the hooks and handoff tool that context-budget needs. Check those requirements separately when adapting another plugin.
+
+Importing `tape_handoff` also registers builtin tools globally; the example adds only `tape_handoff` to the Agent.
+
+Set the context limit with `BUB_CONTEXT_BUDGET_MAX_CONTEXT_TOKENS` or `context-budget.max_context_tokens` in `bub.yml`. The plugin reserves 16,384 tokens from that limit before requesting a handoff. The budget is advisory: execution depends on the model following the instruction.
+
+A handoff saves its summary on the anchor. To carry that summary into the next model request, include it through your [context selection](/docs/concepts/tape-and-context/#context) or next prompt.
+
+Register and subscribe once during service startup. This plugin runs entirely through call hooks. Registration belongs to the Framework, and subscription connects its interception hooks to the selected Agent. Every session using that Agent shares those hooks. Separate Framework instances and subscriptions are needed for different plugin sets; configuration remains process-wide.
+
+The adapter catches ordinary plugin exceptions and skips the failed hook. A hook that blocks a tool must return `ToolCallDecision.deny(...)`; see [Agent events](/docs/concepts/events/) for interception semantics.
+
+## Choose the connection each plugin needs
+
+The plugin's implementation determines what your host must provide:
+
+| Plugin capability | How to reuse it |
+| --- | --- |
+| Tools or a store | Import the public component and pass it to Agent. For example, `bub_tapestore_sqlalchemy.store.SQLAlchemyTapeStore` accepts a database URL and can be passed as `store=`. |
+| Model or tool interception | Register the selected plugin and subscribe its hooks as above. Check any state fields or tools the plugin expects. |
+| Message preparation, model-stage replacement, state saving, or delivery | [Embed the application pipeline](/docs/build/distribution/#programmatic-embedding) in your host. It runs these stages and returns a `TurnResult`. |
+| Background connections or discovered tools | Open the service, wait until it is ready, attach its tools, then close it with the host. Follow the plugin's own lifecycle API. |
+
+Follow the chosen store's lifecycle contract. `framework.running()` acquires hook-provided resources and closes the context managers it entered. A store returned as an ordinary object keeps its own cleanup requirements.
+
+For MCP, follow the plugin's [embedding example](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-mcp#embedding): connect with `MCPChannel.connect()`, attach tools to a `BubAgent` with `bind_agent()`, and close connections with `stop()`. Your host must manage this lifecycle in addition to `framework.running()`.
+
+<a id="app-runtime"></a>
+
+## Reuse Bub's application defaults
+
+`BubAgent` combines the core loop with Bub settings, skills, tool policies, and plugin hooks. A host can load installed plugins with `framework.load_hooks()`, enter `framework.running()`, then construct a `BubAgent`. Its `run_stream()` returns a stream for the host to consume and close.
+
+Choose this when you also want those application defaults. The builtin system prompt asks the agent to send replies through channels. A service that returns model text directly needs its own prompt policy. Replacing `agent.system_prompt` replaces all its sections, including plugin, skills, deferred-tool, and CodeMode instructions.
+
+`run_stream()` uses system-prompt and continuation hooks, call interception, and the configured tape components. With `state` omitted, it loads state using a message containing only the Agent reference. For plugins that need request metadata, prepare state with `framework.build_state(message, session_id)` and pass it to `run_stream(state=...)`. Include the Agent in `message["_runtime_agent"]` so state recovery uses its store.
+
+The direct stream call bypasses the initial `build_prompt`, `run_model` / `run_model_stream`, `save_state`, rendering, and dispatch hooks. The host handles output, saves its own state, and coordinates concurrent runs on one session. Use `process_inbound()` when you need the complete message pipeline; even with `stream_output=True`, that method consumes the stream and returns a completed `TurnResult`.
+
+## Keep building
+
+- [Tools and CodeMode](/docs/build/tools/) explains how Agent uses the tools you supply.
+- [Tape and context](/docs/concepts/tape-and-context/) covers storage and handoffs.
+- [Package a plugin](/docs/build/plugins/) shows how to share your own extension.

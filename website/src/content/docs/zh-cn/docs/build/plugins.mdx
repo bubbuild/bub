@@ -1,117 +1,64 @@
 ---
-title: 插件
-description: 包结构、入口点组、可调用与实例两种插件形态、可编辑安装，以及如何确认 Bub 已加载你的插件。
+title: 打包插件
+description: 通过 Python 包，让 Bub 应用发现你的 hooks。
 sidebar:
   order: 1
 ---
 
-本指南展示如何打包一个 Bub **插件** —— 一个注册到 `bub` 入口点组、并向框架运行时贡献[钩子](/zh-cn/docs/concepts/turn-pipeline/)实现的 Python 发行包。
+把想要复用或分享的应用行为放进插件。Python 包在 `bub` 入口点组中声明目标，Bub 导入这个目标，并注册其中的 hook 实现。你也可以[在自己的服务中复用现有插件](/zh-cn/docs/build/reuse-plugins/)，继续使用宿主自己的调用入口。
 
-如果要加载包含 `plugin.json`、skills 和 MCP 服务器的可移植 Agent Plugins，请参阅
-[加载 Agent Plugins](/zh-cn/docs/tutorials/agent-plugins/)。负责接入的 `bub-agent-plugins` 本身是一个 Python
-插件；它加载的可移植插件包不需要声明 Python 入口点。
+完整的入门例子见[编写第一个插件](/zh-cn/docs/getting-started/first-plugin/)。这篇指南说明打包自己的插件时，需要选择哪些形式。
 
-## 开始之前
+可移植的 Agent Plugins 使用另一种格式，包括 `plugin.json`、skills 和 MCP servers。[Agent Plugins 集成](/zh-cn/docs/tutorials/agent-plugins/)通过一个 Python 插件加载这些包。
 
-- 已安装 `uv` 和 `bub` 的 Python 3.12+ 环境（见[安装](/zh-cn/docs/getting-started/install/)）。
-- 已经走过一次完整的 Bub 轮次（见[首次轮次](/zh-cn/docs/getting-started/first-turn/)）。
-- 一个基于 `pyproject.toml` 的构建后端；下面示例使用 `hatchling`。
+## 声明入口点
 
-## 1. 包结构
-
-最小插件 = 一个 Python 包加一个 `pyproject.toml`：
-
-```text
-bub-myplugin/
-├─ pyproject.toml
-└─ src/
-   └─ bub_myplugin/
-      ├─ __init__.py
-      ├─ plugin.py
-      └─ tools.py        # 可选，见步骤 4
-```
-
-发行名建议以 `bub-` 开头（例如 `bub-myplugin`）。导入名通常把短横线换成下划线（`bub_myplugin`）。
-
-## 2. 声明入口点
-
-Bub 通过 `bub` 组的 Python 入口点发现插件。在 `pyproject.toml` 里加入：
-
-```toml
-[project]
-name = "bub-myplugin"
-version = "0.1.0"
-dependencies = ["bub[app]>=0.3"]
-
-[project.entry-points."bub"]
-myplugin = "bub_myplugin.plugin"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/bub_myplugin"]
-```
-
-左侧入口点键（`myplugin`）是 Bub 用于诊断的名字，右侧是 Bub 启动时导入的目标。
-
-## 3. 在模块、实例、可调用三种形态中选择
-
-[`BubFramework.load_hooks()`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py#L66-L90) 接受三种入口点目标。`if callable(plugin)` 分支是判别点：
-
-```python
-# 来自 src/bub/framework.py
-if callable(plugin):  # Support entry points that are classes
-    plugin = plugin(self)
-self._plugin_manager.register(plugin, name=plugin_name)
-```
-
-由此得到三种合法选择。
-
-**模块目标。** 指向一个在模块层定义了 `@hookimpl` 函数的模块。Bub 直接注册这个模块对象：
+插件需要[安装 Bub](/zh-cn/docs/getting-started/install/)中说明的应用依赖。本指南使用 `bub[app]>=0.6.0` 作为包依赖。更新已有插件时，参见[升级到 0.6.0](/zh-cn/docs/reference/versions/)。
 
 ```toml
 [project.entry-points."bub"]
 myplugin = "bub_myplugin.plugin"
 ```
 
+键 `myplugin` 是诊断信息中的插件名称，值是要导入的 Python 对象。
+
+选择一种目标形式：
+
+| 目标 | 注册方式 | 适用情况 |
+| --- | --- | --- |
+| `bub_myplugin.plugin` | 注册模块 | hooks 是模块级函数 |
+| `bub_myplugin.plugin:plugin` | 注册实例 | hooks 需要共享对象状态 |
+| `bub_myplugin.plugin:MyPlugin` | 将 `BubFramework` 传给类或工厂，注册返回值 | hooks 需要访问 framework |
+
+模块形式在模块顶层定义 hooks：
+
 ```python
-# bub_myplugin/plugin.py
 from bub import hookimpl
 
 
 @hookimpl
 def build_prompt(message, session_id, state):
-    return "custom prompt"
+    return "Describe this workspace."
 ```
 
-**实例目标。** 指向一个事先构造好的实例。Bub 原样注册：
-
-```toml
-[project.entry-points."bub"]
-myplugin = "bub_myplugin.plugin:my_plugin"
-```
+实例形式在目标模块中创建对象：
 
 ```python
-# bub_myplugin/plugin.py
 from bub import hookimpl
 
 
 class MyPlugin:
     @hookimpl
     def build_prompt(self, message, session_id, state):
-        return "custom prompt"
+        return "Describe this workspace."
 
 
-my_plugin = MyPlugin()
+plugin = MyPlugin()
 ```
 
-**可调用目标（类或工厂）。** 指向一个把 [`BubFramework`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py) 作为唯一参数的类或工厂。Bub 用框架调用它，再把返回值注册进去。当插件需要持有框架的活引用时使用——例如要在 CLI 已经处理过 `--workspace` 之后再读 `framework.workspace`：
-
-```toml
-[project.entry-points."bub"]
-myplugin = "bub_myplugin.plugin:MyPlugin"
-```
+所有可调用目标都会收到 framework，类也一样。构造函数或工厂需要接收这个参数：
 
 ```python
-# bub_myplugin/plugin.py
 from bub import BubFramework, hookimpl
 
 
@@ -121,59 +68,38 @@ class MyPlugin:
 
     @hookimpl
     def build_prompt(self, message, session_id, state):
-        workspace = self.framework.workspace
-        return f"custom prompt from {workspace}"
+        return f"Describe the workspace at {self.framework.workspace}."
 ```
 
-visual-base 的 [`EyeImpl`](https://github.com/oilbeater/visual-base/blob/main/src/bub_eye/plugin.py) 正是因为这个原因采用可调用形态：它捕获框架，从而 `provide_channels` 时能读到 CLI 处理后的工作区。
+这些例子会替换提示词。请在[改变应用行为](/zh-cn/docs/build/hooks/)中选择真正适合任务的 hook。
 
-:::note
-内置插件最先注册，入口点插件随后注册。在 [`HookRuntime`](https://github.com/bubbuild/bub/blob/main/src/bub/hooks/runtime.py) 中，注册越晚优先级越高 —— 因此你的 `firstresult` 钩子会覆盖内置实现。
-:::
+## 导入时注册工具
 
-## 4. 用可编辑安装迭代
+如果包内定义了 `@tool` 函数，在入口点模块中导入工具模块，确保 agent 创建前已完成注册：
 
-把插件安装到运行 `bub` 的同一个 Python 环境中。如果你已经激活了该环境，在插件目录下运行：
-
-```bash
-uv pip install -e .
+```python
+from . import tools  # noqa: F401
 ```
 
-Bub 从当前 Python 环境加载入口点，因此可编辑安装能在不重新安装的情况下吃到代码变更。如果你不在一个已激活的 Bub 虚拟环境中，请在插件项目中运行 `uv sync`，并从该项目里使用 `uv run bub ...`。同样的模式见[首个插件](/zh-cn/docs/getting-started/first-plugin/)。
+应用创建 `BubAgent` 时会获取已注册工具的快照。[添加应用工具](/zh-cn/docs/build/app-tools/)会说明注册、延迟加载和代码模式。
 
-## 5. 确认 Bub 已加载插件
+## 安装到应用环境
 
-运行钩子诊断命令：
+可编辑安装允许你直接修改 Python 源码，无需重新构建包。安装目标必须是运行 Bub 的同一个环境。
+
+使用 uv 项目时，在插件目录运行：
 
 ```bash
+uv sync
 uv run bub hooks
 ```
 
-每个已注册钩子会列出贡献它的插件。该命令展示发现到的实现顺序，不等价于精确的 firstresult 胜出者；运行时优先级见[钩子参考](/zh-cn/docs/reference/hooks/#iteration-order)。一个覆盖了 `build_prompt` 与 `run_model` 的 `EchoPlugin`，预期输出形如：
+如果安装到已有且已激活的应用环境，使用 `uv pip install -e .`，然后在该环境中运行 `bub hooks`。
 
-```text
-build_prompt: builtin, echo
-run_model: builtin, echo
-...
-```
+`bub hooks` 可以确认注册结果。实际运行一次 hook 要处理的任务，再检查优先级和返回值。Bub 先注册内置 hooks，再注册入口点插件。同等优先级通常按注册顺序的逆序调用；`tryfirst` 和 `trylast` 会影响顺序。[调用规则](/zh-cn/docs/reference/hooks/#iteration-order)说明了哪个实现先运行。
 
-如果每一行都没有你的插件名，说明入口点没有加载。常见原因：
+如果插件没有出现，检查入口点组名、当前环境，以及启动日志中的导入错误。修改包元数据后，需要重新安装包。
 
-- 入口点组写错了 —— 必须是 `bub`（不是 `bub.plugins`）。
-- 包没安装到当前 Python 环境。
-- 模块导入时抛错。Bub 会以 `Failed to load plugin '<name>'` 记录错误。
+## 分享插件
 
-## 真实示例
-
-上述模式在已发布的插件中都能看到：
-
-- [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite) —— 模块目标，顶层 `@hookimpl`。
-- [`bub-schedule`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-schedule) —— 实例目标（`schedule = "bub_schedule.plugin:main"`）。
-- [`bub-wechat`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-wechat) 与 visual-base 的 [`bub-eye`](https://github.com/oilbeater/visual-base/tree/main/src/bub_eye) —— 持有框架引用的可调用类目标。
-
-## 下一步
-
-- [钩子](/zh-cn/docs/build/hooks/) —— 各钩子签名的配方手册
-- [工具](/zh-cn/docs/build/tools/) —— 注册可被模型调用的工具
-- [钩子参考](/zh-cn/docs/reference/hooks/) —— 完整签名表
-- [发行版](/zh-cn/docs/build/distribution/) —— 把插件打包为产品
+发布前，构建 wheel 并安装到独立环境，确认入口点能加载，并用一个实际任务检查 hook。如果要同时发布 skills 或多个插件，参见[打包 Bub 应用](/zh-cn/docs/build/distribution/)。

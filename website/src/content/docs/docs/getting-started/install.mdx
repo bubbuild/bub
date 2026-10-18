@@ -1,96 +1,113 @@
 ---
 title: Install Bub
-description: Install Bub with the standalone installer or from source, pin it as a framework dependency, and verify the install with the hook report.
+description: Install Bub 0.6.0 for your own Python agent or the Bub application.
 sidebar:
   order: 1
 ---
 
-import { TabItem, Tabs } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-This page explains how to install Bub for the three supported workflows: running the CLI, contributing to the framework from source, and depending on Bub from another package.
+Choose the installation for the way you want to use Bub. Add Bub to a Python project with [uv](https://docs.astral.sh/uv/getting-started/installation/), or install the application with a setup script or uv.
 
-## Before you begin
+<a id="agent-install"></a>
 
-For the standalone installer, you only need:
+## Build your own agent
 
-- `curl` on macOS and Linux, or PowerShell on Windows
-- a network connection that can reach `bub.build`, `astral.sh`, and PyPI
-
-The installer bootstraps [`uv`](https://docs.astral.sh/uv/) when needed. `uv` then installs a compatible Python automatically, so a system Python is not required.
-
-## 1. Use the standalone installer
-
-<Tabs syncKey="install-platform">
-  <TabItem label="macOS / Linux">
-
-    ```bash
-    curl -fsSL https://bub.build/install.sh | bash
-    ```
-
-  </TabItem>
-  <TabItem label="Windows">
-
-    ```powershell
-    powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
-    ```
-
-  </TabItem>
-</Tabs>
-
-The installer places `uv` and the `bub` executable in user-level directories. In an interactive terminal, it runs the colored, keyboard- and mouse-enabled preset picker through `inquirer-textual`, prompts for additional plugin dependencies, installs them with `bub install`, and then runs `bub onboard`. The UI dependency is provisioned ephemerally with `uv run --with`; it is not added to Bub. Set [`NO_COLOR`](https://no-color.org/) to disable colored output.
-
-Preset membership is defined only in the versioned [preset catalog](https://bub.build/presets.json), so plugin bundles can evolve without changing the installers. `recommended` is the default bundle and `minimal` installs no optional plugins.
-
-The `recommended` preset includes both [`bub-mcp`](/docs/tutorials/mcp/) and
-[`bub-agent-plugins`](/docs/tutorials/agent-plugins/). Together they support your existing MCP servers and
-portable Agent Plugins that bundle skills and MCP servers. The installer adds the Python integrations;
-place portable plugin directories in `.agents/plugins/` to load them.
-
-For automation, pass `--preset` explicitly. `--dependency` is repeatable and adds packages outside the selected preset (`--plugin` is an alias):
-
-<Tabs syncKey="install-platform">
-  <TabItem label="macOS / Linux">
-
-    ```bash
-    curl -fsSL https://bub.build/install.sh | bash -s -- \
-      --preset recommended \
-      --dependency extra-plugin
-    ```
-
-  </TabItem>
-  <TabItem label="Windows">
-
-    ```powershell
-    powershell -ExecutionPolicy ByPass -c "& ([scriptblock]::Create((irm https://bub.build/install.ps1))) --preset recommended --dependency extra-plugin"
-    ```
-
-  </TabItem>
-</Tabs>
-
-Non-interactive installs do not run onboarding; run `bub onboard` explicitly when configuration is required. The installer also asks `uv` to add its executable directory to your shell profile. Restart your shell after installation, then run `bub --help`.
-
-You can inspect the scripts and the versioned preset catalog before running them at [install.sh](https://bub.build/install.sh), [install.ps1](https://bub.build/install.ps1), and [presets.json](https://bub.build/presets.json).
-
-## 2. Install with an existing uv
-
-If `uv` is already available, the equivalent user-level installation is:
+Use Python 3.12 or later and add Bub to your project:
 
 ```bash
-uv tool install "bub[app]@latest"
+uv add bub
+uv run python -c "from bub.core import Agent; print(Agent.__name__)"
+```
+
+If you are starting a new project, first run `uv init --python 3.12 my-agent` and `cd my-agent`.
+
+The base installation includes the kernel's dependencies: Republic, Pydantic, Loguru, and typing-extensions. The import check needs no model credentials. Continue with [Build your own agent](/docs/build/sdk/) to configure a model in Python and run the first example.
+
+<a id="app-install"></a>
+
+## Run the Bub application
+
+Choose an installation method:
+
+<Tabs syncKey="bub-app-install">
+<TabItem label="macOS / Linux">
+
+```bash
+curl -fsSL https://bub.build/install.sh | bash
+```
+
+</TabItem>
+<TabItem label="Windows">
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
+```
+
+</TabItem>
+<TabItem label="uv">
+
+```bash
+uv tool install "bub[app]"
 uv tool update-shell
 ```
 
-If you prefer `pip`, the equivalent is:
+Open a new terminal, then run `bub onboard` to configure your model and channels.
+
+</TabItem>
+</Tabs>
+
+The shell and PowerShell scripts set up uv and Python 3.12 as needed, then install `bub[app]` into `~/.bub/.venv`. They prompt you to choose a plugin preset and configure your model and channels.
+
+When installation finishes, make sure the command directory is on your PATH, then check:
 
 ```bash
-pip install "bub[app]"
+bub --help
 ```
 
-The `app` extra brings the `bub` command, channels, plugins and the builtin agent. A plain `bub` install contains only the agent kernel `bub.core` for [embedding in Python](/docs/build/sdk/); its `bub` command asks for the extra.
+Continue with [Run Bub for the first time](/docs/getting-started/first-turn/) to start a conversation in your own workspace.
 
-## 3. Install from source
+The base install and `bub[app]` contain the same package files. The extra changes which dependencies are installed. Without the application dependencies, the `bub` command exits with an instruction to install `bub[app]`.
 
-Use this path if you want to contribute to the framework or follow `main`:
+<a id="app-development"></a>
+
+## Use a virtual environment for application development
+
+For plugin development or adding packages such as tracing exporters, use an environment you can activate:
+
+```bash
+uv venv --python 3.12
+source .venv/bin/activate
+uv pip install "bub[app]"
+bub --help
+```
+
+In PowerShell, replace the activation command with `.\.venv\Scripts\Activate.ps1`. Run the application and install its extensions from this same environment. If your project already uses `uv`, you can instead add `"bub[app]"` with `uv add` and run its commands with `uv run bub`.
+
+<a id="project-dependency"></a>
+
+## Declare a package dependency
+
+Add the dependency to the existing `[project]` table in your package's `pyproject.toml`. For direct Agent use:
+
+```toml
+requires-python = ">=3.12"
+dependencies = ["bub>=0.6.0"]
+```
+
+For a package that imports the builtin agent, Framework, plugins, skills, or channels:
+
+```toml
+dependencies = ["bub[app]>=0.6.0"]
+```
+
+Synchronize your project after editing its dependencies. Existing applications should follow [Upgrade to 0.6.0](/docs/reference/versions/) when updating the dependency.
+
+<a id="from-source"></a>
+
+## Contribute from source
+
+Clone the repository to work on Bub itself:
 
 ```bash
 git clone https://github.com/bubbuild/bub.git
@@ -98,41 +115,4 @@ cd bub
 uv sync
 ```
 
-`uv sync` creates a project-local virtual environment under `.venv/` with every dev dependency. After sync, every example in these docs that uses `uv run bub` will work from the repo root.
-
-## 4. Pin Bub as a framework dependency
-
-Plugin and distribution authors should depend on Bub as a normal Python package. The plugin's `pyproject.toml` should declare the dependency and register one entry point under the `bub` group:
-
-```toml
-[project]
-name = "bub-my-plugin"
-version = "0.1.0"
-dependencies = ["bub>=0.1"]
-
-[project.entry-points."bub"]
-my-plugin = "bub_my_plugin.plugin:MyPlugin"
-```
-
-Bub discovers plugins through `importlib.metadata.entry_points(group="bub")`, so any package installed in the active environment that registers this entry point is loaded on framework startup.
-
-:::note
-Pin Bub to a compatible release range rather than to `main`. The kernel is small and stable, but plugin contracts may evolve before 1.0.
-:::
-
-## 5. Verify the install
-
-The fastest way to confirm Bub loaded its built-in hooks is the `bub hooks` command:
-
-```bash
-bub hooks
-```
-
-You should see a summary that includes the `builtin` plugin and a list of hook implementations such as `resolve_session`, `build_prompt`, `run_model_stream`, `render_outbound`, and `dispatch_outbound`. If you installed from source, use `uv run bub hooks` instead. If `builtin` is missing or marked failed, reinstall Bub and check the error printed by the loader.
-
-## Next steps
-
-- [Run Your First Turn](/docs/getting-started/first-turn/) — send a comma command and a model-backed turn.
-- [Configure Bub](/docs/operate/configure/) — set `BUB_MODEL`, `BUB_API_KEY`, and other runtime settings.
-- [Load Agent Plugins](/docs/tutorials/agent-plugins/) — add portable skills and MCP servers alongside existing plugins.
-- [Settings reference](/docs/reference/settings/) — see every supported environment variable.
+`uv sync` installs the development group, including application dependencies and Python check tools. You can then use `uv run bub` and the repository's test commands.

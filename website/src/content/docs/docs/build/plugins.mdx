@@ -1,117 +1,64 @@
 ---
-title: Plugins
-description: Package layout, entry-point group, callable-vs-instance plugins, editable installs, and how to confirm Bub loads your plugin.
+title: Package a plugin
+description: Make your application's hooks discoverable through a Python package.
 sidebar:
   order: 1
 ---
 
-This guide shows how to package a Bub **plugin** — a Python distribution that registers under the `bub` entry-point group and contributes [hook](/docs/concepts/turn-pipeline/) implementations to the framework runtime.
+Use a plugin to give the Bub app behavior you want to reuse or share. A Python package declares an entry point in the `bub` group; Bub imports that target and registers its hook implementations. You can also [reuse an existing plugin in your own service](/docs/build/reuse-plugins/) while keeping your host's entry point.
 
-To load portable Agent Plugins containing `plugin.json`, skills, and MCP servers, see
-[Load Agent Plugins](/docs/tutorials/agent-plugins/). The `bub-agent-plugins` integration is itself a Python
-plugin; the portable packages it loads do not need Python entry points.
+For a complete first example, follow [Write your first plugin](/docs/getting-started/first-plugin/). This guide covers the choices you make when packaging a plugin of your own.
 
-## Before you begin
+Portable Agent Plugins use a different format: `plugin.json`, skills, and MCP servers. The [Agent Plugins integration](/docs/tutorials/agent-plugins/) loads those packages through a Python plugin.
 
-- A working Python 3.12+ environment with `uv` and `bub` installed (see [Install](/docs/getting-started/install/)).
-- Familiarity with one full turn through Bub (see [First turn](/docs/getting-started/first-turn/)).
-- A `pyproject.toml`-based build backend; the examples below use `hatchling`.
+## Declare an entry point
 
-## 1. Package layout
-
-A minimal plugin is one Python package plus a `pyproject.toml`:
-
-```text
-bub-myplugin/
-├─ pyproject.toml
-└─ src/
-   └─ bub_myplugin/
-      ├─ __init__.py
-      ├─ plugin.py
-      └─ tools.py        # optional, see step 4
-```
-
-Use a distribution name that begins with `bub-` (for example `bub-myplugin`). The import name typically replaces the dash with an underscore (`bub_myplugin`).
-
-## 2. Declare the entry point
-
-Bub discovers plugins through Python entry points in the `bub` group. Add the entry inside `pyproject.toml`:
-
-```toml
-[project]
-name = "bub-myplugin"
-version = "0.1.0"
-dependencies = ["bub[app]>=0.3"]
-
-[project.entry-points."bub"]
-myplugin = "bub_myplugin.plugin"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/bub_myplugin"]
-```
-
-The entry-point key on the left (`myplugin`) is the name Bub uses for diagnostics. The value on the right is what Bub imports at startup.
-
-## 3. Choose between a module, instance, or callable
-
-[`BubFramework.load_hooks()`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py#L66-L90) accepts three shapes for the entry-point target. The `if callable(plugin)` branch is the discriminator:
-
-```python
-# from src/bub/framework.py
-if callable(plugin):  # Support entry points that are classes
-    plugin = plugin(self)
-self._plugin_manager.register(plugin, name=plugin_name)
-```
-
-That gives you three valid choices.
-
-**Module target.** Point at a module that defines `@hookimpl`-decorated functions at module level. Bub registers the module object directly:
+A plugin needs the application dependencies described in [Install Bub](/docs/getting-started/install/). Declare `bub[app]>=0.6.0` in the package dependencies for this guide. See [Upgrade to 0.6.0](/docs/reference/versions/) when updating an existing plugin.
 
 ```toml
 [project.entry-points."bub"]
 myplugin = "bub_myplugin.plugin"
 ```
 
+The key `myplugin` identifies the plugin in diagnostics. The value names the Python object to import.
+
+Choose one target form:
+
+| Target | Registration | Use it when |
+| --- | --- | --- |
+| `bub_myplugin.plugin` | Register the module | Hooks are module-level functions |
+| `bub_myplugin.plugin:plugin` | Register the instance | Hooks share state on an object |
+| `bub_myplugin.plugin:MyPlugin` | Call the class or factory with `BubFramework`, then register its result | Hooks need the framework |
+
+For the module form, define hooks at module level:
+
 ```python
-# bub_myplugin/plugin.py
 from bub import hookimpl
 
 
 @hookimpl
 def build_prompt(message, session_id, state):
-    return "custom prompt"
+    return "Describe this workspace."
 ```
 
-**Instance target.** Point at a pre-built instance. Bub registers it as-is:
-
-```toml
-[project.entry-points."bub"]
-myplugin = "bub_myplugin.plugin:my_plugin"
-```
+For the instance form, create the object in the target module:
 
 ```python
-# bub_myplugin/plugin.py
 from bub import hookimpl
 
 
 class MyPlugin:
     @hookimpl
     def build_prompt(self, message, session_id, state):
-        return "custom prompt"
+        return "Describe this workspace."
 
 
-my_plugin = MyPlugin()
+plugin = MyPlugin()
 ```
 
-**Callable target (class or factory).** Point at a class or factory that takes the [`BubFramework`](https://github.com/bubbuild/bub/blob/main/src/bub/framework.py) as its only argument. Bub calls it with the framework and registers the result. Use this when the plugin needs a live reference to the framework — for example to read `framework.workspace` after the CLI has applied `--workspace`:
-
-```toml
-[project.entry-points."bub"]
-myplugin = "bub_myplugin.plugin:MyPlugin"
-```
+Every callable target receives the framework, including classes. Accept it in the constructor or factory:
 
 ```python
-# bub_myplugin/plugin.py
 from bub import BubFramework, hookimpl
 
 
@@ -121,59 +68,38 @@ class MyPlugin:
 
     @hookimpl
     def build_prompt(self, message, session_id, state):
-        workspace = self.framework.workspace
-        return f"custom prompt from {workspace}"
+        return f"Describe the workspace at {self.framework.workspace}."
 ```
 
-Visual-base's [`EyeImpl`](https://github.com/oilbeater/visual-base/blob/main/src/bub_eye/plugin.py) uses the callable form for exactly this reason: it captures the framework so `provide_channels` can read the post-CLI workspace.
+These examples replace the prompt. Choose the hook for your actual task from [Change application behavior](/docs/build/hooks/).
 
-:::note
-Builtin is registered first; entry-point plugins are registered after. Inside the [`HookRuntime`](https://github.com/bubbuild/bub/blob/main/src/bub/hooks/runtime.py), later registrations have higher precedence — so your plugin's `firstresult` hooks override the builtin.
-:::
+## Register tools during import
 
-## 4. Iterate with an editable install
+If the package defines `@tool` functions, import their module from the entry-point module before an agent is created:
 
-Install the plugin into the same Python environment that runs `bub`. If you have already activated that environment, run this from the plugin directory:
-
-```bash
-uv pip install -e .
+```python
+from . import tools  # noqa: F401
 ```
 
-Bub loads entry points from the active Python environment, so editable installs pick up code changes without reinstalling. If you are not working inside an already-active Bub virtualenv, run `uv sync` in the plugin project and use `uv run bub ...` from that project instead. The same pattern shown in [First plugin](/docs/getting-started/first-plugin/) applies here.
+The application takes a snapshot of registered tools when it creates a `BubAgent`. See [Add application tools](/docs/build/app-tools/) for registration, deferred loading, and code mode.
 
-## 5. Confirm Bub loaded your plugin
+## Install into the application's environment
 
-Run the hook diagnostics command:
+An editable install lets you change Python source without rebuilding the package. Use the same environment that runs Bub.
+
+For a uv project, run from the plugin directory:
 
 ```bash
+uv sync
 uv run bub hooks
 ```
 
-Each registered hook lists the plugins that contribute to it. The command reports discovery order, not the exact firstresult winner; runtime priority is described in [Hook reference](/docs/reference/hooks/#iteration-order). Expected output for an `EchoPlugin` that overrides `build_prompt` and `run_model`:
+To install into an existing activated application environment, use `uv pip install -e .` and run `bub hooks` there.
 
-```text
-build_prompt: builtin, echo
-run_model: builtin, echo
-...
-```
+`bub hooks` confirms registration. Check priority and return values by running the task your hook should handle. Bub registers builtin hooks before entry-point plugins. Hooks at equal priority generally run in reverse registration order; `tryfirst` and `trylast` affect that order. The [dispatch rules](/docs/reference/hooks/#iteration-order) explain which implementation runs first.
 
-If your plugin name is missing from every line, the entry point did not load. Common causes:
+If the plugin is missing, check its entry-point group, the active environment, and startup logs for an import failure. Changes to package metadata require reinstalling the package.
 
-- The entry-point group is misspelled — it must be `bub` (not `bub.plugins`).
-- The package is not installed in the active Python environment.
-- The import path raises at module import time. Bub logs the error as `Failed to load plugin '<name>'`.
+## Share the plugin
 
-## Real-world examples
-
-The patterns above are visible in shipping plugins:
-
-- [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite) — module target with a top-level `@hookimpl`.
-- [`bub-schedule`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-schedule) — instance target (`schedule = "bub_schedule.plugin:main"`).
-- [`bub-wechat`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-wechat) and visual-base's [`bub-eye`](https://github.com/oilbeater/visual-base/tree/main/src/bub_eye) — callable-class target that holds a framework reference.
-
-## Next steps
-
-- [Hooks](/docs/build/hooks/) — recipe cookbook for each hook signature
-- [Tools](/docs/build/tools/) — register tools the model can call
-- [Hook reference](/docs/reference/hooks/) — full signature table
-- [Distribution](/docs/build/distribution/) — bundle plugins into a product
+Build and install a wheel into a separate environment before publishing it. Confirm that the entry point loads and that a representative task uses your hook. If you bundle skills or several plugins, follow [Package a Bub application](/docs/build/distribution/).

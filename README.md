@@ -7,70 +7,57 @@
   <img alt="Bub logo" src="https://raw.githubusercontent.com/bubbuild/bub/refs/heads/main/website/src/assets/bub-logo.png" width="200">
 </picture>
 
-<p><strong>A tiny agent runtime, composable with plugins.</strong></p>
+<p><strong>Build your Bub.</strong></p>
 
 [Website](https://bub.build) · [Docs](https://bub.build/docs/getting-started/) · [Hub](https://hub.bub.build)
 
 </div>
 
-Bub is a small Python runtime for building agents in shared environments. It started in group chats, where multiple humans and agents had to work in the same conversation without hidden state, hand-wavy memory, or framework-specific magic.
+Put an agent in your own Python program, or customize the Bub application. The application uses the same agent kernel and adds configuration, plugins, and channel integration.
 
-Built on [agents.md](https://agents.md/) and [Agent Skills](https://agentskills.io/), Bub stays intentionally small. Every turn stage is a [pluggy](https://pluggy.readthedocs.io/) hook, builtins are replaceable, and the same runtime drives CLI, Telegram, and any channel you add.
+## Build your own agent
 
-## Quick Start
+Use `bub.core.Agent` to choose your model, tools, instructions, and conversation storage. The base `bub` package installs the kernel's dependencies.
 
-macOS and Linux:
+In a Python 3.12+ project:
+
+```bash
+uv add bub
+```
+
+Run your first agent with the [SDK guide](https://bub.build/docs/build/sdk/), then [serve it with FastAPI](https://bub.build/docs/tutorials/fastapi/) when you need an HTTP endpoint.
+
+You can also embed `BubAgent` to reuse the application's settings and plugin hooks in your service. This uses `bub[app]`; [Reuse application plugins](https://bub.build/docs/build/reuse-plugins/) explains the integration choices and their requirements.
+
+## Customize the Bub app
+
+Start a conversation, then add tools, skills, plugins, or channels for the work you want Bub to do.
+
+Install on macOS or Linux:
 
 ```bash
 curl -fsSL https://bub.build/install.sh | bash
 ```
 
-Windows PowerShell:
+On Windows:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
 ```
 
-Then:
+Follow the prompts to choose plugins and configure your model, then start a conversation:
 
 ```bash
-bub chat                         # interactive session
-bub run "summarize this repo"    # one-shot task
-bub gateway                      # channel listener mode
+bub chat
 ```
 
-See [Getting Started](https://bub.build/docs/getting-started/) for installer presets and source installs, and [Configure](https://bub.build/docs/operate/configure/) for model and runtime settings.
+[Run your first conversation](https://bub.build/docs/getting-started/first-turn/) walks through a task in your workspace. [Customize the Bub app](https://bub.build/docs/build/) covers tools, plugins, and packaging. For `uv tool install` and other setup options, see [Install Bub](https://bub.build/docs/getting-started/install/#app-install).
 
-## Why Bub
+## Documentation
 
-- **Composable by design.** Every turn stage is a plugin hook. Override one stage or replace the whole flow without forking the runtime.
-- **Tape context.** Context is rebuilt from append-only records, not carried around as mutable session state. Easier to inspect, replay, and hand off.
-- **One runtime across surfaces.** The same inbound pipeline runs across CLI, Telegram, and custom channels. Adapters change the surface, not the runtime model.
-- **Batteries included.** CLI, Telegram, tools, skills, and model execution ship with the core runtime. Use the defaults first, replace them later.
-- **Operator equivalence.** Humans and agents work inside the same runtime boundaries, with the same evidence trail and handoff model.
-- **Embeddable Python SDK.** `pip install bub` installs only `bub.core`, which exposes the agent loop on its own (the CLI, channels and plugins come with `bub[app]`) — bring your own model, tools, prompts, and tape store, with no settings or plugins required.
-
-## How It Works
-
-Every inbound message goes through one turn pipeline. Each stage is a hook.
-
-```
-resolve_session → load_state → build_prompt → run_model
-                                                   ↓
-              dispatch_outbound ← render_outbound ← save_state
-```
-
-Builtins are registered first and external plugins load after them, so later plugins take precedence. There are no framework-only shortcuts.
-
-## Docs
-
-- [Getting Started](https://bub.build/docs/getting-started/) — install Bub and run the first turn
-- [Concepts](https://bub.build/docs/concepts/) — the mental model behind the runtime
-- [Python SDK](https://bub.build/docs/build/sdk/) — embed Bub's agent loop in your own application
-- [Build](https://bub.build/docs/build/) — write plugins, override hooks, ship tools and skills
-- [Bub Hub](https://hub.bub.build) — browse community plugins, skills, and distributions
-- [Channels](https://bub.build/docs/operate/channels/) — run Bub in CLI, Telegram, or your own channel
-- [Deployment](https://bub.build/docs/operate/deploy/) — Docker, environment, upgrades
+- [Choose a starting point](https://bub.build/docs/getting-started/)
+- [Shared concepts and capabilities](https://bub.build/docs/concepts/)
+- [API and application reference](https://bub.build/docs/reference/)
 
 ## Background
 

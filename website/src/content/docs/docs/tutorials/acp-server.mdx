@@ -1,15 +1,13 @@
 ---
-title: Use Bub as an ACP agent
+title: Connect an ACP editor
 description: Install bub-acp-server and connect Bub to an ACP-compatible editor such as Zed.
 sidebar:
   order: 6
 ---
 
-This tutorial shows how to expose Bub as an [Agent Client Protocol](https://agentclientprotocol.com/) agent. ACP is a protocol that standardizes communication between code editors and coding agents, so an editor can talk to an agent without a custom integration for each one.
+Use the Bub application from an editor that supports the [Agent Client Protocol](https://agentclientprotocol.com/). The `bub-acp-server` plugin connects the editor to the app's existing model configuration, tools, and conversation history.
 
-Bub already works through the command line and channel integrations such as IM gateways. ACP adds a practical path into graphical clients that already support the protocol, without requiring Bub to grow its own full editor UI first.
-
-By the end, you will have Bub available from an ACP-compatible editor. The example uses Zed because it supports custom ACP agents through `agent_servers`, but the Bub side is the same for any ACP client that launches an agent process over stdio.
+This guide uses Zed and starts the agent process over stdio. Check the CLI connection first, then add it to your editor.
 
 ## Before you begin
 
@@ -19,7 +17,7 @@ You need:
 - A working Bub model configuration. Confirm this outside the editor first with `bub run`.
 - An editor or client that can launch a custom ACP agent. This tutorial uses Zed.
 
-This tutorial does not configure a model provider. Bub reads its normal configuration and environment variables when the ACP process starts, just like `bub run` or `bub chat`.
+The ACP process reads the same Bub configuration and environment variables as `bub run` and `bub chat`.
 
 ## 1. Install the ACP server plugin
 
@@ -51,7 +49,7 @@ Run one turn from the same shell or environment that your editor will use:
 bub run "Reply with one short sentence: hello from Bub."
 ```
 
-Fix any Bub configuration or network issue here first. ACP only changes the transport between the editor and Bub; it does not replace Bub's model configuration.
+Resolve any configuration or network errors here before connecting the editor.
 
 If your Bub configuration is stored in a project `.env`, make sure the ACP process starts with that environment loaded. One portable way is to create a small wrapper script:
 
@@ -130,6 +128,6 @@ When the editor reopens an existing thread, `bub-acp-server` loads the matching 
 
 ## Next steps
 
-- [Configure](/docs/operate/configure/) — Bub's model and runtime settings.
-- [Turn pipeline](/docs/concepts/turn-pipeline/) — how Bub turns inbound messages into model calls and outbound messages.
-- [Build plugins](/docs/build/plugins/) — extend Bub with hooks, tools, and channels.
+- [Configure](/docs/operate/configure/): Bub's model and runtime settings.
+- [Turn pipeline](/docs/concepts/turn-pipeline/): how Bub turns inbound messages into model calls and outbound messages.
+- [Build plugins](/docs/build/plugins/): extend Bub with hooks, tools, and channels.

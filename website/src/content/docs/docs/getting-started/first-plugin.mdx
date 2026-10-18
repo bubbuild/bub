@@ -1,33 +1,30 @@
 ---
-title: Build Your First Plugin
-description: Build a minimal echo plugin, install it editable, and verify Bub loads its hooks.
+title: Write your first plugin
+description: Install a small echo plugin and verify that Bub uses it.
 sidebar:
   order: 4
 ---
 
-This tutorial walks through writing a minimal Bub plugin that overrides the model stage with an echo response, installs it into the active environment, and verifies the framework picked it up.
-
-The plugin needs no model credentials, so it is useful as both a smoke test and a starting template for real plugins.
+A plugin changes how the Bub app handles a task. This one replaces the model stage with an echo response, so you can check plugin discovery and turn processing without model credentials. To use the builtin agent's model calls and conversation recording, keep its model implementation.
 
 ## Before you begin
 
-You should have:
+Install Python 3.12+ and uv as described in [Install Bub](/docs/getting-started/install/). This tutorial creates a project environment containing Bub 0.6.0 and your plugin.
 
-- [Bub installed](/docs/getting-started/install/) in a `uv`-managed environment
-- a free directory outside your workspace where you can scaffold the plugin package
+## Create the package
 
-## 1. Scaffold the package
+Create this package layout:
 
-Create the package layout:
-
-```bash
-mkdir bub-echo-plugin
-cd bub-echo-plugin
-mkdir -p src/bub_echo_plugin
-touch src/bub_echo_plugin/__init__.py
+```text
+bub-echo-plugin/
+├── pyproject.toml
+└── src/
+    └── bub_echo_plugin/
+        ├── __init__.py
+        └── plugin.py
 ```
 
-Create `pyproject.toml`. The `[project.entry-points."bub"]` block is what makes the plugin discoverable:
+Leave `__init__.py` empty. Put this in `pyproject.toml`:
 
 ```toml
 [build-system]
@@ -38,7 +35,7 @@ build-backend = "hatchling.build"
 name = "bub-echo-plugin"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["bub[app]>=0.1"]
+dependencies = ["bub[app]>=0.6.0"]
 
 [project.entry-points."bub"]
 echo = "bub_echo_plugin.plugin:echo_plugin"
@@ -47,74 +44,51 @@ echo = "bub_echo_plugin.plugin:echo_plugin"
 packages = ["src/bub_echo_plugin"]
 ```
 
-## 2. Implement the plugin
+The `bub` entry-point group tells the application where to find the plugin.
 
-Create `src/bub_echo_plugin/plugin.py`. A plugin is any object whose methods are decorated with `@hookimpl`:
+## Implement the response
+
+Put this in `src/bub_echo_plugin/plugin.py`:
 
 ```python
-from __future__ import annotations
-
 from bub import hookimpl
 
 
 class EchoPlugin:
     @hookimpl
-    def build_prompt(self, message, session_id, state):
-        if hasattr(message, "content"):
-            return str(message.content)
-        if isinstance(message, dict):
-            return str(message.get("content", ""))
-        return str(message)
-
-    @hookimpl
     def run_model(self, prompt, session_id, state):
-        text = prompt if isinstance(prompt, str) else str(prompt)
-        return f"[echo:{session_id}] {text}"
+        return f"[echo:{session_id}] {prompt}"
 
 
 echo_plugin = EchoPlugin()
 ```
 
-`build_prompt` is a `firstresult` hook — the first non-None return value wins. `run_model` is also `firstresult`, so this implementation overrides the built-in agent entirely.
+The application still builds the incoming prompt. Your `run_model` implementation supplies the response instead of calling the builtin agent.
 
-## 3. Create the plugin environment
+## Install and try it
 
-From the plugin directory, sync the package and its dependencies into the plugin project's `.venv`:
+From the plugin directory, install the project and its dependencies:
 
 ```bash
 uv sync
-```
-
-`uv sync` installs the plugin package editable by default. The `uv run bub ...` commands below then run Bub from the same environment that contains the plugin entry point.
-
-If you instead want to install the plugin into an existing Bub checkout environment, activate that target virtualenv first, then run `uv pip install -e .`.
-
-## 4. Verify Bub loaded it
-
-Ask Bub for its hook report:
-
-```bash
 uv run bub hooks
 ```
 
-You should see `echo` listed under the `build_prompt` and `run_model` hook entries alongside `builtin`.
+`uv sync` installs this package in editable mode. Run Bub through `uv run` in the same project so it can discover the plugin.
 
-Now run a one-shot turn:
+The report should include `echo` under `run_model`. The builtin agent appears under `run_model_stream`.
 
 ```bash
-uv run bub run "hello from plugin tutorial"
+uv run bub run "hello from my plugin"
 ```
 
-The outbound message should contain:
+With no other plugin overriding the model stage, the response contains:
 
 ```text
-[echo:cli:local] hello from plugin tutorial
+[echo:cli:local] hello from my plugin
 ```
 
-If the response came from a real model instead, the plugin did not load — re-run `uv sync` in the plugin project, or ensure you installed it into the virtualenv that runs `bub`, then re-check `bub hooks`.
+If `echo` is missing, check that the package was installed in the environment running `bub`. If it is listed but another response wins, inspect the other model hooks and their [priority](/docs/reference/hooks/#iteration-order).
 
-## Next steps
-
-- [Build plugins](/docs/build/plugins/) — package layout, lifecycle, and discovery details.
-- [Hooks reference](/docs/reference/hooks/) — every hookspec, with signatures.
-- [Distribution](/docs/build/distribution/) — ship plugins plus skills as one package.
+- [Package a plugin](/docs/build/plugins/) explains discovery and entry-point choices.
+- [Change application behavior](/docs/build/hooks/) helps you choose a hook for your task.

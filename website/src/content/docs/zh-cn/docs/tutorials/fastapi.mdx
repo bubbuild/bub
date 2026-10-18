@@ -1,26 +1,31 @@
 ---
-title: 用 FastAPI 提供 Bub agent 服务
-description: 用 FastAPI 把 bub.core agent 暴露为 HTTP API，每个会话对应一段对话。
+title: 通过 FastAPI 提供 Agent 服务
+description: 为 Agent 提供 HTTP 接口，并为每个会话保留独立历史。
 sidebar:
   order: 7
 ---
 
-本教程把基于 `bub.core` 构建的 agent 作为 HTTP API 提供服务。每个请求都指定一个会话；同一会话的请求会延续同一段对话，
-对话以 tape 的形式保存在磁盘上。
+为 Agent 提供 HTTP 接口，让其他程序可以向它提交任务。每个请求指定会话名称；使用相同名称的请求会继续磁盘上保存的会话。
 
-你需要 Python 3.12+ 和某个模型提供方的 API key。示例通过 [Republic](https://github.com/bubbuild/republic) 使用 OpenAI；
-任何 Republic `provider:model` 都可以。
+本指南接续[构建自己的 Agent](/zh-cn/docs/build/sdk/)，直接使用 `core.Agent`。FastAPI 管理模型的生命周期，每个请求负责管理自己的 Agent 输出流。
 
 ## 安装
 
+需要 Python 3.12+ 和 OpenAI API key。创建项目，安装 Bub 与 Web 服务依赖：
+
 ```bash
-uv init bub-api && cd bub-api
+uv init bub-api
+cd bub-api
 uv add bub fastapi uvicorn
 ```
 
-## 编写应用
+这个服务使用基础 SDK 依赖，以及 FastAPI 和 Uvicorn。
 
-将以下内容保存为 `app.py`：
+如果要接入已有的 Bub 插件，见[复用应用插件](/zh-cn/docs/build/reuse-plugins/)。加入插件工具或指定 hooks 后，仍可沿用下面的接口与请求生命周期。
+
+## 编写服务
+
+保存为 `app.py`。订单工具返回示例数据，接入自己的服务时替换函数体即可。
 
 ```python
 import asyncio
@@ -39,7 +44,6 @@ from bub.core.tools import Tool
 
 async def lookup_order(order_id: str) -> dict[str, str]:
     """Look up the status of an order."""
-    # 将这个演示返回值替换为你应用中的订单服务。
     return {"order_id": order_id, "status": "shipped"}
 
 
@@ -56,7 +60,7 @@ def create_agent() -> Agent:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # API key 从 REPUBLIC_OPENAI_API_KEY 读取。
+    # The key comes from REPUBLIC_OPENAI_API_KEY.
     async with republic.get_model("openai:gpt-5-mini") as model:
         app.state.agent = create_agent()
         app.state.model = model
@@ -75,7 +79,7 @@ class Task(BaseModel):
 @app.post("/tasks")
 async def run_task(task: Task, request: Request):
     state = request.app.state
-    # 同一会话 tape 上的运行不能重叠；不同会话可以并发运行。
+    # Runs on one session's tape must not overlap; different sessions run concurrently.
     async with state.session_locks[task.session_id]:
         parts: list[str] = []
         error: str | None = None
@@ -90,16 +94,19 @@ async def run_task(task: Task, request: Request):
         return {"session_id": task.session_id, "output": "".join(parts)}
 ```
 
-lifespan 只打开一次 Republic 模型，并在服务关闭时关闭它。agent 不保存任何运行级状态，因此一个实例即可服务所有请求；
-每次运行使用该会话 tape 的 fork，离开 `async with agent.run(...)` 块时合并回去，运行失败时也是如此。
+FastAPI lifespan 在启动时打开 Republic 模型，并在关闭时释放。每个请求都用 `async with` 打开 Agent 流，退出时关闭流并合并 Tape 分支，Agent 运行失败时也会执行这些操作。
+
+会话锁避免两个请求同时基于同一份尚未完成的历史开始执行。不同会话可以并发运行。
 
 ## 运行
 
+在 shell 中设置 `REPUBLIC_OPENAI_API_KEY`，然后启动服务：
+
 ```bash
-REPUBLIC_OPENAI_API_KEY=... uv run uvicorn app:app
+uv run uvicorn app:app
 ```
 
-在另一个终端中开始一段对话，再用同一个 `session_id` 继续：
+在另一个终端中，用相同会话 ID 发送两次请求：
 
 ```bash
 curl -s localhost:8000/tasks -H 'content-type: application/json' \
@@ -109,17 +116,14 @@ curl -s localhost:8000/tasks -H 'content-type: application/json' \
   -d '{"session_id": "customer-42", "prompt": "And when did it ship?"}'
 ```
 
-第二次回答可以引用第一次的内容，因为两次运行读取的都是 `sessions/` 下的 `customer-42` tape。
+两次运行都读取 `sessions/` 下的 `customer-42` Tape，因此第二次回答可以参考第一次交互。示例订单只有状态，没有发货日期，Agent 无法从中查到日期。
 
-## 部署之前
+## 支持更多会话
 
-- `session_locks` 会随会话数量增长；长期运行的服务需要清理空闲的锁。
-- 这些锁只能让同一进程内的运行串行。多个 worker 进程共享同一个 store 时需要跨进程协调，例如使用数据库中的锁；
-  文件写锁并不能让一次运行串行化。
-- `FileTapeStore` 适合单机。多台主机共享会话时，请使用基于数据库的 store，参见
-  [使用 SQLAlchemy 将 tape 持久化到 SQLite](/zh-cn/docs/tutorials/tapestore-sqlalchemy/)。
+示例为每个会话保留一个内存锁。长期创建大量会话的服务应清理空闲锁。这些锁只在单进程内生效；多个 worker 共享 Tape 存储时，需要跨进程协调。协调范围应覆盖整轮运行，包括模型调用和 Tape 写入。
 
-## 下一步
+`FileTapeStore` 将历史保存在一台主机上。使用其他后端时，实现 `TapeStore` 或 `AsyncTapeStore`，再传给 `Agent(store=...)`，详见[选择历史存储位置](/zh-cn/docs/concepts/tape-and-context/#storage)。如果存储连接需要打开和关闭，也应纳入应用的 lifespan。
 
-- 添加工具、system prompt section 和事件处理器：阅读 [Python SDK](/zh-cn/docs/build/sdk/)。
-- 端到端追踪请求：阅读 [使用 tape、Phoenix 与 Logfire 观察 Bub](/zh-cn/docs/tutorials/observability/)。
+## 扩展服务
+
+通过[工具或 CodeMode](/zh-cn/docs/build/tools/)增加动作，用[事件处理器](/zh-cn/docs/concepts/events/)观察调用或在执行前作出决定，通过 [TapeContext](/zh-cn/docs/concepts/tape-and-context/#context)选择交给模型的内容。

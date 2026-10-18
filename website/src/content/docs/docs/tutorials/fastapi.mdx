@@ -1,26 +1,31 @@
 ---
-title: Serve a Bub agent with FastAPI
-description: Expose a bub.core agent over HTTP with FastAPI, with one conversation per session.
+title: Serve your agent with FastAPI
+description: Give your Agent an HTTP endpoint and keep a separate conversation for each session.
 sidebar:
   order: 7
 ---
 
-This tutorial serves an agent built from `bub.core` as an HTTP API. Each request names a session; requests with
-the same session continue one conversation, stored as a tape on disk.
+Give your Agent an HTTP endpoint so another program can send it work. Each request names a session; requests with the same name continue a conversation stored on disk.
 
-You need Python 3.12+ and an API key for a model provider. The example uses OpenAI through
-[Republic](https://github.com/bubbuild/republic); any Republic `provider:model` spec works.
+This guide follows [Build your own agent](/docs/build/sdk/). It uses `core.Agent` directly, with FastAPI managing the model's lifetime and each request managing its agent stream.
 
 ## Install
 
+Use Python 3.12+ and an OpenAI API key. Create a project and install Bub with the web server dependencies:
+
 ```bash
-uv init bub-api && cd bub-api
+uv init bub-api
+cd bub-api
 uv add bub fastapi uvicorn
 ```
 
-## Write the app
+This service uses the base SDK dependencies together with FastAPI and Uvicorn.
 
-Save this as `app.py`:
+To add an existing Bub plugin, follow [Reuse application plugins](/docs/build/reuse-plugins/). You can add its tools or selected hooks while keeping the endpoint and request lifecycle below.
+
+## Write the service
+
+Save this as `app.py`. The order tool returns demonstration data; replace its body when connecting your own service.
 
 ```python
 import asyncio
@@ -39,7 +44,6 @@ from bub.core.tools import Tool
 
 async def lookup_order(order_id: str) -> dict[str, str]:
     """Look up the status of an order."""
-    # Replace this demonstration response with your application's order service.
     return {"order_id": order_id, "status": "shipped"}
 
 
@@ -90,17 +94,19 @@ async def run_task(task: Task, request: Request):
         return {"session_id": task.session_id, "output": "".join(parts)}
 ```
 
-The lifespan opens the Republic model once and closes it on shutdown. The agent keeps no per-run state, so one
-instance serves every request; each run works on a fork of the session's tape that merges back when the
-`async with agent.run(...)` block exits, even if the run fails.
+The FastAPI lifespan opens the Republic model once and closes it on shutdown. Each request opens an agent stream with `async with`, which closes the stream and merges the tape fork even when the request's agent run fails.
+
+The per-session lock keeps two requests from starting with the same incomplete history. Different sessions can run concurrently.
 
 ## Run it
 
+Set `REPUBLIC_OPENAI_API_KEY` in your shell, then start the server:
+
 ```bash
-REPUBLIC_OPENAI_API_KEY=... uv run uvicorn app:app
+uv run uvicorn app:app
 ```
 
-In another terminal, start a conversation and continue it with the same `session_id`:
+In another terminal, send two requests with the same session ID:
 
 ```bash
 curl -s localhost:8000/tasks -H 'content-type: application/json' \
@@ -110,18 +116,14 @@ curl -s localhost:8000/tasks -H 'content-type: application/json' \
   -d '{"session_id": "customer-42", "prompt": "And when did it ship?"}'
 ```
 
-The second answer can refer to the first because both runs read the `customer-42` tape under `sessions/`.
+The second answer can refer to the first because both runs read the `customer-42` tape under `sessions/`. The example order data only contains a status, so the agent has no shipping date to report.
 
-## Before deploying
+## Prepare for more sessions
 
-- `session_locks` grows with every session; evict idle locks in a long-running service.
-- The locks only serialize runs inside one process. Multiple worker processes sharing a store need coordination
-  across workers, such as a lock in your database; a file write lock does not serialize a run.
-- `FileTapeStore` suits one host. Use a database-backed store, as in
-  [Persist tapes in SQLite with SQLAlchemy](/docs/tutorials/tapestore-sqlalchemy/), when several hosts share
-  sessions.
+The example keeps a lock for each session in memory. A service that creates many sessions should remove idle locks. These locks work within one process; multiple workers sharing a tape store need coordination across processes. That coordination must cover the whole run, including model calls and tape writes.
 
-## Next steps
+`FileTapeStore` keeps history on one host. To use another backend, implement `TapeStore` or `AsyncTapeStore` and pass it to `Agent(store=...)`; see [Choose where history lives](/docs/concepts/tape-and-context/#storage). Give that store's connections an application lifespan when they need opening and closing.
 
-- Add tools, system prompt sections, and event handlers: read the [Python SDK](/docs/build/sdk/) guide.
-- Trace requests end to end: read [Observe Bub with tapes, Phoenix, and Logfire](/docs/tutorials/observability/).
+## Extend the service
+
+Add [tools or CodeMode](/docs/build/tools/) to give the agent new actions. Use [event handlers](/docs/concepts/events/) to observe calls or enforce a decision before execution. Choose what the model sees through [TapeContext](/docs/concepts/tape-and-context/#context).

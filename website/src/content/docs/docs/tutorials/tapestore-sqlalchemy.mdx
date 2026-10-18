@@ -1,17 +1,13 @@
 ---
-title: Persist tapes in SQLite with SQLAlchemy
-description: Replace Bub's file-based tape store with one local SQLite database through the SQLAlchemy tape store plugin.
+title: Store app history in SQLite
+description: Replace the Bub application's file store with SQLite through a tape store plugin.
 sidebar:
   order: 2
 ---
 
-Many agent implementations lean on files — JSONL transcripts, Markdown notes, local caches — to carry context and memory, then attach a separate service when they need observability. Bub's [tape model](/docs/concepts/tape-and-context/) (see [tape.systems](https://tape.systems)) names the underlying abstraction instead of the medium: the same append-only record can rebuild context, carry memory-oriented facts, and serve as the operational log you inspect when something goes wrong.
+Store the Bub application's conversation history in a local SQLite database with [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy). The plugin replaces the app's default file store; you can continue using `,tape.info` and `,tape.search` to inspect records.
 
-That does not require a database. The default store writes one JSONL file per tape under `~/.bub/tapes/`, which is simple and portable. But the abstraction is also a natural fit for databases: when tape entries live in a database, you can start using database strengths — query planning, indexes, transactional writes, backup workflows, and storage scaling — without changing Bub's turn pipeline.
-
-This tutorial uses [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy) to replace Bub's file store with one local SQLite database that you can inspect with standard SQL tooling.
-
-The [`,tape.info`](/docs/tutorials/observability/) and `,tape.search` workflow stays unchanged. Only the tape store changes.
+This guide configures the plugin for the Bub CLI through `BUB_*` settings. In your own Python program, you can construct `SQLAlchemyTapeStore` and pass it directly to `core.Agent`; see [Reuse plugins in your agent](/docs/build/reuse-plugins/). [Tape and context](/docs/concepts/tape-and-context/) explains the shared storage behavior.
 
 ## Before you begin
 
@@ -97,7 +93,7 @@ sqlite3 "$PWD/bub-tapes.db" \
 1|session/start|2026-05-15T01:27:57Z
 ```
 
-That is the full storage switch: Bub still records append-only tape entries, but they now live in a SQLite database instead of per-tape JSONL files.
+Bub now writes the same tape entries to SQLite instead of the app's default files.
 
 ## 5. Extend the backend
 
@@ -114,6 +110,6 @@ rm -f "$PWD/bub-tapes.db"
 
 ## Next steps
 
-- [Observe Bub with tapes and Phoenix](/docs/tutorials/observability/) — pair the durable tape with GenAI telemetry.
-- [Tape and context](/docs/concepts/tape-and-context/) — what Bub records and how context is rebuilt.
-- [Plugins](/docs/build/plugins/) — the plugin contract `bub-tapestore-sqlalchemy` follows.
+- [Observe Bub with tapes and Phoenix](/docs/tutorials/observability/): pair the durable tape with GenAI telemetry.
+- [Tape and context](/docs/concepts/tape-and-context/): what Bub records and how context is rebuilt.
+- [Plugins](/docs/build/plugins/): the plugin contract `bub-tapestore-sqlalchemy` follows.

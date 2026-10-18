@@ -1,35 +1,33 @@
 ---
-title: Connect MCP Servers with bub-mcp
+title: Connect MCP servers
 description: Install the bub-mcp plugin, register a time MCP server, and call its tools from a Bub turn.
 sidebar:
   order: 2
 ---
 
-This tutorial wires a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server into Bub through the `bub-mcp` plugin. MCP servers expose external capabilities — APIs, local tools, data sources — that Bub can call as tools during a turn.
+Connect an MCP server to the Bub application with the `bub-mcp` plugin. This guide registers a time server, checks the connection, and calls one of its tools.
 
-By the end you will have the official `mcp-server-time` registered with Bub and verified as connected. From there, swapping in any other stdio, HTTP, or SSE server is a one-line change.
+The integration uses the app's plugin system and lifecycle. For tool definitions shared with direct Agent use, see [Tools](/docs/build/tools/).
 
 ## Before you begin
 
 You need:
 
-- Bub installed and runnable with `bub --help`.
+- The [Bub application](/docs/getting-started/install/#app-install), with `bub --help` working.
 - [`uv`](https://docs.astral.sh/uv/) on `PATH` so `uvx mcp-server-time` can launch the [time MCP server](https://pypi.org/project/mcp-server-time/) on demand.
 - A working model provider if you want to call the MCP tool from a real turn (see the final section).
 
 ## 1. Install bub-mcp
 
-`bub-mcp` lives in [`bubbuild/bub-contrib`](https://github.com/bubbuild/bub-contrib) and is not on PyPI. Use `bub install` — it resolves bare names against bub-contrib when given an `@<ref>` suffix:
+`bub-mcp` lives in [`bubbuild/bub-contrib`](https://github.com/bubbuild/bub-contrib). Use `bub install` to resolve names against bub-contrib with an `@<ref>` suffix:
 
 ```bash
 bub install bub-mcp@main
 ```
 
-`bub install` requires Bub itself to run from a virtual environment (see [`bub install`](/docs/reference/cli/#bub-install)). The standalone installer already creates one at `~/.bub/.venv/` (or `$BUB_HOME/.venv/`). When running from a source checkout, invoke the command with `uv run bub install bub-mcp@main` instead.
+`bub install` uses the active Bub environment. See the [CLI reference](/docs/reference/cli/#bub-install) for plugin source and dependency handling.
 
-The installer's `recommended` preset includes `bub-mcp` and `bub-agent-plugins`. If you selected it, both are
-already installed. [Agent Plugins](/docs/tutorials/agent-plugins/) can load skills and their own MCP servers
-alongside the servers in this tutorial, using a separate lifecycle channel and plugin-qualified tool names.
+[Agent Plugins](/docs/tutorials/agent-plugins/) can also load skills and their own MCP servers alongside these servers. That integration uses a separate lifecycle channel and plugin-qualified tool names.
 
 Verify the plugin loaded:
 
@@ -65,7 +63,7 @@ cat > ~/.bub/mcp.json <<'EOF'
 EOF
 ```
 
-For stdio servers, `command` is required; `args` and `env` are optional. The presence of `command` selects stdio — there is no `transport` field on stdio entries.
+For stdio servers, `command` is required; `args` and `env` are optional. The presence of `command` selects stdio; there is no `transport` field on stdio entries.
 
 ## 3. Verify the server is connected
 
@@ -108,15 +106,15 @@ bub gateway --enable-channel cli --enable-channel mcp.lifecycle
 
 Wait a few seconds after `channel.manager started listening` so the MCP bootstrap can complete, then ask Bub a question that needs the time server (for example, `What time is it right now in UTC?`). The model should call `mcp.time_get_current_time` and include the result in its reply.
 
-If the model answers without calling the MCP tool, the bootstrap had not finished yet when the turn started — wait longer or send a warm-up message first. The bootstrap is asynchronous (`asyncio.create_task`), so it does not block channel startup, but it also does not block the first turn.
+If the model answers without calling the tool, check that server startup has finished, then ask it explicitly to use the time tool. MCP startup runs in the background, so the first turn can begin before the tools are available.
 
-For long-running deployments, see [Deploy](/docs/operate/deploy/) — the same gateway invocation is what runs in the container image.
+For long-running deployments, see [Deploy](/docs/operate/deploy/); the same gateway invocation is what runs in the container image.
 
 ## Add other server types
 
 Edit `~/.bub/mcp.json` to add more entries under `mcpServers`. Each transport has its own shape.
 
-**HTTP** — `url` plus `transport: "http"`, with optional `headers`:
+**HTTP**: `url` plus `transport: "http"`, with optional `headers`:
 
 ```json
 {
@@ -127,7 +125,7 @@ Edit `~/.bub/mcp.json` to add more entries under `mcpServers`. Each transport ha
 }
 ```
 
-**SSE** — `url` plus `transport: "sse"`, with optional `headers`:
+**SSE**: `url` plus `transport: "sse"`, with optional `headers`:
 
 ```json
 {
@@ -139,7 +137,7 @@ Edit `~/.bub/mcp.json` to add more entries under `mcpServers`. Each transport ha
 }
 ```
 
-**Another stdio server** — for example, the Node [`@modelcontextprotocol/server-filesystem`](https://www.npmjs.com/package/@modelcontextprotocol/server-filesystem) over `npx`. Add allowed directories as positional `args`, and pass credentials through `env`:
+**Another stdio server**: for example, the Node [`@modelcontextprotocol/server-filesystem`](https://www.npmjs.com/package/@modelcontextprotocol/server-filesystem) over `npx`. Add allowed directories as positional `args`, and pass credentials through `env`:
 
 ```json
 {
@@ -178,13 +176,12 @@ bub mcp remove time
 |---|---|
 | `mcp` does not appear in `bub hooks` | The plugin was installed outside the environment used by `bub`. Re-install it with the same `bub` executable. |
 | `bub mcp list` reports `Status: Disconnected` | Run the configured `command` (or open the `url`) outside Bub and confirm it starts cleanly; the error column shows the underlying cause. |
-| `bub mcp add` prints `CancelledError` after `Added MCP server …` | Cosmetic only — the entry is written. Use `bub mcp list` to verify, or edit `mcp.json` by hand. |
+| `bub mcp add` prints `CancelledError` after `Added MCP server …` | The entry may already be written. Use `bub mcp list` to verify, or edit `mcp.json` by hand. |
 | Tool never called during a turn | Confirm `bub mcp list` shows `Status: Connected` and lists the expected tool, then ask a question that clearly maps to that tool. |
 | Permission denied on `mcp.json` | Verify `~/.bub/` is writable, or set `BUB_HOME` to a directory you own. |
 
 ## Next steps
 
-- [Load Agent Plugins](/docs/tutorials/agent-plugins/) — load portable skills and MCP servers alongside `mcp.json`.
-- [Build plugins](/docs/build/plugins/) — write your own Bub plugins.
-- [Configure](/docs/operate/configure/) — Bub's config layer and environment variables.
-- [bub-mcp source](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp) — the plugin's full source and advanced options.
+- [Load Agent Plugins](/docs/tutorials/agent-plugins/): load portable skills and MCP servers alongside `mcp.json`.
+- [Configure](/docs/operate/configure/): Bub's config layer and environment variables.
+- [bub-mcp source](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp): the plugin's full source and advanced options.

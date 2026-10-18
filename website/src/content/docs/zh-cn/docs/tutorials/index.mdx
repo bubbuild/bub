@@ -1,24 +1,26 @@
 ---
-title: 教程
-description: 通过运行时反馈学习 Bub 的实际操作流程。
+title: 把 Bub 接入你的工具
+description: 接入 HTTP 服务、编辑器、模型服务或应用扩展。
 sidebar:
   order: 0
 ---
 
-教程是面向学习的上手路径。需要先完整走通一个工作流，再把它沉淀为运维手册时，从这里开始。
+按你使用 Bub 的方式选择接入指南。每篇指南会说明所需组件，并给出检查结果的方法。
 
-## 本节内容
+## 构建自己的 Agent
 
-1. [使用 tape 与 Phoenix 观察 Bub](/zh-cn/docs/tutorials/observability/) — 先检查 Bub 自身的 tape，再把 OpenTelemetry GenAI trace 导出到 Phoenix。
-2. [使用 bub-mcp 连接 MCP 服务器](/zh-cn/docs/tutorials/mcp/) — 安装 MCP 插件，接入时间服务器，并在 Bub turn 中调用。
-3. [使用 SQLAlchemy 将 tape 持久化到 SQLite](/zh-cn/docs/tutorials/tapestore-sqlalchemy/) — 把基于文件的 tape store 换成本地 SQLite 数据库。
-4. [使用本地 llama.cpp 模型运行 Bub](/zh-cn/docs/tutorials/local-llama-cpp/) — 把 GGUF Gemma 模型暴露成本地 OpenAI-compatible endpoint。
-5. [加载 Agent Plugins](/zh-cn/docs/tutorials/agent-plugins/) — 加载可移植的 skill 和 MCP 服务器，与现有 Bub 扩展一起使用。
-6. [实验性：使用其他语言扩展 Bub](/zh-cn/docs/tutorials/language-extensions/) — 保持 Bub 作为 Python 宿主，把部分 hooks 放到 Go、Rust 或其他语言中实现，并通过 pluggy、WebAssembly 和 Extism 接回 Bub。
-7. [将 Bub 作为 ACP agent 使用](/zh-cn/docs/tutorials/acp-server/) — 把 Bub 接入 Zed 等支持 ACP 的图形客户端。
-8. [用 FastAPI 提供 Bub agent 服务](/zh-cn/docs/tutorials/fastapi/) — 把 `bub.core` agent 暴露为 HTTP API，每个会话对应一段对话。
+- [用 FastAPI 提供 Agent 服务](/zh-cn/docs/tutorials/fastapi/)：把 `core.Agent` 接入 HTTP 服务，由服务管理会话存储。
 
-## 下一步
+## 定制 Bub 应用
 
-- 需要先理解运行时模型？阅读 [Turn pipeline](/zh-cn/docs/concepts/turn-pipeline/)。
-- 需要持久化部署配置？阅读 [配置](/zh-cn/docs/operate/configure/)。
+这些指南使用应用的 CLI、配置或插件机制。先[安装 Bub 应用](/zh-cn/docs/getting-started/install/)，把 Bub 和插件放在同一个环境中。
+
+- [连接 MCP 服务器](/zh-cn/docs/tutorials/mcp/)：调用 MCP 服务器提供的工具。
+- [加载 Agent Plugins](/zh-cn/docs/tutorials/agent-plugins/)：加载包含 skills 和 MCP 服务器的可移植插件包。
+- [接入 ACP 编辑器](/zh-cn/docs/tutorials/acp-server/)：在 Zed 等编辑器中使用 Bub。
+- [使用本地 llama.cpp 模型](/zh-cn/docs/tutorials/local-llama-cpp/)：让应用调用本地模型服务。
+- [把会话历史存入 SQLite](/zh-cn/docs/tutorials/tapestore-sqlalchemy/)：通过插件替换应用的文件存储。
+- [检查会话记录和执行轨迹](/zh-cn/docs/tutorials/observability/)：查看本地记录，或将轨迹导出到 Phoenix 和 Logfire。
+- [用其他语言实现 hooks](/zh-cn/docs/tutorials/language-extensions/)：尝试实验性的 WebAssembly 接入。
+
+各集成指南都提供插件文档链接，可据此查看该插件的具体配置方式。

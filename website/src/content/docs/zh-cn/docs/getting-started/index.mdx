@@ -1,52 +1,26 @@
 ---
-title: 快速开始
-description: 选择与你身份匹配的路径——运维者、插件作者或发行版作者，端到端跑通 Bub。
+title: 构建适合你工作的 Bub
+description: 把 Agent 接入自己的 Python 程序，或从现成的 Bub 应用开始定制。
 sidebar:
   order: 0
 ---
 
-本页介绍 Bub，并帮你从三种使用路径中选一种，让本节其余文档按合理顺序展开。
+把 Agent 接入自己的 Python 程序，或从现成的 Bub 应用开始定制。Bub 应用使用同一个 Agent 内核，并提供配置、插件和渠道接入。
 
-Bub 是一个用于在共享环境中构建 agent 的小型 Python 框架。内核负责单一的 turn pipeline，其余一切都是插件：channel、tool、skill 和存储后端按需启用。
+## 构建自己的 Agent
 
-## 在开始之前
+选择模型和工具，用 `bub.core.Agent` 组合 Agent，再接入自己的程序。先定义一个查询订单状态的工具，让 Agent 调用一次。
 
-你需要准备：
+[构建自己的 Agent](/zh-cn/docs/build/sdk/)会带你跑通这个 Python 示例。需要 HTTP 接口时，继续阅读 [FastAPI 接入](/zh-cn/docs/tutorials/fastapi/)。
 
-- macOS 与 Linux 上的 `curl`，或 Windows 上的 PowerShell
-- 可以访问 `bub.build`、`astral.sh` 和 PyPI 的网络连接
-- 一种模型访问方式，用于 model-backed 阶段：
-  - 通过 `BUB_API_KEY` 或提供商专用 `BUB_<PROVIDER>_API_KEY` 导出的 API key，或
-  - 通过 `bub login codex` 完成 OpenAI Codex OAuth，并设置 `BUB_MODEL=codex:<model>`
+## 定制 Bub 应用
 
-如果只想检查 Bub 而不实际跑一次 model turn，API key 是可选的——`,help` 等 comma 命令无需它即可使用。
+先运行 Bub，再通过配置和插件添加需要的行为。这条路线也包含 skills、渠道和部署。
 
-## 三种使用路径
+从[运行第一轮对话](/zh-cn/docs/getting-started/first-turn/)开始；应用跑通后，到[定制 Bub 应用](/zh-cn/docs/build/)选择下一步要扩展的部分。
 
-Bub 服务三类受众。请挑选一条与你当前目标匹配的路径：
+## 用到时，再查共同机制
 
-- **运维者** — 你想运行一个 Bub 实例、配置 channel 并部署。
-  阅读本节，之后转到 [Operate Bub](/zh-cn/docs/operate/) 了解配置、channel 与部署。
-- **插件作者** — 你想用新的 hook、tool 或 skill 扩展 Bub。
-  阅读本节直至 [构建你的第一个插件](/zh-cn/docs/getting-started/first-plugin/)，之后转到 [Build Plugins](/zh-cn/docs/build/) 查看完整扩展契约。
-- **发行版作者** — 你想为某个具体场景打包 Bub 与一组精选插件。
-  先阅读本节，之后查看 [Distribution](/zh-cn/docs/build/distribution/) 了解打包约定。
+工具、会话历史和事件的工作方式共用一份[说明](/zh-cn/docs/concepts/)。各自的指南给出接入步骤和默认行为。
 
-三类受众共享同一个起点：安装 Bub、跑一次 turn、确认运行时健康。
-
-## 推荐路径
-
-按顺序阅读以下页面：
-
-1. [安装 Bub](/zh-cn/docs/getting-started/install/) — 从 PyPI 或源码安装，或将 Bub 作为框架依赖固定，并用 `bub hooks` 验证。
-2. [运行你的第一次 turn](/zh-cn/docs/getting-started/first-turn/) — 创建 workspace、写 `AGENTS.md`、发送 `,help`，再跑一次 model-backed turn。
-3. [编写你的第一个 skill](/zh-cn/docs/getting-started/first-skill/) — 在 `.agents/skills/` 下编写一个项目 skill，并在 turn 中调用它。
-4. [构建你的第一个插件](/zh-cn/docs/getting-started/first-plugin/) — 通过 Python entry points 发布最小插件并验证加载。
-
-如果你想先理解概念模型，请在动手之前阅读 [Concepts](/zh-cn/docs/concepts/)。
-
-## 下一步
-
-- [安装 Bub](/zh-cn/docs/getting-started/install/) — 进入推荐路径。
-- [Concepts](/zh-cn/docs/concepts/) — 在扩展 Bub 之前理解内核模型。
-- [CLI 参考](/zh-cn/docs/reference/cli/) — 查看本节使用的所有命令。
+按所选路线[安装 Bub](/zh-cn/docs/getting-started/install/)，然后运行第一个示例。

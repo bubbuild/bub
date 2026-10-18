@@ -1,143 +1,151 @@
 ---
-title: Hook recipes
-description: Cookbook of common Bub hook patterns — override prompt, replace model, wrap parent stream, persist state, provide tape store, add channel, register CLI command, onboard config.
+title: Change application behavior
+description: Use hooks to shape prompts, control calls, save application state, and provide resources.
 sidebar:
   order: 2
 ---
 
-This page collects working recipes for the most common hook patterns. Each recipe is grounded in the actual signature from [`src/bub/hooks/specs.py`](https://github.com/bubbuild/bub/blob/main/src/bub/hooks/specs.py). For the full hook contract — argument types, sync/async rules, and `firstresult` semantics — see the [Hook reference](/docs/reference/hooks/).
+Choose a hook at the point where you want to change the Bub app. Keep the rest of the application in place: a prompt hook changes the input, a tool decision controls one call, and a store provider changes where conversation history lives.
 
-## Before you begin
+These examples belong in a [plugin](/docs/build/plugins/). Module-level functions can use a module entry point. For a class, register an instance or a factory that accepts the framework.
 
-- A plugin package wired to the `bub` entry-point group (see [Plugins](/docs/build/plugins/)).
-- The marker `from bub import hookimpl` available in your module.
+The [hooks reference](/docs/reference/hooks/) defines signatures, priority, and lifecycle rules.
 
-A **hook** is a named extension point declared on `BubHookSpecs`; your plugin contributes implementations that Bub calls during a turn.
+## Change the prompt
 
-Several recipes below use plugin classes. Register those classes through a callable entry point such as `pkg.plugin:MyPlugin`, or create a module-level instance and point the entry point at that instance. A bare module target only registers module-level `@hookimpl` functions.
-
-## 1. Override the prompt
-
-Replace the text Bub sends to the model. `build_prompt` is `firstresult`, so the highest-priority implementation wins.
+Use `build_prompt` to replace the incoming content:
 
 ```python
 from bub import hookimpl
-
-
-class PrefixPrompt:
-    @hookimpl
-    def build_prompt(self, message, session_id, state):
-        content = message["content"] if isinstance(message, dict) else message.content
-        return f"[prefix] {content}"
-```
-
-To observe this directly, pair it with an echo `run_model` hook that returns the prompt, or inspect the prompt in a test. A normal `uv run bub run "hello"` prints the final outbound text, not the raw prompt sent to the model.
-
-## 2. Replace the model
-
-Implement `run_model` to swap the model stage with any callable that returns a string. The shape below mirrors [`bub-codex`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-codex), which delegates to another agent CLI:
-
-```python
-import asyncio
-
-from bub import hookimpl
-from bub.turn import TurnState
+from bub.envelope import content_of
 
 
 @hookimpl
-async def run_model(prompt: str, session_id: str, state: TurnState) -> str:
-    proc = await asyncio.create_subprocess_exec(
-        "codex", "e", prompt,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    return stdout.decode()
+def build_prompt(message, session_id, state):
+    return f"Answer using the project's terminology.\n\n{content_of(message)}"
 ```
 
-:::caution
-Implement `run_model` **or** `run_model_stream`, not both. If a plugin only implements `run_model`, the framework wraps the result in a one-chunk stream when streaming is requested.
-:::
+This text-only example reads the envelope through `content_of`. For media, return the user content types described in the [reference](/docs/reference/hooks/#prompt-content).
 
-## 3. Wrap the parent stream
-
-To observe or transform the existing model stream without replacing it, implement `run_model_stream` and use pluggy's `subset_hook_caller` to call the chain *without your plugin*:
-
-```python
-from bub.streaming import AsyncStreamEvents
-
-from bub import BubFramework, hookimpl
-
-
-class StreamTap:
-    def __init__(self, framework: BubFramework) -> None:
-        self.framework = framework
-
-    @hookimpl
-    async def run_model_stream(self, prompt, session_id, state):
-        parent = self.framework._plugin_manager.subset_hook_caller(
-            "run_model_stream", remove_plugins=[self]
-        )
-        upstream = await parent(prompt=prompt, session_id=session_id, state=state)
-        if upstream is None:
-            raise RuntimeError("no parent run_model_stream implementation")
-
-        async def iterator():
-            async for event in upstream:
-                if event.kind == "text":
-                    print(event.data.get("delta", ""), end="")
-                yield event
-
-        return AsyncStreamEvents(iterator(), state=upstream._state)
-```
-
-Use this for logging, redaction, or telemetry — without reimplementing the underlying model call.
-
-## 4. Persist state across turns
-
-`load_state` runs at the start of each turn; `save_state` runs in `finally` after the model output is produced. The two together let you carry per-session data forward and tear it down safely. Lifespan hand-off is the canonical case:
+To add a system instruction while keeping the incoming prompt, contribute a `system_prompt` fragment instead:
 
 ```python
 from bub import hookimpl
 
 
-class SessionStorePlugin:
+@hookimpl
+def system_prompt(prompt, state):
+    return "Explain which files support your answer."
+```
+
+<a id="control-calls"></a>
+
+## Control a model or tool call
+
+Use the agent interception hooks when you want to retain the builtin agent and change an individual call. For example, cap a request's output tokens:
+
+```python
+from dataclasses import replace
+
+from bub import hookimpl
+from bub.hooks.interception import LLMCallRequest
+
+
+@hookimpl
+def before_llm_call(request: LLMCallRequest, state):
+    return replace(request, max_tokens=min(request.max_tokens or 512, 512))
+```
+
+Return a decision to prevent a tool from running:
+
+```python
+from bub import hookimpl
+from bub.hooks.interception import ToolCall, ToolCallDecision
+
+
+@hookimpl
+def before_tool_call(call: ToolCall, state):
+    if call.tool == "orders.cancel" and not state.get("can_cancel_orders", False):
+        return ToolCallDecision.deny("This session cannot cancel orders.")
+    return None
+```
+
+Your authorization logic sets `can_cancel_orders`; the hook uses that value to allow or deny the call.
+
+An exception in these interception hooks is logged and skipped. Use `deny`, `replace`, or `LLMCallDecision.finish` for control. The [interception contract](/docs/reference/hooks/#agent-loop-hooks-pluginagenthooks) explains when a decision stops the chain.
+
+## Observe completed calls
+
+For call metrics, use the completion hooks:
+
+```python
+from bub import hookimpl
+
+
+@hookimpl
+def after_llm_call(request, result, state):
+    print(f"model={request.model} duration_ms={result.duration_ms} error={result.error!r}")
+
+
+@hookimpl
+def after_tool_call(call, result, state):
+    print(f"tool={call.tool} duration_ms={result.duration_ms} error={result.error!r}")
+```
+
+These hooks observe completed calls, including ordinary failures. They do not report cancellation. For per-chunk output, use the stream interface in your host or channel and follow its [closing rules](/docs/reference/types/#streaming).
+
+To replace the entire model stage, implement either `run_model` or `run_model_stream`. [Your first plugin](/docs/getting-started/first-plugin/) shows a text replacement. A replacement owns its execution and recording behavior; the builtin agent's interception hooks run only when that agent is used.
+
+## Keep application state across turns
+
+The framework builds a fresh state dictionary for each inbound turn. Use `load_state` and `save_state` to carry your application's own values between turns:
+
+```python
+from bub import hookimpl
+
+
+class TurnCounter:
     def __init__(self) -> None:
-        self._sessions: dict[str, list[dict[str, object]]] = {}
+        self.counts: dict[str, int] = {}
 
     @hookimpl
     def load_state(self, message, session_id):
-        return {"history": self._sessions.get(session_id, [])}
+        return {"completed_turns": self.counts.get(session_id, 0)}
 
     @hookimpl
     def save_state(self, session_id, state, message, model_output):
-        history = state.get("history", [])
-        history.append({"in": message, "out": model_output})
-        self._sessions[session_id] = history
+        self.counts[session_id] = state["completed_turns"] + 1
+
+
+turn_counter = TurnCounter()
 ```
 
-A **state** dict is the per-turn workspace passed through every stage. See [Tape and context](/docs/concepts/tape-and-context/) for how this relates to recorded tapes.
+This in-memory example counts model-stage exits, including failures. It resets when the process exits and assumes one turn at a time per session. Use durable storage and an appropriate concurrency strategy for production state.
 
-## 5. Provide a tape store
+`save_state` runs in the model stage's `finally` block, after session, state, and prompt preparation have succeeded. Errors during that preparation skip the save hook. Conversation history has a separate [Tape lifecycle](/docs/concepts/tape-and-context/#state).
 
-A **tape** is a recorded conversation thread. `provide_tape_store` is `firstresult` and resolved when the framework runtime scope opens. Return a store instance, or yield one for setup/teardown.
+## Provide a tape store
+<span id="5-provide-a-tape-store"></span>
+
+Return the store you want the application to use:
 
 ```python
+from pathlib import Path
+
 from bub import hookimpl
+from bub.core.store import FileTapeStore
 
 
 @hookimpl
 def provide_tape_store():
-    from bub_tapestore_sqlite.store import SQLiteTapeStore
-
-    return SQLiteTapeStore(path="/var/lib/bub/tapes.sqlite3")
+    return FileTapeStore(Path("./application-tapes"))
 ```
 
-The full plugin lives at [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite). For stores that need cleanup, return a generator instead — Bub treats it as a context manager.
+This example selects a plain JSONL file store in the current directory. Bub's builtin application store adds application-specific search behavior; choose the store whose behavior you need. For a database-backed application store, see the [SQLAlchemy integration](/docs/tutorials/tapestore-sqlalchemy/).
 
-### Mount a tape sidecar
+The framework resolves the provider once when `framework.running()` opens. A provider can yield a store and release it in `finally`. The [reference](/docs/reference/hooks/#runtime-resources) covers that lifecycle and the corresponding `provide_lifespan` hook.
 
-Use `provide_tape_sidecar` when a plugin needs a sibling tape with the same lifecycle as the session tape. A sidecar only declares a stable `name`; its plugin owns configuration and the data format.
+A plugin can also contribute a named sibling tape:
 
 ```python
 from bub import hookimpl
@@ -152,53 +160,11 @@ def provide_tape_sidecar():
     return ArtifactSidecar()
 ```
 
-For a session tape named `session`, this mounts `session__sidecar__artifacts` in the active `TapeStore`. Tool code can retrieve its provider with `context.tape.get_sidecar("artifacts")` and resolve the physical name with `context.tape.sidecar_tape_name("artifacts")`. Each hook implementation contributes one sidecar. The main tape handles fork, merge, archive, and reset for every mounted sidecar. Providers with the same name follow normal hook priority: the first one wins.
+The [shared Tape explanation](/docs/concepts/tape-and-context/) describes sidecar naming and merge behavior.
 
-The builtin spill plugin owns `SpillStore`, the `spill.read` tool, its data format, and `SpillSettings`. The core does not import or recognize the spill implementation. Configuration uses the `spill:` section and `BUB_SPILL_*` environment variables independently of `AgentSettings`.
+## Add an application command
 
-## 6. Add a channel
-
-A **channel** is an inbound/outbound surface — CLI, Telegram, WeChat, a scheduled trigger. `provide_channels` lets your plugin contribute one or more `Channel` subclasses.
-
-The minimum is a class that sets `name`, implements `start` and `stop`, and optionally implements `send` or `stream_events`:
-
-```python
-import asyncio
-
-from bub import hookimpl
-from bub.channels import Channel
-from bub.channels.contracts import MessageHandler
-
-
-class WebhookChannel(Channel):
-    name = "webhook"
-
-    def __init__(self, message_handler: MessageHandler) -> None:
-        self._handler = message_handler
-        self._task: asyncio.Task | None = None
-
-    async def start(self, stop_event: asyncio.Event) -> None:
-        # bind your transport (HTTP server, message queue, etc.)
-        await stop_event.wait()
-
-    async def stop(self) -> None:
-        if self._task:
-            self._task.cancel()
-
-
-class WebhookPlugin:
-    @hookimpl
-    def provide_channels(self, message_handler):
-        return [WebhookChannel(message_handler)]
-```
-
-[`bub-wechat`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-wechat) is the canonical custom channel example: it implements both inbound receive and outbound `send`, and exposes a `wechat` tool the model can call.
-
-`provide_channels` is also the right hook for **background services that are not chat surfaces**. Visual-base's [`EyeChannel`](https://github.com/oilbeater/visual-base/blob/main/src/bub_eye/channel.py) uses it to host an FFmpeg supervisor and a screen-understanding loop — `send` is a no-op, but `start`/`stop` give the service a lifecycle tied to `bub gateway`.
-
-## 7. Register a CLI command
-
-`register_cli_commands` is called once at CLI bootstrap with the root [`typer.Typer`](https://typer.tiangolo.com/) app. Add commands or sub-apps directly:
+`register_cli_commands` receives the root Typer app:
 
 ```python
 import typer
@@ -206,111 +172,13 @@ import typer
 from bub import hookimpl
 
 
-class HelloPlugin:
-    @hookimpl
-    def register_cli_commands(self, app: typer.Typer) -> None:
-        @app.command()
-        def hello(name: str = "world") -> None:
-            """Say hello."""
-            typer.echo(f"hello, {name}")
+@hookimpl
+def register_cli_commands(app: typer.Typer):
+    @app.command()
+    def hello(name: str = "world") -> None:
+        typer.echo(f"hello, {name}")
 ```
 
-Run `uv run bub hello --name bub` to invoke it. This hook runs synchronously — async functions are skipped with a warning.
+After installing the plugin, run `bub hello --name bub`. This hook must be synchronous.
 
-## 8. Participate in onboarding
-
-`onboard_config(current_config)` lets your plugin contribute fields to the interactive `bub onboard` flow. Each implementation receives the dict accumulated so far and returns a fragment to merge.
-
-```python
-from bub import hookimpl
-
-
-class WeatherPlugin:
-    @hookimpl
-    def onboard_config(self, current_config):
-        existing = current_config.get("weather", {})
-        return {
-            "weather": {
-                "api_key": existing.get("api_key", ""),
-                "enabled": True,
-            }
-        }
-```
-
-Return `None` to skip without changing accumulated config. Returning a non-dict value raises `TypeError` and aborts onboarding. Verify by running `uv run bub onboard` and inspecting the saved config file.
-
-## 9. Intercept agent-loop LLM and tool calls
-
-The agent loop exposes four interception hooks (see [Reference › Hooks](/docs/reference/hooks/#agent-loop-hooks-agenthooks) for the full contract). `before_*` hooks chain in LIFO order and can modify or short-circuit; `after_*` hooks observe the terminal outcome exactly once on success and `Exception` failure (cancellation is not observed).
-
-Route models, cap spend, and redact — `before_llm_call`:
-
-```python
-from dataclasses import replace
-
-from bub import hookimpl
-from bub.hooks.interception import LLMCallDecision, LLMCallRequest
-
-
-class RouteAndBudget:
-    @hookimpl
-    def before_llm_call(self, request: LLMCallRequest, state):
-        # `state` persists for the session (it is not reset per turn), so
-        # this is a session-wide budget. For a per-turn budget, reset the
-        # counter yourself at a turn boundary (e.g. in build_prompt).
-        calls = state.get("session_llm_calls", 0)
-        state["session_llm_calls"] = calls + 1
-        if calls >= 10:
-            # Skip the provider entirely; this text becomes the final output.
-            return LLMCallDecision.finish("LLM call budget exhausted for this session.")
-        # Rewrites are honored end-to-end: the provider receives this model
-        # and max_tokens, and the tape records the effective model.
-        return replace(request, model="openai:gpt-4o-mini", max_tokens=512)
-```
-
-Guard tool calls — `before_tool_call` returns a decision, never raises to veto:
-
-```python
-from bub import hookimpl
-from bub.hooks.interception import ToolCall, ToolCallDecision
-
-
-class ShellPolicy:
-    @hookimpl
-    def before_tool_call(self, call: ToolCall, state):
-        if call.tool == "shell" and "rm -rf" in str(call.arguments):
-            return ToolCallDecision.deny("Destructive shell commands are blocked.")
-        if call.tool == "web_search":
-            # Serve from cache without running the tool.
-            if cached := state.get("search_cache", {}).get(str(call.arguments)):
-                return ToolCallDecision.replace(cached)
-        return None  # proceed unchanged
-```
-
-Handle terminal outcomes — `after_llm_call` / `after_tool_call` receive the original exception object on failure (`result.error`); cancelled calls do not produce an observation. An `after_tool_call` implementation may replace a successful value by assigning `result.result`:
-
-```python
-from bub import hookimpl
-
-
-class Metrics:
-    @hookimpl
-    def after_llm_call(self, request, result, state):
-        usage = result.usage or {}
-        print(f"llm {request.model} {result.duration_ms}ms tokens={usage.get('total_tokens')} error={result.error!r}")
-
-    @hookimpl
-    def after_tool_call(self, call, result, state):
-        print(f"tool {call.tool} {result.duration_ms}ms error={result.error!r}")
-        if result.error is None and call.tool == "web_search":
-            result.result = str(result.result)[:4_000]
-```
-
-All payloads carry `run_id`, matching the tape entry meta, so metrics can be joined against the recorded conversation.
-
-## Next steps
-
-- [Hook reference](/docs/reference/hooks/) — full signature table, precedence, and sync/async rules
-- [Tools](/docs/build/tools/) — register tools the model can call
-- [Distribution](/docs/build/distribution/) — bundle hooks into a product
-- [Turn pipeline](/docs/concepts/turn-pipeline/) — where each hook fits in one turn
+For other application tasks, use `onboard_config` to contribute configuration, `provide_channels` to connect a transport, or `provide_environment` to choose where builtin tools run. Their inputs and return values are in the [hooks reference](/docs/reference/hooks/).

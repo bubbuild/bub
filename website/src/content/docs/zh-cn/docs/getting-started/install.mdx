@@ -1,95 +1,113 @@
 ---
 title: 安装 Bub
-description: 使用独立安装器或源码安装 Bub，将其固定为框架依赖，并用 hook 报告验证安装。
+description: 安装 Bub 0.6.0，用于组合自己的 Python Agent 或运行 Bub 应用。
 sidebar:
   order: 1
 ---
 
-import { TabItem, Tabs } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-本页说明三种受支持的安装方式：运行 CLI、从源码贡献框架，以及在另一个包中依赖 Bub。
+按你的使用方式选择安装路径。Python 项目通过 [uv](https://docs.astral.sh/uv/getting-started/installation/) 添加 Bub；运行应用可以使用安装脚本或 uv。
 
-## 在开始之前
+<a id="agent-install"></a>
 
-使用独立安装器只需要：
+## 构建自己的 Agent
 
-- macOS 与 Linux 上的 `curl`，或 Windows 上的 PowerShell
-- 可以访问 `bub.build`、`astral.sh` 和 PyPI 的网络连接
-
-安装器会在需要时引导安装 [`uv`](https://docs.astral.sh/uv/)。`uv` 随后会自动安装兼容的 Python，因此不要求系统预装 Python。
-
-## 1. 使用独立安装器
-
-<Tabs syncKey="install-platform">
-  <TabItem label="macOS / Linux">
-
-    ```bash
-    curl -fsSL https://bub.build/install.sh | bash
-    ```
-
-  </TabItem>
-  <TabItem label="Windows">
-
-    ```powershell
-    powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
-    ```
-
-  </TabItem>
-</Tabs>
-
-安装器会把 `uv` 和 `bub` 可执行文件放进用户级目录。在交互式终端中，它会通过 `inquirer-textual` 显示支持键盘、鼠标和颜色的 preset 选择器，询问额外插件依赖，通过 `bub install` 安装依赖，最后运行 `bub onboard`。UI 依赖由 `uv run --with` 临时提供，不会加入 Bub。设置 [`NO_COLOR`](https://no-color.org/) 可以关闭颜色输出。
-
-各 preset 的成员只在版本化的 [preset 清单](https://bub.build/presets.json) 中定义，因此插件集合可以独立演进，而不必修改安装器。`recommended` 是默认集合，`minimal` 不安装可选插件。
-
-`recommended` 预设同时包含 [`bub-mcp`](/zh-cn/docs/tutorials/mcp/) 和
-[`bub-agent-plugins`](/zh-cn/docs/tutorials/agent-plugins/)，支持现有 MCP 服务器以及打包了 skills 和 MCP
-服务器的可移植 Agent Plugins。安装器负责安装 Python 接入插件；要加载可移植插件，还需将插件目录放入 `.agents/plugins/`。
-
-自动化场景需要显式传入 `--preset`。`--dependency` 可以重复使用，用于添加 preset 之外的 Python 包；`--plugin` 是其别名：
-
-<Tabs syncKey="install-platform">
-  <TabItem label="macOS / Linux">
-
-    ```bash
-    curl -fsSL https://bub.build/install.sh | bash -s -- \
-      --preset recommended \
-      --dependency extra-plugin
-    ```
-
-  </TabItem>
-  <TabItem label="Windows">
-
-    ```powershell
-    powershell -ExecutionPolicy ByPass -c "& ([scriptblock]::Create((irm https://bub.build/install.ps1))) --preset recommended --dependency extra-plugin"
-    ```
-
-  </TabItem>
-</Tabs>
-
-非交互式安装不会执行 onboarding；需要配置时请显式运行 `bub onboard`。安装器也会让 `uv` 将可执行目录加入 shell profile。安装完成后重启 shell，再运行 `bub --help`。
-
-执行前可以先检查 [install.sh](https://bub.build/install.sh)、[install.ps1](https://bub.build/install.ps1) 和版本化的 [presets.json](https://bub.build/presets.json)。
-
-## 2. 使用已有的 uv 安装
-
-如果系统中已有 `uv`，等价的用户级安装命令是：
+使用 Python 3.12 或更高版本，在项目中添加 Bub：
 
 ```bash
-uv tool install "bub[app]@latest"
+uv add bub
+uv run python -c "from bub.core import Agent; print(Agent.__name__)"
+```
+
+如果还没有项目，先运行 `uv init --python 3.12 my-agent`，再进入 `cd my-agent`。
+
+基础安装包含内核所需的 Republic、Pydantic、Loguru 和 typing-extensions。导入检查无需模型凭据。接着阅读[构建自己的 Agent](/zh-cn/docs/build/sdk/)，在 Python 中配置模型并运行第一个示例。
+
+<a id="app-install"></a>
+
+## 运行 Bub 应用
+
+选择适合你的安装方式：
+
+<Tabs syncKey="bub-app-install">
+<TabItem label="macOS / Linux">
+
+```bash
+curl -fsSL https://bub.build/install.sh | bash
+```
+
+</TabItem>
+<TabItem label="Windows">
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
+```
+
+</TabItem>
+<TabItem label="uv">
+
+```bash
+uv tool install "bub[app]"
 uv tool update-shell
 ```
 
-如果你倾向使用 `pip`，等价命令是：
+打开新终端后，运行 `bub onboard` 配置模型和渠道。
+
+</TabItem>
+</Tabs>
+
+脚本会按需安装 uv 和 Python 3.12，并将 `bub[app]` 安装到 `~/.bub/.venv`。按提示选择插件预设，再完成模型和渠道配置。
+
+安装结束后，确认命令目录已加入 PATH，再检查：
 
 ```bash
-pip install "bub[app]"
+bub --help
 ```
 
-`app` extra 提供 `bub` 命令、channel、插件和 builtin agent。不带 extra 安装的 `bub` 只包含 agent 内核 `bub.core`，用于[在 Python 中嵌入](/zh-cn/docs/build/sdk/)；此时运行 `bub` 命令会提示安装该 extra。
+接着阅读[首次运行 Bub](/zh-cn/docs/getting-started/first-turn/)，在自己的工作区开始对话。
 
-## 3. 从源码安装
+基础安装与 `bub[app]` 包含相同的包文件；extra 改变的是安装的依赖。缺少应用依赖时，`bub` 命令会退出，并提示安装 `bub[app]`。
 
-如果你想为框架贡献代码或跟随 `main` 分支，使用本路径：
+<a id="app-development"></a>
+
+## 在虚拟环境中开发应用
+
+开发插件或添加追踪导出器等包时，可以创建并激活一个虚拟环境：
+
+```bash
+uv venv --python 3.12
+source .venv/bin/activate
+uv pip install "bub[app]"
+bub --help
+```
+
+PowerShell 中的激活命令为 `.\.venv\Scripts\Activate.ps1`。在同一个环境中运行应用并安装扩展。如果项目已经使用 `uv`，也可以通过 `uv add` 添加 `"bub[app]"`，再用 `uv run bub` 运行命令。
+
+<a id="project-dependency"></a>
+
+## 声明包依赖
+
+把依赖添加到项目 `pyproject.toml` 已有的 `[project]` 表。直接使用 Agent 的包声明：
+
+```toml
+requires-python = ">=3.12"
+dependencies = ["bub>=0.6.0"]
+```
+
+如果包会导入内置 Agent、Framework、插件、skills 或渠道，则声明：
+
+```toml
+dependencies = ["bub[app]>=0.6.0"]
+```
+
+修改依赖后，同步项目环境。现有应用更新依赖时，参照[升级到 0.6.0](/zh-cn/docs/reference/versions/)。
+
+<a id="from-source"></a>
+
+## 从源码参与开发
+
+为 Bub 本身贡献代码时，克隆仓库：
 
 ```bash
 git clone https://github.com/bubbuild/bub.git
@@ -97,41 +115,4 @@ cd bub
 uv sync
 ```
 
-`uv sync` 会在 `.venv/` 下创建项目本地虚拟环境并装好所有开发依赖。完成后，文档中所有 `uv run bub` 示例都可以在仓库根目录使用。
-
-## 4. 将 Bub 固定为框架依赖
-
-插件作者与发行版作者应当像普通 Python 包那样依赖 Bub。在插件的 `pyproject.toml` 中声明依赖，并在 `bub` entry-point 组下注册一个入口：
-
-```toml
-[project]
-name = "bub-my-plugin"
-version = "0.1.0"
-dependencies = ["bub>=0.1"]
-
-[project.entry-points."bub"]
-my-plugin = "bub_my_plugin.plugin:MyPlugin"
-```
-
-Bub 通过 `importlib.metadata.entry_points(group="bub")` 发现插件，因此活动环境中任何注册了该 entry point 的包都会在框架启动时被加载。
-
-:::note
-请把 Bub 固定到兼容的发布范围，而非 `main`。内核较小且稳定，但插件契约在 1.0 之前可能发生变化。
-:::
-
-## 5. 验证安装
-
-确认 Bub 加载了内置 hook 的最快方法是 `bub hooks` 命令：
-
-```bash
-bub hooks
-```
-
-你应当看到一份摘要，包含 `builtin` 插件以及 `resolve_session`、`build_prompt`、`run_model_stream`、`render_outbound`、`dispatch_outbound` 等 hook 的实现。如果是从源码安装，请改用 `uv run bub hooks`。如果 `builtin` 缺失或被标记为失败，请重新安装 Bub 并查看 loader 打印的错误。
-
-## 下一步
-
-- [运行你的第一次 turn](/zh-cn/docs/getting-started/first-turn/) — 发送一个 comma 命令和一次 model-backed turn。
-- [配置 Bub](/zh-cn/docs/operate/configure/) — 设置 `BUB_MODEL`、`BUB_API_KEY` 等运行时设置。
-- [加载 Agent Plugins](/zh-cn/docs/tutorials/agent-plugins/) — 在现有插件之外添加可移植的 skills 和 MCP 服务器。
-- [Settings 参考](/zh-cn/docs/reference/settings/) — 查看所有受支持的环境变量。
+`uv sync` 会安装开发依赖组，其中包含应用依赖和 Python 检查工具。之后可以使用 `uv run bub` 和仓库的测试命令。
