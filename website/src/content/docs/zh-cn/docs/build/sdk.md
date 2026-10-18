@@ -171,15 +171,15 @@ def customer(context: PromptContext) -> str | None:
 
 当工具选择需要自己的业务逻辑时，可以继承 `Agent` 并重写 `prepare_tools(tape, prompt)`。默认提供传入的工具，排除 `exposure="command"`。`tape.context.state` 就是本轮状态。
 
-运行过程中到达的新消息和是否继续运行，由两个循环事件控制：
+运行过程中到达的新消息和继续运行时的下一步提示，由两个循环事件控制：
 
-| 事件 | 默认行为 | 支持的操作 |
+| 事件 | 发生时机 | 支持的操作 |
 | --- | --- | --- |
-| `MessagesPending` | 不添加额外用户消息。 | 向 `event.messages` 追加内容；它们在本步骤的 prompt 之前发送，并一起记录。 |
-| `StepEnding` | 仅当本步骤调用了工具时 `continue_run` 为真；`next_prompt` 为 `None`。 | 设置 `continue_run` 以再运行一步，设置 `next_prompt` 为下一步添加用户消息。`event.stream` 保存本次运行的用量。 |
+| `MessagesPending` | 每个步骤构建模型请求时，以及步骤结束且没有调用工具时。 | 向 `event.messages` 追加内容；它们在下一个 prompt 之前发送，并一起记录。步骤结束时提供的消息会让运行继续。 |
+| `StepFinished` | 步骤结束。`status == "continue"` 时运行会再走一步。 | 设置 `next_prompt` 为下一步添加用户消息；为 `None` 时直接继续对话。`event.prompt` 是本步骤的 prompt，`event.stream` 保存本次运行的用量。 |
 
 ```python
-from bub.core.events import MessagesPending, StepEnding
+from bub.core.events import MessagesPending, StepFinished
 
 inbox: dict[str, list[str]] = {}
 
@@ -189,10 +189,10 @@ def send_queued(event: MessagesPending) -> None:
     event.messages.extend([text] for text in inbox.pop(event.tape.name, []))
 
 
-@agent.events.on(StepEnding)
-def wait_for_queued(event: StepEnding) -> None:
-    if inbox.get(event.tape.name):
-        event.continue_run = True
+@agent.events.on(StepFinished)
+def check_results(event: StepFinished) -> None:
+    if event.status == "continue":
+        event.next_prompt = ["Check the tool results before answering."]
 ```
 
 如果要自己管理 Tape 生命周期，可以打开 `agent.session(name, state=...)`，再调用 `agent.run_on(tape, prompt, model=...)`。它返回的流需要由你关闭。`agent.run_once(prompt, model=..., tape=...)` 只产出一个模型步骤，适合自己驱动循环的场景。

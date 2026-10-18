@@ -16,7 +16,7 @@ Hooks connect plugins to the Bub application. This reference lists the 26 hooks 
 | `build_prompt` | `(message: Envelope, session_id: str, state: TurnState) -> list[UserContent] \| LegacyPrompt` | First result; a falsy selected value falls back to the inbound content rather than trying another implementation. |
 | `run_model` | `(prompt, session_id, state) -> str` | Text result for the model stage. Implement this or `run_model_stream`. |
 | `run_model_stream` | `(prompt, session_id, state) -> AsyncStreamEvents` | Stream result for the model stage. Implement this or `run_model`. |
-| `continue_prompt` | `(prompt: LegacyPrompt \| None, tape: Tape, state: StreamState) -> str \| None` | First result, called on `StepEnding` through `AgentPlugins` when the run continues. Adds a user message when a string is returned. |
+| `continue_prompt` | `(prompt: LegacyPrompt \| None, tape: Tape, state: StreamState) -> str \| None` | First result, called through `AgentPlugins` on a `StepFinished` event whose status is `continue`. Adds a user message when a string is returned. |
 | `save_state` | `(session_id, state, message, model_output) -> None` | All implementations, in the model stage's `finally` block. Earlier session, state, or prompt failures skip it. |
 | `render_outbound` | `(message, session_id, state, model_output) -> list[Envelope]` | Collect and concatenate batches. An empty combined result uses the framework's default output envelope. |
 | `dispatch_outbound` | `(message: Envelope) -> bool` | Call every implementation for each outbound message. |

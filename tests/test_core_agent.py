@@ -22,7 +22,6 @@ from bub.core.events import (
     MessagesPending,
     RunFinished,
     RunStarted,
-    StepEnding,
     StepFinished,
     ToolCallDecision,
     ToolCallFinished,
@@ -43,11 +42,13 @@ def _tool_call(name: str) -> object:
 
 
 @pytest.mark.asyncio
-async def test_core_agent_events_add_pending_messages_and_continue_the_run(provider_service: ProviderService) -> None:
+async def test_core_agent_pending_messages_continue_the_run_with_next_prompt(
+    provider_service: ProviderService,
+) -> None:
     provider_service.reply(sse(chat_events("first")))
     provider_service.reply(sse(chat_events("second")))
-    waiting: list[list[Any]] = [["steer"]]
-    endings: list[tuple[int, bool]] = []
+    waiting: list[list[Any]] = [["early"]]
+    finished: list[tuple[int, str, Any]] = []
     async with provider_service.client() as client:
         agent = Agent(model=_model(client))
 
@@ -56,28 +57,35 @@ async def test_core_agent_events_add_pending_messages_and_continue_the_run(provi
             event.messages.extend(waiting)
             waiting.clear()
 
-        @agent.events.on(StepEnding)
-        def follow_up(event: StepEnding) -> None:
-            endings.append((event.step, event.continue_run))
-            if event.step == 1:
-                event.continue_run = True
+        @agent.events.on(ChatFinished)
+        def arrive_late(event: ChatFinished) -> None:
+            if event.response_text == "first":
+                waiting.append(["late"])
+
+        @agent.events.on(StepFinished)
+        def follow_up(event: StepFinished) -> None:
+            finished.append((event.step, event.status, event.prompt))
+            if event.status == "continue":
                 event.next_prompt = ["go on"]
 
         async with agent.run("hello", tape="session") as stream:
             events = [event async for event in stream]
 
     assert [event.data.get("text") for event in events if event.kind == "final"] == ["first", "second"]
-    assert endings == [(1, False), (2, False)]
-    assert provider_service.body(0)["messages"][-2:] == [
-        {"role": "user", "content": "steer"},
-        {"role": "user", "content": "hello"},
-    ]
+    assert finished == [(1, "continue", ["hello"]), (2, "ok", ["go on"])]
     assert await agent.tape("session").read_messages() == [
-        republic.user("steer"),
+        republic.user("early"),
         republic.user("hello"),
         republic.assistant("first"),
+        republic.user("late"),
         republic.user("go on"),
         republic.assistant("second"),
+    ]
+    tape = agent.tape("session")
+    entries = await tape.store.fetch_all(tape.query().kinds("event"))
+    assert [entry.payload["data"]["status"] for entry in entries if entry.payload["name"] == "loop.step"] == [
+        "continue",
+        "ok",
     ]
 
 
@@ -133,14 +141,13 @@ async def test_core_agent_runs_tool_loop_and_emits_events(provider_service: Prov
         "ToolCallStarted",
         "ToolCallFinished",
         "ChatFinished",
-        "StepEnding",
         "StepFinished",
         "StepStarted",
         "MessagesPending",
         "LLMCallStarted",
         "LLMCallFinished",
         "ChatFinished",
-        "StepEnding",
+        "MessagesPending",
         "StepFinished",
         "RunFinished",
     ]

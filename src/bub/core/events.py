@@ -177,41 +177,37 @@ class StepStarted(TapeEvent):
 
 @dataclass(kw_only=True)
 class StepFinished(TapeEvent):
-    """A model step ended with ``status`` ``ok``, ``continue``, ``error`` or ``auto_handoff``."""
+    """A model step ended with ``status`` ``ok``, ``continue``, ``error`` or ``auto_handoff``.
+
+    ``continue`` means the run takes another step: this one made tool calls, or
+    ``MessagesPending`` handlers supplied messages when it ended. Handlers may then set
+    ``next_prompt``, the next step's user message; None continues the conversation as
+    is. ``prompt`` is this step's prompt and ``stream`` the run's stream state, holding
+    the latest usage.
+    """
 
     step: int
     status: str
     elapsed_ms: int
     error: str | None = None
+    prompt: list[UserContent] | None = None
+    stream: StreamState = field(default_factory=StreamState)
+    next_prompt: list[UserContent] | None = None
 
 
 @dataclass(kw_only=True)
 class MessagesPending(TapeEvent):
-    """A model step is building its request; handlers add user messages that arrived during the run.
+    """Handlers add user messages that arrived during the run.
 
-    Append each message's content to ``messages``. They are sent in order before the
-    step's ``prompt`` (None when the step continues the conversation) and recorded with it.
+    Emitted when a model step builds its request, and when a step ends without tool
+    calls; messages supplied then continue the run for another step. Append each
+    message's content to ``messages``. They are sent in order before the next step's
+    prompt and recorded with it. ``prompt`` is the building step's prompt; it is None
+    when the step continues the conversation and when a step ends.
     """
 
     prompt: list[UserContent] | None
     messages: list[list[UserContent]] = field(default_factory=list)
-
-
-@dataclass(kw_only=True)
-class StepEnding(TapeEvent):
-    """A model step succeeded; handlers decide whether the run takes another step.
-
-    ``continue_run`` starts true when the step made tool calls; set it to continue anyway,
-    for example while messages are waiting. ``next_prompt`` is the next step's user
-    message; None continues the conversation as is. ``prompt`` is this step's prompt and
-    ``stream`` the run's stream state, holding the latest usage.
-    """
-
-    step: int
-    prompt: list[UserContent] | None
-    stream: StreamState
-    continue_run: bool
-    next_prompt: list[UserContent] | None = None
 
 
 @dataclass(kw_only=True)

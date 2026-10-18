@@ -119,8 +119,8 @@ The adapter catches ordinary plugin exceptions and skips the failed hook. A hook
 | Hook | Core Agent extension point |
 | --- | --- |
 | `before_llm_call`, `after_llm_call`, `before_tool_call`, `after_tool_call` | Call events, through `attach(agent)`. |
-| `continue_prompt` | `StepEnding`: the hook's text becomes the next step's user message. |
-| `provide_steering_inbox` | `MessagesPending` drains the inbox; `StepEnding` continues the run while messages are waiting. |
+| `continue_prompt` | `StepFinished` with `status == "continue"`: the hook's text becomes the next step's user message. |
+| `provide_steering_inbox` | `MessagesPending` drains the inbox before each model request and when a step ends; drained messages continue the run. |
 | `system_prompt` | The `plugins.system_prompt` prompt section. |
 | `provide_tape_store`, `build_tape_context`, `provide_tape_sidecar` | `store`, `context` and `sidecars` from `plugins.components()`. |
 | `load_state`, `provide_environment` | The run's state from `await plugins.build_state(session_id)`. |

@@ -171,15 +171,15 @@ The agent keeps supplied `Tool` objects in `agent.tools` by name and provider to
 
 Subclass `Agent` and override `prepare_tools(tape, prompt)` when selecting tools needs application logic. By default it offers the supplied tools except those marked `exposure="command"`. The tape's `context.state` is the run's state.
 
-Handle two loop events to send messages that arrive during a run or to keep the run going:
+Handle two loop events to send messages that arrive during a run or to steer a continuing run:
 
-| Event | Default | Control |
+| Event | When | Control |
 | --- | --- | --- |
-| `MessagesPending` | No additional user messages. | Append contents to `event.messages`; they are sent before the step's prompt and recorded with it. |
-| `StepEnding` | `continue_run` is true only when the step made tool calls; `next_prompt` is `None`. | Set `continue_run` to take another step and `next_prompt` to give it a user message. `event.stream` holds the run's usage. |
+| `MessagesPending` | Each step builds its model request, and a step ends without tool calls. | Append contents to `event.messages`; they are sent before the next prompt and recorded with it. Messages supplied when a step ends continue the run. |
+| `StepFinished` | A step ends. With `status == "continue"`, the run takes another step. | Set `next_prompt` to give that step a user message; `None` continues the conversation as is. `event.prompt` is this step's prompt and `event.stream` holds the run's usage. |
 
 ```python
-from bub.core.events import MessagesPending, StepEnding
+from bub.core.events import MessagesPending, StepFinished
 
 inbox: dict[str, list[str]] = {}
 
@@ -189,10 +189,10 @@ def send_queued(event: MessagesPending) -> None:
     event.messages.extend([text] for text in inbox.pop(event.tape.name, []))
 
 
-@agent.events.on(StepEnding)
-def wait_for_queued(event: StepEnding) -> None:
-    if inbox.get(event.tape.name):
-        event.continue_run = True
+@agent.events.on(StepFinished)
+def check_results(event: StepFinished) -> None:
+    if event.status == "continue":
+        event.next_prompt = ["Check the tool results before answering."]
 ```
 
 For a tape whose lifecycle you manage, open `agent.session(name, state=...)` and use `agent.run_on(tape, prompt, model=...)`. It returns a stream you must close. `agent.run_once(prompt, model=..., tape=...)` yields one model step when you need to drive the loop yourself.

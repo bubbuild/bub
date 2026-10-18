@@ -30,7 +30,6 @@ from bub.core.events import (
     MessagesPending,
     RunFinished,
     RunStarted,
-    StepEnding,
     StepFinished,
     StepStarted,
     TapeEvent,
@@ -86,8 +85,9 @@ class Agent:
     records them on the run's tape. ``LLMCallStarted`` and ``ToolCallStarted`` handlers
     may change or short-circuit the call.
 
-    ``MessagesPending`` handlers add user messages that arrived during the run, and
-    ``StepEnding`` handlers decide whether the run takes another step and with what prompt.
+    ``MessagesPending`` handlers add user messages that arrived during the run, which
+    also continue a run whose step made no tool calls. ``StepFinished`` handlers give a
+    continuing run's next step a user message by setting ``next_prompt``.
     Subclasses choose the model-facing tools of each step by overriding :meth:`prepare_tools`.
     """
 
@@ -293,10 +293,12 @@ class Agent:
         options: Mapping[str, Any] | None = None,
         tape: Tape,
         state: StreamState | None = None,
+        pending: Sequence[list[UserContent]] = (),
     ) -> AsyncGenerator[StreamEvent, None]:
         """Make one call to ``model``, or the agent's model, on an open tape and execute the tool calls it returns.
 
         ``prompt`` is the new user message; ``None`` continues the existing conversation.
+        ``pending`` user messages are sent before it, ahead of those ``MessagesPending`` handlers add.
 
         ``state``, when given, receives the call's usage.
         """
@@ -310,7 +312,7 @@ class Agent:
         system_prompt = await self.system_prompt.render(prompt_context) or None
         if (span := current_span()) and span.recording:
             span.set(**{"gen_ai.tool.definitions": [tool.to_schema() | {"type": "function"} for tool in tools]})
-        pending = (await self._emit(MessagesPending, tape, prompt=prompt)).messages
+        pending = [*pending, *(await self._emit(MessagesPending, tape, prompt=prompt)).messages]
 
         run_id = generate_run_id()
         messages, new_messages = await self._build_messages(
@@ -469,6 +471,7 @@ class Agent:
     ) -> AsyncGenerator[StreamEvent, None]:
         auto_handoff_remaining = MAX_AUTO_HANDOFF_RETRIES
         next_prompt: list[UserContent] | None = prompt
+        pending: list[list[UserContent]] = []
         try:
             for step in range(1, self.max_steps + 1):
                 tracker.steps = step
@@ -477,7 +480,10 @@ class Agent:
                 logger.info("loop.step step={} tape={} model={}", step, tape.name, client.spec)
                 await self._emit(StepStarted, tape, step=step, prompt=next_prompt)
                 try:
-                    output = self.run_once(next_prompt, model=client, options=options, tape=tape, state=state)
+                    output = self.run_once(
+                        next_prompt, model=client, options=options, tape=tape, state=state, pending=pending
+                    )
+                    pending = []
                     async with aclosing(output):
                         async for event in output:
                             tracker.observe(event)
@@ -505,16 +511,16 @@ class Agent:
                     await self._record_step(tape, step, start, "error", error=error_message)
                     raise
 
-                ending = await self._emit(
-                    StepEnding, tape, step=step, prompt=next_prompt, stream=state, continue_run=should_continue
-                )
-                if not ending.continue_run:
-                    await self._record_step(tape, step, start, "ok")
+                # Messages left on the last allowed step stay with their source.
+                if not should_continue and step < self.max_steps:
+                    pending = (await self._emit(MessagesPending, tape, prompt=None)).messages
+                if not (should_continue or pending):
+                    await self._record_step(tape, step, start, "ok", prompt=next_prompt, stream=state)
                     tracker.status = "ok"
                     return
 
-                next_prompt = ending.next_prompt
-                await self._record_step(tape, step, start, "continue")
+                finished = await self._record_step(tape, step, start, "continue", prompt=next_prompt, stream=state)
+                next_prompt = finished.next_prompt
 
             raise RuntimeError(f"max_steps_reached={self.max_steps}")  # noqa: TRY301
         except Exception as exc:
@@ -523,9 +529,13 @@ class Agent:
         finally:
             tracker.end_trace()
 
-    async def _record_step(self, tape: Tape, step: int, start: float, status: str, *, error: str | None = None) -> None:
+    async def _record_step(
+        self, tape: Tape, step: int, start: float, status: str, *, error: str | None = None, **fields: Any
+    ) -> StepFinished:
         elapsed_ms = int((time.monotonic() - start) * 1000)
-        await self._emit(StepFinished, tape, step=step, status=status, elapsed_ms=elapsed_ms, error=error)
+        return await self._emit(
+            StepFinished, tape, step=step, status=status, elapsed_ms=elapsed_ms, error=error, **fields
+        )
 
     async def _build_messages(
         self,

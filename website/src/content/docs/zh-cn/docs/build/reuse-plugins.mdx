@@ -119,8 +119,8 @@ Handoff 把摘要保存在锚点上。下一次模型请求需要这份摘要时
 | Hook | 核心 Agent 扩展点 |
 | --- | --- |
 | `before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call` | 调用事件，通过 `attach(agent)` 接入。 |
-| `continue_prompt` | `StepEnding`：hook 返回的文本成为下一步的用户消息。 |
-| `provide_steering_inbox` | `MessagesPending` 取出 inbox 中的消息；有消息等待时，`StepEnding` 让运行继续。 |
+| `continue_prompt` | `status == "continue"` 的 `StepFinished`：hook 返回的文本成为下一步的用户消息。 |
+| `provide_steering_inbox` | 每次模型请求前和步骤结束时，`MessagesPending` 取出 inbox 中的消息；取到消息时运行继续。 |
 | `system_prompt` | 提示词片段 `plugins.system_prompt`。 |
 | `provide_tape_store`、`build_tape_context`、`provide_tape_sidecar` | `plugins.components()` 中的 `store`、`context` 和 `sidecars`。 |
 | `load_state`、`provide_environment` | 由 `await plugins.build_state(session_id)` 生成的运行状态。 |

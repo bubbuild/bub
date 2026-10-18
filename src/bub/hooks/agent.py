@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, TypedDict
 
 from bub.core.agent import Agent
-from bub.core.events import MessagesPending, StepEnding
+from bub.core.events import MessagesPending, StepFinished
 from bub.core.sidecars import TapeSidecar
 from bub.core.store import AsyncTapeStore, TapeStore
 from bub.core.system_prompt import PromptContext
@@ -78,8 +78,7 @@ class AgentPlugins:
         """
         self.framework.get_agent_hooks().subscribe(agent.events)
         agent.events.on(MessagesPending, self._drain_steering)
-        agent.events.on(StepEnding, self._continue_for_steering)
-        agent.events.on(StepEnding, self._continue_prompt)
+        agent.events.on(StepFinished, self._continue_prompt)
         return agent
 
     async def build_state(
@@ -110,13 +109,8 @@ class AgentPlugins:
             ])
         )
 
-    def _continue_for_steering(self, event: StepEnding) -> None:
-        inbox = self.framework.get_steering_inbox()
-        if inbox is not None and inbox.message_count(event.tape.context.state) > 0:
-            event.continue_run = True
-
-    async def _continue_prompt(self, event: StepEnding) -> None:
-        if not event.continue_run:
+    async def _continue_prompt(self, event: StepFinished) -> None:
+        if event.status != "continue":
             return
         continuation = await self.framework.continue_prompt(prompt=event.prompt, tape=event.tape, state=event.stream)
         if continuation is not None:
