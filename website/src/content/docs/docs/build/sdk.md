@@ -16,7 +16,7 @@ Use Python 3.12+ and add Bub to your project:
 ```bash
 uv init my-bub
 cd my-bub
-uv add "bub==0.6.0"
+uv add bub
 ```
 
 The base `bub` package installs the dependencies needed by the agent. Add `bub[app]` when you want to use the Bub application's CLI, plugins, or channels. See [Installation](/docs/getting-started/install/) for other setup options.

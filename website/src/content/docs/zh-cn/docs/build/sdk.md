@@ -16,7 +16,7 @@ Agent 的组件由你直接提供。[Bub 应用](/zh-cn/docs/build/)建立在同
 ```bash
 uv init my-bub
 cd my-bub
-uv add "bub==0.6.0"
+uv add bub
 ```
 
 基础 `bub` 包安装 Agent 所需的依赖。需要 Bub 应用的 CLI、插件或渠道时，再使用 `bub[app]`。其他环境设置方式见[安装指南](/zh-cn/docs/getting-started/install/)。

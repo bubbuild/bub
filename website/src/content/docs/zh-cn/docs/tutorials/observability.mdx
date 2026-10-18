@@ -93,7 +93,7 @@ http://localhost:6006
 在已激活的应用环境中安装追踪依赖：
 
 ```bash
-uv pip install "bub[app,trace]==0.6.0"
+uv pip install "bub[app,trace]"
 ```
 
 `trace` extra 包含 OpenTelemetry API、SDK 和 HTTP/protobuf OTLP 导出器。Bub 使用这些依赖直接向 Phoenix 发送 GenAI span。
@@ -147,7 +147,7 @@ bub run ",tape.info"
 
 ```bash
 unset OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_ENDPOINT
-uv pip install "bub[logfire]==0.6.0"
+uv pip install "bub[logfire]"
 logfire auth
 logfire projects use
 bub run "检查这个仓库并总结它的结构。"

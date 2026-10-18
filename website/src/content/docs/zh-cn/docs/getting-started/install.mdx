@@ -16,7 +16,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 使用 Python 3.12 或更高版本，在项目中添加 Bub：
 
 ```bash
-uv add "bub==0.6.0"
+uv add bub
 uv run python -c "from bub.core import Agent; print(Agent.__name__)"
 ```
 
@@ -48,7 +48,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
 <TabItem label="uv">
 
 ```bash
-uv tool install "bub[app]==0.6.0"
+uv tool install "bub[app]"
 uv tool update-shell
 ```
 
@@ -78,11 +78,11 @@ bub --help
 ```bash
 uv venv --python 3.12
 source .venv/bin/activate
-uv pip install "bub[app]==0.6.0"
+uv pip install "bub[app]"
 bub --help
 ```
 
-PowerShell 中的激活命令为 `.\.venv\Scripts\Activate.ps1`。在同一个环境中运行应用并安装扩展。如果项目已经使用 `uv`，也可以通过 `uv add` 添加 `"bub[app]==0.6.0"`，再用 `uv run bub` 运行命令。
+PowerShell 中的激活命令为 `.\.venv\Scripts\Activate.ps1`。在同一个环境中运行应用并安装扩展。如果项目已经使用 `uv`，也可以通过 `uv add` 添加 `"bub[app]"`，再用 `uv run bub` 运行命令。
 
 <a id="project-dependency"></a>
 
@@ -92,13 +92,13 @@ PowerShell 中的激活命令为 `.\.venv\Scripts\Activate.ps1`。在同一个�
 
 ```toml
 requires-python = ">=3.12"
-dependencies = ["bub==0.6.0"]
+dependencies = ["bub>=0.6.0"]
 ```
 
 如果包会导入内置 Agent、Framework、插件、skills 或渠道，则声明：
 
 ```toml
-dependencies = ["bub[app]==0.6.0"]
+dependencies = ["bub[app]>=0.6.0"]
 ```
 
 修改依赖后，同步项目环境。现有应用更新依赖时，参照[升级到 0.6.0](/zh-cn/docs/reference/versions/)。

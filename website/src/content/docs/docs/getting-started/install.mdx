@@ -16,7 +16,7 @@ Choose the installation for the way you want to use Bub. Add Bub to a Python pro
 Use Python 3.12 or later and add Bub to your project:
 
 ```bash
-uv add "bub==0.6.0"
+uv add bub
 uv run python -c "from bub.core import Agent; print(Agent.__name__)"
 ```
 
@@ -48,7 +48,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"
 <TabItem label="uv">
 
 ```bash
-uv tool install "bub[app]==0.6.0"
+uv tool install "bub[app]"
 uv tool update-shell
 ```
 
@@ -78,11 +78,11 @@ For plugin development or adding packages such as tracing exporters, use an envi
 ```bash
 uv venv --python 3.12
 source .venv/bin/activate
-uv pip install "bub[app]==0.6.0"
+uv pip install "bub[app]"
 bub --help
 ```
 
-In PowerShell, replace the activation command with `.\.venv\Scripts\Activate.ps1`. Run the application and install its extensions from this same environment. If your project already uses `uv`, you can instead add `"bub[app]==0.6.0"` with `uv add` and run its commands with `uv run bub`.
+In PowerShell, replace the activation command with `.\.venv\Scripts\Activate.ps1`. Run the application and install its extensions from this same environment. If your project already uses `uv`, you can instead add `"bub[app]"` with `uv add` and run its commands with `uv run bub`.
 
 <a id="project-dependency"></a>
 
@@ -92,13 +92,13 @@ Add the dependency to the existing `[project]` table in your package's `pyprojec
 
 ```toml
 requires-python = ">=3.12"
-dependencies = ["bub==0.6.0"]
+dependencies = ["bub>=0.6.0"]
 ```
 
 For a package that imports the builtin agent, Framework, plugins, skills, or channels:
 
 ```toml
-dependencies = ["bub[app]==0.6.0"]
+dependencies = ["bub[app]>=0.6.0"]
 ```
 
 Synchronize your project after editing its dependencies. Existing applications should follow [Upgrade to 0.6.0](/docs/reference/versions/) when updating the dependency.

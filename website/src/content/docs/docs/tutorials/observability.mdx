@@ -93,7 +93,7 @@ http://localhost:6006
 In your activated application environment, install the tracing dependencies:
 
 ```bash
-uv pip install "bub[app,trace]==0.6.0"
+uv pip install "bub[app,trace]"
 ```
 
 The `trace` extra includes the OpenTelemetry API, SDK, and HTTP/protobuf OTLP exporter. Bub uses these dependencies to send GenAI spans directly to Phoenix.
@@ -147,7 +147,7 @@ In your activated application environment, add Logfire. Clear both OTLP endpoint
 
 ```bash
 unset OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_ENDPOINT
-uv pip install "bub[logfire]==0.6.0"
+uv pip install "bub[logfire]"
 logfire auth
 logfire projects use
 bub run "Inspect this repository and summarize its structure."

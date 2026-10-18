@@ -22,7 +22,7 @@ Use `bub.core.Agent` to choose your model, tools, instructions, and conversation
 In a Python 3.12+ project:
 
 ```bash
-uv add "bub==0.6.0"
+uv add bub
 ```
 
 Run your first agent with the [SDK guide](https://bub.build/docs/build/sdk/), then [serve it with FastAPI](https://bub.build/docs/tutorials/fastapi/) when you need an HTTP endpoint.
