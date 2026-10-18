@@ -49,14 +49,42 @@ volumes:
 
 The compose file sets `BUB_HOME=/data` inside the container. Use `BUB_HOME_HOST` when you want the host-side source path to be somewhere other than `~/.bub`. Runtime settings for this deployment should live in `.env`; `BUB_HOME` does not move Bub's default `config.yml` path.
 
-## 3. Build and start
+## 3. Pull and start
+
+`docker-compose.yml` uses the prebuilt image `ghcr.io/bubbuild/bub`, published to GHCR on every release:
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose logs -f app
 ```
 
-The first run takes a few minutes — the image installs system tools (git, node, jq, etc.) and runs `uv sync --no-dev --no-editable`.
+Image tags follow the release version (`0.6.0a2`), `<major>.<minor>` for stable releases, and `latest` for the newest stable release. Set `BUB_IMAGE` in `.env` to pin a version, for example `BUB_IMAGE=ghcr.io/bubbuild/bub:0.6.0a2`.
+
+To build from your local checkout instead, pass `--build`. The local build is tagged as `BUB_IMAGE`, so it replaces the pulled image until the next `docker compose pull`:
+
+```bash
+docker compose up -d --build
+```
+
+A local build takes a few minutes — the image installs system tools (git, node, jq, etc.) and runs `uv sync --no-dev --no-editable`.
+
+### Run without Compose
+
+The image runs the same way with plain `docker run`. Mount the same volumes and pass `.env` explicitly:
+
+```bash
+docker run -d --name bub --restart unless-stopped \
+  --env-file .env \
+  -e BUB_HOME=/data \
+  -v "$PWD":/workspace \
+  -v ~/.bub:/data \
+  -v ~/.agents:/root/.agents \
+  ghcr.io/bubbuild/bub:latest
+docker logs -f bub
+```
+
+To upgrade, `docker pull` the new tag, then `docker rm -f bub` and rerun the same command.
 
 ## 4. What `entrypoint.sh` does
 
@@ -87,12 +115,12 @@ A healthy Telegram deployment logs `telegram.start polling` once. If it logs not
 A rolling upgrade preserves the plugin project under `/data` (host `BUB_HOME_HOST`, default `~/.bub`):
 
 ```bash
-git fetch --all --tags
-git pull
-docker compose build --pull
+docker compose pull
 docker compose up -d
 docker compose logs -f app
 ```
+
+If you build locally, run `git pull && docker compose build --pull` instead of `docker compose pull`.
 
 Inside the running container, plugins are managed by `bub install` and `bub update`:
 

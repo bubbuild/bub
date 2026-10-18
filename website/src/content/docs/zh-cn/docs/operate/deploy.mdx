@@ -49,14 +49,42 @@ volumes:
 
 Compose 文件会在容器内设置 `BUB_HOME=/data`。如果要把宿主机侧源路径放到 `~/.bub` 以外的位置，请设置 `BUB_HOME_HOST`。此部署的运行时设置应放在 `.env` 中；`BUB_HOME` 不会移动 Bub 默认的 `config.yml` 路径。
 
-## 3. 构建并启动
+## 3. 拉取并启动
+
+`docker-compose.yml` 使用预构建镜像 `ghcr.io/bubbuild/bub`，每次发布 release 时都会推送到 GHCR：
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose logs -f app
 ```
 
-首次构建需要几分钟 —— 镜像会安装系统工具（git、node、jq 等）并执行 `uv sync --no-dev --no-editable`。
+镜像 tag 与发布版本一致（如 `0.6.0a2`）；正式版还会额外打 `<major>.<minor>` tag，`latest` 指向最新的正式版。如需锁定版本，在 `.env` 中设置 `BUB_IMAGE`，例如 `BUB_IMAGE=ghcr.io/bubbuild/bub:0.6.0a2`。
+
+如果要从本地源码构建，加上 `--build`。本地构建的镜像会以 `BUB_IMAGE` 为 tag，在下一次 `docker compose pull` 之前替代拉取的镜像：
+
+```bash
+docker compose up -d --build
+```
+
+本地构建需要几分钟 —— 镜像会安装系统工具（git、node、jq 等）并执行 `uv sync --no-dev --no-editable`。
+
+### 不使用 Compose 运行
+
+也可以直接用 `docker run` 运行镜像。挂载同样的卷，并显式传入 `.env`：
+
+```bash
+docker run -d --name bub --restart unless-stopped \
+  --env-file .env \
+  -e BUB_HOME=/data \
+  -v "$PWD":/workspace \
+  -v ~/.bub:/data \
+  -v ~/.agents:/root/.agents \
+  ghcr.io/bubbuild/bub:latest
+docker logs -f bub
+```
+
+升级时先 `docker pull` 新 tag，再 `docker rm -f bub` 并重新执行上面的命令。
 
 ## 4. `entrypoint.sh` 做了什么
 
@@ -87,12 +115,12 @@ docker compose logs -f app | rg "telegram.start polling"
 滚动升级会保留 `/data`（宿主机 `BUB_HOME_HOST`，默认 `~/.bub`）下的插件项目：
 
 ```bash
-git fetch --all --tags
-git pull
-docker compose build --pull
+docker compose pull
 docker compose up -d
 docker compose logs -f app
 ```
+
+如果使用本地构建，用 `git pull && docker compose build --pull` 代替 `docker compose pull`。
 
 容器内插件由 `bub install` 与 `bub update` 管理：
 

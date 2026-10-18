@@ -1,5 +1,6 @@
 services:
   app:
+    image: ${BUB_IMAGE:-ghcr.io/bubbuild/bub:latest}
     build:
       context: .
       dockerfile: Dockerfile
