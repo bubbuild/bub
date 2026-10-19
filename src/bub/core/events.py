@@ -12,6 +12,7 @@ import republic
 
 from bub.errors import BubError
 from bub.prompt import UserContent
+from bub.streaming import StreamState
 from bub.turn import TurnState
 
 if TYPE_CHECKING:
@@ -176,12 +177,37 @@ class StepStarted(TapeEvent):
 
 @dataclass(kw_only=True)
 class StepFinished(TapeEvent):
-    """A model step ended with ``status`` ``ok``, ``continue``, ``error`` or ``auto_handoff``."""
+    """A model step ended with ``status`` ``ok``, ``continue``, ``error`` or ``auto_handoff``.
+
+    ``continue`` means the run takes another step: this one made tool calls, or
+    ``MessagesPending`` handlers supplied messages when it ended. Handlers may then set
+    ``next_prompt``, the next step's user message; None continues the conversation as
+    is. ``prompt`` is this step's prompt and ``stream`` the run's stream state, holding
+    the latest usage.
+    """
 
     step: int
     status: str
     elapsed_ms: int
     error: str | None = None
+    prompt: list[UserContent] | None = None
+    stream: StreamState = field(default_factory=StreamState)
+    next_prompt: list[UserContent] | None = None
+
+
+@dataclass(kw_only=True)
+class MessagesPending(TapeEvent):
+    """Handlers add user messages that arrived during the run.
+
+    Emitted when a model step builds its request, and when a step ends without tool
+    calls; messages supplied then continue the run for another step. Append each
+    message's content to ``messages``. They are sent in order before the next step's
+    prompt and recorded with it. ``prompt`` is the building step's prompt; it is None
+    when the step continues the conversation and when a step ends.
+    """
+
+    prompt: list[UserContent] | None
+    messages: list[list[UserContent]] = field(default_factory=list)
 
 
 @dataclass(kw_only=True)

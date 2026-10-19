@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import warnings
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,12 +21,13 @@ from bub.configure import DEFAULT_HOME
 from bub.core.sidecars import TapeSidecar
 from bub.core.store import AsyncTapeStore, TapeStore
 from bub.core.tape import Tape, TapeContext
+from bub.core.tools import Tool, collect_tools
 from bub.envelope import Envelope, content_of, field_of, unpack_batch
 from bub.environment import ENVIRONMENT_STATE_KEY, Environment
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import PluginAgentHooks
 from bub.hooks.runtime import _SKIP_VALUE, HookRuntime
-from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs
+from bub.hooks.specs import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
 from bub.model_selection import ModelOptions
 from bub.prompt import UserContent, to_content, to_legacy_prompt
 from bub.streaming import StreamState
@@ -42,6 +44,21 @@ DEFAULT_CONFIG_FILE = (DEFAULT_HOME / "config.yml").resolve()
 class PluginStatus:
     is_success: bool
     detail: str | None = None
+
+
+_ENTRY_POINT_TOOLS: dict[str, dict[str, Tool]] = {}
+"""Tools collected while importing each entry point, by name, for loads that find its modules already imported."""
+
+
+@dataclass(frozen=True)
+class _DecoratedTools:
+    """Provide the tools a plugin created with ``@tool`` while loading, as ``provide_tools`` would."""
+
+    tools: tuple[Tool, ...]
+
+    @hookimpl
+    def provide_tools(self) -> list[Tool]:
+        return list(self.tools)
 
 
 class BubFramework:
@@ -88,31 +105,56 @@ class BubFramework:
 
         Callable entry points receive this framework. Failed plugins are recorded
         for diagnostics without preventing the remaining plugins from loading.
+
+        A plugin without a ``provide_tools`` hook gets the tools it creates with ``@tool``
+        while it loads or initializes as its ``provide_tools`` tools. This keeps plugins
+        that relied on ``@tool`` registering their tools working; it is deprecated.
         """
         import importlib.metadata
 
-        pending_plugins: list[tuple[str, Any]] = []
+        pending_plugins: list[tuple[importlib.metadata.EntryPoint, Any, dict[str, Tool]]] = []
 
         self.load_builtin_hooks()
         for entry_point in importlib.metadata.entry_points(group="bub"):
             try:
-                plugin = entry_point.load()
+                with collect_tools() as tools:
+                    plugin = entry_point.load()
             except Exception as exc:
                 logger.warning(f"Failed to load plugin '{entry_point.name}': {exc}")
                 self._plugin_status[entry_point.name] = PluginStatus(is_success=False, detail=str(exc))
             else:
-                pending_plugins.append((entry_point.name, plugin))
+                if tools:
+                    _ENTRY_POINT_TOOLS[entry_point.name] = tools
+                pending_plugins.append((entry_point, plugin, dict(_ENTRY_POINT_TOOLS.get(entry_point.name, {}))))
 
-        for plugin_name, plugin in pending_plugins:
+        for entry_point, plugin, tools in pending_plugins:
+            plugin_name = entry_point.name
             try:
                 if callable(plugin):  # Support entry points that are classes
-                    plugin = plugin(self)
+                    with collect_tools() as created:
+                        plugin = plugin(self)
+                    tools.update(created)
                 self._plugin_manager.register(plugin, name=plugin_name)
+                self._register_decorated_tools(plugin_name, plugin, tools)
             except Exception as exc:
                 logger.warning(f"Failed to initialize plugin '{plugin_name}': {exc}")
                 self._plugin_status[plugin_name] = PluginStatus(is_success=False, detail=str(exc))
             else:
                 self._plugin_status[plugin_name] = PluginStatus(is_success=True)
+
+    def _register_decorated_tools(self, plugin_name: str, plugin: object, tools: dict[str, Tool]) -> None:
+        if not tools:
+            return
+        hooks = self._plugin_manager.get_hookcallers(plugin) or []
+        if any(hook.name == "provide_tools" for hook in hooks):
+            return
+        warnings.warn(
+            f"Plugin '{plugin_name}' relies on @tool registering its tools "
+            f"({', '.join(tools)}); provide them with the provide_tools hook.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        self._plugin_manager.register(_DecoratedTools(tuple(tools.values())), name=f"{plugin_name}.tools")
 
     def create_cli_app(self) -> typer.Typer:
         """Create CLI app by collecting commands from hooks. Can be used for custom CLI entry point."""
@@ -464,6 +506,14 @@ class BubFramework:
         for sidecar in self._hook_runtime.call_many_sync("provide_tape_sidecar"):
             sidecars.setdefault(sidecar.name, sidecar)
         return tuple(sidecars.values())
+
+    def get_tools(self) -> tuple[Tool, ...]:
+        """Collect the ``provide_tools`` hooks' tools, keeping the highest-priority tool for each name."""
+        tools: dict[str, Tool] = {}
+        for provided in self._hook_runtime.call_many_sync("provide_tools"):
+            for item in provided:
+                tools.setdefault(item.name, item)
+        return tuple(tools.values())
 
     def get_steering_inbox(self) -> SteeringInbox | None:
         """Return the inbox acquired by ``running()``, or None when unavailable."""

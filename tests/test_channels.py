@@ -448,7 +448,7 @@ def test_cli_channel_build_prompt_erases_submitted_prompt(monkeypatch: pytest.Mo
     channel = CliChannel.__new__(CliChannel)
     channel._mode = "agent"
     channel._expand_thinking = False
-    channel._agent = SimpleNamespace(settings=SimpleNamespace(model="test-model"), command_prefix=",")
+    channel._agent = SimpleNamespace(settings=SimpleNamespace(model="test-model"), command_prefix=",", tools={})
     channel._last_tape_info = None
 
     prompt = channel._build_prompt(tmp_path)

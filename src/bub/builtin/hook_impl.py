@@ -24,7 +24,7 @@ from bub.core.events import ToolCall, ToolCallDecision, ToolCallResult
 from bub.core.sidecars import TapeSidecar
 from bub.core.store import TapeStore
 from bub.core.tape import TapeContext, session_tape_name
-from bub.core.tools import is_content_result, render_result
+from bub.core.tools import Tool, is_content_result, render_result
 from bub.envelope import Envelope, content_of, field_of
 from bub.environment import Environment
 from bub.errors import BubError
@@ -63,8 +63,6 @@ class BuiltinImpl:
     """Default hook implementations for basic runtime operations."""
 
     def __init__(self, framework: BubFramework) -> None:
-        from bub.builtin import codemode, spill, tools  # noqa: F401
-
         self.framework = framework
         self._agent: BubAgent | None = None
 
@@ -309,6 +307,12 @@ class BuiltinImpl:
     @hookimpl
     def build_tape_context(self) -> TapeContext:
         return default_tape_context()
+
+    @hookimpl
+    def provide_tools(self) -> list[Tool]:
+        from bub.builtin import codemode, spill, tools
+
+        return [*tools.TOOLS, *codemode.TOOLS, spill.spill_read]
 
     @hookimpl
     def provide_steering_inbox(self) -> SteeringInbox:

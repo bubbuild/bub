@@ -19,6 +19,7 @@ from bub.core.events import (
     LLMCallDecision,
     LLMCallFinished,
     LLMCallStarted,
+    MessagesPending,
     RunFinished,
     RunStarted,
     StepFinished,
@@ -38,6 +39,54 @@ def _model(client: Any) -> republic.ChatModel:
 
 def _tool_call(name: str) -> object:
     return sse(tool_events([{"index": 0, "id": "call-1", "function": {"name": name, "arguments": "{}"}}]))
+
+
+@pytest.mark.asyncio
+async def test_core_agent_pending_messages_continue_the_run_with_next_prompt(
+    provider_service: ProviderService,
+) -> None:
+    provider_service.reply(sse(chat_events("first")))
+    provider_service.reply(sse(chat_events("second")))
+    waiting: list[list[Any]] = [["early"]]
+    finished: list[tuple[int, str, Any]] = []
+    async with provider_service.client() as client:
+        agent = Agent(model=_model(client))
+
+        @agent.events.on(MessagesPending)
+        def drain(event: MessagesPending) -> None:
+            event.messages.extend(waiting)
+            waiting.clear()
+
+        @agent.events.on(ChatFinished)
+        def arrive_late(event: ChatFinished) -> None:
+            if event.response_text == "first":
+                waiting.append(["late"])
+
+        @agent.events.on(StepFinished)
+        def follow_up(event: StepFinished) -> None:
+            finished.append((event.step, event.status, event.prompt))
+            if event.status == "continue":
+                event.next_prompt = ["go on"]
+
+        async with agent.run("hello", tape="session") as stream:
+            events = [event async for event in stream]
+
+    assert [event.data.get("text") for event in events if event.kind == "final"] == ["first", "second"]
+    assert finished == [(1, "continue", ["hello"]), (2, "ok", ["go on"])]
+    assert await agent.tape("session").read_messages() == [
+        republic.user("early"),
+        republic.user("hello"),
+        republic.assistant("first"),
+        republic.user("late"),
+        republic.user("go on"),
+        republic.assistant("second"),
+    ]
+    tape = agent.tape("session")
+    entries = await tape.store.fetch_all(tape.query().kinds("event"))
+    assert [entry.payload["data"]["status"] for entry in entries if entry.payload["name"] == "loop.step"] == [
+        "continue",
+        "ok",
+    ]
 
 
 @pytest.mark.asyncio
@@ -86,6 +135,7 @@ async def test_core_agent_runs_tool_loop_and_emits_events(provider_service: Prov
     assert seen == [
         "RunStarted",
         "StepStarted",
+        "MessagesPending",
         "LLMCallStarted",
         "LLMCallFinished",
         "ToolCallStarted",
@@ -93,9 +143,11 @@ async def test_core_agent_runs_tool_loop_and_emits_events(provider_service: Prov
         "ChatFinished",
         "StepFinished",
         "StepStarted",
+        "MessagesPending",
         "LLMCallStarted",
         "LLMCallFinished",
         "ChatFinished",
+        "MessagesPending",
         "StepFinished",
         "RunFinished",
     ]

@@ -21,21 +21,24 @@ def get_order(order_id: str) -> dict[str, str]:
     return {"id": order_id, "status": "shipped"}
 ```
 
-The decorator creates a `Tool` and adds it to the shared `REGISTRY` at import time. Import the module from your [plugin entry point](/docs/build/plugins/):
+The decorator only creates a `Tool`. Provide it from your [plugin](/docs/build/plugins/) with the `provide_tools` hook:
 
 ```python
-from . import tools  # noqa: F401
+from bub import hookimpl
+from bub.core.tools import Tool
+
+from .tools import get_order
+
+
+class OrdersPlugin:
+    @hookimpl
+    def provide_tools(self) -> list[Tool]:
+        return [get_order]
 ```
 
-`BubAgent(tools=None)` takes a snapshot of the registry when constructed. Import tools before that point. To add tools later, update that agent's `tools` dictionary explicitly.
+`BubAgent(tools=None)` collects these tools when constructed. For a duplicate name, the tool of the higher-priority plugin wins. To add tools later, update that agent's `tools` dictionary explicitly.
 
-Check registration in the environment running Bub:
-
-```bash
-python -c "import bub_myplugin.plugin; from bub.core.tools import REGISTRY; print(sorted(REGISTRY))"
-```
-
-Replace the import with your plugin module. The output should contain `orders.get`; the model-facing name is `orders_get`. Use this registry check to inspect tools and `bub hooks` to inspect hook bindings.
+Run `bub hooks` to check that your plugin implements `provide_tools`. The model-facing name of `orders.get` is `orders_get`.
 
 ## Choose which tools a turn can use
 

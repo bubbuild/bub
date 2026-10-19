@@ -16,7 +16,7 @@ Hooks 把插件接到 Bub 应用上。本页列出 `BubHookSpecs` 声明的 26 �
 | `build_prompt` | `(message: Envelope, session_id: str, state: TurnState) -> list[UserContent] \| LegacyPrompt` | 取首个结果；选中 falsy 值时回退到入站内容，不再尝试其他实现。 |
 | `run_model` | `(prompt, session_id, state) -> str` | 提供模型阶段的文本结果；与 `run_model_stream` 二选一实现。 |
 | `run_model_stream` | `(prompt, session_id, state) -> AsyncStreamEvents` | 提供模型阶段的流；与 `run_model` 二选一实现。 |
-| `continue_prompt` | `(prompt: LegacyPrompt \| None, tape: Tape, state: StreamState) -> str \| None` | 取首个结果；通过 `BubAgent.continue_prompt` 在后续步骤前调用，返回字符串时添加用户消息。 |
+| `continue_prompt` | `(prompt: LegacyPrompt \| None, tape: Tape, state: StreamState) -> str \| None` | 取首个结果；由 `AgentPlugins` 在 status 为 `continue` 的 `StepFinished` 上调用，返回字符串时添加用户消息。 |
 | `save_state` | `(session_id, state, message, model_output) -> None` | 在模型阶段的 `finally` 中调用全部实现；此前会话、状态或提示词准备失败时不会调用。 |
 | `render_outbound` | `(message, session_id, state, model_output) -> list[Envelope]` | 收集并拼接消息批次；合并结果为空时使用 framework 的默认出站消息。 |
 | `dispatch_outbound` | `(message: Envelope) -> bool` | 针对每条出站消息调用全部实现。 |
@@ -40,6 +40,7 @@ Hooks 把插件接到 Bub 应用上。本页列出 `BubHookSpecs` 声明的 26 �
 | `provide_channels` | `(message_handler: MessageHandler) -> list[Channel]` | 同步收集渠道，按 `Channel.name` 去重，保留优先级顺序中的首个结果。 |
 | `build_tape_context` | `() -> TapeContext` | 取首个同步结果，选择应用 agent 的上下文策略。 |
 | `admit_message` | `(session_id, message, turn: TurnSnapshot) -> AdmitDecision \| None` | 渠道调度前取首个结果，可异步实现；`None` 保留渠道默认的并发调度。 |
+| `provide_tools` | `() -> list[Tool]` | 同步收集工具，同名时保留优先级顺序中的首个结果。 |
 | `provide_steering_inbox` | `() -> SteeringInbox \| None` | 进入 `running()` 时同步取得首个结果；可以用生成器 yield inbox。 |
 | `on_error` | `(stage: str, error: Exception, message: Envelope \| None) -> None` | 通知全部观察者；观察者异常被记录并跳过。异步实现只在异步通知路径上生效。 |
 
@@ -95,7 +96,7 @@ Tape sidecar providers 提供具名的关联 tape。Bub 把它们挂载到应用
 ## 通过 PluginAgentHooks 拦截调用
 <span id="agent-loop-hooks-agenthooks"></span>
 
-`BubAgent` 把 `PluginAgentHooks` 订阅到核心 agent 的 LLM 和工具开始、完成事件上。应用插件通过这个适配器介入调用。
+`AgentPlugins.attach()` 把 `PluginAgentHooks` 订阅到核心 agent 的 LLM 和工具开始、完成事件上；`BubAgent` 将它接到自身。应用插件通过这个适配器介入调用。
 
 Before hooks 按 hook 优先级运行，每个实现都能看到前序实现的更新。`LLMCallDecision.finish(text)`、`ToolCallDecision.replace(result)` 和 `ToolCallDecision.deny(message)` 会停止后续 before 实现。LLM finish decision 不调用供应商，也没有对应的 `after_llm_call`。
 

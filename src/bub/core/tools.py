@@ -4,8 +4,8 @@ import asyncio
 import inspect
 import json
 import time
-from collections.abc import Callable, Iterable, Sequence
-from contextlib import AbstractAsyncContextManager, nullcontext
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import AbstractAsyncContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal, get_args, get_type_hints, overload
 
@@ -520,10 +520,6 @@ class ToolExecutor:
         return outcome
 
 
-# Central registry for tools. Tools defined with the @tool decorator are automatically added here.
-REGISTRY: dict[str, Tool] = {}
-
-
 def _shorten_text(text: str, width: int = 30, placeholder: str = "...") -> str:
     if len(text) <= width:
         return text
@@ -555,6 +551,28 @@ def _log_tool_call(call: ToolCall) -> None:
     params = [f"{key}={_render_value(value)}" for key, value in call.arguments.items()]
     params_str = f" {{ {', '.join(params)} }}" if params else ""
     logger.info("tool.call.start name={}{}", call.tool, params_str)
+
+
+#: Deprecated and no longer filled: ``@tool`` does not register tools. Plugins provide tools with
+#: the ``provide_tools`` hook.
+REGISTRY: dict[str, Tool] = {}
+
+_collected: dict[str, Tool] | None = None
+
+
+@contextmanager
+def collect_tools() -> Iterator[dict[str, Tool]]:
+    """Collect the tools that ``@tool`` creates inside the block, by name.
+
+    Outside such a block ``@tool`` has no side effect. Bub collects the tools of each
+    plugin it loads, for plugins that still rely on ``@tool`` registering their tools.
+    """
+    global _collected
+    previous, _collected = _collected, {}
+    try:
+        yield _collected
+    finally:
+        _collected = previous
 
 
 @overload
@@ -637,7 +655,8 @@ def tool(
                 renderer=renderer,
                 deferred=deferred,
             )
-        REGISTRY[result.name] = result
+        if _collected is not None:
+            _collected[result.name] = result
         return result
 
     if func is None:
