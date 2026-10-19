@@ -416,6 +416,14 @@ class Tape:
         await self.store.append(tape_name, event)
         return [entry, event]
 
+    async def last_system_prompt(self) -> str | None:
+        """Return the content of the latest system entry on the tape."""
+        entries = list(await self.store.fetch_all(self.query().kinds("system")))
+        if not entries:
+            return None
+        content = entries[-1].payload.get("content")
+        return content if isinstance(content, str) else None
+
     async def record_chat(  # noqa: C901
         self,
         *,
@@ -434,7 +442,7 @@ class Tape:
     ) -> None:
         tape_name = self.name
         meta = {"run_id": run_id, **tracing.correlation()}
-        if system_prompt:
+        if system_prompt and system_prompt != await self.last_system_prompt():
             await self.store.append(tape_name, TapeEntry.system(system_prompt, **meta))
         if context_error is not None:
             await self.store.append(tape_name, TapeEntry.error(context_error, **meta))

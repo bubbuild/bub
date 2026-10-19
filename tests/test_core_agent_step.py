@@ -458,3 +458,13 @@ async def test_named_tool_choice_is_sent_to_anthropic(tmp_path: Path, provider_s
             )
         ]
     assert provider_service.body()["tool_choice"] == {"type": "tool", "name": "echo"}
+
+
+@pytest.mark.asyncio
+async def test_record_chat_writes_system_prompt_only_when_it_changes() -> None:
+    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("system")
+    for system_prompt in ["Be brief.", "Be brief.", None, "Be verbose.", "Be verbose.", "Be brief."]:
+        await tape.record_chat(run_id="run", system_prompt=system_prompt, new_messages=[], response_text="ok")
+
+    entries = list(await tape.store.fetch_all(tape.query().kinds("system")))
+    assert [entry.payload["content"] for entry in entries] == ["Be brief.", "Be verbose.", "Be brief."]
