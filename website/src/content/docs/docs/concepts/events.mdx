@@ -81,7 +81,7 @@ To change arguments and continue, replace `event.call` with `dataclasses.replace
 
 Command prompts execute tools directly, emitting tool events and `CommandFinished`. See [Commands](/docs/build/tools/#commands).
 
-All events carry turn `state`. Events derived from `TapeEvent` also carry the active tape. For tool events, the tool context is available as `event.call.context` when the invocation has one.
+All agent events carry turn `state`. Events derived from `TapeEvent` also carry the active tape. For tool events, the tool context is available as `event.call.context` when the invocation has one.
 
 <a id="recording"></a>
 
@@ -133,3 +133,5 @@ async def mark_reviewed() -> None:
 This adapter follows plugin hook ordering and catches exceptions from individual interception hooks, logging and skipping them. To deny a call, return the appropriate decision. Other application hooks follow their own error contracts.
 
 Use [application hooks](/docs/build/hooks/) for plugin examples and the [hooks reference](/docs/reference/hooks/) for ordering and signatures. EventBus is included in the base SDK installation.
+
+`framework.events` publishes commands, channel work, and user prompts through `CommandChanged`, `WorkChanged`, and `PromptChanged` from `bub.application`. Subscribe and unsubscribe with the same `on()` and `off()` API.

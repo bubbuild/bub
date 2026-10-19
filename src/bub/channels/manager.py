@@ -9,6 +9,7 @@ from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
 from bub import config
+from bub.application import Outcome, WorkChanged
 from bub.channels.admission import AdmitDecision, SessionTurnController, TurnSnapshot
 from bub.channels.base import Channel, Interface, Lifecycle
 from bub.channels.contracts import MessageHandler
@@ -68,6 +69,8 @@ class ChannelManager:
         else:
             self._enabled_channels = self._settings.enabled_channels.split(",")
         self._messages = asyncio.Queue[ChannelMessage]()
+        self._admitting = False
+        self._work_publication: asyncio.Task[WorkChanged] | None = None
         self._started_channels: list[Channel] | None = None
         self._session_controllers: dict[str, SessionTurnController] = {}
         self._session_handlers: dict[str, MessageHandler] = {}
@@ -82,15 +85,35 @@ class ChannelManager:
             handler: MessageHandler
             if self._channels[channel].needs_debounce:
                 handler = BufferedMessageHandler(
-                    self._messages.put,
+                    self._enqueue,
                     active_time_window=self._settings.active_time_window,
                     max_wait_seconds=self._settings.max_wait_seconds,
                     debounce_seconds=self._settings.debounce_seconds,
                 )
             else:
-                handler = self._messages.put
+                handler = self._enqueue
             self._session_handlers[session_id] = handler
         await self._session_handlers[session_id](message)
+
+    async def _enqueue(self, message: ChannelMessage) -> None:
+        await self._messages.put(message)
+        self._admitting = True
+        self._notify_work()
+
+    def _notify_work(self, completed: Outcome | None = None) -> None:
+        if self._started_channels is None:
+            return
+        busy = self._admitting or any(controller.active_tasks for controller in self._session_controllers.values())
+        event = WorkChanged(busy, completed)
+        previous = self._work_publication
+
+        async def publish() -> WorkChanged:
+            # Preserve snapshot order even when a subscriber awaits.
+            if previous is not None:
+                await previous
+            return await self.framework.events.emit(event)
+
+        self._work_publication = asyncio.create_task(publish())
 
     def get_channel(self, name: str) -> Channel | None:
         return self._channels.get(name)
@@ -199,16 +222,18 @@ class ChannelManager:
         self._session_controllers.pop(session_id, None)
 
     def _on_task_done(self, session_id: str, task: asyncio.Task) -> None:
+        outcome: Outcome
         if task.cancelled():
             logger.info("channel.manager task cancelled session_id={}", session_id)
+            outcome = "cancelled"
         else:
-            task.exception()  # to log any exception
+            outcome = "failed" if task.exception() is not None else "succeeded"
         controller = self._session_controllers.get(session_id)
-        if controller is None:
-            return
-        controller.active_tasks.discard(task)
-        self._schedule_pending(session_id)
-        self._drop_empty_controller(session_id)
+        if controller is not None:
+            controller.active_tasks.discard(task)
+            self._schedule_pending(session_id)
+            self._drop_empty_controller(session_id)
+        self._notify_work(outcome)
 
     async def _admit_message(self, message: ChannelMessage) -> bool:
         try:
@@ -349,13 +374,15 @@ class ChannelManager:
                 for channel in self.enabled_channels():
                     await channel.start(stop_event)
                     started_channels.append(channel)
+                self._notify_work()
                 logger.info("channel.manager started listening")
                 try:
                     while True:
                         message = await wait_until_stopped(self._messages.get(), stop_event)
-                        if not await self._admit_message(message):
-                            continue
-                        self._schedule_message(message)
+                        if await self._admit_message(message):
+                            self._schedule_message(message)
+                        self._admitting = not self._messages.empty()
+                        self._notify_work()
                 except asyncio.CancelledError:
                     logger.info("channel.manager received shutdown signal")
                 except Exception:
@@ -367,6 +394,10 @@ class ChannelManager:
                     await self.shutdown()
                 finally:
                     self._started_channels = None
+                    publication = self._work_publication
+                    self._work_publication = None
+                    if publication is not None:
+                        await publication
                 logger.info("channel.manager stopped")
 
     async def shutdown(self) -> None:

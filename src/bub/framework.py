@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import warnings
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -15,9 +15,11 @@ import typer
 from loguru import logger
 
 from bub import configure
+from bub.application import CommandChanged, Outcome
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import ChannelRouter, MessageHandler
 from bub.configure import DEFAULT_HOME
+from bub.core.events import Event, EventBus
 from bub.core.sidecars import TapeSidecar
 from bub.core.store import AsyncTapeStore, TapeStore
 from bub.core.tape import Tape, TapeContext
@@ -76,6 +78,7 @@ class BubFramework:
         self._plugin_manager.add_hookspecs(BubHookSpecs)
         self._hook_runtime = HookRuntime(self._plugin_manager)
         self._agent_hooks = PluginAgentHooks(self._hook_runtime)
+        self.events = EventBus()
         self._plugin_status: dict[str, PluginStatus] = {}
         self._channel_router: ChannelRouter | None = None
         self._tape_store: TapeStore | AsyncTapeStore | None = None
@@ -158,7 +161,28 @@ class BubFramework:
 
     def create_cli_app(self) -> typer.Typer:
         """Create CLI app by collecting commands from hooks. Can be used for custom CLI entry point."""
+        import sys
+
+        from bub.program_status import ProgramStatus
+
         app = typer.Typer(name="bub", help="A tiny agent runtime, composable with plugins", add_completion=False)
+
+        @contextlib.contextmanager
+        def command_events() -> Iterator[None]:
+            outcome: Outcome = "failed"
+            asyncio.run(self.events.emit(CommandChanged()))
+            try:
+                yield
+            except (asyncio.CancelledError, KeyboardInterrupt, EOFError, typer.Abort):
+                outcome = "cancelled"
+                raise
+            except typer.Exit as exc:
+                outcome = "succeeded" if exc.exit_code == 0 else "failed"
+                raise
+            else:
+                outcome = "succeeded"
+            finally:
+                asyncio.run(self.events.emit(CommandChanged(outcome)))
 
         @app.callback(invoke_without_command=True)
         def _main(
@@ -168,6 +192,10 @@ class BubFramework:
             if workspace:
                 self.workspace = Path(workspace).resolve()
             ctx.obj = self
+            reporter = ProgramStatus(sys.stdout)
+            self.events.on(Event, reporter)
+            ctx.call_on_close(lambda: self.events.off(Event, reporter))
+            ctx.with_resource(command_events())
 
         self._hook_runtime.call_many_sync("register_cli_commands", app=app)
         return app

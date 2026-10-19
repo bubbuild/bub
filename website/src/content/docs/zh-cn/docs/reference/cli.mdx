@@ -18,6 +18,8 @@ bub [OPTIONS] COMMAND [ARGS]...
 
 框架在 `bub/__main__.py` 中创建：先 `BubFramework().load_hooks()`，再 `create_cli_app()`。当前 framework 实例存放在 `ctx.obj` 上。
 
+支持 [OSC 7501](https://www.superlogical.com/rex/docs/build/program-status) 的终端可以显示 Bub 的运行、等待输入或授权、完成和失败状态。取消命令后状态为 `idle`。`chat` 和 `gateway` 开始监听后显示 `idle`，接收的消息全部处理完毕后才显示完成。其他终端正常显示命令输出，重定向输出不包含状态控制序列。
+
 ## `bub run`
 
 将一条 `ChannelMessage` 通过 `BubFramework.process_inbound` 跑完整条流水线，并把每个出站消息打印到 stdout。

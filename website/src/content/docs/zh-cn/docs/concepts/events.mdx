@@ -81,7 +81,7 @@ def require_refund_permission(event: ToolCallStarted) -> None:
 
 命令 prompt 直接执行工具，产生工具事件和 `CommandFinished`。详见[命令](/zh-cn/docs/build/tools/#commands)。
 
-所有事件都携带本轮 `state`。继承 `TapeEvent` 的事件还携带当前 Tape。工具调用具有上下文时，可以通过 `event.call.context` 访问。
+所有 agent 事件都携带本轮 `state`。继承 `TapeEvent` 的事件还携带当前 Tape。工具调用具有上下文时，可以通过 `event.call.context` 访问。
 
 <a id="recording"></a>
 
@@ -133,3 +133,5 @@ async def mark_reviewed() -> None:
 该适配器遵循插件 hook 顺序，捕获单个拦截 hook 的异常，记录后跳过。拒绝调用应返回对应 decision。其他应用 hooks 遵循各自的错误处理规则。
 
 [应用 Hooks 指南](/zh-cn/docs/build/hooks/)提供插件示例，[Hooks 参考](/zh-cn/docs/reference/hooks/)列出顺序与签名。EventBus 包含在基础 SDK 安装中。
+
+`framework.events` 通过 `bub.application` 中的 `CommandChanged`、`WorkChanged` 和 `PromptChanged` 发布命令、通道工作和用户提示，沿用相同的 `on()` 与 `off()` 接口订阅和取消订阅。

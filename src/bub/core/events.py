@@ -121,20 +121,24 @@ class ToolCallResult:
     duration_ms: int = 0
 
 
-# Events. Each carries the turn ``state``; loop events also carry the run's ``tape``. ``Before*``
+# Agent events carry the turn ``state``; loop events also carry the run's ``tape``. ``Before*``
 # events are mutable: handlers may replace the request or call, or set a decision, which stops delivery.
 
 
-@dataclass(kw_only=True)
-class AgentEvent:
-    """Base class of agent-loop events; a handler for it receives every event."""
-
-    state: TurnState
+class Event:
+    """Base event shared by publishers using the event bus."""
 
     @property
     def stopped(self) -> bool:
         """Whether delivery to the remaining handlers stops."""
         return False
+
+
+@dataclass(kw_only=True)
+class AgentEvent(Event):
+    """Base class of agent-loop events; a handler for it receives every agent event."""
+
+    state: TurnState
 
 
 @dataclass(kw_only=True)
@@ -295,20 +299,20 @@ class ChatFinished(TapeEvent):
     context_error: BubError | None = None
 
 
-E = TypeVar("E", bound=AgentEvent)
+E = TypeVar("E", bound=Event)
 EventHandler = Callable[[E], object]
 """A sync or async function of an event; its result is awaited if awaitable, then ignored."""
 
 
 class EventBus:
-    """Deliver agent events to handlers registered by event type, in registration order.
+    """Deliver events to handlers registered by event type, in registration order.
 
     A handler registered for a base class receives its subclasses. Handler exceptions
-    propagate to the agent loop.
+    propagate to the publisher.
     """
 
     def __init__(self) -> None:
-        self._handlers: list[tuple[type[AgentEvent], EventHandler[Any]]] = []
+        self._handlers: list[tuple[type[Event], EventHandler[Any]]] = []
 
     @overload
     def on(self, event_type: type[E]) -> Callable[[EventHandler[E]], EventHandler[E]]: ...

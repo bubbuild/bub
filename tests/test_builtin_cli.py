@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import sys
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -11,6 +14,7 @@ import pytest
 import typer
 from inquirer_textual.common.InquirerResult import InquirerResult
 from inquirer_textual.common.PromptSettings import PromptSettings
+from typer.main import get_command
 from typer.testing import CliRunner
 
 import bub.builtin.cli as cli
@@ -24,6 +28,19 @@ from bub.hooks import hookimpl
 @pytest.fixture(autouse=True)
 def no_model_discovery_network(monkeypatch):
     monkeypatch.setattr(onboarding, "discover_models", lambda *args, **kwargs: [])
+
+
+def _terminal_output(monkeypatch: pytest.MonkeyPatch) -> StringIO:
+    output = StringIO()
+    monkeypatch.setattr(output, "isatty", lambda: True)
+    monkeypatch.setattr(sys, "stdout", output)
+    monkeypatch.setattr(sys, "stderr", output)
+    return output
+
+
+def _program_status(output: StringIO) -> dict[str, str]:
+    frames = re.findall(r"\x1b]7501;([^\x1b\x07]*)(?:\x1b\\|\x07)", output.getvalue())
+    return dict(pair.split("=", 1) for pair in frames[-1].split(":"))
 
 
 def _fake_result(answer: Any, command: str | None = "enter") -> InquirerResult[Any]:
@@ -100,7 +117,7 @@ def test_onboard_collects_plugin_config_and_writes_file(tmp_path: Path, monkeypa
         monkeypatch.setattr(
             bub_inquirer,
             "ask_confirm",
-            lambda message, default=False: default,
+            lambda message, default=False, **kwargs: default,
         )
         monkeypatch.setattr(
             bub_inquirer,
@@ -153,7 +170,7 @@ def test_onboard_collects_builtin_runtime_config(tmp_path: Path, monkeypatch) ->
         monkeypatch.setattr(
             bub_inquirer,
             "ask_confirm",
-            lambda message, default=False: message == "Stream output",
+            lambda message, default=False, **kwargs: message == "Stream output",
         )
         monkeypatch.setattr(
             bub_inquirer,
@@ -211,6 +228,7 @@ def test_onboard_allows_no_channels(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_onboard_can_install_gateway_after_saving_config(tmp_path: Path, monkeypatch) -> None:
+    terminal_output = _terminal_output(monkeypatch)
     config_file = tmp_path / "config.yml"
     framework = BubFramework(config_file=config_file)
     framework.load_hooks()
@@ -224,13 +242,15 @@ def test_onboard_can_install_gateway_after_saving_config(tmp_path: Path, monkeyp
     )
     monkeypatch.setattr("bub.gateway_installer.is_gateway_service_supported", lambda: True)
 
-    def confirm_install(message: str, default: bool = False) -> bool:
+    def confirm_install(message: str, default: bool = False) -> InquirerResult[bool]:
         assert message == "Install gateway as a background service?"
         assert default is False
         assert configure.load(config_file)["enabled_channels"] == "telegram"
-        return True
+        current = _program_status(terminal_output)
+        assert current["state"] == "blocked" and current["kind"] == "permission"
+        return _fake_result(True)
 
-    monkeypatch.setattr(bub_inquirer, "ask_confirm", confirm_install)
+    monkeypatch.setattr(bub_inquirer.prompts, "confirm", confirm_install)
 
     def install_gateway(workspace: Path, channels: list[str]) -> SimpleNamespace:
         observed["workspace"] = workspace
@@ -239,38 +259,44 @@ def test_onboard_can_install_gateway_after_saving_config(tmp_path: Path, monkeyp
 
     monkeypatch.setattr("bub.gateway_installer.install_gateway", install_gateway)
 
-    result = CliRunner().invoke(app, ["--workspace", os.fspath(tmp_path), "onboard"])
+    with pytest.raises(SystemExit) as stopped:
+        get_command(app).main(["--workspace", os.fspath(tmp_path), "onboard"])
 
-    assert result.exit_code == 0
-    assert f"Saved config to {config_file.resolve()}" in result.output
-    assert "Installed and started the gateway with systemd" in result.output
+    assert stopped.value.code == 0
+    assert f"Saved config to {config_file.resolve()}" in terminal_output.getvalue()
+    assert "Installed and started the gateway with systemd" in terminal_output.getvalue()
+    assert _program_status(terminal_output)["state"] == "done"
     assert observed == {"workspace": tmp_path.resolve(), "channels": []}
 
 
 def test_onboard_keeps_saved_config_when_gateway_installation_fails(tmp_path: Path, monkeypatch) -> None:
     from bub.gateway_installer import GatewayServiceError
 
+    terminal_output = _terminal_output(monkeypatch)
     config_file = tmp_path / "config.yml"
     framework = BubFramework(config_file=config_file)
     framework.load_hooks()
     app = framework.create_cli_app()
     monkeypatch.setattr(framework, "collect_onboard_config", lambda *_: {"enabled_channels": "telegram"})
     monkeypatch.setattr("bub.gateway_installer.is_gateway_service_supported", lambda: True)
-    monkeypatch.setattr(bub_inquirer, "ask_confirm", lambda message, default=False: True)
+    monkeypatch.setattr(bub_inquirer, "ask_confirm", lambda message, default=False, **kwargs: True)
 
     def fail_install(workspace: Path, channels: list[str]) -> None:
         raise GatewayServiceError("user service unavailable")
 
     monkeypatch.setattr("bub.gateway_installer.install_gateway", fail_install)
 
-    result = CliRunner().invoke(app, ["onboard"])
+    with pytest.raises(SystemExit) as stopped:
+        get_command(app).main(["onboard"])
 
-    assert result.exit_code == 1
-    assert "Configuration remains saved" in result.output
+    assert stopped.value.code == 1
+    assert "Configuration remains saved" in terminal_output.getvalue()
     assert configure.load(config_file)["enabled_channels"] == "telegram"
+    assert _program_status(terminal_output)["state"] == "error"
 
 
 def test_onboard_aborts_immediately_when_builtin_prompt_is_interrupted(tmp_path: Path, monkeypatch) -> None:
+    terminal_output = _terminal_output(monkeypatch)
     config_file = tmp_path / "config.yml"
     asked_messages: list[str] = []
 
@@ -317,10 +343,12 @@ def test_onboard_aborts_immediately_when_builtin_prompt_is_interrupted(tmp_path:
         monkeypatch.setattr(bub_inquirer, "ask_text", fake_text)
         monkeypatch.setattr(bub_inquirer, "ask_secret", fake_secret)
 
-        result = CliRunner().invoke(app, ["onboard"])
+        with pytest.raises(SystemExit) as stopped:
+            get_command(app).main(["onboard"])
 
-    assert result.exit_code == 1
-    assert _rendered_onboard_banner() in result.stdout
+    assert stopped.value.code == 1
+    assert _rendered_onboard_banner() in terminal_output.getvalue()
+    assert _program_status(terminal_output)["state"] == "idle"
     assert asked_messages == [
         "LLM provider",
         "API key (optional)",
@@ -509,7 +537,7 @@ def test_onboard_collects_builtin_runtime_config_with_custom_provider(tmp_path: 
         monkeypatch.setattr(
             bub_inquirer,
             "ask_confirm",
-            lambda message, default=False: False,
+            lambda message, default=False, **kwargs: False,
         )
         monkeypatch.setattr(
             bub_inquirer,
