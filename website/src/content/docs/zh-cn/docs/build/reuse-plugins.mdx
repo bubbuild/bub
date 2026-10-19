@@ -88,26 +88,56 @@ from bub_context_budget import plugin as context_budget
 from bub import BubFramework
 from bub.builtin.tools import tape_handoff
 from bub.core import Agent
+from bub.hooks.agent import AgentPlugins
 
 
 def add_context_budget(agent: Agent) -> None:
     framework = BubFramework(config_file=Path("bub.yml"))
-    framework.plugin_manager.register(context_budget, name="context-budget")
-    framework.get_agent_hooks().subscribe(agent.events)
+    AgentPlugins(framework, plugins=[context_budget]).attach(agent)
     agent.tools[tape_handoff.name] = tape_handoff
 ```
 
 适配器把这个插件的 `before_llm_call` 和 `after_llm_call` 接到现有 Agent 上，沿用原来的模型、提示词片段、存储和 `agent.run()`。本例接好了 context-budget 所需的 hooks 和 handoff 工具；适配其他插件时，需要分别核对它们的要求。
 
-导入 `tape_handoff` 也会在全局注册内置工具；本例只把 `tape_handoff` 加入 Agent。
-
 通过 `BUB_CONTEXT_BUDGET_MAX_CONTEXT_TOKENS`，或 `bub.yml` 中的 `context-budget.max_context_tokens` 设置上下文上限。插件从该上限中预留 16,384 tokens，再决定何时请求 handoff。这是一条给模型的预算提醒，实际执行取决于模型是否遵循指令。
 
 Handoff 把摘要保存在锚点上。下一次模型请求需要这份摘要时，通过[上下文选择](/zh-cn/docs/concepts/tape-and-context/#context)或下一条提示词将它带入。
 
-注册和订阅在服务启动时各执行一次，这个插件通过调用 hooks 完成工作。插件注册属于 Framework，订阅将其调用拦截 hooks 接到选定的 Agent；使用该 Agent 的会话共用这些 hooks。需要不同插件集合时，分别创建 Framework 并建立订阅，配置仍是进程级的。
+注册和接入在服务启动时各执行一次，这个插件通过调用 hooks 完成工作。插件注册属于 Framework，`attach()` 将其 agent 循环 hooks 接到选定 Agent 的事件上；使用该 Agent 的会话共用这些 hooks。需要不同插件集合时，分别创建 Framework，配置仍是进程级的。
 
 适配器会捕获普通插件异常并跳过失败的 hook。需要阻止工具执行时，hook 应返回 `ToolCallDecision.deny(...)`。具体拦截语义见 [Agent 事件](/zh-cn/docs/concepts/events/)。
+
+<a id="agent-plugins"></a>
+
+## 接入插件的其他 agent 循环 hooks
+
+`AgentPlugins` 接入所有影响 agent 循环的 hooks，不只是调用拦截。每个 hook 对应核心 Agent 的一个扩展点：
+
+| Hook | 核心 Agent 扩展点 |
+| --- | --- |
+| `before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call` | 调用事件，通过 `attach(agent)` 接入。 |
+| `continue_prompt` | `status == "continue"` 的 `StepFinished`：hook 返回的文本成为下一步的用户消息。 |
+| `provide_steering_inbox` | 每次模型请求前和步骤结束时，`MessagesPending` 取出 inbox 中的消息；取到消息时运行继续。 |
+| `system_prompt` | `attach(agent)` 在 Agent 已有片段之后添加的提示词片段。 |
+| `provide_tools` | `attach(agent)` 添加的工具；Agent 已有同名工具时保留原工具。 |
+| `provide_tape_store`、`build_tape_context`、`provide_tape_sidecar` | `plugins.components()` 中的 `store`、`context` 和 `sidecars`。 |
+| `load_state`、`provide_environment` | 由 `await plugins.build_state(session_id)` 生成的运行状态。 |
+
+```python
+from bub.hooks.agent import AgentPlugins
+
+plugins = AgentPlugins(plugins=[SupportPlugin()])
+
+async with plugins.running():
+    agent = plugins.attach(Agent(system_prompt="Answer in plain text.", **plugins.components()))
+    state = await plugins.build_state("customer-42", agent=agent)
+    async with agent.run(prompt, model=model, tape="customer-42", state=state) as stream:
+        ...
+```
+
+没有 hook 提供的组件不会出现在 `components()` 中，Agent 保留默认值；你自己传入的参数会替代它们。hooks 提供的存储和 steering inbox 只在 `plugins.running()`（即 `framework.running()`）内可用。先调用 `attach()`，再注册自己的处理器，这样它们能看到 hooks 的修改。
+
+`build_prompt`、`run_model`、`save_state`、`render_outbound`、`dispatch_outbound` 等消息流程 hooks 不属于 agent 循环，只在 `process_inbound()` 中运行。`plugins=[...]` 只注册列出的插件。不带参数的 `AgentPlugins()` 和 `bub` 命令一样，加载 Bub 内置 hooks 和已安装的插件；内置系统提示词要求 agent 通过 channel 回复。传入 `framework` 则使用已有 framework 的 hooks，同时传入的 `plugins` 会注册到它上面。
 
 ## 按插件能力选择接法
 
@@ -116,7 +146,7 @@ Handoff 把摘要保存在锚点上。下一次模型请求需要这份摘要时
 | 插件能力 | 接入方式 |
 | --- | --- |
 | 工具或存储 | 导入公开组件并传给 Agent。例如，`bub_tapestore_sqlalchemy.store.SQLAlchemyTapeStore` 接收数据库 URL，可作为 `store=` 传入。 |
-| 模型或工具拦截 | 像上例一样注册指定插件并订阅 hooks，同时核对插件需要的状态字段和工具。 |
+| 模型或工具拦截、系统提示词、继续运行或 steering | 注册指定插件并[接入 `AgentPlugins`](#agent-plugins)，同时核对插件需要的状态字段和工具。 |
 | 消息准备、模型阶段替换、状态保存或消息发送 | 在宿主中[嵌入应用流程](/zh-cn/docs/build/distribution/#programmatic-embedding)，执行这些阶段并取得 `TurnResult`。 |
 | 后台连接或动态发现的工具 | 启动服务、等待就绪、绑定工具，并随宿主关闭。具体顺序遵循插件自己的生命周期接口。 |
 

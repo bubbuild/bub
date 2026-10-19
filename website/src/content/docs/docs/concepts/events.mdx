@@ -69,7 +69,9 @@ To change arguments and continue, replace `event.call` with `dataclasses.replace
 | --- | --- | --- |
 | `RunStarted` | A model run begins. | Observe prompt, model, and metadata. |
 | `RunFinished` | Its stream closes. | Observe status, step count, elapsed time, and error. |
-| `StepStarted`, `StepFinished` | A model step begins or ends. | Observe progress. |
+| `StepStarted` | A model step begins. | Observe progress. |
+| `StepFinished` | A model step ends. | Observe progress; with `status == "continue"`, set `next_prompt` to give the next step a user message. |
+| `MessagesPending` | A step builds its model request, or ends without tool calls. | Append user messages to `messages`; they precede the next prompt, and messages supplied at a step's end continue the run. |
 | `LLMCallStarted` | Before a provider call. | Replace `request`, or set `LLMCallDecision.finish(text)`. |
 | `LLMCallFinished` | A provider call completes or fails with an exception. | Observe the accumulated result; cancellation and consumer close are not reported here. |
 | `ToolCallStarted` | Before a tool executes. | Replace `call`, deny, or replace the result. |
@@ -126,7 +128,7 @@ async def mark_reviewed() -> None:
 
 ## Use events from an application plugin
 
-BubAgent connects its `before_llm_call`, `after_llm_call`, `before_tool_call`, and `after_tool_call` hooks to these events. Plugins return the values required by the hook contract; the adapter updates the corresponding event.
+`AgentPlugins` connects the `before_llm_call`, `after_llm_call`, `before_tool_call`, and `after_tool_call` hooks to the call events, the `continue_prompt` hook to `StepFinished`, and the steering inbox to `MessagesPending`. Plugins return the values required by the hook contract; the adapter updates the corresponding event. BubAgent uses this adapter, and a core Agent can [use it too](/docs/build/reuse-plugins/#agent-plugins).
 
 This adapter follows plugin hook ordering and catches exceptions from individual interception hooks, logging and skipping them. To deny a call, return the appropriate decision. Other application hooks follow their own error contracts.
 

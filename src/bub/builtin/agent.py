@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 from collections.abc import Collection
 from pathlib import Path
@@ -11,12 +10,12 @@ import bub.core as core
 from bub.builtin.settings import load_settings
 from bub.core.store import AsyncTapeStore, TapeStore
 from bub.core.tape import Tape, session_tape_name
-from bub.core.tools import REGISTRY, Tool, model_tools
-from bub.envelope import field_of
+from bub.core.tools import Tool, model_tools
 from bub.framework import BubFramework
+from bub.hooks.agent import AgentPlugins
 from bub.prompt import LegacyPrompt, UserContent, prompt_text, to_content
 from bub.skills import discover_skills, render_skills_prompt
-from bub.streaming import AsyncStreamEvents, StreamState
+from bub.streaming import AsyncStreamEvents
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
 
@@ -27,11 +26,11 @@ ALLOWED_SKILLS_STATE_KEY = "allowed_skills"
 class BubAgent(core.Agent):
     """Bub's agent: the core loop configured by settings and the framework's hooks.
 
-    Adds commands, skills, code mode, deferred tools, steering and the
-    ``continue_prompt`` hook to :class:`bub.core.Agent`. System prompt sections, in
-    order: the framework's ``system_prompt`` hooks, code mode, deferred tools, skills,
-    then sections added with ``system_prompt.add``. The framework's interception
-    hooks handle events before handlers added with ``events.on``.
+    Adds commands, skills, code mode and deferred tools to :class:`bub.core.Agent`, and
+    connects the framework's agent-loop hooks through :class:`AgentPlugins`. System prompt
+    sections, in order: code mode, deferred tools, skills, the framework's ``system_prompt``
+    hooks, then sections added with ``system_prompt.add``. The framework's hooks handle
+    events before handlers added with ``events.on``.
 
     One instance serves any number of sessions: per-turn choices (model, allowed tools
     and skills) live in the turn state.
@@ -53,8 +52,8 @@ class BubAgent(core.Agent):
         Args:
             framework: Configured hook runtime supplying prompts, tape context,
                 interception hooks, and optional shared resources.
-            tools: Tools available to this instance. None snapshots the global
-                registry; an empty collection disables tools.
+            tools: Tools available to this instance. None uses the framework's
+                ``provide_tools`` tools; an empty collection disables tools.
             tape_store: Explicit store, preferred over the framework's active store.
                 Create the agent inside ``framework.running()`` to use the latter.
                 Without either, the agent uses an in-memory store.
@@ -69,17 +68,22 @@ class BubAgent(core.Agent):
         self.settings = load_settings()
         self.framework = framework
         self.skill_dirs = skill_dirs
+        self.plugins = AgentPlugins(framework)
         super().__init__(
             store=framework.get_tape_store() if tape_store is None else tape_store,
-            tools=REGISTRY.values() if tools is None else tools,
-            system_prompt=[self._hook_prompt, self._code_mode_prompt, self._deferred_tools_prompt, self._skills_prompt],
+            tools=() if tools is None else tools,
+            system_prompt=[
+                self._code_mode_prompt,
+                self._deferred_tools_prompt,
+                self._skills_prompt,
+            ],
             context=framework.build_tape_context(),
             sidecars=framework.get_tape_sidecars(),
             max_steps=self.settings.max_steps,
             name="bub",
             command_prefix=self.settings.command_prefix if command_prefix is None else command_prefix,
         )
-        framework.get_agent_hooks().subscribe(self.events)
+        self.plugins.attach(self, tools=tools is None)
 
     async def run_stream(
         self,
@@ -178,27 +182,6 @@ class BubAgent(core.Agent):
             direct.extend(deferred[name] for name in await loaded_tool_names(tape) if name in deferred)
         return model_tools(direct)
 
-    async def pending_messages(self, tape: Tape) -> list[list[UserContent]]:
-        state = tape.context.state
-        steering_inbox = self.framework.get_steering_inbox()
-        envelopes = await steering_inbox.drain_messages(state) if steering_inbox else []
-        return list(
-            await asyncio.gather(*[
-                self.framework.build_prompt(message, session_id=field_of(message, "session_id"), state=state)
-                for message in envelopes
-            ])
-        )
-
-    def has_pending_messages(self, tape: Tape) -> bool:
-        steering_inbox = self.framework.get_steering_inbox()
-        return bool(steering_inbox and steering_inbox.message_count(tape.context.state) > 0)
-
-    async def continue_prompt(
-        self, tape: Tape, prompt: list[UserContent] | None, state: StreamState
-    ) -> list[UserContent] | None:
-        continuation = await self.framework.continue_prompt(prompt=prompt, tape=tape, state=state)
-        return None if continuation is None else [continuation]
-
     def _turn_tools(self, state: TurnState) -> list[Tool]:
         """Return the tools allowed in this turn, direct and deferred alike."""
         from bub.builtin.tools import ALLOWED_TOOLS_STATE_KEY
@@ -223,9 +206,6 @@ class BubAgent(core.Agent):
             return [tool for tool in direct_tools if tool.exposure != "code"], None
         code_tools = [tool for tool in direct_tools if tool.exposure in ("auto", "code")]
         return [tool for tool in tools if tool.exposure == "direct"], code_tools
-
-    def _hook_prompt(self, context: core.PromptContext) -> str:
-        return self.framework.get_system_prompt(prompt=context.prompt, state=context.state)
 
     @staticmethod
     def _code_mode_prompt(context: core.PromptContext) -> str | None:

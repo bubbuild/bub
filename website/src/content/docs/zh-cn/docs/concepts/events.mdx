@@ -69,7 +69,9 @@ def require_refund_permission(event: ToolCallStarted) -> None:
 | --- | --- | --- |
 | `RunStarted` | 模型运行开始。 | 观察 prompt、模型和 metadata。 |
 | `RunFinished` | 对应的流关闭。 | 观察状态、步骤数、耗时和错误。 |
-| `StepStarted`、`StepFinished` | 模型步骤开始或结束。 | 观察进度。 |
+| `StepStarted` | 模型步骤开始。 | 观察进度。 |
+| `StepFinished` | 模型步骤结束。 | 观察进度；`status == "continue"` 时，可设置 `next_prompt` 为下一步添加用户消息。 |
+| `MessagesPending` | 步骤构建模型请求时，或步骤结束且没有调用工具时。 | 向 `messages` 追加用户消息，排在下一个 prompt 之前；步骤结束时提供的消息会让运行继续。 |
 | `LLMCallStarted` | 调用供应商之前。 | 替换 `request`，或设置 `LLMCallDecision.finish(text)`。 |
 | `LLMCallFinished` | 供应商调用完成或抛出异常。 | 观察累积结果；这里不报告取消或消费方关闭流。 |
 | `ToolCallStarted` | 执行工具之前。 | 替换 `call`、拒绝调用或提供替代结果。 |
@@ -126,7 +128,7 @@ async def mark_reviewed() -> None:
 
 ## 从应用插件接入事件
 
-BubAgent 将 `before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call` hooks 接到这些事件上。插件按 hook 要求返回值，由适配器更新对应事件。
+`AgentPlugins` 将 `before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call` hooks 接到调用事件上，将 `continue_prompt` hook 接到 `StepFinished` 上，将 steering inbox 接到 `MessagesPending` 上。插件按 hook 要求返回值，由适配器更新对应事件。BubAgent 使用这个适配器，核心 Agent [同样可以使用](/zh-cn/docs/build/reuse-plugins/#agent-plugins)。
 
 该适配器遵循插件 hook 顺序，捕获单个拦截 hook 的异常，记录后跳过。拒绝调用应返回对应 decision。其他应用 hooks 遵循各自的错误处理规则。
 

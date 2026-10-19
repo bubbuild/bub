@@ -19,10 +19,11 @@ from bub.core.context import default_tape_context
 from bub.core.events import StepFinished
 from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.core.tape import Tape, session_tape_name
-from bub.core.tools import REGISTRY, tool
+from bub.core.tools import Tool, tool
 from bub.prompt import UserContent
 from bub.streaming import StreamEvent, StreamState
 from tests.model_fakes import ProviderService
+from tests.tool_fakes import builtin_tools
 
 # ---------------------------------------------------------------------------
 # Agent.run() tests: merge_back logic and model passthrough
@@ -36,9 +37,10 @@ def model_provider(provider_transport: ProviderService) -> ProviderService:
     return provider_transport
 
 
-def _make_agent() -> BubAgent:
-    """Build an Agent with a mocked framework, bypassing real LLM/tape init."""
+def _make_agent(*tools: Tool) -> BubAgent:
+    """Build an Agent with the builtin tools and ``tools`` from a mocked framework, bypassing real LLM/tape init."""
     framework = MagicMock()
+    framework.get_tools.return_value = (*builtin_tools(), *tools)
     framework.get_tape_store.return_value = None
     framework.get_steering_inbox.return_value = None
     framework.get_system_prompt.return_value = ""
@@ -275,8 +277,6 @@ async def test_agent_run_resolves_allowed_tool_aliases_and_limits_prompt(
 ) -> None:
     allowed_name = "tests.allowed_agent_tool"
     denied_name = "tests.denied_agent_tool"
-    REGISTRY.pop(allowed_name, None)
-    REGISTRY.pop(denied_name, None)
 
     @tool(name=allowed_name, description="Allowed tool")
     def allowed_agent_tool() -> str:
@@ -286,7 +286,7 @@ async def test_agent_run_resolves_allowed_tool_aliases_and_limits_prompt(
     def denied_agent_tool() -> str:
         return "denied"
 
-    agent = _make_agent()
+    agent = _make_agent(allowed_agent_tool, denied_agent_tool)
 
     result = await agent.run_stream(
         session_id="user/s1",
@@ -310,8 +310,6 @@ async def test_agent_run_excludes_command_tools(
 ) -> None:
     visible_name = "tests.visible_agent_tool"
     internal_name = "tests.internal_agent_tool"
-    REGISTRY.pop(visible_name, None)
-    REGISTRY.pop(internal_name, None)
 
     @tool(name=visible_name, description="Visible tool")
     def visible_agent_tool() -> str:
@@ -321,7 +319,7 @@ async def test_agent_run_excludes_command_tools(
     def internal_agent_tool() -> str:
         return "internal"
 
-    agent = _make_agent()
+    agent = _make_agent(visible_agent_tool, internal_agent_tool)
 
     result = await agent.run_stream(
         session_id="user/s1",
@@ -376,7 +374,7 @@ async def test_run_command_model_switches_session_model_directly() -> None:
     """
     agent = _make_agent()
     state: dict[str, Any] = {"_runtime_workspace": "/tmp"}  # noqa: S108
-    assert "model" not in REGISTRY or REGISTRY["model"].context is True
+    assert agent.tools["model"].context is True
 
     stream = await agent.run_stream(session_id="user/s1", prompt=",model openai:gpt-4o", state=state)
     events = [event async for event in stream]

@@ -10,6 +10,7 @@ import httpx2
 
 from bub.builtin.settings import AgentSettings
 from bub.core import Agent as CoreAgent
+from bub.core.events import MessagesPending
 from bub.core.tape import Tape
 from bub.core.tools import Tool
 from bub.hooks.interception import PluginAgentHooks
@@ -34,12 +35,10 @@ class StepRunner:
         prompt: list[UserContent] | None,
         steering_messages: list[list[UserContent]] | None = None,
     ) -> AsyncIterator[StreamEvent]:
-        class Agent(CoreAgent):
-            async def pending_messages(self, tape: Tape) -> list[list[UserContent]]:
-                return steering_messages or []
-
         chat_model = self.settings.chat_model(model, reasoning_effort=tape.context.state.get("reasoning_effort"))
-        agent = Agent(store=tape.store, tools=tools, system_prompt=system_prompt or ())
+        agent = CoreAgent(store=tape.store, tools=tools, system_prompt=system_prompt or ())
+        if steering_messages:
+            agent.events.on(MessagesPending, lambda event: event.messages.extend(steering_messages))
         if self.hooks is not None:
             self.hooks.subscribe(agent.events)
         return agent.run_once(prompt, model=chat_model, tape=tape)

@@ -16,7 +16,7 @@ Hooks connect plugins to the Bub application. This reference lists the 26 hooks 
 | `build_prompt` | `(message: Envelope, session_id: str, state: TurnState) -> list[UserContent] \| LegacyPrompt` | First result; a falsy selected value falls back to the inbound content rather than trying another implementation. |
 | `run_model` | `(prompt, session_id, state) -> str` | Text result for the model stage. Implement this or `run_model_stream`. |
 | `run_model_stream` | `(prompt, session_id, state) -> AsyncStreamEvents` | Stream result for the model stage. Implement this or `run_model`. |
-| `continue_prompt` | `(prompt: LegacyPrompt \| None, tape: Tape, state: StreamState) -> str \| None` | First result, called through `BubAgent.continue_prompt` before a continued step. Adds a user message when a string is returned. |
+| `continue_prompt` | `(prompt: LegacyPrompt \| None, tape: Tape, state: StreamState) -> str \| None` | First result, called through `AgentPlugins` on a `StepFinished` event whose status is `continue`. Adds a user message when a string is returned. |
 | `save_state` | `(session_id, state, message, model_output) -> None` | All implementations, in the model stage's `finally` block. Earlier session, state, or prompt failures skip it. |
 | `render_outbound` | `(message, session_id, state, model_output) -> list[Envelope]` | Collect and concatenate batches. An empty combined result uses the framework's default output envelope. |
 | `dispatch_outbound` | `(message: Envelope) -> bool` | Call every implementation for each outbound message. |
@@ -40,6 +40,7 @@ The model adapter chooses between text and stream hooks by examining plugins in 
 | `provide_channels` | `(message_handler: MessageHandler) -> list[Channel]` | Synchronous; collect channels, keeping the first in priority order for each `Channel.name`. |
 | `build_tape_context` | `() -> TapeContext` | First synchronous result; selects the context strategy for the application agent. |
 | `admit_message` | `(session_id, message, turn: TurnSnapshot) -> AdmitDecision \| None` | First result before channel scheduling; may be async. `None` leaves the channel's default concurrent scheduling in place. |
+| `provide_tools` | `() -> list[Tool]` | Synchronous; collect tools, keeping the first in priority order for each name. |
 | `provide_steering_inbox` | `() -> SteeringInbox \| None` | First result, acquired synchronously when `running()` opens; a generator may yield the inbox. |
 | `on_error` | `(stage: str, error: Exception, message: Envelope \| None) -> None` | Notify every observer. Observer exceptions are logged and skipped. Async implementations work only on the async notification path. |
 
@@ -91,7 +92,7 @@ Tape sidecar providers contribute named sibling tapes. Bub mounts them on the ap
 ## Interception through PluginAgentHooks
 <span id="agent-loop-hooks-agenthooks"></span>
 
-`BubAgent` subscribes `PluginAgentHooks` to the core agent's LLM and tool start/finish events. This adapter gives application plugins access to those calls.
+`AgentPlugins.attach()` subscribes `PluginAgentHooks` to the core agent's LLM and tool start/finish events; `BubAgent` attaches it to itself. This adapter gives application plugins access to those calls.
 
 The before hooks run in hook priority order. Each sees updates made by earlier implementations. `LLMCallDecision.finish(text)`, `ToolCallDecision.replace(result)`, and `ToolCallDecision.deny(message)` stop the remaining before implementations. A finished LLM decision never calls the provider and has no matching `after_llm_call`.
 

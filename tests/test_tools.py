@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from bub.core.events import EventBus, ToolCallFinished, ToolCallStarted
 from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
-from bub.core.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
+from bub.core.tools import Tool, ToolContext, ToolExecutor, collect_tools, model_tools, tool
 from bub.errors import BubError
 
 
@@ -40,7 +40,6 @@ def test_tool_builds_completion_payload() -> None:
 
 def test_model_tools_rewrites_dotted_names_without_mutating_original() -> None:
     tool_name = "tests.rename_me"
-    REGISTRY.pop(tool_name, None)
 
     @tool(name=tool_name, description="rename")
     def rename_me(value: str) -> str:
@@ -65,9 +64,8 @@ def test_model_tools_excludes_command_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_decorator_registers_tool_and_preserves_metadata() -> None:
+async def test_tool_decorator_preserves_metadata() -> None:
     tool_name = "tests.sync_tool"
-    REGISTRY.pop(tool_name, None)
 
     @tool(name=tool_name, description="Sync test tool", model=EchoInput)
     def sync_tool(payload: EchoInput) -> str:
@@ -76,21 +74,18 @@ async def test_tool_decorator_registers_tool_and_preserves_metadata() -> None:
     assert sync_tool.name == tool_name
     assert sync_tool.description == "Sync test tool"
     assert sync_tool.exposure == "auto"
-    assert REGISTRY[tool_name] is sync_tool
     assert await sync_tool.run(value="hello") == "HELLO"
 
 
 @pytest.mark.asyncio
 async def test_tool_decorator_command_exposure_keeps_direct_calls() -> None:
     tool_name = "tests.internal_tool"
-    REGISTRY.pop(tool_name, None)
 
     @tool(name=tool_name, exposure="command")
     def internal_tool(value: str) -> str:
         return value.upper()
 
     assert internal_tool.exposure == "command"
-    assert REGISTRY[tool_name] is internal_tool
     assert await internal_tool.run("hello") == "HELLO"
 
 
@@ -160,17 +155,21 @@ async def test_tool_executor_logs_arguments_changed_by_handlers(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
-async def test_tool_direct_call_registers_wrapped_instance_in_registry() -> None:
-    tool_name = "tests.direct_call"
-    REGISTRY.pop(tool_name, None)
-
+async def test_tool_decorator_registers_tools_only_while_collecting() -> None:
     def direct_call(value: str) -> str:
         return value.upper()
 
-    direct_tool = tool(direct_call, name=tool_name)
+    outside = tool(direct_call, name="tests.outside")
+    with collect_tools() as collected:
+        direct_tool = tool(direct_call, name="tests.direct_call")
+        with collect_tools() as nested:
+            nested_tool = tool(direct_call, name="tests.nested")
+        after_nested = tool(direct_call, name="tests.after_nested")
 
-    assert REGISTRY[tool_name] is direct_tool
-    assert await REGISTRY[tool_name].run("hello") == "HELLO"
+    assert collected == {"tests.direct_call": direct_tool, "tests.after_nested": after_nested}
+    assert nested == {"tests.nested": nested_tool}
+    assert tool(direct_call, name="tests.later") is not outside
+    assert await direct_tool.run("hello") == "HELLO"
 
 
 def _context(tmp_path, *, code_mode: bool = False) -> ToolContext:
@@ -193,17 +192,13 @@ def test_tool_rejects_unknown_exposure() -> None:
 
 def test_tool_decorator_accepts_renderer() -> None:
     tool_name = "tests.custom_renderer"
-    REGISTRY.pop(tool_name, None)
 
     @tool(name=tool_name, renderer=lambda result: f"count={result['count']}")
     def counted() -> dict[str, int]:
         return {"count": 3}
 
-    try:
-        assert counted.render({"count": 3}) == "count=3"
-        assert model_tools([counted])[0].render({"count": 1}) == "count=1"
-    finally:
-        REGISTRY.pop(tool_name, None)
+    assert counted.render({"count": 3}) == "count=3"
+    assert model_tools([counted])[0].render({"count": 1}) == "count=1"
 
 
 @pytest.mark.asyncio

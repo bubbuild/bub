@@ -28,7 +28,7 @@ from bub.builtin.tools import (
 )
 from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
-from bub.core.tools import REGISTRY, Tool, ToolContext, ToolExecutor, tool
+from bub.core.tools import Tool, ToolContext, ToolExecutor, tool
 from bub.errors import ErrorKind
 
 
@@ -70,8 +70,6 @@ async def test_tape_info_formats_token_cache_hit_rate(tmp_path) -> None:
 def test_render_tools_prompt_renders_available_tools_block() -> None:
     first_name = "tests.prompt_one"
     second_name = "tests.prompt_two"
-    REGISTRY.pop(first_name, None)
-    REGISTRY.pop(second_name, None)
 
     @tool(name=first_name, description="First tool")
     def prompt_one() -> str:
@@ -88,7 +86,6 @@ def test_render_tools_prompt_renders_available_tools_block() -> None:
 
 def test_render_tools_prompt_includes_model_name_and_parameter_signature() -> None:
     tool_name = "tests.prompt_signature"
-    REGISTRY.pop(tool_name, None)
 
     @tool(name=tool_name, description="Read a file")
     def prompt_signature(path: str, offset: int = 0) -> str:
@@ -113,44 +110,30 @@ def test_resolve_tool_names_accepts_runtime_names_and_model_aliases() -> None:
     dotted_name = "tests.resolve_alias"
     underscored_name = "tests_with_underscore"
     excluded_name = "tests.excluded_tool"
-    REGISTRY.pop(dotted_name, None)
-    REGISTRY.pop(underscored_name, None)
-    REGISTRY.pop(excluded_name, None)
-
-    @tool(name=dotted_name)
-    def resolve_alias() -> str:
-        return "alias"
-
-    @tool(name=underscored_name)
-    def resolve_runtime_name() -> str:
-        return "runtime"
-
-    @tool(name=excluded_name)
-    def excluded_tool() -> str:
-        return "excluded"
-
+    names = [dotted_name, underscored_name, excluded_name]
     assert resolve_tool_names(
-        [" tests_resolve_alias ", " tests_with_underscore "], exclude={" tests_excluded_tool "}
+        [" tests_resolve_alias ", " tests_with_underscore "], exclude={" tests_excluded_tool "}, all_names=names
     ) == {
         dotted_name,
         underscored_name,
     }
-    assert dotted_name not in resolve_tool_names(None, exclude={" tests_resolve_alias "})
-    assert excluded_name not in resolve_tool_names(None, exclude={" tests_excluded_tool "})
-    assert resolve_tool_names(None, exclude={" tests_resolve_alias "}) >= {underscored_name}
+    assert resolve_tool_names(None, exclude={" tests_resolve_alias "}, all_names=names) == {
+        underscored_name,
+        excluded_name,
+    }
+    assert excluded_name not in resolve_tool_names(None, exclude={" tests_excluded_tool "}, all_names=names)
 
 
 def test_resolve_tool_names_rejects_unknown_names() -> None:
     with pytest.raises(ValueError, match="tests_missing_tool"):
-        resolve_tool_names([" tests_missing_tool "])
+        resolve_tool_names([" tests_missing_tool "], all_names=())
 
     with pytest.raises(ValueError, match="tests_missing_tool"):
-        resolve_tool_names(None, exclude={" tests_missing_tool "})
+        resolve_tool_names(None, exclude={" tests_missing_tool "}, all_names=())
 
 
-def test_set_model_is_registered_with_context() -> None:
-    assert "model" in REGISTRY
-    tool_obj = REGISTRY["model"]
+def test_set_model_takes_context() -> None:
+    tool_obj = set_model
     assert tool_obj.context is True
     assert tool_obj.parameters == {
         "type": "object",
@@ -185,8 +168,8 @@ async def test_set_model_overwrites_previous_model(tmp_path) -> None:
     assert context.state["model"] == "anthropic:claude-3"
 
 
-def test_set_reasoning_effort_is_registered_for_internal_use() -> None:
-    assert REGISTRY["reasoning_effort"] is set_reasoning_effort
+def test_set_reasoning_effort_is_a_builtin_command_tool() -> None:
+    assert set_reasoning_effort in builtin_tools.TOOLS
     assert set_reasoning_effort.context is True
     assert set_reasoning_effort.exposure == "command"
     assert set_reasoning_effort.parameters == {
