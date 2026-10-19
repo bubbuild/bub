@@ -3,7 +3,7 @@
 `landing-bump.yml` checks open Dependabot alerts weekly (Monday, 02:23 UTC),
 on manual dispatch, or when a forwarded alert arrives. It creates draft security
 remediation PRs and repairs relevant failed `Main` dependency PRs. Routine upgrades,
-general reviews and triage are outside its scope. No dependencies are bumped here.
+general reviews and general issue triage are outside its scope. No dependencies are bumped here.
 
 ## Enable
 
@@ -47,8 +47,11 @@ receiver must verify GitHub's webhook signature and dispatch to this repository:
 ```
 
 No receiver or subscription is installed here. Scheduled/manual scans work without
-one. Fixed/dismissed alerts authorize no upgrades; unavailable alert access leaves
-coverage unknown. Listeners must reach the default branch before receiving these
+one. Open alerts route to bump. Fixed/dismissed alerts intentionally route through
+Landing triage to reconcile existing tracked remediation, even though the workflow
+requests `command: bump`. This narrow reconciliation authorizes no upgrade or
+general triage; dismissal alone does not prove repair. Unavailable alert access
+leaves coverage unknown. Listeners must reach the default branch before receiving these
 events. See [GitHub events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows).
 
 ## Validate candidates

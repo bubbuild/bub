@@ -89,8 +89,10 @@ jobs:
             Remediate security vulnerabilities only. Follow AGENTS.md and CONTRIBUTING.md on main.
             For scheduled or manual work, inspect open Dependabot alerts and act only on confirmed vulnerable
             dependencies. For a supplied alert, verify current state, affected path and patched target;
-            fixed or dismissed alerts authorize no upgrade. If alert access is unavailable, report unknown
-            coverage and stop. Do not perform routine upgrades, general review, issue triage or unrelated cleanup.
+            fixed or dismissed alerts intentionally route through Landing triage only to reconcile existing
+            tracked remediation, without an upgrade. Dismissal alone does not prove repair. If alert access
+            is unavailable, report unknown coverage and stop. Do not perform routine upgrades, general review,
+            general issue triage or unrelated cleanup.
             For failed Main runs, inspect only the supplied same-repository dependency PR, verify its current
             head and completed failed checks, and establish that it remediates a security vulnerability before
             editing. Skip routine dependency PRs. Make only necessary compatibility repairs preserving the
