@@ -4,6 +4,7 @@ on:
   schedule:
     - cron: '23 2 * * 1'
   workflow_dispatch:
+  # External signature-verifying relay required; no receiver is installed here.
   repository_dispatch:
     types: [dependabot_alert]
   workflow_run:
@@ -63,8 +64,6 @@ jobs:
         run: |
           pnpm --dir website install --frozen-lockfile
           gh auth setup-git
-          git var GIT_AUTHOR_IDENT
-          git var GIT_COMMITTER_IDENT
       - name: Identify Landing dependency PR publisher
         if: github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'deps/landing-')
         run: echo "LANDING_PUBLISHING_ACTOR=$(gh api graphql -f query='{viewer{login}}' --jq .data.viewer.login)" >> "$GITHUB_ENV"
@@ -89,37 +88,9 @@ jobs:
             make check
             make test
           instruction: >-
-            Remediate security vulnerabilities only. Follow AGENTS.md and CONTRIBUTING.md on main.
-            For scheduled or manual work, inspect open Dependabot alerts and act only on confirmed vulnerable
-            dependencies. For a supplied alert, verify current state, affected path and patched target;
-            fixed or dismissed alerts intentionally route through Landing triage only to reconcile existing
-            tracked remediation, without an upgrade. Dismissal alone does not prove repair. If alert access
-            is unavailable, report unknown coverage and stop. Do not perform routine upgrades, general review,
-            general issue triage or unrelated cleanup.
-            For failed Main runs, inspect only the supplied same-repository dependency PR, verify its current
-            head and completed failed checks, and establish that it remediates a security vulnerability before
-            editing. Skip routine dependency PRs. Make only necessary compatibility repairs preserving the
-            security fix on the existing branch; never force-push or create a replacement PR.
-            Use uv for Python and pnpm for website dependencies, preserve constraint style, and update only
-            affected manifests and lockfiles with the smallest patched resolution. Bub uses hatch-vcs:
-            do not edit generated _version.py, change fallback-version, create tags or alter release-main.
-            Reuse matching open PRs. Publish new candidates only as English draft PRs on deps/landing-*
-            branches with Conventional Commit titles, advisory references, paths, versions and validation.
-            Run make check, make test and affected website checks. Preserve independent Main CI across
-            Python 3.12, 3.13 and 3.14 and the docs build. Ensure independent Main CI runs for the exact
-            candidate head. After every new draft or repair push, dispatch main.yml at the candidate branch
-            using gh workflow run main.yml --ref <candidate-branch>. GITHUB_TOKEN writes alone do not
-            trigger CI, but explicit workflow_dispatch does. Verify the dispatched run head_sha matches
-            the published candidate head; stop and refresh if superseded. Do not wait for this Landing
-            feedback job itself. Report dispatch failures without weakening native checks.
-            Track only confirmed security exposure or remediation blockers when
-            necessary, reusing issues and avoiding unchanged updates. No merge, release or alert dismissal
-            is authorized; maintainers make those decisions.
-      - name: Retain Landing evidence
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: landing-security-bump-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/landing/
-          retention-days: 14
-          if-no-files-found: ignore
+            Security remediation only: inspect open Dependabot alerts; skip routine upgrades and stop if alert access fails. Closed alerts only reconcile tracked remediation.
+            For failed CI, verify the supplied security dependency PR's current head and failed checks; make only necessary repairs on its existing branch, without force-push.
+            Follow AGENTS.md: use uv/pnpm, preserve constraints and hatch-vcs version policy, and keep manifest/lock changes scoped to the security fix.
+            Reuse matching PRs; publish new candidates as English drafts on deps/landing-* branches with Conventional Commit titles and advisory/version/check evidence.
+            After each candidate push, run gh workflow run main.yml --ref <candidate-branch> and verify the run's head_sha matches; report dispatch failures without weakening checks.
+            Maintainers decide merges, releases and alert dismissal; no general review or triage is authorized.
