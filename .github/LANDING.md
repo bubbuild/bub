@@ -7,9 +7,12 @@ general reviews and triage are outside its scope. No dependencies are bumped her
 
 ## Enable
 
-Set repository variable `LANDING_MODEL` to a provider/model identifier and secret
-`LANDING_API_KEY` to its key. Without the model variable the job skips. Optional
-variables are `LANDING_API_BASE` and JSON `LANDING_COMPLETION_ARGS`.
+Reuse the existing Landing/Republic configuration: secret `LANDING_API_KEY` and
+repository variables `LANDING_MODEL`, `LANDING_API_BASE` and JSON
+`LANDING_COMPLETION_ARGS`. No separate model key is needed for Bub. When setting
+up a new repository, provision the same authorized configuration through secure
+secret management; GitHub cannot reveal existing secret values. Without
+`LANDING_MODEL` the job skips.
 Set `LANDING_BUMP_ON_FAILURE=false` to disable automatic repair.
 
 Prepare secret `LANDING_GITHUB_TOKEN` with repository contents, pull requests,
