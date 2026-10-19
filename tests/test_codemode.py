@@ -25,7 +25,7 @@ from bub.builtin.codemode import (
 from bub.core.events import EventBus, ToolCallStarted
 from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
-from bub.core.tools import REGISTRY, Tool, ToolContext, ToolExecutor, model_tools, tool
+from bub.core.tools import Tool, ToolContext, ToolExecutor, model_tools, tool
 from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, CodeFailed, LocalEnvironment, LocalProcess
 from bub.errors import BubError, ErrorKind
 from bub.hooks.interception import ToolCallDecision
@@ -80,7 +80,6 @@ def test_stub_documents_model_parameters_and_untyped_tools() -> None:
         """Find things."""
 
     lookup_tool = tool(name="tests.codemode_lookup", model=LookupInput)(lookup)
-    REGISTRY.pop(lookup_tool.name)
 
     untyped = Tool(
         name="mcp.search-docs",

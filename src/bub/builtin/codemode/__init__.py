@@ -25,7 +25,7 @@ from bub.core.codemode import (
     render_tool_stub,
     write_stub,
 )
-from bub.core.tools import REGISTRY, Tool, ToolContext, tool
+from bub.core.tools import Tool, ToolContext, tool
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
 
@@ -80,14 +80,12 @@ CODE_MODE = CodeMode(
     environment=environment_from_state,
     models=_resolve_model,
     stub_dir=_state_stub_dir,
-    # The media tools are registered below, so turns select them like any other tool.
+    # The media tools are among TOOLS, so turns select them like any other tool.
     media_tools=False,
 )
 """Code mode of Bub's agents."""
 
 run_code = CODE_MODE.run_code
-for _tool in (run_code, *MEDIA_TOOLS):
-    REGISTRY[_tool.name] = _tool
 
 
 @tool(name="code_mode", context=True, exposure="command")
@@ -99,3 +97,7 @@ async def set_code_mode(enable: bool, *, context: ToolContext) -> str:
     """
     await set_session_setting(context, CODE_MODE_STATE_KEY, enable)
     return f"Session code mode {'enabled' if enable else 'disabled'} (applies from the next turn)."
+
+
+TOOLS: tuple[Tool, ...] = (run_code, *MEDIA_TOOLS, set_code_mode)
+"""Code mode tools the builtin plugin provides."""

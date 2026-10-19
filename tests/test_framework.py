@@ -573,3 +573,69 @@ def test_collect_onboard_config_rejects_plugin_without_onboarding_hook(write_con
 
     with pytest.raises(ValueError, match=f"No onboard_config hook found for plugin '{plugin_name}'"):
         framework.collect_onboard_config(plugin_name)
+
+
+def test_builtin_hooks_provide_builtin_tools(tmp_path: Path) -> None:
+    from bub.builtin import codemode, spill, tools
+
+    framework = BubFramework(config_file=tmp_path / "config.yml")
+    framework.load_builtin_hooks()
+
+    assert framework.get_tools() == (*tools.TOOLS, *codemode.TOOLS, spill.spill_read)
+
+
+def _load_entry_points(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *entry_points: SimpleNamespace) -> BubFramework:
+    framework = BubFramework(config_file=tmp_path / "config.yml")
+    monkeypatch.setattr(importlib.metadata, "entry_points", lambda group: list(entry_points))
+    monkeypatch.setattr(BubFramework, "load_builtin_hooks", lambda self: None)
+    framework.load_hooks()
+    return framework
+
+
+def test_load_hooks_provides_tools_that_plugins_create_with_the_decorator(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from bub.core.tools import tool
+
+    class LegacyPlugin:
+        def __init__(self, _framework: BubFramework) -> None:
+            self.lookup = tool(lambda: "init", name="tests.init_tool")
+
+    def load() -> type[LegacyPlugin]:
+        global _legacy_import_tool
+        _legacy_import_tool = tool(lambda: "import", name="tests.import_tool")
+        return LegacyPlugin
+
+    entry_point = SimpleNamespace(name="legacy-plugin", load=load)
+    with pytest.warns(DeprecationWarning, match="legacy-plugin"):
+        framework = _load_entry_points(monkeypatch, tmp_path, entry_point)
+
+    assert [item.name for item in framework.get_tools()] == ["tests.import_tool", "tests.init_tool"]
+    # A later load finds the plugin's modules imported; its tools are remembered.
+    cached = SimpleNamespace(name="legacy-plugin", load=lambda: LegacyPlugin)
+    with pytest.warns(DeprecationWarning):
+        again = _load_entry_points(monkeypatch, tmp_path, cached)
+    assert [item.name for item in again.get_tools()] == ["tests.import_tool", "tests.init_tool"]
+
+
+def test_load_hooks_ignores_decorated_tools_of_plugins_providing_tools(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from bub.core.tools import Tool, tool
+
+    provided = Tool(name="tests.provided_tool", handler=lambda: "provided")
+
+    class ModernPlugin:
+        helper = tool(lambda: "helper", name="tests.helper_tool")
+
+        @hookimpl
+        def provide_tools(self) -> list[Tool]:
+            return [provided]
+
+    def load() -> ModernPlugin:
+        return ModernPlugin()
+
+    entry_point = SimpleNamespace(name="modern-plugin", load=lambda: load())
+    framework = _load_entry_points(monkeypatch, tmp_path, entry_point)
+
+    assert framework.get_tools() == (provided,)

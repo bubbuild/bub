@@ -21,21 +21,24 @@ def get_order(order_id: str) -> dict[str, str]:
     return {"id": order_id, "status": "shipped"}
 ```
 
-装饰器在导入时创建 `Tool` 并加入共享 `REGISTRY`。从[插件入口点](/zh-cn/docs/build/plugins/)导入工具模块：
+装饰器只创建 `Tool`。在[插件](/zh-cn/docs/build/plugins/)中通过 `provide_tools` hook 提供它：
 
 ```python
-from . import tools  # noqa: F401
+from bub import hookimpl
+from bub.core.tools import Tool
+
+from .tools import get_order
+
+
+class OrdersPlugin:
+    @hookimpl
+    def provide_tools(self) -> list[Tool]:
+        return [get_order]
 ```
 
-`BubAgent(tools=None)` 在构造时获取注册表快照，因此需要提前导入工具。之后要添加工具，直接更新该实例的 `tools` 字典。
+`BubAgent(tools=None)` 在构造时收集这些工具；名称重复时，优先级高的插件的工具生效。之后要添加工具，直接更新该实例的 `tools` 字典。
 
-在运行 Bub 的环境中检查注册：
-
-```bash
-python -c "import bub_myplugin.plugin; from bub.core.tools import REGISTRY; print(sorted(REGISTRY))"
-```
-
-把导入路径替换为自己的插件模块。输出应包含 `orders.get`；模型使用的名称是 `orders_get`。用这条注册表命令检查工具，用 `bub hooks` 检查 hook 绑定。
+运行 `bub hooks` 检查插件是否实现了 `provide_tools`。`orders.get` 在模型中的名称是 `orders_get`。
 
 ## 选择本轮可用的工具
 

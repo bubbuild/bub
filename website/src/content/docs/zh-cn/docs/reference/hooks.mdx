@@ -40,6 +40,7 @@ Hooks 把插件接到 Bub 应用上。本页列出 `BubHookSpecs` 声明的 26 �
 | `provide_channels` | `(message_handler: MessageHandler) -> list[Channel]` | 同步收集渠道，按 `Channel.name` 去重，保留优先级顺序中的首个结果。 |
 | `build_tape_context` | `() -> TapeContext` | 取首个同步结果，选择应用 agent 的上下文策略。 |
 | `admit_message` | `(session_id, message, turn: TurnSnapshot) -> AdmitDecision \| None` | 渠道调度前取首个结果，可异步实现；`None` 保留渠道默认的并发调度。 |
+| `provide_tools` | `() -> list[Tool]` | 同步收集工具，同名时保留优先级顺序中的首个结果。 |
 | `provide_steering_inbox` | `() -> SteeringInbox \| None` | 进入 `running()` 时同步取得首个结果；可以用生成器 yield inbox。 |
 | `on_error` | `(stage: str, error: Exception, message: Envelope \| None) -> None` | 通知全部观察者；观察者异常被记录并跳过。异步实现只在异步通知路径上生效。 |
 

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from bub.builtin.environment import environment_from_state
 from bub.builtin.settings import load_settings, set_session_setting
 from bub.builtin.shell_manager import shell_manager
-from bub.core.tools import REGISTRY, Tool, ToolContext, tool
+from bub.core.tools import Tool, ToolContext, tool
 from bub.skills import discover_skills
 
 if TYPE_CHECKING:
@@ -40,14 +40,6 @@ def _tool_name_index(all_names: Iterable[str]) -> dict[str, str]:
     return {**alias_names, **real_names}
 
 
-def resolve_tool_name(name: str) -> str | None:
-    """Resolve a user/model-provided tool name to the runtime registry name."""
-    key = name.strip().casefold()
-    if not key:
-        return None
-    return _tool_name_index(REGISTRY).get(key)
-
-
 def _resolve_explicit_tool_names(names: Iterable[str], index: dict[str, str]) -> tuple[set[str], set[str]]:
     resolved: set[str] = set()
     unknown: set[str] = set()
@@ -66,10 +58,10 @@ def _raise_unknown_tool_names(names: set[str]) -> None:
 
 
 def resolve_tool_names(
-    names: Iterable[str] | None = None, *, exclude: Iterable[str] = (), all_names: Iterable[str] | None = None
+    names: Iterable[str] | None = None, *, exclude: Iterable[str] = (), all_names: Iterable[str]
 ) -> set[str]:
-    """Resolve tool names from either runtime names or model-facing aliases."""
-    available = tuple(REGISTRY if all_names is None else all_names)
+    """Resolve tool names in ``all_names`` from either runtime names or model-facing aliases."""
+    available = tuple(all_names)
     index = _tool_name_index(available)
     excluded, unknown_excluded = _resolve_explicit_tool_names(exclude, index)
     if unknown_excluded:
@@ -587,3 +579,27 @@ async def set_reasoning_effort(reasoning_effort: str, *, context: ToolContext) -
         raise ValueError("reasoning_effort must not be empty")
     await set_session_setting(context, "reasoning_effort", reasoning_effort)
     return f"Session reasoning effort set to {reasoning_effort} (applies from the next turn)."
+
+
+TOOLS: tuple[Tool, ...] = (
+    bash,
+    bash_output,
+    kill_bash,
+    fs_read,
+    fs_write,
+    fs_edit,
+    skill_describe,
+    tool_describe,
+    tape_info,
+    tape_search,
+    tape_reset,
+    tape_handoff,
+    tape_anchors,
+    web_fetch,
+    run_subagent,
+    show_help,
+    quit_tool,
+    set_model,
+    set_reasoning_effort,
+)
+"""Tools the builtin plugin provides, besides code mode and spill tools."""

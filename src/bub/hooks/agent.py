@@ -40,7 +40,7 @@ class AgentPlugins:
             async with agent.run(prompt, tape="session-1", state=state) as stream: ...
 
     Covered hooks: ``provide_tape_store``, ``build_tape_context`` and ``provide_tape_sidecar``
-    (constructor components), ``system_prompt`` (a prompt section), the
+    (constructor components), ``system_prompt`` and ``provide_tools`` (added by ``attach``), the
     ``before/after_llm_call`` and ``before/after_tool_call`` interception hooks,
     ``continue_prompt`` and ``provide_steering_inbox`` (agent events), and ``load_state``
     and ``provide_environment`` (turn state). ``running()`` owns the lifespan, store and
@@ -86,14 +86,18 @@ class AgentPlugins:
             components["sidecars"] = sidecars
         return components
 
-    def attach(self, agent: Agent) -> Agent:
-        """Add the ``system_prompt`` hooks' section to ``agent`` and handle its events with the hooks.
+    def attach(self, agent: Agent, *, tools: bool = True) -> Agent:
+        """Add the hooks' prompt section and tools to ``agent`` and handle its events with the hooks.
 
-        The section joins the hook results, low to high priority, after the agent's
-        current sections. Attach before adding your own handlers so that they see the
-        hooks' changes. Return ``agent``.
+        The section joins the ``system_prompt`` hook results, low to high priority, after
+        the agent's current sections. The ``provide_tools`` tools are added unless
+        ``tools`` is false; a tool the agent already has by that name is kept. Attach
+        before adding your own handlers so that they see the hooks' changes. Return ``agent``.
         """
         agent.system_prompt.add(self._system_prompt)
+        if tools:
+            for item in self.framework.get_tools():
+                agent.tools.setdefault(item.name, item)
         self.framework.get_agent_hooks().subscribe(agent.events)
         agent.events.on(MessagesPending, self._drain_steering)
         agent.events.on(StepFinished, self._continue_prompt)

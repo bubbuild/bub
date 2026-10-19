@@ -99,8 +99,6 @@ def add_context_budget(agent: Agent) -> None:
 
 The adapter connects this plugin's `before_llm_call` and `after_llm_call` hooks to your Agent. Your model, prompt sections, store, and `agent.run()` stay in place. This example supplies the hooks and handoff tool that context-budget needs. Check those requirements separately when adapting another plugin.
 
-Importing `tape_handoff` also registers builtin tools globally; the example adds only `tape_handoff` to the Agent.
-
 Set the context limit with `BUB_CONTEXT_BUDGET_MAX_CONTEXT_TOKENS` or `context-budget.max_context_tokens` in `bub.yml`. The plugin reserves 16,384 tokens from that limit before requesting a handoff. The budget is advisory: execution depends on the model following the instruction.
 
 A handoff saves its summary on the anchor. To carry that summary into the next model request, include it through your [context selection](/docs/concepts/tape-and-context/#context) or next prompt.
@@ -121,6 +119,7 @@ The adapter catches ordinary plugin exceptions and skips the failed hook. A hook
 | `continue_prompt` | `StepFinished` with `status == "continue"`: the hook's text becomes the next step's user message. |
 | `provide_steering_inbox` | `MessagesPending` drains the inbox before each model request and when a step ends; drained messages continue the run. |
 | `system_prompt` | A prompt section that `attach(agent)` adds after the agent's sections. |
+| `provide_tools` | Tools that `attach(agent)` adds; a tool the agent already has by that name is kept. |
 | `provide_tape_store`, `build_tape_context`, `provide_tape_sidecar` | `store`, `context` and `sidecars` from `plugins.components()`. |
 | `load_state`, `provide_environment` | The run's state from `await plugins.build_state(session_id)`. |
 

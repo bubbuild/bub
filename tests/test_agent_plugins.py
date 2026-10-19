@@ -10,6 +10,7 @@ from bub.builtin.steering import InMemorySteeringInbox
 from bub.core import Agent
 from bub.core.events import LLMCallRequest, LLMCallResult
 from bub.core.store import InMemoryTapeStore
+from bub.core.tools import Tool, tool
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.hooks.agent import AgentPlugins
@@ -112,3 +113,34 @@ def test_agent_plugins_without_arguments_load_installed_plugins(monkeypatch: pyt
     plugins = AgentPlugins()
 
     assert loaded == [plugins.framework]
+
+
+class ToolsPlugin:
+    def __init__(self, *tools: Tool) -> None:
+        self.tools = list(tools)
+
+    @hookimpl
+    def provide_tools(self) -> list[Tool]:
+        return self.tools
+
+
+def test_agent_plugins_attach_hook_tools_but_not_decorated_ones(tmp_path: Path) -> None:
+    @tool(name="tests.plugin_tool")
+    def plugin_tool() -> str:
+        return "plugin"
+
+    @tool(name="tests.unprovided_tool")
+    def unprovided_tool() -> str:
+        return "unprovided"
+
+    own = Tool(name="tests.own_tool", handler=lambda: "own")
+    low = Tool(name="tests.plugin_tool", handler=lambda: "low")
+    framework = BubFramework(config_file=tmp_path / "bub.yml")
+    plugins = AgentPlugins(framework, plugins=[ToolsPlugin(low, own)])
+    framework.plugin_manager.register(ToolsPlugin(plugin_tool))
+    mine = Tool(name="tests.own_tool", handler=lambda: "mine")
+
+    assert plugins.components() == {}
+    agent = plugins.attach(Agent(tools=[mine]))
+    assert agent.tools == {"tests.own_tool": mine, "tests.plugin_tool": plugin_tool}
+    assert plugins.attach(Agent(), tools=False).tools == {}

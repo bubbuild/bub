@@ -10,6 +10,7 @@ import pluggy
 
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import MessageHandler
+from bub.core import Tool
 from bub.core.events import (
     LLMCallDecision,
     LLMCallRequest,
@@ -239,4 +240,9 @@ class BubHookSpecs:
     @hookspec(firstresult=True)
     def provide_steering_inbox(self) -> SteeringInbox | None:
         """Provide a steering inbox for the current session, to be used to queue and drain messages."""
+        raise NotImplementedError
+
+    @hookspec
+    def provide_tools(self) -> list[Tool]:
+        """Provide tools for the agent; for a duplicate name, the highest-priority plugin's tool wins."""
         raise NotImplementedError

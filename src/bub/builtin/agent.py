@@ -10,7 +10,7 @@ import bub.core as core
 from bub.builtin.settings import load_settings
 from bub.core.store import AsyncTapeStore, TapeStore
 from bub.core.tape import Tape, session_tape_name
-from bub.core.tools import REGISTRY, Tool, model_tools
+from bub.core.tools import Tool, model_tools
 from bub.framework import BubFramework
 from bub.hooks.agent import AgentPlugins
 from bub.prompt import LegacyPrompt, UserContent, prompt_text, to_content
@@ -28,8 +28,8 @@ class BubAgent(core.Agent):
 
     Adds commands, skills, code mode and deferred tools to :class:`bub.core.Agent`, and
     connects the framework's agent-loop hooks through :class:`AgentPlugins`. System prompt
-    sections, in order: the framework's ``system_prompt`` hooks, code mode, deferred tools,
-    skills, then sections added with ``system_prompt.add``. The framework's hooks handle
+    sections, in order: code mode, deferred tools, skills, the framework's ``system_prompt``
+    hooks, then sections added with ``system_prompt.add``. The framework's hooks handle
     events before handlers added with ``events.on``.
 
     One instance serves any number of sessions: per-turn choices (model, allowed tools
@@ -52,8 +52,8 @@ class BubAgent(core.Agent):
         Args:
             framework: Configured hook runtime supplying prompts, tape context,
                 interception hooks, and optional shared resources.
-            tools: Tools available to this instance. None snapshots the global
-                registry; an empty collection disables tools.
+            tools: Tools available to this instance. None uses the framework's
+                ``provide_tools`` tools; an empty collection disables tools.
             tape_store: Explicit store, preferred over the framework's active store.
                 Create the agent inside ``framework.running()`` to use the latter.
                 Without either, the agent uses an in-memory store.
@@ -71,7 +71,7 @@ class BubAgent(core.Agent):
         self.plugins = AgentPlugins(framework)
         super().__init__(
             store=framework.get_tape_store() if tape_store is None else tape_store,
-            tools=REGISTRY.values() if tools is None else tools,
+            tools=() if tools is None else tools,
             system_prompt=[
                 self._code_mode_prompt,
                 self._deferred_tools_prompt,
@@ -83,7 +83,7 @@ class BubAgent(core.Agent):
             name="bub",
             command_prefix=self.settings.command_prefix if command_prefix is None else command_prefix,
         )
-        self.plugins.attach(self)
+        self.plugins.attach(self, tools=tools is None)
 
     async def run_stream(
         self,

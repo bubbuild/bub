@@ -12,9 +12,9 @@ from bub.builtin.store import FuzzyFileTapeStore
 from bub.channels.message import ChannelMessage
 from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext, session_tape_name
-from bub.core.tools import REGISTRY
 from bub.framework import BubFramework
 from bub.streaming import AsyncStreamEvents, StreamEvent
+from tests.tool_fakes import builtin_tools
 
 
 class RecordingLifespan:
@@ -40,7 +40,7 @@ class FakeAgent:
     def __init__(self, home: Path, *, tape: Tape | None = None) -> None:
         self.command_prefix = ","
         self.settings = SimpleNamespace(home=home)
-        self.tools = REGISTRY.copy()
+        self.tools = {item.name: item for item in builtin_tools()}
         # A real in-memory async tape so load_state's recovery path runs against
         # the same store the tests write `model_switch` events to.
         self.tapes = tape if tape is not None else _fake_tape(home)

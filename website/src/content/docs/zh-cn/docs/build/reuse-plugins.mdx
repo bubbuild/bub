@@ -99,8 +99,6 @@ def add_context_budget(agent: Agent) -> None:
 
 适配器把这个插件的 `before_llm_call` 和 `after_llm_call` 接到现有 Agent 上，沿用原来的模型、提示词片段、存储和 `agent.run()`。本例接好了 context-budget 所需的 hooks 和 handoff 工具；适配其他插件时，需要分别核对它们的要求。
 
-导入 `tape_handoff` 也会在全局注册内置工具；本例只把 `tape_handoff` 加入 Agent。
-
 通过 `BUB_CONTEXT_BUDGET_MAX_CONTEXT_TOKENS`，或 `bub.yml` 中的 `context-budget.max_context_tokens` 设置上下文上限。插件从该上限中预留 16,384 tokens，再决定何时请求 handoff。这是一条给模型的预算提醒，实际执行取决于模型是否遵循指令。
 
 Handoff 把摘要保存在锚点上。下一次模型请求需要这份摘要时，通过[上下文选择](/zh-cn/docs/concepts/tape-and-context/#context)或下一条提示词将它带入。
@@ -121,6 +119,7 @@ Handoff 把摘要保存在锚点上。下一次模型请求需要这份摘要时
 | `continue_prompt` | `status == "continue"` 的 `StepFinished`：hook 返回的文本成为下一步的用户消息。 |
 | `provide_steering_inbox` | 每次模型请求前和步骤结束时，`MessagesPending` 取出 inbox 中的消息；取到消息时运行继续。 |
 | `system_prompt` | `attach(agent)` 在 Agent 已有片段之后添加的提示词片段。 |
+| `provide_tools` | `attach(agent)` 添加的工具；Agent 已有同名工具时保留原工具。 |
 | `provide_tape_store`、`build_tape_context`、`provide_tape_sidecar` | `plugins.components()` 中的 `store`、`context` 和 `sidecars`。 |
 | `load_state`、`provide_environment` | 由 `await plugins.build_state(session_id)` 生成的运行状态。 |
 

@@ -41,7 +41,6 @@ from bub.channels.message import ChannelMessage
 from bub.core.commands import strip_command_prefix
 from bub.core.events import EventBus, ToolCallFinished, ToolCallStarted
 from bub.core.tape import TapeInfo, session_tape_name
-from bub.core.tools import REGISTRY
 from bub.envelope import Envelope, field_of
 from bub.streaming import StreamEvent
 
@@ -454,7 +453,9 @@ class CliChannel(Interface):
         history_file.parent.mkdir(parents=True, exist_ok=True)
         history = FileHistory(str(history_file))
         prefix = self._agent.command_prefix
-        tool_names = sorted([*(f"{prefix}{name}" for name in REGISTRY), f"{prefix}thinking"], key=_tool_sort_key)
+        tool_names = sorted(
+            [*(f"{prefix}{name}" for name in self._agent.tools), f"{prefix}thinking"], key=_tool_sort_key
+        )
         completer = WordCompleter(tool_names, ignore_case=True, sentence=True)
         prompt: PromptSession[str] = PromptSession(
             completer=completer,
