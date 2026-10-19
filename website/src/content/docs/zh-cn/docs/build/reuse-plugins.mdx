@@ -93,8 +93,7 @@ from bub.hooks.agent import AgentPlugins
 
 def add_context_budget(agent: Agent) -> None:
     framework = BubFramework(config_file=Path("bub.yml"))
-    framework.plugin_manager.register(context_budget, name="context-budget")
-    AgentPlugins(framework).attach(agent)
+    AgentPlugins(framework, plugins=[context_budget]).attach(agent)
     agent.tools[tape_handoff.name] = tape_handoff
 ```
 
@@ -128,18 +127,18 @@ Handoff 把摘要保存在锚点上。下一次模型请求需要这份摘要时
 ```python
 from bub.hooks.agent import AgentPlugins
 
-plugins = AgentPlugins(framework)
+plugins = AgentPlugins(plugins=[SupportPlugin()])
 
-async with framework.running():
+async with plugins.running():
     agent = plugins.attach(Agent(system_prompt="Answer in plain text.", **plugins.components()))
     state = await plugins.build_state("customer-42", agent=agent)
     async with agent.run(prompt, model=model, tape="customer-42", state=state) as stream:
         ...
 ```
 
-没有 hook 提供的组件不会出现在 `components()` 中，Agent 保留默认值；你自己传入的参数会替代它们。hooks 提供的存储和 steering inbox 只在 `framework.running()` 内可用。先调用 `attach()`，再注册自己的处理器，这样它们能看到 hooks 的修改。
+没有 hook 提供的组件不会出现在 `components()` 中，Agent 保留默认值；你自己传入的参数会替代它们。hooks 提供的存储和 steering inbox 只在 `plugins.running()`（即 `framework.running()`）内可用。先调用 `attach()`，再注册自己的处理器，这样它们能看到 hooks 的修改。
 
-`build_prompt`、`run_model`、`save_state`、`render_outbound`、`dispatch_outbound` 等消息流程 hooks 不属于 agent 循环，只在 `process_inbound()` 中运行。除非调用 `framework.load_hooks()`，Bub 的内置 hooks 不会加载；它们的系统提示词要求 agent 通过 channel 回复。
+`build_prompt`、`run_model`、`save_state`、`render_outbound`、`dispatch_outbound` 等消息流程 hooks 不属于 agent 循环，只在 `process_inbound()` 中运行。`plugins=[...]` 只注册列出的插件。不带参数的 `AgentPlugins()` 和 `bub` 命令一样，加载 Bub 内置 hooks 和已安装的插件；内置系统提示词要求 agent 通过 channel 回复。传入 `framework` 则使用已有 framework 的 hooks，同时传入的 `plugins` 会注册到它上面。
 
 ## 按插件能力选择接法
 

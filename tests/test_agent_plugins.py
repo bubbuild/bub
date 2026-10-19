@@ -56,11 +56,9 @@ async def test_agent_plugins_connect_loop_hooks_to_core_agent(
     provider_service.reply(sse(chat_events("one")))
     provider_service.reply(sse(chat_events("two")))
     plugin = SessionPlugin()
-    framework = BubFramework(config_file=tmp_path / "bub.yml")
-    framework.plugin_manager.register(plugin, name="session")
-    plugins = AgentPlugins(framework)
+    plugins = AgentPlugins(BubFramework(config_file=tmp_path / "bub.yml"), plugins=[plugin])
 
-    async with framework.running(), provider_service.client() as client:
+    async with plugins.running(), provider_service.client() as client:
         components = plugins.components()
         assert components == {"store": plugin.store}
         agent = plugins.attach(
@@ -96,3 +94,21 @@ def test_agent_plugins_leave_out_components_no_hook_provides(tmp_path: Path) -> 
     plugins = AgentPlugins(BubFramework(config_file=tmp_path / "bub.yml"))
 
     assert plugins.components() == {}
+
+
+def test_agent_plugins_create_a_framework_with_the_given_plugins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(BubFramework, "load_hooks", lambda self: pytest.fail("installed plugins loaded"))
+    plugin = SessionPlugin()
+
+    plugins = AgentPlugins(plugins=[plugin])
+
+    assert plugins.framework.plugin_manager.get_plugins() == {plugin}
+
+
+def test_agent_plugins_without_arguments_load_installed_plugins(monkeypatch: pytest.MonkeyPatch) -> None:
+    loaded: list[BubFramework] = []
+    monkeypatch.setattr(BubFramework, "load_hooks", lambda self: loaded.append(self))
+
+    plugins = AgentPlugins()
+
+    assert loaded == [plugins.framework]

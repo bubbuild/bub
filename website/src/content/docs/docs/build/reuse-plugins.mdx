@@ -93,8 +93,7 @@ from bub.hooks.agent import AgentPlugins
 
 def add_context_budget(agent: Agent) -> None:
     framework = BubFramework(config_file=Path("bub.yml"))
-    framework.plugin_manager.register(context_budget, name="context-budget")
-    AgentPlugins(framework).attach(agent)
+    AgentPlugins(framework, plugins=[context_budget]).attach(agent)
     agent.tools[tape_handoff.name] = tape_handoff
 ```
 
@@ -128,18 +127,18 @@ The adapter catches ordinary plugin exceptions and skips the failed hook. A hook
 ```python
 from bub.hooks.agent import AgentPlugins
 
-plugins = AgentPlugins(framework)
+plugins = AgentPlugins(plugins=[SupportPlugin()])
 
-async with framework.running():
+async with plugins.running():
     agent = plugins.attach(Agent(system_prompt="Answer in plain text.", **plugins.components()))
     state = await plugins.build_state("customer-42", agent=agent)
     async with agent.run(prompt, model=model, tape="customer-42", state=state) as stream:
         ...
 ```
 
-`components()` leaves out what no hook provides, so the Agent keeps its defaults; arguments you pass yourself take their place. A hook-provided store and steering inbox exist only inside `framework.running()`. Attach before registering your own handlers so they see the hooks' changes.
+`components()` leaves out what no hook provides, so the Agent keeps its defaults; arguments you pass yourself take their place. A hook-provided store and steering inbox exist only inside `plugins.running()`, which enters `framework.running()`. Attach before registering your own handlers so they see the hooks' changes.
 
-Message-pipeline hooks, such as `build_prompt`, `run_model`, `save_state`, `render_outbound`, and `dispatch_outbound`, are not part of the agent loop and only run in `process_inbound()`. Bub's builtin hooks are not loaded unless you call `framework.load_hooks()`; their system prompt asks the agent to reply through channels.
+Message-pipeline hooks, such as `build_prompt`, `run_model`, `save_state`, `render_outbound`, and `dispatch_outbound`, are not part of the agent loop and only run in `process_inbound()`. `plugins=[...]` registers exactly the listed plugins. `AgentPlugins()` without arguments loads Bub's builtin hooks and the installed plugins, as the `bub` command does; the builtin system prompt asks the agent to reply through channels. Pass `framework` to use an existing framework's hooks; `plugins` given with it are registered on it.
 
 ## Choose the connection each plugin needs
 

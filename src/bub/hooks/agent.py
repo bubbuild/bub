@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+import contextlib
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, TypedDict
 
 from bub.core.agent import Agent
@@ -32,8 +33,8 @@ class AgentPlugins:
 
     ::
 
-        plugins = AgentPlugins(framework)
-        async with framework.running():
+        plugins = AgentPlugins(plugins=[MyPlugin()])
+        async with plugins.running():
             agent = plugins.attach(Agent(model=model, system_prompt="...", **plugins.components()))
             state = await plugins.build_state("session-1", agent=agent)
             async with agent.run(prompt, tape="session-1", state=state) as stream: ...
@@ -42,20 +43,39 @@ class AgentPlugins:
     (constructor components), ``system_prompt`` (a prompt section), the
     ``before/after_llm_call`` and ``before/after_tool_call`` interception hooks,
     ``continue_prompt`` and ``provide_steering_inbox`` (agent events), and ``load_state``
-    and ``provide_environment`` (turn state). ``framework.running()`` owns the lifespan,
-    store and steering inbox. Message-pipeline hooks such as ``build_prompt``,
+    and ``provide_environment`` (turn state). ``running()`` owns the lifespan, store and
+    steering inbox. Message-pipeline hooks such as ``build_prompt``,
     ``run_model``, ``save_state`` and outbound rendering only run in
     ``framework.process_inbound()``.
     """
 
-    def __init__(self, framework: BubFramework) -> None:
+    def __init__(self, framework: BubFramework | None = None, *, plugins: Iterable[object] | None = None) -> None:
+        """Use the hooks of ``framework`` and ``plugins``.
+
+        Without ``framework``, create one. It then registers just ``plugins`` when given,
+        and otherwise loads Bub's builtin hooks and the installed plugins of the ``bub``
+        entry-point group, as the ``bub`` command does. ``plugins`` given with a
+        ``framework`` are registered on it.
+        """
+        if framework is None:
+            from bub.framework import BubFramework
+
+            framework = BubFramework()
+            if plugins is None:
+                framework.load_hooks()
+        for plugin in plugins or ():
+            framework.plugin_manager.register(plugin)
         self.framework = framework
+
+    def running(self) -> contextlib.AbstractAsyncContextManager[contextlib.AsyncExitStack]:
+        """Enter the framework's lifespan (``framework.running()``) around the agent's runs."""
+        return self.framework.running()
 
     def components(self) -> AgentComponents:
         """Return the store, tape context and sidecars that hooks provide, to pass to ``Agent(...)``.
 
         A component no hook provides is left out, so the agent keeps its default. The
-        store is only available inside ``framework.running()``.
+        store is only available inside ``running()``.
         """
         components: AgentComponents = {}
         if (store := self.framework.get_tape_store()) is not None:
