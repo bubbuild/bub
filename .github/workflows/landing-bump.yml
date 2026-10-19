@@ -26,7 +26,9 @@ jobs:
        (github.event_name == 'workflow_run' &&
         github.event.workflow_run.conclusion == 'failure' &&
         github.event.workflow_run.head_repository.full_name == github.repository &&
-        github.event.workflow_run.event == 'pull_request' &&
+        (github.event.workflow_run.event == 'pull_request' ||
+         (github.event.workflow_run.event == 'workflow_dispatch' &&
+          github.event.workflow_run.head_branch != github.event.repository.default_branch)) &&
         vars.LANDING_BUMP_ON_FAILURE != 'false'))
     concurrency:
       group: landing-security-bump-${{ github.repository_id }}
@@ -81,6 +83,7 @@ jobs:
             dependabot[bot]
             renovate[bot]
             ${{ env.LANDING_PUBLISHING_ACTOR }}
+            ${{ vars.LANDING_DEPENDENCY_UPDATE_ACTORS }}
           checked-revision: ''
           checks: |
             make check
@@ -104,9 +107,12 @@ jobs:
             branches with Conventional Commit titles, advisory references, paths, versions and validation.
             Run make check, make test and affected website checks. Preserve independent Main CI across
             Python 3.12, 3.13 and 3.14 and the docs build. Ensure independent Main CI runs for the exact
-            candidate head; GITHUB_TOKEN writes alone do not trigger it and Main has no workflow_dispatch.
-            If prepared credentials cannot trigger CI, report the blocker without weakening checks or
-            changing native workflows. Track only confirmed security exposure or remediation blockers when
+            candidate head. After every new draft or repair push, dispatch main.yml at the candidate branch
+            using gh workflow run main.yml --ref <candidate-branch>. GITHUB_TOKEN writes alone do not
+            trigger CI, but explicit workflow_dispatch does. Verify the dispatched run head_sha matches
+            the published candidate head; stop and refresh if superseded. Do not wait for this Landing
+            feedback job itself. Report dispatch failures without weakening native checks.
+            Track only confirmed security exposure or remediation blockers when
             necessary, reusing issues and avoiding unchanged updates. No merge, release or alert dismissal
             is authorized; maintainers make those decisions.
       - name: Retain Landing evidence

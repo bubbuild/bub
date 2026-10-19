@@ -15,19 +15,23 @@ secret management; GitHub cannot reveal existing secret values. Without
 `LANDING_MODEL` the job skips.
 Set `LANDING_BUMP_ON_FAILURE=false` to disable automatic repair.
 
-Prepare secret `LANDING_GITHUB_TOKEN` with repository contents, pull requests,
-issues and Actions write access and Dependabot alerts read access. Use an
-organization-owned App or authorized machine account whose writes trigger
-independent CI. Set `LANDING_GIT_NAME` and `LANDING_GIT_EMAIL` for its commit
-identity. Optional `LANDING_ADMISSION_TOKEN` separates admission from publication.
-The fallback workflow token needs repository permission to create PRs and cannot
-trigger `Main` from its own writes. `Main` has no manual dispatch; missing
-independent CI is a blocker, not permission to change native CI or claim success.
+The workflow token is the default publishing/admission identity. Its explicit
+workflow permissions grant contents, issues, pull requests and Actions write
+access plus Dependabot alerts read access. Repository settings allow PR creation.
+After creating or repairing a candidate, Landing explicitly dispatches `Main`
+on its branch, so native checks run even when the workflow token authored the push.
+
+Optional `LANDING_GITHUB_TOKEN` overrides publication; `LANDING_ADMISSION_TOKEN`
+separately overrides admission. Preserve these existing conventions when using
+an organization-owned App or authorized machine account. Set `LANDING_GIT_NAME`
+and `LANDING_GIT_EMAIL` for that account's commit identity.
 
 Repair admission accepts Dependabot, Renovate and the prepared publisher on
-`deps/landing-*` branches. Landing validates an unambiguous open same-repository
-PR matching the failed run; the task must also establish its security purpose
-before editing. The runner initially checks out the trusted default branch.
+`deps/landing-*` branches. Optional `LANDING_DEPENDENCY_UPDATE_ACTORS` adds allowed
+logins, one per line. Only failed `Main` PR runs or dispatches on non-default
+candidate branches qualify. Landing validates an unambiguous open same-repository
+PR matching the failed run; the task must establish its security purpose before
+editing. The runner initially checks out the trusted default branch.
 
 The public Action is pinned to Landing revision
 `9014baa64f82893dc194a3f1e31391737f68c426`; Landing's self-hosted `uses: ./`
@@ -59,6 +63,16 @@ events. See [GitHub events](https://docs.github.com/en/actions/reference/workflo
 Use `uv` and `pnpm` for scoped manifest/lock changes, preserving constraints and
 Bub's hatch-vcs version policy. Run `make check`, `make test` and affected website
 checks, then verify independent `Main` results for the candidate head (Python
-3.12/3.13/3.14 and docs). New candidates remain drafts; repairs retain the PR's
+3.12/3.13/3.14 and docs). After each candidate push, dispatch the unchanged native
+jobs on the candidate branch:
+
+```bash
+gh workflow run main.yml --ref <candidate-branch>
+```
+
+Verify the run's `head_sha` matches the published candidate head; a superseded
+head needs fresh checks. Successful runs require no Landing follow-up. Failed
+candidate dispatches can enter the same scoped repair path as failed PR runs.
+New candidates remain drafts; repairs retain the PR's
 status and branch. Maintainers control merges, releases and dismissals.
 Landing evidence is retained as a workflow artifact for 14 days.
