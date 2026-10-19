@@ -68,7 +68,7 @@ jobs:
         if: github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'deps/landing-')
         run: echo "LANDING_PUBLISHING_ACTOR=$(gh api graphql -f query='{viewer{login}}' --jq .data.viewer.login)" >> "$GITHUB_ENV"
       - name: Remediate vulnerable dependencies
-        uses: bubbuild/landing@9014baa64f82893dc194a3f1e31391737f68c426
+        uses: bubbuild/landing@main
         env:
           LANDING_MODEL: ${{ vars.LANDING_MODEL }}
           LANDING_API_KEY: ${{ secrets.LANDING_API_KEY }}
