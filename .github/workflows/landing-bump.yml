@@ -1,0 +1,117 @@
+name: Landing security bump
+
+on:
+  schedule:
+    - cron: '23 2 * * 1'
+  workflow_dispatch:
+  repository_dispatch:
+    types: [dependabot_alert]
+  workflow_run:
+    workflows: [Main]
+    types: [completed]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write
+  vulnerability-alerts: read
+
+jobs:
+  bump:
+    if: >-
+      vars.LANDING_MODEL != '' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'repository_dispatch' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'failure' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.event == 'pull_request' &&
+        vars.LANDING_BUMP_ON_FAILURE != 'false'))
+    concurrency:
+      group: landing-security-bump-${{ github.repository_id }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_ADMISSION_TOKEN: ${{ secrets.LANDING_ADMISSION_TOKEN || github.token }}
+      GH_TOKEN: ${{ secrets.LANDING_GITHUB_TOKEN || github.token }}
+      GIT_AUTHOR_NAME: ${{ vars.LANDING_GIT_NAME || 'github-actions[bot]' }}
+      GIT_AUTHOR_EMAIL: ${{ vars.LANDING_GIT_EMAIL || '41898282+github-actions[bot]@users.noreply.github.com' }}
+      GIT_COMMITTER_NAME: ${{ vars.LANDING_GIT_NAME || 'github-actions[bot]' }}
+      GIT_COMMITTER_EMAIL: ${{ vars.LANDING_GIT_EMAIL || '41898282+github-actions[bot]@users.noreply.github.com' }}
+    steps:
+      - name: Check out trusted default branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python dependencies
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: '3.12'
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: website/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: website/.node-version
+      - name: Prepare website dependencies and Git authentication
+        run: |
+          pnpm --dir website install --frozen-lockfile
+          gh auth setup-git
+          git var GIT_AUTHOR_IDENT
+          git var GIT_COMMITTER_IDENT
+      - name: Identify Landing dependency PR publisher
+        if: github.event_name == 'workflow_run' && startsWith(github.event.workflow_run.head_branch, 'deps/landing-')
+        run: echo "LANDING_PUBLISHING_ACTOR=$(gh api graphql -f query='{viewer{login}}' --jq .data.viewer.login)" >> "$GITHUB_ENV"
+      - name: Remediate vulnerable dependencies
+        uses: bubbuild/landing@9014baa64f82893dc194a3f1e31391737f68c426
+        env:
+          LANDING_MODEL: ${{ vars.LANDING_MODEL }}
+          LANDING_API_KEY: ${{ secrets.LANDING_API_KEY }}
+          LANDING_API_BASE: ${{ vars.LANDING_API_BASE }}
+          LANDING_COMPLETION_ARGS: ${{ vars.LANDING_COMPLETION_ARGS || '{}' }}
+        with:
+          command: bump
+          upstream-workflow: Main
+          bump-on-failure: ${{ vars.LANDING_BUMP_ON_FAILURE || 'true' }}
+          dependency-update-actors: |
+            dependabot[bot]
+            renovate[bot]
+            ${{ env.LANDING_PUBLISHING_ACTOR }}
+          checked-revision: ''
+          checks: |
+            make check
+            make test
+          instruction: >-
+            Remediate security vulnerabilities only. Follow AGENTS.md and CONTRIBUTING.md on main.
+            For scheduled or manual work, inspect open Dependabot alerts and act only on confirmed vulnerable
+            dependencies. For a supplied alert, verify current state, affected path and patched target;
+            fixed or dismissed alerts authorize no upgrade. If alert access is unavailable, report unknown
+            coverage and stop. Do not perform routine upgrades, general review, issue triage or unrelated cleanup.
+            For failed Main runs, inspect only the supplied same-repository dependency PR, verify its current
+            head and completed failed checks, and establish that it remediates a security vulnerability before
+            editing. Skip routine dependency PRs. Make only necessary compatibility repairs preserving the
+            security fix on the existing branch; never force-push or create a replacement PR.
+            Use uv for Python and pnpm for website dependencies, preserve constraint style, and update only
+            affected manifests and lockfiles with the smallest patched resolution. Bub uses hatch-vcs:
+            do not edit generated _version.py, change fallback-version, create tags or alter release-main.
+            Reuse matching open PRs. Publish new candidates only as English draft PRs on deps/landing-*
+            branches with Conventional Commit titles, advisory references, paths, versions and validation.
+            Run make check, make test and affected website checks. Preserve independent Main CI across
+            Python 3.12, 3.13 and 3.14 and the docs build. Ensure independent Main CI runs for the exact
+            candidate head; GITHUB_TOKEN writes alone do not trigger it and Main has no workflow_dispatch.
+            If prepared credentials cannot trigger CI, report the blocker without weakening checks or
+            changing native workflows. Track only confirmed security exposure or remediation blockers when
+            necessary, reusing issues and avoiding unchanged updates. No merge, release or alert dismissal
+            is authorized; maintainers make those decisions.
+      - name: Retain Landing evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: landing-security-bump-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/landing/
+          retention-days: 14
+          if-no-files-found: ignore
