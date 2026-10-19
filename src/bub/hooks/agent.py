@@ -34,13 +34,12 @@ class AgentPlugins:
 
         plugins = AgentPlugins(framework)
         async with framework.running():
-            agent = Agent(model=model, system_prompt=[plugins.system_prompt, "..."], **plugins.components())
-            plugins.attach(agent)
+            agent = plugins.attach(Agent(model=model, system_prompt="...", **plugins.components()))
             state = await plugins.build_state("session-1", agent=agent)
             async with agent.run(prompt, tape="session-1", state=state) as stream: ...
 
-    Covered hooks: ``system_prompt`` (a prompt section), ``provide_tape_store``,
-    ``build_tape_context`` and ``provide_tape_sidecar`` (constructor components), the
+    Covered hooks: ``provide_tape_store``, ``build_tape_context`` and ``provide_tape_sidecar``
+    (constructor components), ``system_prompt`` (a prompt section), the
     ``before/after_llm_call`` and ``before/after_tool_call`` interception hooks,
     ``continue_prompt`` and ``provide_steering_inbox`` (agent events), and ``load_state``
     and ``provide_environment`` (turn state). ``framework.running()`` owns the lifespan,
@@ -51,10 +50,6 @@ class AgentPlugins:
 
     def __init__(self, framework: BubFramework) -> None:
         self.framework = framework
-
-    def system_prompt(self, context: PromptContext) -> str:
-        """Prompt section joining the ``system_prompt`` hook results, low to high priority."""
-        return self.framework.get_system_prompt(prompt=context.prompt, state=context.state)
 
     def components(self) -> AgentComponents:
         """Return the store, tape context and sidecars that hooks provide, to pass to ``Agent(...)``.
@@ -72,10 +67,13 @@ class AgentPlugins:
         return components
 
     def attach(self, agent: Agent) -> Agent:
-        """Handle ``agent``'s events with the plugin hooks and return it.
+        """Add the ``system_prompt`` hooks' section to ``agent`` and handle its events with the hooks.
 
-        Attach before adding your own handlers so that they see the hooks' changes.
+        The section joins the hook results, low to high priority, after the agent's
+        current sections. Attach before adding your own handlers so that they see the
+        hooks' changes. Return ``agent``.
         """
+        agent.system_prompt.add(self._system_prompt)
         self.framework.get_agent_hooks().subscribe(agent.events)
         agent.events.on(MessagesPending, self._drain_steering)
         agent.events.on(StepFinished, self._continue_prompt)
@@ -95,6 +93,9 @@ class AgentPlugins:
         state = await self.framework.build_state(inbound, session_id)
         state.setdefault("session_id", session_id)
         return state
+
+    def _system_prompt(self, context: PromptContext) -> str:
+        return self.framework.get_system_prompt(prompt=context.prompt, state=context.state)
 
     async def _drain_steering(self, event: MessagesPending) -> None:
         inbox = self.framework.get_steering_inbox()

@@ -73,7 +73,6 @@ class BubAgent(core.Agent):
             store=framework.get_tape_store() if tape_store is None else tape_store,
             tools=REGISTRY.values() if tools is None else tools,
             system_prompt=[
-                self.plugins.system_prompt,
                 self._code_mode_prompt,
                 self._deferred_tools_prompt,
                 self._skills_prompt,

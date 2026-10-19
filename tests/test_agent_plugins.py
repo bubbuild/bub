@@ -66,7 +66,7 @@ async def test_agent_plugins_connect_loop_hooks_to_core_agent(
         agent = plugins.attach(
             Agent(
                 model=republic.get_model("openai:test", http_client=client, api_format="chat", api_key="test"),
-                system_prompt=[plugins.system_prompt, "Be brief."],
+                system_prompt="Be brief.",
                 **components,
             )
         )
@@ -78,7 +78,7 @@ async def test_agent_plugins_connect_loop_hooks_to_core_agent(
     assert [event.data.get("text") for event in events if event.kind == "final"] == ["one", "two"]
     first, second = provider_service.body(0), provider_service.body(1)
     assert first["messages"] == [
-        {"role": "system", "content": "Serve acme.\n\nBe brief."},
+        {"role": "system", "content": "Be brief.\n\nServe acme."},
         {"role": "user", "content": "early"},
         {"role": "user", "content": "hello"},
     ]

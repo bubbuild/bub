@@ -121,7 +121,7 @@ Handoff 把摘要保存在锚点上。下一次模型请求需要这份摘要时
 | `before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call` | 调用事件，通过 `attach(agent)` 接入。 |
 | `continue_prompt` | `status == "continue"` 的 `StepFinished`：hook 返回的文本成为下一步的用户消息。 |
 | `provide_steering_inbox` | 每次模型请求前和步骤结束时，`MessagesPending` 取出 inbox 中的消息；取到消息时运行继续。 |
-| `system_prompt` | 提示词片段 `plugins.system_prompt`。 |
+| `system_prompt` | `attach(agent)` 在 Agent 已有片段之后添加的提示词片段。 |
 | `provide_tape_store`、`build_tape_context`、`provide_tape_sidecar` | `plugins.components()` 中的 `store`、`context` 和 `sidecars`。 |
 | `load_state`、`provide_environment` | 由 `await plugins.build_state(session_id)` 生成的运行状态。 |
 
@@ -131,17 +131,13 @@ from bub.hooks.agent import AgentPlugins
 plugins = AgentPlugins(framework)
 
 async with framework.running():
-    agent = Agent(
-        system_prompt=[plugins.system_prompt, "Answer in plain text."],
-        **plugins.components(),
-    )
-    plugins.attach(agent)
+    agent = plugins.attach(Agent(system_prompt="Answer in plain text.", **plugins.components()))
     state = await plugins.build_state("customer-42", agent=agent)
     async with agent.run(prompt, model=model, tape="customer-42", state=state) as stream:
         ...
 ```
 
-没有 hook 提供的组件不会出现在 `components()` 中，Agent 保留默认值；你自己传入的参数会替代它们。hooks 提供的存储和 steering inbox 只在 `framework.running()` 内可用。先调用 `attach()`，再注册自己的处理器，这样它们能看到 hooks 的修改。把 `plugins.system_prompt` 放在提示词片段中合适的位置。
+没有 hook 提供的组件不会出现在 `components()` 中，Agent 保留默认值；你自己传入的参数会替代它们。hooks 提供的存储和 steering inbox 只在 `framework.running()` 内可用。先调用 `attach()`，再注册自己的处理器，这样它们能看到 hooks 的修改。
 
 `build_prompt`、`run_model`、`save_state`、`render_outbound`、`dispatch_outbound` 等消息流程 hooks 不属于 agent 循环，只在 `process_inbound()` 中运行。除非调用 `framework.load_hooks()`，Bub 的内置 hooks 不会加载；它们的系统提示词要求 agent 通过 channel 回复。
 

@@ -121,7 +121,7 @@ The adapter catches ordinary plugin exceptions and skips the failed hook. A hook
 | `before_llm_call`, `after_llm_call`, `before_tool_call`, `after_tool_call` | Call events, through `attach(agent)`. |
 | `continue_prompt` | `StepFinished` with `status == "continue"`: the hook's text becomes the next step's user message. |
 | `provide_steering_inbox` | `MessagesPending` drains the inbox before each model request and when a step ends; drained messages continue the run. |
-| `system_prompt` | The `plugins.system_prompt` prompt section. |
+| `system_prompt` | A prompt section that `attach(agent)` adds after the agent's sections. |
 | `provide_tape_store`, `build_tape_context`, `provide_tape_sidecar` | `store`, `context` and `sidecars` from `plugins.components()`. |
 | `load_state`, `provide_environment` | The run's state from `await plugins.build_state(session_id)`. |
 
@@ -131,17 +131,13 @@ from bub.hooks.agent import AgentPlugins
 plugins = AgentPlugins(framework)
 
 async with framework.running():
-    agent = Agent(
-        system_prompt=[plugins.system_prompt, "Answer in plain text."],
-        **plugins.components(),
-    )
-    plugins.attach(agent)
+    agent = plugins.attach(Agent(system_prompt="Answer in plain text.", **plugins.components()))
     state = await plugins.build_state("customer-42", agent=agent)
     async with agent.run(prompt, model=model, tape="customer-42", state=state) as stream:
         ...
 ```
 
-`components()` leaves out what no hook provides, so the Agent keeps its defaults; arguments you pass yourself take their place. A hook-provided store and steering inbox exist only inside `framework.running()`. Attach before registering your own handlers so they see the hooks' changes. Place `plugins.system_prompt` among your sections where its text belongs.
+`components()` leaves out what no hook provides, so the Agent keeps its defaults; arguments you pass yourself take their place. A hook-provided store and steering inbox exist only inside `framework.running()`. Attach before registering your own handlers so they see the hooks' changes.
 
 Message-pipeline hooks, such as `build_prompt`, `run_model`, `save_state`, `render_outbound`, and `dispatch_outbound`, are not part of the agent loop and only run in `process_inbound()`. Bub's builtin hooks are not loaded unless you call `framework.load_hooks()`; their system prompt asks the agent to reply through channels.
 
