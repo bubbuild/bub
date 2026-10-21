@@ -1,27 +1,27 @@
 ---
-title: 事件与调用控制
-description: 观察 Agent 运行、拦截模型与工具调用，并选择需要记录的业务事件。
+title: 事件
+description: 看一次运行，改掉或叫停模型与工具调用，并记录你需要的事件。
 sidebar:
   order: 4
 ---
 
-通过 Agent 事件，可以观察运行过程，也可以在模型或工具调用前作出决定。每个 Agent 都会创建 `EventBus` 并订阅 `TapeRecorder`，你可以通过 `agent.events` 添加处理器。
+Agent 事件能让你看到一次运行，也能让你在模型或工具调用之前做决定。每个 Agent 都会建一个 `EventBus`，并挂上一个 `TapeRecorder`。你通过 `agent.events` 添加处理器。
 
-三类信息各有用途：
+三类信息，三种用途：
 
-| 类型 | 用途 | 访问方式 |
+| 类型 | 用途 | 怎么读 |
 | --- | --- | --- |
-| `AgentEvent` | 内部生命周期通知和调用拦截。 | `agent.events.on(...)` |
-| `StreamEvent` | 交给调用方的输出，例如文本和工具进度。 | 迭代 `agent.run()` 返回的流。 |
-| `TapeEntry` | 保存的会话及部分运行记录。 | 查询 [Tape](/zh-cn/docs/concepts/tape/)。 |
+| `AgentEvent` | 运行的生命周期，以及调用拦截。 | `agent.events.on(...)` |
+| `StreamEvent` | 给调用方的输出，比如文本和工具进度。 | 迭代 `agent.run()` 返回的流。 |
+| `TapeEntry` | 存下来的对话和部分运行记录。 | 查询 [tape](/zh-cn/docs/concepts/tape/)。 |
 
-Agent 循环控制执行过程，并在指定位置直接调用事件处理器。TapeRecorder 保存选定的交互和生命周期记录；其他需要保留的事件，可以由你的处理器写入 Tape。
+循环控制执行，并在固定位置调用事件处理器，然后才往下走。TapeRecorder 保存选定的往返和生命周期记录。其他你要留的事件，由自己的处理器记录。
 
 <a id="delivery"></a>
 
-## 注册处理器
+## 处理器
 
-下面使用 [SDK 指南](/zh-cn/docs/sdk/)中的 `agent`：
+下面用的是 [SDK 指南](/zh-cn/docs/sdk/)里的 `agent`：
 
 ```python
 from bub.core.events import StepFinished, ToolCallFinished
@@ -39,17 +39,17 @@ def report_step(event: StepFinished) -> None:
 agent.events.on(StepFinished, report_step)
 ```
 
-使用 `agent.events.off(StepFinished, report_step)` 移除注册。注册到基类的处理器也会接收子类事件；注册到 `AgentEvent` 的处理器可以接收所有被派发到它的 Agent 事件。
+要移除，调 `agent.events.off(StepFinished, report_step)`。注册到基类上的处理器，也会收到子类事件。注册到 `AgentEvent` 上的处理器，会收到派发给它的所有 agent 事件。
 
-每次派发时，匹配的处理器按注册顺序执行。总线会等待异步处理器完成，再继续下一个。处理器的返回值会被忽略，异常则传播给 `emit()` 的调用方，并可能导致运行失败。如果希望观察器失败后工作仍能继续，应在观察器内部处理异常。
+每次派发，匹配的处理器按注册顺序执行。总线会等一个异步处理器做完，再调下一个。处理器返回什么，总线都不看。异常会抛给 `emit()` 的调用方，可能让整次运行失败。如果希望某个观察器出错后工作照旧往下走，就在观察器内部把异常接住。
 
-这个顺序针对单次派发。并发工具调用或不同运行可能同时发出事件，因此处理器共享的状态仍需要适当协调。
+这个顺序只管一次派发。并发的工具调用或两个运行，可能同时发事件。处理器里共享的状态，仍要自己协调。
 
 <a id="control"></a>
 
-## 修改或停止调用
+## 调用控制
 
-要停止调用，给事件的 `decision` 字段赋值：
+要叫停一次调用，给事件的 `decision` 字段赋值：
 
 ```python
 from bub.core.events import ToolCallDecision, ToolCallStarted
@@ -61,43 +61,43 @@ def require_refund_permission(event: ToolCallStarted) -> None:
         event.decision = ToolCallDecision.deny("Refunds require approval.")
 ```
 
-`deny()` 跳过工具并产生工具错误；`replace(result)` 跳过工具并提供替代结果。两者都会停止把当前 `ToolCallStarted` 交给后续处理器，执行器仍会为结果发出 `ToolCallFinished`。模型循环会把错误作为工具结果交给模型；直接命令调用则会把错误传播给调用方。
+`deny()` 跳过工具，给出一个工具错误。`replace(result)` 跳过工具，直接给出结果。两者都会让这个 `ToolCallStarted` 停止往后传。执行器仍会为结果发出 `ToolCallFinished`。模型循环把这个错误当成工具结果交给模型。直接命令调用则把错误抛给调用方。
 
-需要修改参数并继续执行时，用 `dataclasses.replace(event.call, arguments=...)` 替换 `event.call`。需要在模型调用前结束时，在 `LLMCallStarted` 上设置 `event.decision = LLMCallDecision.finish(text)`。这会跳过供应商调用和后续处理器；被跳过的供应商调用不会产生 `LLMCallFinished`。
+要改参数再接着跑，用 `dataclasses.replace(event.call, arguments=...)` 换掉 `event.call`。要在模型调用之前就结束，在 `LLMCallStarted` 上设 `event.decision = LLMCallDecision.finish(text)`。这会叫停后续处理器，也不去调供应商。被跳过的供应商调用不会发 `LLMCallFinished`。
 
-| 事件 | 发生时机 | 支持的操作 |
+| 事件 | 什么时候发 | 你能做什么 |
 | --- | --- | --- |
-| `RunStarted` | 模型运行开始。 | 观察 prompt、模型和 metadata。 |
-| `RunFinished` | 对应的流关闭。 | 观察状态、步骤数、耗时和错误。 |
-| `StepStarted` | 模型步骤开始。 | 观察进度。 |
-| `StepFinished` | 模型步骤结束。 | 观察进度；`status == "continue"` 时，可设置 `next_prompt` 为下一步添加用户消息。 |
-| `MessagesPending` | 步骤构建模型请求时，或步骤结束且没有调用工具时。 | 向 `messages` 追加用户消息，排在下一个 prompt 之前；步骤结束时提供的消息会让运行继续。 |
-| `LLMCallStarted` | 调用供应商之前。 | 替换 `request`，或设置 `LLMCallDecision.finish(text)`。 |
-| `LLMCallFinished` | 供应商调用完成或抛出异常。 | 观察累积结果；这里不报告取消或消费方关闭流。 |
-| `ToolCallStarted` | 执行工具之前。 | 替换 `call`、拒绝调用或提供替代结果。 |
-| `ToolCallFinished` | 工具成功、失败、被拒绝或被替代。 | 赋值 `event.result.result`，改变返回结果。 |
-| `ChatFinished` | 本步骤的交互已准备好记录。 | 观察交互。 |
-| `CommandFinished` | 直接命令完成或失败。 | 观察命令、状态和输出。 |
+| `RunStarted` | 一次模型运行开始。 | 读 prompt、模型和 metadata。 |
+| `RunFinished` | 这次运行的流关闭。 | 读状态、步骤数、耗时和错误。 |
+| `StepStarted` | 一个模型步骤开始。 | 读进度。 |
+| `StepFinished` | 一个模型步骤结束。 | 读进度。`status == "continue"` 时，设 `next_prompt`，给下一步加一条用户消息。 |
+| `MessagesPending` | 步骤构建模型请求时，或步骤结束时没有调工具。 | 往 `messages` 追加用户消息，排在下一个 prompt 之前。在步骤结束时加的消息，会让运行继续。 |
+| `LLMCallStarted` | 调供应商之前。 | 换掉 `request`，或设 `LLMCallDecision.finish(text)`。 |
+| `LLMCallFinished` | 供应商调用完成，或抛异常。 | 读累积的结果。取消和消费方关流，这里不报。 |
+| `ToolCallStarted` | 工具执行之前。 | 换掉 `call`，拒绝调用，或换掉结果。 |
+| `ToolCallFinished` | 工具成功、失败、被拒绝或被替换。 | 给 `event.result.result` 赋值，改掉返回的结果。 |
+| `ChatFinished` | 这一步的往返可以记录了。 | 读这一次往返。 |
+| `CommandFinished` | 直接命令完成或失败。 | 读命令、状态和输出。 |
 
-命令 prompt 直接执行工具，产生工具事件和 `CommandFinished`。详见[命令](/zh-cn/docs/sdk/tools/#commands)。
+命令 prompt 直接跑工具，会发出工具事件和 `CommandFinished`。见[命令](/zh-cn/docs/sdk/tools/#commands)。
 
-所有 agent 事件都携带本轮 `state`。继承 `TapeEvent` 的事件还携带当前 Tape。工具调用具有上下文时，可以通过 `event.call.context` 访问。
+所有 agent 事件都带本轮的 `state`。从 `TapeEvent` 派生的事件还带当前 tape。工具事件在调用有上下文时，可以从 `event.call.context` 取到。
 
 <a id="recording"></a>
 
-## 了解默认记录范围
+## 记录
 
-Agent 在你的处理器之前注册 TapeRecorder。它记录 `RunStarted`、`RunFinished`、`StepStarted`、`StepFinished`、`ChatFinished` 和 `CommandFinished`。其中 `ChatFinished` 处理器保存消息与工具交互，供后续模型调用构建上下文。
+Agent 在你的处理器之前注册 TapeRecorder。它记录 `RunStarted`、`RunFinished`、`StepStarted`、`StepFinished`、`ChatFinished` 和 `CommandFinished`。`ChatFinished` 这个处理器写入消息和工具往返，后面的模型调用就靠它拿上下文。
 
-记录属于 Agent 的正常运行过程，写入你配置的存储；未指定存储时写入内存。记录功能独立于 tracing 配置。
+记录是正常流程的一部分。它写进你配置的存储，没另外指定就写在内存里。记录和 tracing 的配置无关。
 
-要保存自定义事件，可以添加处理器，将它写入 Tape。修改请求或结果应使用调用拦截事件；默认 Recorder 已经保存交互后，才会执行你的 `ChatFinished` 观察器。
+要存自定义事件，加一个处理器把它写进 tape。要改请求或结果，用调用拦截事件。`ChatFinished` 的观察器运行时，默认记录器已经把这次往返存好了。
 
 <a id="custom-events"></a>
 
-## 记录业务事件
+## 自定义事件
 
-定义继承 `AgentEvent` 的 dataclass；如果处理器需要 Tape，就继承 `TapeEvent`。下面显式记录一项业务事件：
+定义一个继承 `AgentEvent` 的 dataclass。处理器需要 tape 时，就继承 `TapeEvent`。下面这个例子记一条业务事件：
 
 ```python
 from dataclasses import dataclass
@@ -122,16 +122,16 @@ async def mark_reviewed() -> None:
     )
 ```
 
-`emit()` 返回处理器执行后的事件。自定义可变事件可以把结果带回发出方；如果结果确定后就应结束派发，可以覆写 `stopped` 属性。工具可以通过 `context.events` 发出事件，并传入相同的本轮状态。
+`emit()` 在处理器跑完后返回事件。自定义的可变事件可以把结果带回发出方。结果一确定就该停止派发时，覆写它的 `stopped` 属性。工具可以通过 `context.events` 发事件，用的是同一份本轮状态。
 
 <a id="application-hooks"></a>
 
-## 从应用插件接入事件
+## 应用插件
 
-`AgentPlugins` 将 `before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call` hooks 接到调用事件上，将 `continue_prompt` hook 接到 `StepFinished` 上，将 steering inbox 接到 `MessagesPending` 上。插件按 hook 要求返回值，由适配器更新对应事件。BubAgent 使用这个适配器，核心 Agent [同样可以使用](/zh-cn/docs/sdk/app-plugins/#agent-plugins)。
+`AgentPlugins` 把四个 hook 接到调用事件上：`before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call`。它把 `continue_prompt` 接到 `StepFinished`，把 steering inbox 接到 `MessagesPending`。插件按 hook 的要求返回值，适配器去改对应的事件。`BubAgent` 用的就是这个适配器，核心 Agent [也可以这么用](/zh-cn/docs/sdk/app-plugins/#agent-plugins)。
 
-该适配器遵循插件 hook 顺序，捕获单个拦截 hook 的异常，记录后跳过。拒绝调用应返回对应 decision。其他应用 hooks 遵循各自的错误处理规则。
+这个适配器遵循插件 hook 的顺序。单个拦截 hook 抛异常时，它接住、记日志、跳过。要拒绝一次调用，就返回对应的 decision。其他应用 hooks 按各自的出错规则处理。
 
-[应用 Hooks 指南](/zh-cn/docs/app/hooks/)提供插件示例，[Hooks 参考](/zh-cn/docs/reference/hooks/)列出顺序与签名。EventBus 包含在基础 SDK 安装中。
+插件示例见[改变应用行为](/zh-cn/docs/app/hooks/)。顺序和签名见[应用 Hooks](/zh-cn/docs/reference/hooks/)。EventBus 在基础 SDK 安装里就有。
 
-`framework.events` 通过 `bub.application` 中的 `CommandChanged`、`WorkChanged` 和 `PromptChanged` 发布命令、通道工作和用户提示，沿用相同的 `on()` 与 `off()` 接口订阅和取消订阅。
+`framework.events` 发布命令、渠道工作和用户输入，用的是 `bub.application` 里的 `CommandChanged`、`WorkChanged` 和 `PromptChanged`。订阅和取消订阅，还是 `on()` 和 `off()`。

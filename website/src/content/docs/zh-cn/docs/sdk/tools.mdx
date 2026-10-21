@@ -82,7 +82,7 @@ async def remember(note: str, *, context: ToolContext) -> str:
 remember_tool = Tool.from_callable(remember, context=True)
 ```
 
-这会在 Tape 中写入一条业务事件。默认上下文选择器读取会话消息与工具交互；要把这条事件交给模型，需要提供自己的选择逻辑。哪些已保存的信息应交给模型，由[会话历史与上下文](/zh-cn/docs/concepts/tape/#context)中的选择规则决定。
+这会在 Tape 中写入一条业务事件。默认上下文选择器读取会话消息与工具交互；要把这条事件交给模型，需要提供自己的选择逻辑。哪些已保存的信息应交给模型，由[Tape](/zh-cn/docs/concepts/tape/#context)中的选择规则决定。
 
 <a id="code-mode"></a>
 

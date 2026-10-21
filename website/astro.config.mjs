@@ -42,7 +42,8 @@ export default defineConfig({
     '/docs/build/hooks': '/docs/app/hooks/',
     '/docs/build/reuse-plugins': '/docs/sdk/app-plugins/',
     '/docs/build/distribution': '/docs/app/package/',
-    '/docs/concepts/philosophy': '/docs/concepts/design/',
+    '/docs/concepts/philosophy': '/docs/concepts/',
+    '/docs/concepts/design': '/docs/concepts/',
     '/docs/concepts/surfaces': '/docs/concepts/extension-points/',
     '/docs/concepts/tape-and-context': '/docs/concepts/tape/',
     '/docs/concepts/turn-pipeline': '/docs/concepts/turn/',
@@ -155,11 +156,10 @@ export default defineConfig({
           translations: { 'zh-CN': '核心概念' },
           items: [
             'docs/concepts',
-            'docs/concepts/tape',
             'docs/concepts/turn',
+            'docs/concepts/tape',
             'docs/concepts/events',
             'docs/concepts/extension-points',
-            'docs/concepts/design',
           ],
         },
         {

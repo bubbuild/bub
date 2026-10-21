@@ -1,24 +1,47 @@
 ---
-title: Shared concepts and capabilities
-description: Understand the components shared by your own Agent and the Bub application.
+title: Overview
+description: The four concepts that both ways of using Bub share, the layer each one lives in, and where to read about it.
 sidebar:
   order: 0
 ---
 
-Tools, conversation history, and events work through the same core interfaces in both routes. Use these pages when you need to understand a component or choose how to connect it. You can start with [your own Agent](/docs/sdk/) or [the Bub application](/docs/app/) and return here as needed.
+Bub has four concepts. A **turn** carries one message through the app. A **tape** stores the conversation. **Events** report what the loop does. An **extension point** is a place where new behavior goes. Your own Agent and the Bub app use all four.
 
-| You want to understand | Read |
-| --- | --- |
-| How the core and application fit together | [Design choices](/docs/concepts/design/) |
-| Which extension point fits a task | [Choose an extension point](/docs/concepts/extension-points/) |
-| How to define an action or use generated Python | [Tools and CodeMode](/docs/sdk/tools/) |
-| What gets saved and what the model reads | [Conversation history and context](/docs/concepts/tape/) |
-| How to observe, change, or stop a call | [Events and call control](/docs/concepts/events/) |
+Read the pages in any order. Each page starts with the short answer, then the details.
 
-## A few terms
+## Layers
 
-An **Agent** runs the model and tool loop. A **run** handles one prompt and may contain several model steps. A **tool** is a typed action the agent can execute.
+`core.Agent` takes a model, tools, prompt sections, and a tape store. You pass these components in yourself, so a small Python service needs only the core dependencies.
 
-A **Tape** holds conversation records. Its **entries** include messages, tool calls, results, and events. An **anchor** marks a starting point for building context; a **handoff** writes a new anchor. The run's mutable **state** is a separate dictionary shared with tools and handlers.
+`BubAgent` adds the app defaults: settings, skills, commands, tool selection, and steering. `BubFramework` manages plugins, message processing, and outbound routing around it. Use these parts when you want the behavior they provide.
 
-The Bub application adds **plugins**, which provide Python hooks, **skills**, which provide reusable instructions, and **channels**, which carry messages in and out. Its [turn pipeline](/docs/concepts/turn/) connects those components around the agent.
+`pip install bub` installs the kernel. `pip install "bub[app]"` installs both layers. The [installation guide](/docs/getting-started/install/) explains the dependency choices.
+
+## Concepts
+
+| Concept | What it is | Read |
+| --- | --- | --- |
+| Turn | One inbound message, and all the work that it causes. | [Turn](/docs/concepts/turn/) |
+| Tape | The stored conversation, and the part of it that the model reads. | [Tape](/docs/concepts/tape/) |
+| Events | The bus that reports each step, and lets a handler change the next one. | [Events](/docs/concepts/events/) |
+| Extension points | Where new behavior goes: a tool, a skill, a plugin, or a channel. | [Extension points](/docs/concepts/extension-points/) |
+
+## Terms
+
+An **Agent** runs the model and tool loop. A **run** is one `agent.run()` call, and it can contain several **steps**. A **step** is one model call and the tools that it asks for. A **turn** is one inbound message and the run that answers it.
+
+A **tape** stores the conversation. Its **entries** are messages, tool calls, results, and events. An **anchor** marks the point where the context starts. A **handoff** writes a new anchor. The turn's **state** is a separate dictionary that tools and handlers share.
+
+The app adds three parts. **Plugins** provide Python hooks. **Skills** provide written instructions. **Channels** carry messages in and out.
+
+## Design notes
+
+The kernel does not read settings or plugin hooks. Hooks belong to the app: a plugin implements them, and `BubFramework` calls them. The core therefore works the same in both layers.
+
+History and context stay separate. The tape keeps every entry. The context selects the entries that the next model call reads. An anchor starts a new context and keeps the earlier entries, so you can read the full history and still send a short request.
+
+Each part has one job. A tool performs an action. A skill describes a procedure. A channel connects the app to a place where people work. These roles stay separate, so you know which part to change.
+
+## Background
+
+[Why we rewrote Bub](/posts/why-rewrite-bub/) and [Socialized evaluation and agent partnership](/posts/socialized-evaluation/) explain the earlier design. For the current interfaces, use the guides and the reference.

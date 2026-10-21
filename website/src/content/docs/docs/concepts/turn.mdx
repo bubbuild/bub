@@ -1,48 +1,48 @@
 ---
-title: How the app handles a message
-description: Follow a message through BubFramework, from session selection to outbound delivery.
+title: Turn
+description: One inbound message, from the session lookup to the reply that leaves the app.
 sidebar:
   order: 2
 ---
 
-BubFramework connects the agent to application concerns: session identity, turn state, prompt preparation, and message delivery. Each stage exposes hooks so a plugin can change that part of the application.
+A turn is one inbound message, and all the work that it causes. `BubFramework` handles a turn: it finds the session, loads the state, builds the prompt, runs the model, and delivers the reply. Each stage has a hook, so a plugin can change that stage.
 
-This pipeline belongs to `bub[app]`. A direct `core.Agent.run()` starts the agent loop with the prompt, state, and tape you provide.
+A turn belongs to `bub[app]`. A direct `core.Agent.run()` call has no turn. The loop starts with the prompt, state, and tape that you give it.
 
-## Follow one message
+## Stages
 
-`framework.process_inbound(message)` runs these stages:
+`framework.process_inbound(message)` runs these stages in order:
 
 | Stage | What it does |
 | --- | --- |
 | `resolve_session` | Select the session ID for the inbound message. |
-| `load_state` | Collect the current turn's state from hook implementations. |
-| `build_prompt` | Turn inbound content into a prompt. |
-| `run_model` / `run_model_stream` | Produce the model output, through either a final result or a stream. |
-| `save_state` | Finish work associated with the model stage. Runs in its `finally` block. |
+| `load_state` | Collect the turn state from the hook implementations. |
+| `build_prompt` | Turn the inbound content into a prompt. |
+| `run_model` / `run_model_stream` | Produce the model output, as a final result or as a stream. |
+| `save_state` | Finish the work of the model stage. This stage runs in its `finally` block. |
 | `render_outbound` | Turn the result into outbound envelopes. |
 | `dispatch_outbound` | Deliver each outbound envelope. |
 
-The built-in plugin supplies the application defaults. Plugins can contribute or replace behavior according to each hook's contract; [Hooks reference](/docs/reference/hooks/) defines first-result hooks, combined results, and priority rules.
+The built-in plugin supplies the app defaults. Other plugins can add behavior or replace it, as each hook's contract allows. The [hooks reference](/docs/reference/hooks/) defines the first-result hooks, the combined results, and the priority rules.
 
-## Where the agent runs
+## Agent call
 
-The built-in `run_model_stream` hook calls `BubAgent.run_stream()`. BubAgent uses the core model and tool loop, adding settings, skills, commands, steering, and application tool policies.
+The built-in `run_model_stream` hook calls `BubAgent.run_stream()`. `BubAgent` uses the core model and tool loop. It adds settings, skills, commands, steering, and the app tool policies.
 
-The framework adapts between streaming and non-streaming hook results. `process_inbound(..., stream_output=True)` lets the channel router consume incremental output and returns a completed `TurnResult` after consumption.
+The framework converts between streaming and non-streaming hook results. `process_inbound(..., stream_output=True)` lets the channel router read the output as it arrives. It returns a complete `TurnResult` when the stream ends.
 
-Replacing `run_model` with a plugin changes this behavior. For example, an echo plugin can return text without ever creating an agent run. Core events and tape recording occur when the chosen implementation actually uses the core agent.
+A plugin can replace `run_model` and change this behavior. For example, an echo plugin can return text without an agent run. Core events and tape records occur only when the chosen implementation uses the core agent.
 
-## Resource ownership and failures
+## Resources and failures
 
-Use `async with framework.running():` when hooks provide stores or other application resources. It opens those resources and releases them on exit. The built-in per-message lifespan opens during state loading and closes in `save_state`.
+Use `async with framework.running():` when your hooks provide stores or other app resources. This opens the resources and releases them on exit. The built-in per-message lifespan opens during state loading and closes in `save_state`.
 
-`save_state` runs once execution reaches the model stage, including when that stage raises. A failure in session resolution, state loading, or prompt construction happens before this `finally` block and does not trigger it. Plugins that acquire resources in those earlier stages must account for that boundary.
+`save_state` runs when execution reaches the model stage. It also runs when that stage raises an exception. A failure in session resolution, state loading, or prompt construction occurs before the `finally` block, so it does not run `save_state`. If your plugin gets resources in those earlier stages, release them yourself.
 
-The built-in `save_state` closes the per-message lifespan. The application records selected settings separately; saving other state requires an explicit persistence policy.
+The built-in `save_state` closes the per-message lifespan. The app saves selected settings in a different place. To save other state, add your own persistence policy.
 
-If the model stage raises an unhandled exception, the framework runs `save_state`, then skips normal rendering and dispatch. The outer error path calls `on_error(stage="turn", ...)` and re-raises the exception. The built-in error observer can send an error response through outbound dispatch. Failures in individual `on_error` observers are isolated so other observers can run.
+If the model stage raises an unhandled exception, the framework runs `save_state`, then skips rendering and dispatch. The outer error path calls `on_error(stage="turn", ...)` and raises the exception again. The built-in error observer can send an error reply through outbound dispatch. A failure in one `on_error` observer does not stop the other observers.
 
-## Extend the app
+## Next steps
 
-Use [plugin setup](/docs/app/plugins/) to register your implementation, [hook recipes](/docs/app/hooks/) for specific changes, and the [hooks reference](/docs/reference/hooks/) for exact signatures and ordering.
+Use [plugin setup](/docs/app/plugins/) to register your implementation. For common changes, see [Change application behavior](/docs/app/hooks/). For exact signatures and ordering, see [Application hooks](/docs/reference/hooks/).

@@ -1,27 +1,27 @@
 ---
-title: Events and call control
-description: Observe agent progress, intercept model and tool calls, and choose which business events to record.
+title: Events
+description: Watch a run, change or stop a model or tool call, and record the events that you need.
 sidebar:
   order: 4
 ---
 
-Use agent events to observe a run or make a decision before a model or tool call. Every Agent creates an `EventBus` and subscribes a `TapeRecorder`. You can add handlers through `agent.events`.
+Agent events let you watch a run. They also let you decide before a model or tool call. Every Agent creates an `EventBus` and subscribes a `TapeRecorder`. You add handlers through `agent.events`.
 
-Three kinds of information serve different purposes:
+Three kinds of information have three different jobs:
 
-| Type | Purpose | Access |
+| Type | Job | How to read it |
 | --- | --- | --- |
-| `AgentEvent` | Internal lifecycle and call interception. | `agent.events.on(...)` |
-| `StreamEvent` | Output for the caller, such as text and tool progress. | Iterate the stream returned by `agent.run()`. |
-| `TapeEntry` | Saved conversation and selected runtime records. | Query the [Tape](/docs/concepts/tape/). |
+| `AgentEvent` | Lifecycle of the run and interception of calls. | `agent.events.on(...)` |
+| `StreamEvent` | Output for the caller, such as text and tool progress. | Iterate over the stream that `agent.run()` returns. |
+| `TapeEntry` | The saved conversation and selected runtime records. | Query the [tape](/docs/concepts/tape/). |
 
-The agent's loop controls execution and invokes event handlers inline at defined points. TapeRecorder saves selected exchanges and lifecycle records; your handlers can record other events you need to keep.
+The agent loop controls execution. It calls the event handlers at fixed points, before it continues. TapeRecorder saves selected exchanges and lifecycle records. Your handlers can record the other events that you need to keep.
 
 <a id="delivery"></a>
 
-## Register a handler
+## Handlers
 
-With the `agent` from the [SDK guide](/docs/sdk/):
+This example uses the `agent` from the [SDK guide](/docs/sdk/):
 
 ```python
 from bub.core.events import StepFinished, ToolCallFinished
@@ -39,17 +39,17 @@ def report_step(event: StepFinished) -> None:
 agent.events.on(StepFinished, report_step)
 ```
 
-Remove a registration with `agent.events.off(StepFinished, report_step)`. A handler for a base class receives its subclasses; a handler for `AgentEvent` receives every delivered agent event.
+To remove a handler, call `agent.events.off(StepFinished, report_step)`. A handler for a base class also receives its subclasses. A handler for `AgentEvent` receives every agent event that is delivered.
 
-For each emission, matching handlers run in registration order. The bus waits for each asynchronous handler before moving to the next. A handler's return value is ignored. Exceptions propagate to the caller of `emit()` and can fail a run. To let work continue after an observer fails, handle its exceptions inside the observer.
+For each emission, the matching handlers run in the order of registration. The bus waits for each async handler before it starts the next one. The bus ignores the return value of a handler. An exception goes to the caller of `emit()` and can fail the run. If work must continue after an observer fails, catch the exception inside that observer.
 
-This ordering applies to one emission. Concurrent tool calls or runs can emit events at the same time, so shared handler state still needs appropriate coordination.
+This order applies to one emission. Concurrent tool calls or runs can emit events at the same time. Shared handler state therefore needs its own coordination.
 
 <a id="control"></a>
 
-## Change or stop a call
+## Call control
 
-To stop a call, assign a decision to the event's `decision` field:
+To stop a call, assign a decision to the `decision` field of the event:
 
 ```python
 from bub.core.events import ToolCallDecision, ToolCallStarted
@@ -61,43 +61,43 @@ def require_refund_permission(event: ToolCallStarted) -> None:
         event.decision = ToolCallDecision.deny("Refunds require approval.")
 ```
 
-`deny()` skips the tool and produces a tool error. `replace(result)` skips the tool and supplies a result. Both stop delivery to later handlers for that `ToolCallStarted` event. The executor still emits `ToolCallFinished` for the outcome. A model loop receives the error as a tool result; a direct command propagates it to its caller.
+`deny()` skips the tool and produces a tool error. `replace(result)` skips the tool and supplies a result. Both stop delivery to the later handlers of that `ToolCallStarted` event. The executor still emits `ToolCallFinished` for the outcome. A model loop receives the error as a tool result. A direct command gives the error to its caller.
 
-To change arguments and continue, replace `event.call` with `dataclasses.replace(event.call, arguments=...)`. To finish before a model call, set `event.decision = LLMCallDecision.finish(text)` on `LLMCallStarted`. This stops later handlers and skips the provider call. A skipped provider call does not emit `LLMCallFinished`.
+To change the arguments and continue, replace `event.call` with `dataclasses.replace(event.call, arguments=...)`. To finish before a model call, set `event.decision = LLMCallDecision.finish(text)` on `LLMCallStarted`. This stops the later handlers and skips the provider call. A skipped provider call does not emit `LLMCallFinished`.
 
-| Event | When it occurs | Supported control |
+| Event | When it occurs | What you can do |
 | --- | --- | --- |
-| `RunStarted` | A model run begins. | Observe prompt, model, and metadata. |
-| `RunFinished` | Its stream closes. | Observe status, step count, elapsed time, and error. |
-| `StepStarted` | A model step begins. | Observe progress. |
-| `StepFinished` | A model step ends. | Observe progress; with `status == "continue"`, set `next_prompt` to give the next step a user message. |
-| `MessagesPending` | A step builds its model request, or ends without tool calls. | Append user messages to `messages`; they precede the next prompt, and messages supplied at a step's end continue the run. |
+| `RunStarted` | A model run begins. | Read the prompt, the model, and the metadata. |
+| `RunFinished` | The stream of the run closes. | Read the status, the step count, the elapsed time, and the error. |
+| `StepStarted` | A model step begins. | Read the progress. |
+| `StepFinished` | A model step ends. | Read the progress. When `status == "continue"`, set `next_prompt` to give the next step a user message. |
+| `MessagesPending` | A step builds its model request, or ends without tool calls. | Append user messages to `messages`. They come before the next prompt. Messages that you add at the end of a step continue the run. |
 | `LLMCallStarted` | Before a provider call. | Replace `request`, or set `LLMCallDecision.finish(text)`. |
-| `LLMCallFinished` | A provider call completes or fails with an exception. | Observe the accumulated result; cancellation and consumer close are not reported here. |
-| `ToolCallStarted` | Before a tool executes. | Replace `call`, deny, or replace the result. |
+| `LLMCallFinished` | A provider call completes, or fails with an exception. | Read the accumulated result. This event does not report a cancellation or a close by the consumer. |
+| `ToolCallStarted` | Before a tool runs. | Replace `call`, deny the call, or replace the result. |
 | `ToolCallFinished` | A tool succeeds, fails, is denied, or is replaced. | Assign `event.result.result` to change the returned result. |
-| `ChatFinished` | A step's exchange is ready to record. | Observe the exchange. |
-| `CommandFinished` | A direct command finishes or fails. | Observe command, status, and output. |
+| `ChatFinished` | The exchange of a step is ready to record. | Read the exchange. |
+| `CommandFinished` | A direct command finishes or fails. | Read the command, the status, and the output. |
 
-Command prompts execute tools directly, emitting tool events and `CommandFinished`. See [Commands](/docs/sdk/tools/#commands).
+Command prompts run tools directly. They emit tool events and `CommandFinished`. See [Commands](/docs/sdk/tools/#commands).
 
-All agent events carry turn `state`. Events derived from `TapeEvent` also carry the active tape. For tool events, the tool context is available as `event.call.context` when the invocation has one.
+All agent events carry the turn `state`. Events that derive from `TapeEvent` also carry the active tape. For tool events, the tool context is available as `event.call.context` when the call has one.
 
 <a id="recording"></a>
 
-## Understand what is recorded
+## Recording
 
-Agent registers TapeRecorder before your handlers. It records `RunStarted`, `RunFinished`, `StepStarted`, `StepFinished`, `ChatFinished`, and `CommandFinished`. The `ChatFinished` handler writes messages and tool exchanges that later model calls read as context.
+The Agent registers TapeRecorder before your handlers. It records `RunStarted`, `RunFinished`, `StepStarted`, `StepFinished`, `ChatFinished`, and `CommandFinished`. The `ChatFinished` handler writes the messages and tool exchanges that later model calls read as context.
 
-Recording is part of normal agent operation. It writes to the configured store, which is in memory unless you supply another. Recording works independently of tracing configuration.
+Recording is part of normal operation. It writes to the configured store. That store is in memory unless you supply another one. Recording does not depend on the tracing configuration.
 
-To save a custom event, add a handler that writes it to the tape. Use call interception events to change requests or results; a `ChatFinished` observer runs after the default recorder has already saved that exchange.
+To save a custom event, add a handler that writes it to the tape. Use the interception events to change a request or a result. A `ChatFinished` observer runs after the default recorder has saved that exchange.
 
 <a id="custom-events"></a>
 
-## Record a business event
+## Custom events
 
-Define a dataclass derived from `AgentEvent`, or from `TapeEvent` when handlers need a tape. This example explicitly records a business event:
+Define a dataclass that derives from `AgentEvent`. Derive it from `TapeEvent` when the handlers need a tape. This example records a business event:
 
 ```python
 from dataclasses import dataclass
@@ -122,16 +122,16 @@ async def mark_reviewed() -> None:
     )
 ```
 
-`emit()` returns the event after handlers have run. A custom mutable event can carry a response back to its emitter; override its `stopped` property if delivery should end once that response is set. Tools can emit through `context.events`, using the same turn state.
+`emit()` returns the event after the handlers have run. A custom mutable event can carry a response back to its emitter. Override its `stopped` property if delivery must end when that response is set. Tools can emit events through `context.events`, with the same turn state.
 
 <a id="application-hooks"></a>
 
-## Use events from an application plugin
+## App plugins
 
-`AgentPlugins` connects the `before_llm_call`, `after_llm_call`, `before_tool_call`, and `after_tool_call` hooks to the call events, the `continue_prompt` hook to `StepFinished`, and the steering inbox to `MessagesPending`. Plugins return the values required by the hook contract; the adapter updates the corresponding event. BubAgent uses this adapter, and a core Agent can [use it too](/docs/sdk/app-plugins/#agent-plugins).
+`AgentPlugins` connects four hooks to the call events: `before_llm_call`, `after_llm_call`, `before_tool_call`, and `after_tool_call`. It connects the `continue_prompt` hook to `StepFinished`. It connects the steering inbox to `MessagesPending`. A plugin returns the values that the hook contract requires, and the adapter updates the event. `BubAgent` uses this adapter, and a core Agent can [use it too](/docs/sdk/app-plugins/#agent-plugins).
 
-This adapter follows plugin hook ordering and catches exceptions from individual interception hooks, logging and skipping them. To deny a call, return the appropriate decision. Other application hooks follow their own error contracts.
+This adapter follows the plugin hook order. It catches exceptions from individual interception hooks, logs them, and skips them. To deny a call, return the correct decision. The other app hooks follow their own error contracts.
 
-Use [application hooks](/docs/app/hooks/) for plugin examples and the [hooks reference](/docs/reference/hooks/) for ordering and signatures. EventBus is included in the base SDK installation.
+See [Change application behavior](/docs/app/hooks/) for plugin examples. For order and signatures, see [Application hooks](/docs/reference/hooks/). EventBus is part of the base SDK installation.
 
-`framework.events` publishes commands, channel work, and user prompts through `CommandChanged`, `WorkChanged`, and `PromptChanged` from `bub.application`. Subscribe and unsubscribe with the same `on()` and `off()` API.
+`framework.events` publishes commands, channel work, and user prompts. It uses `CommandChanged`, `WorkChanged`, and `PromptChanged` from `bub.application`. You subscribe and unsubscribe with the same `on()` and `off()` API.

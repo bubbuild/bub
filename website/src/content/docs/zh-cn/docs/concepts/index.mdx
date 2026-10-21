@@ -1,24 +1,47 @@
 ---
-title: 公共概念与能力
-description: 理解自己的 Agent 与 Bub 应用共用的组件。
+title: 概览
+description: 两种用法共用的四个概念，各自在哪一层，以及去哪一页读。
 sidebar:
   order: 0
 ---
 
-两条路线使用相同的工具、会话历史和事件接口。需要理解组件或选择接入方式时，可以查阅这些页面。也可以先从[自己的 Agent](/zh-cn/docs/sdk/) 或 [Bub 应用](/zh-cn/docs/app/)开始，遇到具体问题再回到这里。
+Bub 有四个概念。**轮次**把一条消息送过整个应用。**tape** 存对话。**事件**报告循环做了什么。**扩展点**是新行为该放的地方。你自己的 Agent 和 Bub 应用都用这四个。
 
-| 想了解什么 | 阅读 |
-| --- | --- |
-| 内核与应用如何配合 | [设计选择](/zh-cn/docs/concepts/design/) |
-| 当前任务适合哪个扩展点 | [选择扩展方式](/zh-cn/docs/concepts/extension-points/) |
-| 怎样定义动作或使用生成的 Python | [工具与 CodeMode](/zh-cn/docs/sdk/tools/) |
-| 保存哪些信息，模型读取哪些信息 | [会话历史与上下文](/zh-cn/docs/concepts/tape/) |
-| 怎样观察、修改或停止调用 | [事件与调用控制](/zh-cn/docs/concepts/events/) |
+顺序随意。每一页先给结论，再展开。
 
-## 几个常用术语
+## 分层
 
-**Agent** 执行模型与工具循环。一轮**运行（run）**处理一个 prompt，可能包含多个模型步骤。**工具（tool）**是 Agent 可以执行的带类型动作。
+`core.Agent` 接收模型、工具、提示词片段和一个 tape 存储。这些都由你传进来。一个小的 Python 服务，只装内核的依赖就能跑。
 
-**Tape** 保存会话记录，**条目（entry）**包括消息、工具调用、结果和事件。**锚点（anchor）**标记上下文的起点，**handoff** 写入新锚点。本轮可变**状态（state）**是另一个字典，由工具和处理器共用。
+`BubAgent` 加上应用的默认行为：配置、skills、命令、工具选择和 steering。`BubFramework` 在外围管理插件、消息处理和出站路由。需要这些行为时，再引入它们。
 
-Bub 应用还提供用于接入 Python hooks 的**插件**、提供可复用指令的 **skills**，以及收发消息的**渠道**。[应用消息处理流程](/zh-cn/docs/concepts/turn/)将这些组件连接到 Agent 周围。
+`pip install bub` 只装内核。`pip install "bub[app]"` 两层都装。[安装指南](/zh-cn/docs/getting-started/install/)说明依赖怎么选。
+
+## 概念
+
+| 概念 | 是什么 | 读哪页 |
+| --- | --- | --- |
+| 轮次 | 一条进来的消息，以及它引起的全部工作。 | [轮次](/zh-cn/docs/concepts/turn/) |
+| Tape | 存下来的对话，以及模型实际读到的那一段。 | [Tape](/zh-cn/docs/concepts/tape/) |
+| 事件 | 报告每一步的总线，处理器可以借它改掉下一步。 | [事件](/zh-cn/docs/concepts/events/) |
+| 扩展点 | 新行为放的地方：工具、skill、插件或渠道。 | [扩展点](/zh-cn/docs/concepts/extension-points/) |
+
+## 术语
+
+**Agent** 跑模型与工具的循环。一次**运行**（run）就是一次 `agent.run()` 调用，里面可以有好几个**步骤**（step）。一个**步骤**是一次模型调用，以及它要求的工具。一个**轮次**（turn）是一条进来的消息，和回答它的那次运行。
+
+**tape** 存对话。它的**条目**是消息、工具调用、结果和事件。**anchor** 标出上下文的起点。**handoff** 会写一个新的 anchor。本轮的 **state** 是一个独立字典，工具和处理器共用它。
+
+应用另外加三样东西。**插件**提供 Python hooks。**skills** 写指令。**渠道**收发消息。
+
+## 设计说明
+
+内核不读配置，也不读插件的 hooks。hooks 属于应用：插件实现它们，`BubFramework` 调用它们。所以内核在两层里的行为一样。
+
+历史与上下文分开。tape 留下每一条。上下文挑出下一次模型调用要读的条目。anchor 开一个新的上下文，前面的条目照旧保留。因此你可以查完整历史，同时只发一个短请求。
+
+每个部分只干一件事。工具做动作。skill 写做法。渠道把应用接到人干活的地方。职责分开，你才知道该改哪一块。
+
+## 背景
+
+[为什么重写 Bub](/zh-cn/posts/why-rewrite-bub/)和[社会化评估与智能体伙伴关系](/zh-cn/posts/socialized-evaluation/)讲了早期设计的来由。当前的接口和行为，以现在的指南和参考为准。
