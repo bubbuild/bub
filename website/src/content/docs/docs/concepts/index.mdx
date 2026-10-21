@@ -5,14 +5,14 @@ sidebar:
   order: 0
 ---
 
-Tools, conversation history, and events work through the same core interfaces in both routes. Use these pages when you need to understand a component or choose how to connect it. You can start with [your own Agent](/docs/build/sdk/) or [the Bub application](/docs/build/) and return here as needed.
+Tools, conversation history, and events work through the same core interfaces in both routes. Use these pages when you need to understand a component or choose how to connect it. You can start with [your own Agent](/docs/sdk/) or [the Bub application](/docs/app/) and return here as needed.
 
 | You want to understand | Read |
 | --- | --- |
-| How the core and application fit together | [Design choices](/docs/concepts/philosophy/) |
-| Which extension point fits a task | [Choose an extension point](/docs/concepts/surfaces/) |
-| How to define an action or use generated Python | [Tools and CodeMode](/docs/build/tools/) |
-| What gets saved and what the model reads | [Conversation history and context](/docs/concepts/tape-and-context/) |
+| How the core and application fit together | [Design choices](/docs/concepts/design/) |
+| Which extension point fits a task | [Choose an extension point](/docs/concepts/extension-points/) |
+| How to define an action or use generated Python | [Tools and CodeMode](/docs/sdk/tools/) |
+| What gets saved and what the model reads | [Conversation history and context](/docs/concepts/tape/) |
 | How to observe, change, or stop a call | [Events and call control](/docs/concepts/events/) |
 
 ## A few terms
@@ -21,4 +21,4 @@ An **Agent** runs the model and tool loop. A **run** handles one prompt and may 
 
 A **Tape** holds conversation records. Its **entries** include messages, tool calls, results, and events. An **anchor** marks a starting point for building context; a **handoff** writes a new anchor. The run's mutable **state** is a separate dictionary shared with tools and handlers.
 
-The Bub application adds **plugins**, which provide Python hooks, **skills**, which provide reusable instructions, and **channels**, which carry messages in and out. Its [turn pipeline](/docs/concepts/turn-pipeline/) connects those components around the agent.
+The Bub application adds **plugins**, which provide Python hooks, **skills**, which provide reusable instructions, and **channels**, which carry messages in and out. Its [turn pipeline](/docs/concepts/turn/) connects those components around the agent.

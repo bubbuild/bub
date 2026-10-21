@@ -1,0 +1,42 @@
+---
+title: 使用 Bub 应用
+description: 运行 Bub 应用、按你的工作需要配置它，并决定要添加哪些能力。
+sidebar:
+  order: 0
+---
+
+从能运行的 Bub 应用开始，添加工作中需要的行为。内置 `BubAgent` 扩展了 `core.Agent`；Framework 负责应用编排、插件 hooks 和渠道路由。
+
+下面的指南沿用 Bub 应用的配置和扩展接口。如果你希望在 Python 程序中直接传入模型和工具，请从[构建你的 Bub Agent](/zh-cn/docs/sdk/)开始。
+
+## 运行应用
+
+完成[应用安装](/zh-cn/docs/getting-started/install/#app-install)，[运行第一轮对话](/zh-cn/docs/app/first-session/)，再按需要[配置模型和工作区](/zh-cn/docs/app/configure/)。
+
+日常使用中，选择 Bub 以什么方式触达你：
+
+- [使用终端](/zh-cn/docs/app/chat/)：执行一个任务，或继续交互式对话。
+- [接入 Telegram](/zh-cn/docs/app/telegram/)：设置机器人，选择允许使用它的人。
+- [运行网关](/zh-cn/docs/app/gateway/)：在一个进程里监听所有已启用的渠道。
+- [部署应用](/zh-cn/docs/app/deploy/)：构建容器，在重启后保留数据。
+
+## 选择要添加的能力
+
+| 你要完成的工作 | 从这里开始 |
+| --- | --- |
+| 让模型调用一个函数 | [Bub 应用中的工具](/zh-cn/docs/app/tools/) |
+| 给模型提供可复用的操作说明 | [Skills](/zh-cn/docs/app/skills/) |
+| 打包集成或替换应用 hook | [插件](/zh-cn/docs/app/plugins/)与 [Hooks](/zh-cn/docs/app/hooks/) |
+| 通过 CLI、Telegram 或其他适配器接收消息 | [渠道](/zh-cn/docs/app/gateway/) |
+| 打包自己的发行版 | [打包 Bub 应用](/zh-cn/docs/app/package/) |
+| 持续运行 Bub 服务 | [部署](/zh-cn/docs/app/deploy/) |
+
+工具、会话历史和 Agent 事件遵循[共同契约](/zh-cn/docs/concepts/)。应用还提供工具加载、代码模式选择等默认策略。[Bub 应用中的工具](/zh-cn/docs/app/tools/)说明这些策略；[一轮对话](/zh-cn/docs/concepts/turn/)说明 Framework 如何连接消息接收与响应发送。
+
+## 复用已有集成
+
+- 在 [Bub Hub](https://hub.bub.build) 浏览插件、skills 与发行版。
+- 按照[集成指南](/zh-cn/docs/integrations/)接入具体服务和协议。
+- 在[应用参考](/zh-cn/docs/reference/#application)中查阅签名与默认值。
+
+如果你的服务直接管理 `core.Agent`，请沿[用 FastAPI 提供 Agent 服务](/zh-cn/docs/sdk/web-service/)继续。该路线在 Python 中管理模型和存储。

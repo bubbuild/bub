@@ -1,0 +1,128 @@
+---
+title: Skills
+description: Write a reusable procedure, check that the app loads it, and package it for other users.
+sidebar:
+  order: 0
+---
+
+A skill gives the Bub app a procedure it can load for a task. This page walks through a project skill, then covers the file fields, discovery order, and packaging. Keep project-specific skills in the workspace, or include them in a Python package so other users can install them.
+
+Skill discovery is part of the application; a plain `core.Agent` uses the instructions you explicitly give it.
+
+## Write the instructions
+
+Create a directory for the skill:
+
+```bash
+mkdir -p .agents/skills/repo-map
+```
+
+Create `.agents/skills/repo-map/SKILL.md`:
+
+```markdown
+---
+name: repo-map
+description: Read the local repository layout before changing code.
+---
+
+1. Run `rg --files` to see the repository layout.
+2. Read the files that explain the requested change.
+3. Describe the affected modules before editing code.
+```
+
+The `name` must match the directory name. Use lowercase words separated by hyphens. The description helps the model decide when to use the skill.
+
+## Check that Bub can load it
+
+```bash
+bub run ",skill name=repo-map"
+```
+
+The command prints the skill's instructions without calling a model. If it returns `(no such skill)`, check the path and the YAML frontmatter.
+
+## Use it in a conversation
+
+With your model configured, run:
+
+```bash
+bub run 'Use the $repo-map skill, then list the top-level modules you found.'
+```
+
+`$repo-map` includes the skill's instructions in this turn's system prompt. The model then follows them using the tools available in the application. Install `rg` in the execution environment for this example.
+
+## Skill file fields
+
+Each skill directory contains a `SKILL.md` with YAML frontmatter:
+
+```markdown
+---
+name: my-skill
+description: Describe the task this skill helps the agent complete.
+---
+
+Write the procedure here.
+```
+
+Bub checks these fields when discovering skills:
+
+| Field | Requirement |
+| --- | --- |
+| `name` | Matches the directory name; lowercase words separated by hyphens; at most 64 characters |
+| `description` | Nonempty string, at most 1,024 characters |
+| `metadata` | Optional map with string keys and string values |
+
+Add `scripts/`, `references/`, or `assets/` alongside `SKILL.md` when the procedure needs supporting files. In the body, `$SKILL_DIR` expands to the skill's directory and `$PYTHON` to the interpreter running Bub. Application configuration can be inserted with `${config.path.to.value}`.
+
+## Know which skill is selected
+
+By default, the application searches these roots in order. The first matching name wins:
+
+1. `<workspace>/.agents/skills/`
+2. `~/.agents/skills/`
+3. Installed `skills` namespace packages, including Bub's bundled skills
+
+A project skill can therefore replace a packaged skill with the same name. `BubAgent(skill_dirs=...)` replaces the default roots with the directories you supply.
+
+The system prompt lists available skills. A `$skill-name` hint expands that skill for the current turn; `,skill name=skill-name` prints its body through the command path.
+
+<a id="ship-skills-with-your-package"></a>
+
+## Include skills in a wheel
+<span id="3-ship-skills-with-your-package"></span>
+
+Place a `skills` namespace package alongside your Python code:
+
+```text
+src/
+├── bub_myplugin/
+│   ├── __init__.py
+│   └── plugin.py
+└── skills/
+    └── my-skill/
+        ├── SKILL.md
+        └── references/
+            └── examples.md
+```
+
+With Hatch, include both directories in the wheel:
+
+```toml
+[tool.hatch.build.targets.wheel]
+packages = ["src/bub_myplugin", "src/skills"]
+```
+
+Keep `skills/` as a namespace package without an `__init__.py` so multiple installed packages can contribute to it. Other build backends must produce the same installed layout.
+
+Skills can ship with a plugin or an application distribution. Bub discovers them through the installed `skills` namespace package.
+
+## Check the installed package
+
+Install the built wheel into the environment running Bub, then ask it to load the skill:
+
+```bash
+bub run ",skill name=my-skill"
+```
+
+If it returns `(no such skill)`, check the directory name, frontmatter, and wheel contents. If it prints an unexpected version, look for a project or user skill with the same name.
+
+To distribute a CLI and plugins alongside these skills, see [Package a Bub application](/docs/app/package/).

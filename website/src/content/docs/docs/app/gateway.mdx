@@ -1,0 +1,90 @@
+---
+title: Connect channels
+description: Choose application channels, configure message batching, and name sessions.
+sidebar:
+  order: 2
+---
+
+Channels connect the Bub application to terminals and messaging services. Choose which channels the gateway starts, how incoming messages are batched, and how sessions are named. The application framework manages channels; a service using Agent directly handles its own input and output.
+
+## Before you begin
+
+- You have run `bub onboard` or written `~/.bub/config.yml` directly. See [Configure](/docs/app/configure/).
+- For each non-CLI channel, the channel's credentials are set (e.g. `BUB_TELEGRAM_TOKEN`).
+
+## 1. Choose which channels to enable
+
+`bub gateway` listens on every enabled channel that ships with a working config. By default it enables `all`, which expands to every enabled non-`Interface` channel. That includes listener channels such as Telegram as well as `Lifecycle` runtimes such as `mcp.lifecycle`. The built-in `cli` interface is excluded so that a long-lived gateway does not steal the operator's terminal.
+
+Enable a specific channel:
+
+```bash
+bub gateway --enable-channel telegram
+```
+
+Enable several:
+
+```bash
+bub gateway --enable-channel telegram --enable-channel wechat
+```
+
+Exclude a default lifecycle channel:
+
+```bash
+bub gateway --enable-channel all --enable-channel '!mcp.lifecycle'
+```
+
+To pin the default in config, set `enabled_channels` (comma-separated, or `all`):
+
+```yaml
+enabled_channels: telegram
+```
+
+Or via env var:
+
+```bash
+BUB_ENABLED_CHANNELS=telegram
+```
+
+A channel is only started if its `enabled` property returns `True`. The Telegram channel, for example, returns `False` when `BUB_TELEGRAM_TOKEN` is empty, so it is skipped without error.
+
+## 2. Tune debounce and batching
+
+Non-CLI channels can combine a burst of short messages into one turn. Configure this debounce behavior with:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BUB_DEBOUNCE_SECONDS` | `1.0` | Quiet time required after an active message before the batch is flushed. |
+| `BUB_MAX_WAIT_SECONDS` | `10.0` | Hard upper bound on how long a follow-up message can extend the wait. |
+| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | Window during which non-active messages still count as part of the active conversation. |
+
+Bub stores each session's pending messages and merges them into one `ChannelMessage` when the timer fires.
+
+:::tip
+Comma commands (input starting with `,`) bypass debounce entirely. They are dispatched the moment they arrive; useful for `,quit`, `,help`, or any tool name.
+:::
+
+## 3. Understand session ids
+
+Bub keys conversation state by `session_id`. The default rule is `<channel>:<chat_id>`:
+
+- `bub run "..."` (no `--session-id`) → `cli:local`
+- Telegram inbound → `telegram:<chat_id>`
+- `bub chat` REPL → `cli_session` (literal string, not the `<channel>:<chat_id>` pattern)
+
+Override with `--session-id` on `bub run` or `bub chat` when you need to share state across surfaces.
+
+## 4. Builtin channels
+
+| Channel | Default? | Debounces? | Page |
+|---|---|---|---|
+| `cli` | only via `bub chat` | no | [CLI](/docs/app/chat/) |
+| `telegram` | yes (when `BUB_TELEGRAM_TOKEN` is set) | yes | [Telegram](/docs/app/telegram/) |
+
+Plugins can register additional channels through the `provide_channels` hook. Use [plugins](/docs/app/plugins/) to add other channel adapters.
+
+## Next steps
+
+- [CLI](/docs/app/chat/): REPL and one-shot turns.
+- [Telegram](/docs/app/telegram/): token, allowlists, group behavior.
+- [Settings reference](/docs/reference/settings/): every channel variable.

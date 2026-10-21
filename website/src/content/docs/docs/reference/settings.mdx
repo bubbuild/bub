@@ -3,7 +3,7 @@ title: Application settings
 description: Built-in application environment variables, configuration keys, and defaults.
 ---
 
-These settings configure the Bub application. The tables cover built-in `BUB_*` variables and their YAML keys; plugins document their own settings. For setup steps, see [Configure the app](/docs/operate/configure/). A directly constructed `core.Agent` receives its components as Python arguments and does not load this configuration.
+These settings configure the Bub application. The tables cover built-in `BUB_*` variables and their YAML keys; plugins document their own settings. For setup steps, see [Configure the app](/docs/app/configure/). A directly constructed `core.Agent` receives its components as Python arguments and does not load this configuration.
 
 ## Precedence
 
@@ -176,7 +176,7 @@ Loaded under the YAML `telegram:` section.
 | `BUB_TELEGRAM_ALLOW_CHATS` | unset | `allow_chats` | Comma-separated allowlist of Telegram chat IDs. Empty means no restriction. |
 | `BUB_TELEGRAM_PROXY` | unset | `proxy` | Proxy URL for the Telegram API, e.g. `http://user:pass@host:port` or `socks5://host:port`. |
 
-See [Operate › Channels › Telegram](/docs/operate/channels/telegram/) for deployment notes.
+See [Operate › Channels › Telegram](/docs/app/telegram/) for deployment notes.
 
 ## Login: third-party env vars
 
@@ -188,4 +188,4 @@ See [Operate › Channels › Telegram](/docs/operate/channels/telegram/) for de
 
 ## Plugin-specific settings
 
-Plugins can register their own `Settings` subclass via the `@config(name="...")` decorator (see [Build › Plugins](/docs/build/plugins/)). The decorator records the class under `CONFIG_MAP[name]`, which `configure.validate` then validates and `ensure_config` reads. The YAML key matches the registered name; env vars follow whatever `env_prefix` the subclass declares.
+Plugins can register their own `Settings` subclass via the `@config(name="...")` decorator (see [Build › Plugins](/docs/app/plugins/)). The decorator records the class under `CONFIG_MAP[name]`, which `configure.validate` then validates and `ensure_config` reads. The YAML key matches the registered name; env vars follow whatever `env_prefix` the subclass declares.

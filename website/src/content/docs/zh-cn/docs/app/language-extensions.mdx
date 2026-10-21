@@ -1,0 +1,150 @@
+---
+title: 用其他语言实现 hooks
+description: 通过实验性的 Extism 插件，用 WebAssembly 实现部分应用 hooks。
+sidebar:
+  badge: { text: '实验性', variant: 'caution' }
+  order: 5
+---
+
+通过实验性的 `bub-extism` 插件，用 Go、Rust 或其他语言实现部分 Bub 应用 hooks。Bub 运行 Python 应用，Extism 加载实现这些 hooks 的 WebAssembly 模块。
+
+本指南接入两个示例模块。采用这条路径前，先检查插件支持的 hooks 和数据转换方式。
+
+## 准备工作
+
+开始前，请确保：
+
+- 已[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并确认 `bub --help` 可用。
+- 如果要构建 Go 示例，需要安装 Go 工具链。
+- 如果要构建 Rust 示例，需要安装 Rust 工具链，并添加 `wasm32-unknown-unknown` target。
+
+插件文档列出了支持的 hooks 和模块格式：
+
+- [`bub-extism` README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism)
+- [`bub-extism` 示例](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples)
+- [Extism manifest 参考](https://extism.org/docs/concepts/manifest/)
+- [Bub hooks 参考](/zh-cn/docs/reference/hooks/)
+
+## 第一步：安装实验性插件
+
+将 `bub-extism` 安装到 Bub 所在的同一环境：
+
+```bash
+bub install bub-extism@main
+```
+
+安装后，确认 Bub 已经识别到它：
+
+```bash
+bub hooks
+```
+
+你应该能在输出中看到 `extism` 与 `builtin` 并列出现。
+
+## 第二步：用 Go 和 Rust 各实现一个 hook
+
+使用 `bub-extism` 自带的两个示例模块：
+
+- `go-build-prompt` 实现了 `build_prompt` hook
+- `rust-run-model` 实现了 `run_model` hook
+
+构建 Go 示例：
+
+```bash
+cd bub-contrib/packages/bub-extism/examples/go-build-prompt
+GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o go-build-prompt.wasm .
+```
+
+构建 Rust 示例：
+
+```bash
+cd bub-contrib/packages/bub-extism/examples/rust-run-model
+cargo build --release --target wasm32-unknown-unknown
+```
+
+如果需要完整的构建命令，请参考 [examples 指南](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples)。
+
+## 第三步：用 extism.json 连接两个模块
+
+在项目根目录创建 `extism.json`，将提示词 hook 绑定到 Go 模块，model hook 绑定到 Rust 模块：
+
+```json
+{
+  "plugins": {
+    "prompt": {
+      "manifest": {
+        "wasm": [
+          {
+            "path": "bub-contrib/packages/bub-extism/examples/go-build-prompt/go-build-prompt.wasm"
+          }
+        ]
+      },
+      "wasi": true,
+      "hooks": {
+        "build_prompt": "build_prompt"
+      }
+    },
+    "model": {
+      "manifest": {
+        "wasm": [
+          {
+            "path": "bub-contrib/packages/bub-extism/examples/rust-run-model/target/wasm32-unknown-unknown/release/bub_extism_rust_run_model.wasm"
+          }
+        ]
+      },
+      "hooks": {
+        "run_model": "run_model"
+      }
+    }
+  }
+}
+```
+
+这个配置文件的关键点：
+
+- `manifest` 遵循标准 Extism manifest 格式。
+- `hooks` 把 Bub 的 hook 名称映射到 wasm 模块的导出函数。
+- Bub 仍然负责整体调度和优先级管理。
+
+配置完成后，设置环境变量让 Bub 找到它：
+
+```bash
+export BUB_EXTISM_CONFIG_PATH=./extism.json
+```
+
+## 第四步：跑一次跨语言的对话轮次
+
+现在让 Bub 先用 Go 构建提示词，再交给 Rust 执行 model hook：
+
+```bash
+bub run "Say hello from a prompt built outside Python."
+```
+
+如果一切配置正确，整个流程是：
+
+1. Bub 调用 Go 模块中的 `build_prompt`
+2. 将返回的提示词传递给 Rust 模块中的 `run_model`
+3. Rust 模块返回最终结果，完成本次对话轮次
+
+CLI 会按 `[channel:chat_id]` 的格式输出消息，默认的 `bub run` 通常会先显示 `[cli:local]`，然后是实际内容。
+
+示例输出大致如下：
+
+```text
+[cli:local]
+[rust-run-model:cli:local] [go-build-prompt:cli:local] Say hello from a prompt built outside Python.
+```
+
+Go 模块会在入站提示词前加上 `[go-build-prompt:<chat_id>]` 前缀；Rust 模块再把 Go 的输出包一层 `[rust-run-model:<chat_id>]`。开头的 `[cli:local]` 是 CLI 通道发出的频道头。
+
+## 5. 检查接入边界
+
+Go 模块构造提示词，Rust 模块按示例格式返回响应。这个示例验证 hook 加载和数据传递。需要内置 Agent 的模型调用和会话记录时，保留它的 `run_model` 实现。
+
+在插件文档中核对所需 hook 的支持情况，并验证 Python 与 WebAssembly 之间传递的参数和返回值。
+
+## 下一步
+
+- [构建插件](/zh-cn/docs/app/plugins/)：为 Bub 应用打包 Python 集成。
+- [`bub-extism` README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism)：阅读 package 约定及支持的 hooks。
+- [Extism 概览](https://extism.org/docs/overview)：了解 Extism 如何在不同语言中运行 wasm 模块。

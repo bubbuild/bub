@@ -3,7 +3,7 @@ title: Application types and lifecycle
 description: Message, turn, stream, and channel interfaces used by the Bub application.
 ---
 
-Use these types when writing a plugin, adding a channel, or embedding the Bub application. Shared agent capabilities are covered in [Tools](/docs/build/tools/), [Tape and context](/docs/concepts/tape-and-context/), and [Events](/docs/concepts/events/).
+Use these types when writing a plugin, adding a channel, or embedding the Bub application. Shared agent capabilities are covered in [Tools](/docs/sdk/tools/), [Tape and context](/docs/concepts/tape/), and [Events](/docs/concepts/events/).
 
 ## Messages and turn results
 
@@ -135,7 +135,7 @@ from bub.builtin.agent import BubAgent
 
 Application configuration is process-wide. Construct a `BubAgent` inside `framework.running()` when it should use the framework's active store. An explicitly supplied store takes precedence and remains the caller's lifecycle responsibility. Without either store, the agent uses memory.
 
-`run_stream` loads initial state when the caller omits `state` and uses caller-supplied state directly otherwise. The host owns save-state hooks, outbound handling, and concurrent turn scheduling. See [Embed the application](/docs/build/distribution/#programmatic-embedding) for complete usage.
+`run_stream` loads initial state when the caller omits `state` and uses caller-supplied state directly otherwise. The host owns save-state hooks, outbound handling, and concurrent turn scheduling. See [Embed the application](/docs/app/package/#programmatic-embedding) for complete usage.
 
 ## Imports
 

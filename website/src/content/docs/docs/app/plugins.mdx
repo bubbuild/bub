@@ -1,0 +1,162 @@
+---
+title: Plugins
+description: Write a plugin, choose its entry point, and install it into the app.
+sidebar:
+  order: 0
+---
+
+A plugin changes how the Bub app handles a task. This page builds a small echo plugin so you can check discovery and turn processing without model credentials, then covers the entry-point choices, tool registration, and sharing.
+
+A Python package declares an entry point in the `bub` group; Bub imports that target and registers its hook implementations. You can also reuse an existing plugin in your own service while keeping your host's entry point; see [Borrow the app runtime](/docs/sdk/app-plugins/).
+
+## Create the package
+
+Install Python 3.12+ and uv as described in [Install Bub](/docs/getting-started/install/). This tutorial creates a project environment containing Bub 0.6.0 and your plugin.
+
+Create this package layout:
+
+```text
+bub-echo-plugin/
+├── pyproject.toml
+└── src/
+    └── bub_echo_plugin/
+        ├── __init__.py
+        └── plugin.py
+```
+
+Leave `__init__.py` empty. Put this in `pyproject.toml`:
+
+```toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bub-echo-plugin"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["bub[app]>=0.6.0"]
+
+[project.entry-points."bub"]
+echo = "bub_echo_plugin.plugin:echo_plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bub_echo_plugin"]
+```
+
+The `bub` entry-point group tells the application where to find the plugin.
+
+## Implement the response
+
+Put this in `src/bub_echo_plugin/plugin.py`:
+
+```python
+from bub import hookimpl
+
+
+class EchoPlugin:
+    @hookimpl
+    def run_model(self, prompt, session_id, state):
+        return f"[echo:{session_id}] {prompt}"
+
+
+echo_plugin = EchoPlugin()
+```
+
+The application still builds the incoming prompt. Your `run_model` implementation supplies the response instead of calling the builtin agent.
+
+## Install and try it
+
+From the plugin directory, install the project and its dependencies:
+
+```bash
+uv sync
+uv run bub hooks
+```
+
+`uv sync` installs this package in editable mode. Run Bub through `uv run` in the same project so it can discover the plugin. To install into an existing activated application environment instead, use `uv pip install -e .` and run `bub hooks` there.
+
+The report should include `echo` under `run_model`. The builtin agent appears under `run_model_stream`.
+
+```bash
+uv run bub run "hello from my plugin"
+```
+
+With no other plugin overriding the model stage, the response contains:
+
+```text
+[echo:cli:local] hello from my plugin
+```
+
+If `echo` is missing, check that the package was installed in the environment running `bub`, its entry-point group, and startup logs for an import failure. Changes to package metadata require reinstalling the package. If it is listed but another response wins, inspect the other model hooks and their priority.
+
+Bub registers builtin hooks before entry-point plugins. Hooks at equal priority generally run in reverse registration order; `tryfirst` and `trylast` affect that order. The [dispatch rules](/docs/reference/hooks/#iteration-order) explain which implementation runs first.
+
+## Choose an entry-point target
+
+The key `myplugin` identifies the plugin in diagnostics. The value names the Python object to import. Choose one target form:
+
+| Target | Registration | Use it when |
+| --- | --- | --- |
+| `bub_myplugin.plugin` | Register the module | Hooks are module-level functions |
+| `bub_myplugin.plugin:plugin` | Register the instance | Hooks share state on an object |
+| `bub_myplugin.plugin:MyPlugin` | Call the class or factory with `BubFramework`, then register its result | Hooks need the framework |
+
+For the module form, define hooks at module level:
+
+```python
+from bub import hookimpl
+
+
+@hookimpl
+def build_prompt(message, session_id, state):
+    return "Describe this workspace."
+```
+
+For the instance form, create the object in the target module:
+
+```python
+from bub import hookimpl
+
+
+class MyPlugin:
+    @hookimpl
+    def build_prompt(self, message, session_id, state):
+        return "Describe this workspace."
+
+
+plugin = MyPlugin()
+```
+
+Every callable target receives the framework, including classes. Accept it in the constructor or factory:
+
+```python
+from bub import BubFramework, hookimpl
+
+
+class MyPlugin:
+    def __init__(self, framework: BubFramework) -> None:
+        self.framework = framework
+
+    @hookimpl
+    def build_prompt(self, message, session_id, state):
+        return f"Describe the workspace at {self.framework.workspace}."
+```
+
+These examples replace the prompt. Choose the hook for your actual task from [Change application behavior](/docs/app/hooks/).
+
+## Register tools during import
+
+If the package defines `@tool` functions, import their module from the entry-point module before an agent is created:
+
+```python
+from . import tools  # noqa: F401
+```
+
+The application takes a snapshot of registered tools when it creates a `BubAgent`. See [Add application tools](/docs/app/tools/) for registration, deferred loading, and code mode.
+
+## Share the plugin
+
+Build and install a wheel into a separate environment before publishing it. Confirm that the entry point loads and that a representative task uses your hook. If you bundle skills or several plugins, follow [Package a Bub application](/docs/app/package/).
+
+Portable Agent Plugins use a different format: `plugin.json`, skills, and MCP servers. The [Agent Plugins integration](/docs/integrations/agent-plugins/) loads those packages through a Python plugin.

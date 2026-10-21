@@ -22,7 +22,7 @@ uv run python -c "from bub.core import Agent; print(Agent.__name__)"
 
 If you are starting a new project, first run `uv init --python 3.12 my-agent` and `cd my-agent`.
 
-The base installation includes the kernel's dependencies: Republic, Pydantic, Loguru, and typing-extensions. The import check needs no model credentials. Continue with [Build your own agent](/docs/build/sdk/) to configure a model in Python and run the first example.
+The base installation includes the kernel's dependencies: Republic, Pydantic, Loguru, and typing-extensions. The import check needs no model credentials. Continue with [Build your own agent](/docs/sdk/) to configure a model in Python and run the first example.
 
 <a id="app-install"></a>
 
@@ -65,7 +65,7 @@ When installation finishes, make sure the command directory is on your PATH, the
 bub --help
 ```
 
-Continue with [Run Bub for the first time](/docs/getting-started/first-turn/) to start a conversation in your own workspace.
+Continue with [Run Bub for the first time](/docs/app/first-session/) to start a conversation in your own workspace.
 
 The base install and `bub[app]` contain the same package files. The extra changes which dependencies are installed. Without the application dependencies, the `bub` command exits with an instruction to install `bub[app]`.
 

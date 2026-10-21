@@ -13,7 +13,7 @@ Three kinds of information serve different purposes:
 | --- | --- | --- |
 | `AgentEvent` | Internal lifecycle and call interception. | `agent.events.on(...)` |
 | `StreamEvent` | Output for the caller, such as text and tool progress. | Iterate the stream returned by `agent.run()`. |
-| `TapeEntry` | Saved conversation and selected runtime records. | Query the [Tape](/docs/concepts/tape-and-context/). |
+| `TapeEntry` | Saved conversation and selected runtime records. | Query the [Tape](/docs/concepts/tape/). |
 
 The agent's loop controls execution and invokes event handlers inline at defined points. TapeRecorder saves selected exchanges and lifecycle records; your handlers can record other events you need to keep.
 
@@ -21,7 +21,7 @@ The agent's loop controls execution and invokes event handlers inline at defined
 
 ## Register a handler
 
-With the `agent` from the [SDK guide](/docs/build/sdk/):
+With the `agent` from the [SDK guide](/docs/sdk/):
 
 ```python
 from bub.core.events import StepFinished, ToolCallFinished
@@ -79,7 +79,7 @@ To change arguments and continue, replace `event.call` with `dataclasses.replace
 | `ChatFinished` | A step's exchange is ready to record. | Observe the exchange. |
 | `CommandFinished` | A direct command finishes or fails. | Observe command, status, and output. |
 
-Command prompts execute tools directly, emitting tool events and `CommandFinished`. See [Commands](/docs/build/tools/#commands).
+Command prompts execute tools directly, emitting tool events and `CommandFinished`. See [Commands](/docs/sdk/tools/#commands).
 
 All agent events carry turn `state`. Events derived from `TapeEvent` also carry the active tape. For tool events, the tool context is available as `event.call.context` when the invocation has one.
 
@@ -128,10 +128,10 @@ async def mark_reviewed() -> None:
 
 ## Use events from an application plugin
 
-`AgentPlugins` connects the `before_llm_call`, `after_llm_call`, `before_tool_call`, and `after_tool_call` hooks to the call events, the `continue_prompt` hook to `StepFinished`, and the steering inbox to `MessagesPending`. Plugins return the values required by the hook contract; the adapter updates the corresponding event. BubAgent uses this adapter, and a core Agent can [use it too](/docs/build/reuse-plugins/#agent-plugins).
+`AgentPlugins` connects the `before_llm_call`, `after_llm_call`, `before_tool_call`, and `after_tool_call` hooks to the call events, the `continue_prompt` hook to `StepFinished`, and the steering inbox to `MessagesPending`. Plugins return the values required by the hook contract; the adapter updates the corresponding event. BubAgent uses this adapter, and a core Agent can [use it too](/docs/sdk/app-plugins/#agent-plugins).
 
 This adapter follows plugin hook ordering and catches exceptions from individual interception hooks, logging and skipping them. To deny a call, return the appropriate decision. Other application hooks follow their own error contracts.
 
-Use [application hooks](/docs/build/hooks/) for plugin examples and the [hooks reference](/docs/reference/hooks/) for ordering and signatures. EventBus is included in the base SDK installation.
+Use [application hooks](/docs/app/hooks/) for plugin examples and the [hooks reference](/docs/reference/hooks/) for ordering and signatures. EventBus is included in the base SDK installation.
 
 `framework.events` publishes commands, channel work, and user prompts through `CommandChanged`, `WorkChanged`, and `PromptChanged` from `bub.application`. Subscribe and unsubscribe with the same `on()` and `off()` API.

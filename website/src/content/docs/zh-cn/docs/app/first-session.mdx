@@ -1,0 +1,63 @@
+---
+title: 首次运行 Bub
+description: 为 Bub 准备工作区、添加指令，完成一次对话。
+sidebar:
+  order: 2
+---
+
+从现成的 Bub 应用开始，再让它适应你的工作。这篇教程会准备工作区和指令，检查命令是否可用，然后与模型完成一次对话。
+
+先按[安装 Bub](/zh-cn/docs/getting-started/install/)完成应用安装，再按[配置 Bub](/zh-cn/docs/app/configure/)选择模型。对话步骤需要对应供应商的凭据；检查命令时不需要。
+
+## 准备工作区
+
+工作区是 Bub 处理当前项目的目录。创建目录后，在这里运行后续命令：
+
+```bash
+mkdir hello-bub
+cd hello-bub
+```
+
+把工作指令写入 `AGENTS.md`：
+
+```bash
+cat > AGENTS.md <<'EOF'
+你是这个工作区的 Bub agent。
+编辑文件前先阅读相关内容。
+回复保持简短、具体。
+EOF
+```
+
+应用构建系统提示词时会读取这个文件。随着使用，你可以调整其中的指令，让它更符合自己的工作习惯。
+
+## 检查命令
+
+```bash
+bub run ",help"
+```
+
+输出会列出 `,skill`、`,tape.info` 等命令。这一步检查应用的命令路径，不会调用模型。
+
+命令以行首的逗号开头。未知命令会回退为 shell 命令，因此检查时请使用这里的已知命令。
+
+## 开始对话
+
+配置好模型后，运行：
+
+```bash
+bub run "概括这个工作区的用途。"
+```
+
+Bub 把消息和工作区指令交给 agent，记录会话历史，并打印回复。需要交互式对话时，运行：
+
+```bash
+bub chat
+```
+
+如果命令可用而对话失败，按[配置 Bub](/zh-cn/docs/app/configure/)检查模型名称和凭据。如果某个插件未生效，运行 `bub hooks` 查看应用发现了哪些 hook 实现。
+
+## 按你的需要定制
+
+- 添加[项目 skill](/zh-cn/docs/app/skills/)，让 Bub 遵循常用流程。
+- 添加[应用工具](/zh-cn/docs/app/tools/)，让 Bub 调用自己的代码。
+- 编写[插件](/zh-cn/docs/app/plugins/)，改变应用行为。

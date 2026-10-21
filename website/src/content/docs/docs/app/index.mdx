@@ -1,0 +1,42 @@
+---
+title: Use the Bub app
+description: Run the Bub application, configure it for your work, and choose what to add.
+sidebar:
+  order: 0
+---
+
+Start with the running Bub application and add the behavior your work needs. The builtin `BubAgent` extends `core.Agent`; the Framework supplies application orchestration, plugin hooks, and channel routing.
+
+These guides use the Bub application's configuration and extension points. To supply your own model and tools directly in a Python program, start with [Build your own Bub Agent](/docs/sdk/).
+
+## Run the app
+
+Follow the [application installation](/docs/getting-started/install/#app-install) and [run your first conversation](/docs/app/first-session/). Then [configure the model and workspace](/docs/app/configure/) for your work.
+
+Day to day, choose how Bub reaches you:
+
+- [Use the terminal](/docs/app/chat/): run one task or continue a conversation.
+- [Connect Telegram](/docs/app/telegram/): set up a bot and choose who can use it.
+- [Run a gateway](/docs/app/gateway/): keep every enabled channel listening in one process.
+- [Deploy the app](/docs/app/deploy/): build the container and keep its data across restarts.
+
+## Choose what to add
+
+| Your task | Start here |
+| --- | --- |
+| Add a callable function for the model | [Tools in the Bub app](/docs/app/tools/) |
+| Give the model reusable instructions | [Skills](/docs/app/skills/) |
+| Package an integration or replace an application hook | [Plugins](/docs/app/plugins/) and [Hooks](/docs/app/hooks/) |
+| Accept messages through CLI, Telegram, or another adapter | [Channels](/docs/app/gateway/) |
+| Ship a distribution | [Package a Bub application](/docs/app/package/) |
+| Keep a Bub service running | [Deployment](/docs/app/deploy/) |
+
+Tools, conversation history, and agent events keep their [shared contracts](/docs/concepts/). The app adds its own defaults, including tool loading and code mode selection. [Tools in the Bub app](/docs/app/tools/) explains those policies; [one turn](/docs/concepts/turn/) explains how the Framework connects incoming messages to outgoing responses.
+
+## Reuse an integration
+
+- Browse [Bub Hub](https://hub.bub.build) for plugins, skills, and distributions.
+- Follow the [integration guides](/docs/integrations/) to connect a service or protocol.
+- Check the [application reference](/docs/reference/#application) for signatures and defaults.
+
+For a service that owns a `core.Agent` directly, follow [Serve an agent with FastAPI](/docs/sdk/web-service/). That route manages models and storage in Python.

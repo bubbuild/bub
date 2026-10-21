@@ -1,0 +1,32 @@
+---
+title: Design choices
+description: Why Bub separates the agent loop, application defaults, and conversation context.
+sidebar:
+  order: 1
+---
+
+Bub lets you choose how much of the application to use. You can connect the agent core to a program you already have, or customize the working Bub application. Both routes use the same model and tool loop.
+
+## Assemble what your program needs
+
+`core.Agent` accepts a model, tools, prompt sections, and a tape store. You provide these components directly, so a small Python service can use the core dependency set.
+
+`BubAgent` adds the application's defaults: settings, skills, commands, tool selection, and steering. `BubFramework` manages plugins, message processing, and outbound routing around it. Choose them when you want to reuse that behavior.
+
+The [installation guide](/docs/getting-started/install/) explains the dependency choices. The [SDK guide](/docs/sdk/) and [application guide](/docs/app/) show how to put them to work.
+
+## Keep history and context separate
+
+A conversation can be longer than the context needed for the next step. Tape keeps the recorded history; context selection decides what the model reads. An anchor starts a new context without deleting earlier work.
+
+That makes it possible to inspect saved messages and tool results while keeping the next request focused. Persistence still depends on the store you choose, and custom application state needs an explicit storage policy. See [Conversation history and context](/docs/concepts/tape/).
+
+## Make extension behavior visible
+
+A tool describes an action. A skill describes a procedure. A channel connects the application to a place where people work. Keeping these roles distinct helps you choose what to change.
+
+At runtime, events expose model and tool calls. Application hooks also cover configuration, resource setup, and message routing. Each has an ordering and error contract; the [extension guide](/docs/concepts/extension-points/) points to the appropriate one.
+
+## Background
+
+[Why we rewrote Bub](/posts/why-rewrite-bub/) and [Socialized evaluation and agent partnership](/posts/socialized-evaluation/) describe the project's earlier design reasoning. Use the current guides and references for today's interfaces and behavior.

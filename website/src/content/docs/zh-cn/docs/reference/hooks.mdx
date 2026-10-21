@@ -3,7 +3,7 @@ title: 应用 Hooks
 description: Bub 插件的 hook 签名、调用规则和资源生命周期。
 ---
 
-Hooks 把插件接到 Bub 应用上。本页列出 `BubHookSpecs` 声明的 26 个 hooks。用法示例见[改变应用行为](/zh-cn/docs/build/hooks/)，应用阶段顺序见[应用的一轮处理](/zh-cn/docs/concepts/turn-pipeline/)。
+Hooks 把插件接到 Bub 应用上。本页列出 `BubHookSpecs` 声明的 26 个 hooks。用法示例见[改变应用行为](/zh-cn/docs/app/hooks/)，应用阶段顺序见[应用的一轮处理](/zh-cn/docs/concepts/turn/)。
 
 下文的“首个”指按 hook 优先级取得第一个非 `None` 的结果，“全部”指调用每个实现。普通 hook 抛出异常时，本次分发停止，异常向上传播；[agent 拦截 hooks](#agent-loop-hooks-pluginagenthooks) 和 `on_error` 有各自的异常处理规则。
 
@@ -89,7 +89,7 @@ Bub 先注册内置 hooks，再注册已安装插件的入口点。普通实现�
 
 内置 lifespan 管理在作用域中启动的后台 shell 进程。POSIX 上关闭进程组，Windows 当前关闭直接 shell 进程。脱离进程组的进程，以及应用被强制终止的情况，需要宿主层面的进程管理。
 
-Tape sidecar providers 提供具名的关联 tape。Bub 把它们挂载到应用的根 Tape 上，fork、merge、archive 和 reset 都会处理已挂载的 sidecars。移除 provider 后，已保存的数据仍然保留。公共存储语义见 [Tape 与上下文](/zh-cn/docs/concepts/tape-and-context/)。
+Tape sidecar providers 提供具名的关联 tape。Bub 把它们挂载到应用的根 Tape 上，fork、merge、archive 和 reset 都会处理已挂载的 sidecars。移除 provider 后，已保存的数据仍然保留。公共存储语义见 [Tape 与上下文](/zh-cn/docs/concepts/tape/)。
 
 <a id="agent-loop-hooks-pluginagenthooks"></a>
 

@@ -21,13 +21,13 @@ uv pip install --upgrade "bub[app]"
 
 In a plugin or distribution's `pyproject.toml`, use `bub[app]>=0.6.0` in place of a plain `bub` dependency. The extra installs the dependencies required by the builtin runtime, Framework, settings, plugin hooks, skills, and channels.
 
-Run `bub --help`, then [run a conversation](/docs/getting-started/first-turn/). Use `bub hooks` when checking that your plugins loaded.
+Run `bub --help`, then [run a conversation](/docs/app/first-session/). Use `bub hooks` when checking that your plugins loaded.
 
 ## Choose the interfaces your code uses
 
 | Your code | Dependency and guide |
 | --- | --- |
-| Supplies a model and tools directly to `core.Agent` | `bub`; [Build your own agent](/docs/build/sdk/) |
-| Uses `BubAgent`, the Framework, application hooks, or channels | `bub[app]`; [Customize the Bub app](/docs/build/) |
+| Supplies a model and tools directly to `core.Agent` | `bub`; [Build your own agent](/docs/sdk/) |
+| Uses `BubAgent`, the Framework, application hooks, or channels | `bub[app]`; [Customize the Bub app](/docs/app/) |
 
-A directly composed Agent takes its model and components in Python. The Bub application supplies its settings, skills, and tool policies through `BubAgent` and the Framework. [Tools](/docs/build/tools/) and [Agent events](/docs/concepts/events/) explain the shared contracts and the differences in default behavior.
+A directly composed Agent takes its model and components in Python. The Bub application supplies its settings, skills, and tool policies through `BubAgent` and the Framework. [Tools](/docs/sdk/tools/) and [Agent events](/docs/concepts/events/) explain the shared contracts and the differences in default behavior.

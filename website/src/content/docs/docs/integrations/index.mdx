@@ -1,0 +1,26 @@
+---
+title: Connect Bub to your tools
+description: Add an HTTP service, an editor, a model server, or an application integration.
+sidebar:
+  order: 0
+---
+
+Choose an integration for the way you use Bub. Each guide names the components it needs and gives you a way to check the result.
+
+## Build your own agent
+
+- [Serve an agent with FastAPI](/docs/sdk/web-service/): expose `core.Agent` over HTTP and manage conversation storage in your service.
+
+## Customize the Bub app
+
+These guides use the app's CLI, configuration, or plugin system. Start with the [app installation](/docs/getting-started/install/) and use the same environment for Bub and its plugins.
+
+- [Connect MCP servers](/docs/integrations/mcp/): call tools supplied by an MCP server.
+- [Load Agent Plugins](/docs/integrations/agent-plugins/): load a portable package of skills and MCP servers.
+- [Connect an ACP editor](/docs/integrations/acp/): use Bub from an editor such as Zed.
+- [Use a local llama.cpp model](/docs/integrations/local-models/): point the app at a local model server.
+- [Store conversation history in SQLite](/docs/integrations/storage/): replace the app's file store through a plugin.
+- [Inspect runs with tapes and traces](/docs/integrations/observability/): inspect local records or export traces to Phoenix and Logfire.
+- [Implement hooks in another language](/docs/app/language-extensions/): try the experimental WebAssembly integration.
+
+Each integration guide links to the plugin's documentation for package-specific setup.

@@ -1,0 +1,92 @@
+---
+title: 打包 Bub 应用
+description: 嵌入应用框架，或发布包含自有插件和 skills 的 CLI。
+sidebar:
+  order: 5
+---
+
+如果产品需要 Bub 的配置、插件和消息路由，可以在 Bub 应用上继续构建。你可以把 `BubFramework` 放进现有进程，也可以发布一个启动它的命令。
+
+这条路径使用[安装 Bub](/zh-cn/docs/getting-started/install/)中说明的应用依赖。如果希望直接组合 Agent 和各个组件，请从[构建自己的 Agent](/zh-cn/docs/sdk/)开始。
+
+<a id="programmatic-embedding"></a>
+
+## 嵌入应用
+
+用 `BubFramework.process_inbound` 执行应用的完整轮次：解析会话、加载状态、准备提示词、执行、保存状态、生成并发送出站消息。
+
+```python
+import asyncio
+
+from bub import BubFramework
+from bub.envelope import content_of
+
+
+async def main() -> None:
+    framework = BubFramework()
+    framework.load_hooks()
+    async with framework.running():
+        result = await framework.process_inbound({
+            "session_id": "embedded:demo",
+            "channel": "embedded",
+            "chat_id": "demo",
+            "content": "Describe what you can help with.",
+        })
+        for outbound in result.outbounds:
+            print(content_of(outbound))
+
+
+asyncio.run(main())
+```
+
+运行前先配置模型。`load_hooks()` 会加载内置 hooks 和已安装插件的入口点。示例打印返回的消息；接入的渠道或插件也可以发送这些消息。
+
+让 `framework.running()` 覆盖服务的整个生命周期。它获取 hooks 提供的资源，并在退出时执行相应上下文管理器中的清理逻辑。创建需要使用 framework 存储的 agent 前，先进入这个作用域；同一个 framework 实例不要使用相互重叠的作用域。
+
+`process_inbound` 返回已经完成的 `TurnResult`。设置 `stream_output=True` 后，它先通过绑定的渠道 router 消费流，再返回结果。宿主程序负责并发消息调度，并按需要管理会话锁。
+
+<a id="需要自行消费流时使用-bubagent"></a>
+
+## 在自己的服务中复用插件
+
+宿主可以使用插件提供的工具、存储或 hooks，同时保留自己的 API 和流处理方式。按[在 Agent 中复用插件](/zh-cn/docs/sdk/app-plugins/)中的步骤，把这些能力接到 `core.Agent` 上。
+
+`BubAgent` 还包含应用的提示词和渠道发送约定。需要这些应用行为时，可以选择它，并在宿主中接好对应的输出处理。
+
+## 发布自己的命令
+
+包可以用自己的命令名调用 Bub 的入口：
+
+```python
+# src/my_bub/cli.py
+def main() -> None:
+    from bub.__main__ import main as bub_main
+
+    bub_main()
+```
+
+```toml
+[project.scripts]
+my-bub = "my_bub.cli:main"
+```
+
+用户随后可以运行 `my-bub chat` 或 `my-bub gateway`。如果应用需要固定的工作目录，在调用 Bub 前设置；framework 会使用当前目录作为初始工作区。
+
+声明 `bub[app]>=0.6.0` 应用依赖。更新已有发行包时，按[升级到 0.6.0](/zh-cn/docs/reference/versions/)调整。
+
+## 一起分发插件和 skills
+
+一个 wheel 可以提供多个入口点：
+
+```toml
+[project.entry-points."bub"]
+models = "my_bub.models"
+channels = "my_bub.channels:ChannelPlugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/my_bub", "src/skills"]
+```
+
+每个目标都遵循[插件注册规则](/zh-cn/docs/app/plugins/)。任务指令按 [skills 包目录结构](/zh-cn/docs/app/skills/#ship-skills-with-your-package)加入发行包。
+
+发布前，把构建好的 wheel 安装到独立环境，运行命令、核对插件报告、加载打包的 skill，再完成一次有代表性的对话。对于宿主应用，还应检查流或后台工具运行期间的关闭行为。

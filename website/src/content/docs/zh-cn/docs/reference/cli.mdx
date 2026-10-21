@@ -21,7 +21,7 @@ bub [OPTIONS] COMMAND [ARGS]...
 
 不带命令运行 `bub` 时，会以默认参数执行 `BubFramework.default_command`。内置插件把它设为 `chat`，因此 `bub` 和 `bub -w PATH` 会启动聊天 REPL。插件可以在 `register_cli_commands` hook 中设置 `default_command` 来改用其他命令；只有在没有插件设置时，内置插件才会填入 `chat`。
 
-支持 [OSC 7501](https://www.superlogical.com/rex/docs/build/program-status) 的终端可以显示 Bub 的运行、等待输入或授权、完成和失败状态。取消命令后状态为 `idle`。`chat` 和 `gateway` 开始监听后显示 `idle`，接收的消息全部处理完毕后才显示完成。其他终端正常显示命令输出，重定向输出不包含状态控制序列。
+支持 [OSC 7501](https://www.superlogical.com/rex/docs/app/program-status) 的终端可以显示 Bub 的运行、等待输入或授权、完成和失败状态。取消命令后状态为 `idle`。`chat` 和 `gateway` 开始监听后显示 `idle`，接收的消息全部处理完毕后才显示完成。其他终端正常显示命令输出，重定向输出不包含状态控制序列。
 
 ## `bub run`
 
@@ -92,7 +92,7 @@ bub gateway [OPTIONS]
 - `--uninstall` 会停止并删除对应的 systemd user unit 或 Windows 计划任务。服务已经不存在时仍视为成功，且不要求当前存在已启用的渠道。
 - `--install` 与 `--uninstall` 不能同时使用。
 
-部署细节见 [运维 › Channels](/zh-cn/docs/operate/channels/)。
+部署细节见 [运维 › Channels](/zh-cn/docs/app/gateway/)。
 
 ## `bub onboard`
 

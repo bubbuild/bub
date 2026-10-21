@@ -1,0 +1,186 @@
+---
+title: 改变应用行为
+description: 通过 hooks 调整提示词、控制调用、保存应用状态并提供资源。
+sidebar:
+  order: 2
+---
+
+在你想改变的位置选择 hook，其余部分继续使用 Bub 应用的实现。提示词 hook 改变输入，工具 decision 控制一次调用，存储 provider 决定会话历史保存在哪里。
+
+把这些例子放进[插件](/zh-cn/docs/app/plugins/)。模块级函数可以使用模块入口点；类需要注册实例，或使用接收 framework 的工厂。
+
+[Hooks 参考](/zh-cn/docs/reference/hooks/)定义了签名、优先级和生命周期规则。
+
+## 调整提示词
+
+用 `build_prompt` 替换收到的内容：
+
+```python
+from bub import hookimpl
+from bub.envelope import content_of
+
+
+@hookimpl
+def build_prompt(message, session_id, state):
+    return f"Answer using the project's terminology.\n\n{content_of(message)}"
+```
+
+这个纯文本例子通过 `content_of` 读取消息。包含媒体时，返回[参考文档](/zh-cn/docs/reference/hooks/#prompt-content)中说明的用户内容类型。
+
+如果想保留收到的提示词，只添加系统指令，可以提供 `system_prompt` 片段：
+
+```python
+from bub import hookimpl
+
+
+@hookimpl
+def system_prompt(prompt, state):
+    return "Explain which files support your answer."
+```
+
+<a id="control-calls"></a>
+
+## 控制一次模型或工具调用
+
+保留内置 agent，并调整某次调用时，使用 agent 拦截 hooks。例如，限制一次请求的输出 token 数：
+
+```python
+from dataclasses import replace
+
+from bub import hookimpl
+from bub.hooks.interception import LLMCallRequest
+
+
+@hookimpl
+def before_llm_call(request: LLMCallRequest, state):
+    return replace(request, max_tokens=min(request.max_tokens or 512, 512))
+```
+
+需要阻止工具执行时，返回 decision：
+
+```python
+from bub import hookimpl
+from bub.hooks.interception import ToolCall, ToolCallDecision
+
+
+@hookimpl
+def before_tool_call(call: ToolCall, state):
+    if call.tool == "orders.cancel" and not state.get("can_cancel_orders", False):
+        return ToolCallDecision.deny("This session cannot cancel orders.")
+    return None
+```
+
+由你的授权逻辑设置 `can_cancel_orders`，hook 根据这个值允许或拒绝调用。
+
+这些拦截 hooks 抛出的异常会被记录并跳过。要控制执行，使用 `deny`、`replace` 或 `LLMCallDecision.finish`。[拦截契约](/zh-cn/docs/reference/hooks/#agent-loop-hooks-pluginagenthooks)说明了 decision 何时终止调用链。
+
+## 观察已经完成的调用
+
+统计调用情况时，使用完成 hooks：
+
+```python
+from bub import hookimpl
+
+
+@hookimpl
+def after_llm_call(request, result, state):
+    print(f"model={request.model} duration_ms={result.duration_ms} error={result.error!r}")
+
+
+@hookimpl
+def after_tool_call(call, result, state):
+    print(f"tool={call.tool} duration_ms={result.duration_ms} error={result.error!r}")
+```
+
+这些 hooks 观察已经完成的调用，包括普通异常导致的失败，但不报告取消。需要逐块处理输出时，在宿主程序或渠道中使用流接口，并遵守[关闭规则](/zh-cn/docs/reference/types/#streaming)。
+
+如果要替换整个模型阶段，实现 `run_model` 或 `run_model_stream` 中的一个。[第一个插件](/zh-cn/docs/app/plugins/)演示了文本替换。替换实现负责自己的执行和记录行为；只有使用内置 agent 时，才会运行它的拦截 hooks。
+
+## 跨轮次保留应用状态
+
+Framework 为每轮入站消息构建新的状态字典。使用 `load_state` 和 `save_state`，保留应用自己的值：
+
+```python
+from bub import hookimpl
+
+
+class TurnCounter:
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+
+    @hookimpl
+    def load_state(self, message, session_id):
+        return {"completed_turns": self.counts.get(session_id, 0)}
+
+    @hookimpl
+    def save_state(self, session_id, state, message, model_output):
+        self.counts[session_id] = state["completed_turns"] + 1
+
+
+turn_counter = TurnCounter()
+```
+
+这个内存示例统计模型阶段退出的次数，包括失败。进程退出后计数会丢失，并且它假定同一会话一次只处理一轮。生产环境应使用持久化存储，并选择合适的并发策略。
+
+`save_state` 位于模型阶段的 `finally` 块中，前提是会话解析、状态加载和提示词准备已经成功。这些准备阶段发生错误时，会跳过保存 hook。会话历史另有 [Tape 生命周期](/zh-cn/docs/concepts/tape/#state)。
+
+<a id="provide-a-tape-store"></a>
+
+## 提供会话存储
+<span id="5-provide-a-tape-store"></span>
+
+返回希望应用使用的 store：
+
+```python
+from pathlib import Path
+
+from bub import hookimpl
+from bub.core.store import FileTapeStore
+
+
+@hookimpl
+def provide_tape_store():
+    return FileTapeStore(Path("./application-tapes"))
+```
+
+这个例子选择当前目录下的普通 JSONL 文件存储。Bub 应用的内置存储还提供应用所需的搜索行为；按任务选择存储实现。需要数据库存储时，参见 [SQLAlchemy 集成](/zh-cn/docs/integrations/storage/)。
+
+Framework 在进入 `framework.running()` 时解析一次 provider。Provider 也可以 yield 一个 store，并在 `finally` 中释放资源。[参考文档](/zh-cn/docs/reference/hooks/#runtime-resources)说明了这个生命周期，以及对应的 `provide_lifespan` hook。
+
+插件还可以提供一个具名的关联 tape：
+
+```python
+from bub import hookimpl
+
+
+class ArtifactSidecar:
+    name = "artifacts"
+
+
+@hookimpl
+def provide_tape_sidecar():
+    return ArtifactSidecar()
+```
+
+[公共 Tape 说明](/zh-cn/docs/concepts/tape/)介绍了 sidecar 的命名和合并行为。
+
+## 添加应用命令
+
+`register_cli_commands` 接收根 Typer app：
+
+```python
+import typer
+
+from bub import hookimpl
+
+
+@hookimpl
+def register_cli_commands(app: typer.Typer):
+    @app.command()
+    def hello(name: str = "world") -> None:
+        typer.echo(f"hello, {name}")
+```
+
+安装插件后运行 `bub hello --name bub`。这个 hook 必须同步实现。
+
+其他应用任务可以使用 `onboard_config` 提供配置、`provide_channels` 接入渠道，或 `provide_environment` 选择内置工具的执行环境。输入和返回值见 [Hooks 参考](/zh-cn/docs/reference/hooks/)。

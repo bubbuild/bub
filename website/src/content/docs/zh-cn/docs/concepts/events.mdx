@@ -13,7 +13,7 @@ sidebar:
 | --- | --- | --- |
 | `AgentEvent` | 内部生命周期通知和调用拦截。 | `agent.events.on(...)` |
 | `StreamEvent` | 交给调用方的输出，例如文本和工具进度。 | 迭代 `agent.run()` 返回的流。 |
-| `TapeEntry` | 保存的会话及部分运行记录。 | 查询 [Tape](/zh-cn/docs/concepts/tape-and-context/)。 |
+| `TapeEntry` | 保存的会话及部分运行记录。 | 查询 [Tape](/zh-cn/docs/concepts/tape/)。 |
 
 Agent 循环控制执行过程，并在指定位置直接调用事件处理器。TapeRecorder 保存选定的交互和生命周期记录；其他需要保留的事件，可以由你的处理器写入 Tape。
 
@@ -21,7 +21,7 @@ Agent 循环控制执行过程，并在指定位置直接调用事件处理器�
 
 ## 注册处理器
 
-下面使用 [SDK 指南](/zh-cn/docs/build/sdk/)中的 `agent`：
+下面使用 [SDK 指南](/zh-cn/docs/sdk/)中的 `agent`：
 
 ```python
 from bub.core.events import StepFinished, ToolCallFinished
@@ -79,7 +79,7 @@ def require_refund_permission(event: ToolCallStarted) -> None:
 | `ChatFinished` | 本步骤的交互已准备好记录。 | 观察交互。 |
 | `CommandFinished` | 直接命令完成或失败。 | 观察命令、状态和输出。 |
 
-命令 prompt 直接执行工具，产生工具事件和 `CommandFinished`。详见[命令](/zh-cn/docs/build/tools/#commands)。
+命令 prompt 直接执行工具，产生工具事件和 `CommandFinished`。详见[命令](/zh-cn/docs/sdk/tools/#commands)。
 
 所有 agent 事件都携带本轮 `state`。继承 `TapeEvent` 的事件还携带当前 Tape。工具调用具有上下文时，可以通过 `event.call.context` 访问。
 
@@ -128,10 +128,10 @@ async def mark_reviewed() -> None:
 
 ## 从应用插件接入事件
 
-`AgentPlugins` 将 `before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call` hooks 接到调用事件上，将 `continue_prompt` hook 接到 `StepFinished` 上，将 steering inbox 接到 `MessagesPending` 上。插件按 hook 要求返回值，由适配器更新对应事件。BubAgent 使用这个适配器，核心 Agent [同样可以使用](/zh-cn/docs/build/reuse-plugins/#agent-plugins)。
+`AgentPlugins` 将 `before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call` hooks 接到调用事件上，将 `continue_prompt` hook 接到 `StepFinished` 上，将 steering inbox 接到 `MessagesPending` 上。插件按 hook 要求返回值，由适配器更新对应事件。BubAgent 使用这个适配器，核心 Agent [同样可以使用](/zh-cn/docs/sdk/app-plugins/#agent-plugins)。
 
 该适配器遵循插件 hook 顺序，捕获单个拦截 hook 的异常，记录后跳过。拒绝调用应返回对应 decision。其他应用 hooks 遵循各自的错误处理规则。
 
-[应用 Hooks 指南](/zh-cn/docs/build/hooks/)提供插件示例，[Hooks 参考](/zh-cn/docs/reference/hooks/)列出顺序与签名。EventBus 包含在基础 SDK 安装中。
+[应用 Hooks 指南](/zh-cn/docs/app/hooks/)提供插件示例，[Hooks 参考](/zh-cn/docs/reference/hooks/)列出顺序与签名。EventBus 包含在基础 SDK 安装中。
 
 `framework.events` 通过 `bub.application` 中的 `CommandChanged`、`WorkChanged` 和 `PromptChanged` 发布命令、通道工作和用户提示，沿用相同的 `on()` 与 `off()` 接口订阅和取消订阅。
