@@ -1,48 +1,17 @@
 ---
-title: 应用类型与生命周期
-description: Bub 应用使用的消息、轮次、流和渠道接口。
+title: Python API
+description: 核心 agent 与 Bub 应用的接口，按所属范围分组。
 ---
 
-编写插件、接入渠道或嵌入 Bub 应用时，使用这里的类型。公共 agent 能力分别见[工具](/zh-cn/docs/sdk/tools/)、[Tape 与上下文](/zh-cn/docs/concepts/tape/)和[事件](/zh-cn/docs/concepts/events/)。
+按接口的归属查阅。核心接口在自己的 Python 程序里配好模型和工具即可使用；应用接口用于运行 Bub 应用、编写插件或接入渠道。具体用法见[工具](/zh-cn/docs/sdk/tools/)、[Tape 与上下文](/zh-cn/docs/concepts/tape/)和[事件](/zh-cn/docs/concepts/events/)。
 
-## 消息与轮次结果
+## 核心
 
-从 `bub.envelope` 导入消息辅助函数：
-
-```python
-from bub.envelope import Envelope, content_of, field_of, normalize_envelope, unpack_batch
-from bub.turn import TurnResult, TurnState
-```
-
-`Envelope` 接受映射、dataclass、Pydantic model 和具有属性的对象。`field_of` 与 `content_of` 可以读取映射的键和对象的属性。`normalize_envelope` 生成可变字典，`unpack_batch` 规范化 hook 返回的出站消息批次。
-
-`TurnState` 是 `dict[str, Any]`。Framework 为每轮入站消息创建新字典，再合并 `load_state` 返回值。插件自行决定持久化哪些值。
-
-`process_inbound` 返回的 `TurnResult` 包含这些字段：
-
-| 字段 | 类型 | 内容 |
-| --- | --- | --- |
-| `session_id` | `str` | 解析后的会话标识 |
-| `prompt` | `list[UserContent]` | 交给模型阶段的规范化输入 |
-| `model_output` | `str` | 收集后的文本结果 |
-| `outbounds` | `list[Envelope]` | 生成的出站消息 |
-| `state` | `TurnState` | 本轮使用的状态 |
-
-`UserContent` 来自 `bub.prompt`。[提示词契约](/zh-cn/docs/reference/hooks/#prompt-content)说明媒体类型，以及到旧式 hook 输入的转换。
-
-## 模型选项
-
-```python
-from bub.model_selection import ModelChoice, ModelOptions
-```
-
-`ModelChoice` 必须提供 `id`，可选字段为 `name`、`description` 和 `meta`。`ModelOptions` 包含 `models: list[ModelChoice]` 和可选的 `current_model`。
-
-`BubFramework.get_model_options` 合并 `provide_model_options` 返回的结果。渠道或宿主程序负责展示选项和保存选择。
+核心循环使用的接口，不读取应用配置。
 
 <a id="streaming"></a>
 
-## 流
+### 流
 
 ```python
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
@@ -67,7 +36,7 @@ async def consume(stream: AsyncStreamEvents) -> None:
 
 流事件向消费方交付输出。Agent 事件有独立的[分发与控制契约](/zh-cn/docs/concepts/events/)。
 
-## 错误与拦截载荷
+### 错误与拦截载荷
 
 ```python
 from bub.errors import BubError, ErrorKind
@@ -81,9 +50,48 @@ from bub.hooks.interception import (
 )
 ```
 
-`BubError.kind` 表示错误类别，`as_dict()` 返回适合传输的载荷。拦截载荷与 `bub.core.events` 共用类型。插件如何使用它们，以及异常如何处理，见[应用 Hooks](/zh-cn/docs/reference/hooks/#agent-loop-hooks-pluginagenthooks)。
+`BubError.kind` 表示错误类别，`as_dict()` 返回适合传输的载荷。拦截载荷与 `bub.core.events` 共用类型。插件如何使用它们，以及异常如何处理，见 [Hooks](/zh-cn/docs/reference/hooks/#agent-loop-hooks-pluginagenthooks)。
 
-## 渠道与路由
+## 应用
+
+应用、插件与渠道使用的接口。
+
+### 消息与轮次结果
+
+从 `bub.envelope` 导入消息辅助函数：
+
+```python
+from bub.envelope import Envelope, content_of, field_of, normalize_envelope, unpack_batch
+from bub.turn import TurnResult, TurnState
+```
+
+`Envelope` 接受映射、dataclass、Pydantic model 和具有属性的对象。`field_of` 与 `content_of` 可以读取映射的键和对象的属性。`normalize_envelope` 生成可变字典，`unpack_batch` 规范化 hook 返回的出站消息批次。
+
+`TurnState` 是 `dict[str, Any]`。Framework 为每轮入站消息创建新字典，再合并 `load_state` 返回值。插件自行决定持久化哪些值。
+
+`process_inbound` 返回的 `TurnResult` 包含这些字段：
+
+| 字段 | 类型 | 内容 |
+| --- | --- | --- |
+| `session_id` | `str` | 解析后的会话标识 |
+| `prompt` | `list[UserContent]` | 交给模型阶段的规范化输入 |
+| `model_output` | `str` | 收集后的文本结果 |
+| `outbounds` | `list[Envelope]` | 生成的出站消息 |
+| `state` | `TurnState` | 本轮使用的状态 |
+
+`UserContent` 来自 `bub.prompt`。[提示词契约](/zh-cn/docs/reference/hooks/#prompt-content)说明媒体类型，以及到旧式 hook 输入的转换。
+
+### 模型选项
+
+```python
+from bub.model_selection import ModelChoice, ModelOptions
+```
+
+`ModelChoice` 必须提供 `id`，可选字段为 `name`、`description` 和 `meta`。`ModelOptions` 包含 `models: list[ModelChoice]` 和可选的 `current_model`。
+
+`BubFramework.get_model_options` 合并 `provide_model_options` 返回的结果。渠道或宿主程序负责展示选项和保存选择。
+
+### 渠道与路由
 
 ```python
 from bub.channels import Channel, Interface, Lifecycle
@@ -104,7 +112,7 @@ from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 
 `ChannelManager` 实现这个接口，并通过 `BubFramework.bind_channel_router` 绑定。
 
-### 消息准入与 steering
+#### 消息准入与 steering
 
 `TurnSnapshot` 提供 `session_id`、`is_running`、`running_count`、`pending_count` 和 `steering_count`。准入 hook 返回 `AdmitDecision(action, reason=None)`：
 
@@ -117,7 +125,7 @@ from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 
 `SteeringInbox` 提供异步的 `enqueue_message(message, state)`、`drain_messages(state)`，以及同步的 `message_count(state)`。应用通过 `provide_steering_inbox` 取得它。
 
-## Framework 与 Agent 入口
+### Framework 与 Agent 入口
 
 ```python
 from bub import BubFramework

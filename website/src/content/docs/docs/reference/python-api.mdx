@@ -1,48 +1,17 @@
 ---
-title: Application types and lifecycle
-description: Message, turn, stream, and channel interfaces used by the Bub application.
+title: Python API
+description: Core agent and Bub application interfaces, grouped by what they belong to.
 ---
 
-Use these types when writing a plugin, adding a channel, or embedding the Bub application. Shared agent capabilities are covered in [Tools](/docs/sdk/tools/), [Tape and context](/docs/concepts/tape/), and [Events](/docs/concepts/events/).
+Look up an interface by what it belongs to. Core interfaces work in a Python program that supplies a model and tools. Application interfaces apply when you run the Bub application, write a plugin, or add a channel. The guides cover [Tools](/docs/sdk/tools/), [Tape and context](/docs/concepts/tape/), and [Events](/docs/concepts/events/).
 
-## Messages and turn results
+## Core
 
-Import message helpers from `bub.envelope`:
-
-```python
-from bub.envelope import Envelope, content_of, field_of, normalize_envelope, unpack_batch
-from bub.turn import TurnResult, TurnState
-```
-
-`Envelope` accepts mappings, dataclasses, Pydantic models, and objects with attributes. `field_of` and `content_of` read both mapping keys and object attributes. `normalize_envelope` produces a mutable dictionary; `unpack_batch` normalizes a hook's outbound batch.
-
-`TurnState` is `dict[str, Any]`. The framework creates a fresh dictionary for each inbound turn, then merges `load_state` results into it. Plugins choose which values to persist.
-
-`process_inbound` returns a `TurnResult` with these fields:
-
-| Field | Type | Contents |
-| --- | --- | --- |
-| `session_id` | `str` | Resolved session identity |
-| `prompt` | `list[UserContent]` | Normalized input sent to the model stage |
-| `model_output` | `str` | Collected text result |
-| `outbounds` | `list[Envelope]` | Rendered outbound messages |
-| `state` | `TurnState` | State used during this turn |
-
-`UserContent` comes from `bub.prompt`. The [prompt contract](/docs/reference/hooks/#prompt-content) explains its media types and conversion to legacy hook inputs.
-
-## Model choices
-
-```python
-from bub.model_selection import ModelChoice, ModelOptions
-```
-
-`ModelChoice` has a required `id` and optional `name`, `description`, and `meta`. `ModelOptions` contains `models: list[ModelChoice]` and an optional `current_model`.
-
-`BubFramework.get_model_options` combines `provide_model_options` results. A channel or host presents the choices and stores the selection.
+Interfaces for the core loop. They do not load application configuration.
 
 <a id="streaming"></a>
 
-## Streams
+### Streams
 
 ```python
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
@@ -67,7 +36,7 @@ When a plugin creates an `AsyncStreamEvents`, it supplies the iterator and may s
 
 Stream events are output for consumers. Agent events have a separate [delivery and control contract](/docs/concepts/events/).
 
-## Errors and interception payloads
+### Errors and interception payloads
 
 ```python
 from bub.errors import BubError, ErrorKind
@@ -81,9 +50,48 @@ from bub.hooks.interception import (
 )
 ```
 
-`BubError.kind` identifies the error category; `as_dict()` returns a payload suitable for transport. Interception payloads are shared with `bub.core.events`. Their use by plugins, including exception handling, is defined in [Application hooks](/docs/reference/hooks/#agent-loop-hooks-pluginagenthooks).
+`BubError.kind` identifies the error category; `as_dict()` returns a payload suitable for transport. Interception payloads are shared with `bub.core.events`. Their use by plugins, including exception handling, is defined in [Hooks](/docs/reference/hooks/#agent-loop-hooks-pluginagenthooks).
 
-## Channels and routing
+## Application
+
+Interfaces for the application, its plugins, and its channels.
+
+### Messages and turn results
+
+Import message helpers from `bub.envelope`:
+
+```python
+from bub.envelope import Envelope, content_of, field_of, normalize_envelope, unpack_batch
+from bub.turn import TurnResult, TurnState
+```
+
+`Envelope` accepts mappings, dataclasses, Pydantic models, and objects with attributes. `field_of` and `content_of` read both mapping keys and object attributes. `normalize_envelope` produces a mutable dictionary; `unpack_batch` normalizes a hook's outbound batch.
+
+`TurnState` is `dict[str, Any]`. The framework creates a fresh dictionary for each inbound turn, then merges `load_state` results into it. Plugins choose which values to persist.
+
+`process_inbound` returns a `TurnResult` with these fields:
+
+| Field | Type | Contents |
+| --- | --- | --- |
+| `session_id` | `str` | Resolved session identity |
+| `prompt` | `list[UserContent]` | Normalized input sent to the model stage |
+| `model_output` | `str` | Collected text result |
+| `outbounds` | `list[Envelope]` | Rendered outbound messages |
+| `state` | `TurnState` | State used during this turn |
+
+`UserContent` comes from `bub.prompt`. The [prompt contract](/docs/reference/hooks/#prompt-content) explains its media types and conversion to legacy hook inputs.
+
+### Model choices
+
+```python
+from bub.model_selection import ModelChoice, ModelOptions
+```
+
+`ModelChoice` has a required `id` and optional `name`, `description`, and `meta`. `ModelOptions` contains `models: list[ModelChoice]` and an optional `current_model`.
+
+`BubFramework.get_model_options` combines `provide_model_options` results. A channel or host presents the choices and stores the selection.
+
+### Channels and routing
 
 ```python
 from bub.channels import Channel, Interface, Lifecycle
@@ -104,7 +112,7 @@ from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 
 `ChannelManager` implements this interface and binds it with `BubFramework.bind_channel_router`.
 
-### Admission and steering
+#### Admission and steering
 
 `TurnSnapshot` exposes `session_id`, `is_running`, `running_count`, `pending_count`, and `steering_count`. An admission hook returns `AdmitDecision(action, reason=None)`:
 
@@ -117,7 +125,7 @@ from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 
 A `SteeringInbox` provides async `enqueue_message(message, state)` and `drain_messages(state)`, plus synchronous `message_count(state)`. The application obtains it through `provide_steering_inbox`.
 
-## Framework and agent entry points
+### Framework and agent entry points
 
 ```python
 from bub import BubFramework

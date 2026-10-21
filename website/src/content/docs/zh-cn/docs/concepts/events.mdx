@@ -132,6 +132,6 @@ async def mark_reviewed() -> None:
 
 这个适配器遵循插件 hook 的顺序。单个拦截 hook 抛异常时，它接住、记日志、跳过。要拒绝一次调用，就返回对应的 decision。其他应用 hooks 按各自的出错规则处理。
 
-插件示例见[Hooks](/zh-cn/docs/app/hooks/)。顺序和签名见[应用 Hooks](/zh-cn/docs/reference/hooks/)。EventBus 在基础 SDK 安装里就有。
+插件示例见[Hooks](/zh-cn/docs/app/hooks/)。顺序和签名见[Hooks 参考](/zh-cn/docs/reference/hooks/)。EventBus 在基础 SDK 安装里就有。
 
 `framework.events` 发布命令、渠道工作和用户输入，用的是 `bub.application` 里的 `CommandChanged`、`WorkChanged` 和 `PromptChanged`。订阅和取消订阅，还是 `on()` 和 `off()`。

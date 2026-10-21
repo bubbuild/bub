@@ -111,6 +111,12 @@ export default defineConfig({
     '/zh-cn/docs/tutorials/mcp': '/zh-cn/docs/integrations/mcp/',
     '/zh-cn/docs/tutorials/observability': '/zh-cn/docs/integrations/observability/',
     '/zh-cn/docs/tutorials/tapestore-sqlalchemy': '/zh-cn/docs/integrations/storage/',
+    '/docs/reference/types': '/docs/reference/python-api/',
+    '/docs/reference': '/docs/reference/cli/',
+    '/docs/reference/versions': '/docs/migration/0-6/',
+    '/zh-cn/docs/reference/types': '/zh-cn/docs/reference/python-api/',
+    '/zh-cn/docs/reference': '/zh-cn/docs/reference/cli/',
+    '/zh-cn/docs/reference/versions': '/zh-cn/docs/migration/0-6/',
   },
   env: {
     schema: {
@@ -283,13 +289,16 @@ export default defineConfig({
           label: 'Reference',
           translations: { 'zh-CN': '参考' },
           items: [
-            'docs/reference',
             'docs/reference/cli',
+            'docs/reference/python-api',
             'docs/reference/settings',
-            'docs/reference/types',
             'docs/reference/hooks',
-            'docs/reference/versions',
           ],
+        },
+        {
+          label: 'Migration',
+          translations: { 'zh-CN': '迁移' },
+          items: ['docs/migration/0-6'],
         },
       ],
     }),

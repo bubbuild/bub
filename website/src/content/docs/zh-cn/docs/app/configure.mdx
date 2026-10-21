@@ -1,6 +1,6 @@
 ---
 title: 配置
-description: 设置 Bub 应用的模型、提供商凭据和渠道。
+description: 配置 Bub 应用的模型、提供商凭据和渠道。
 sidebar:
   order: 1
 ---
@@ -51,7 +51,7 @@ telegram:
 
 ## 3. 用环境变量在运行时覆盖
 
-可以用环境变量覆盖应用设置。常用设置采用 `BUB_<UPPERCASE_KEY>` 形式：
+可以用环境变量覆盖应用配置。常用设置采用 `BUB_<UPPERCASE_KEY>` 形式：
 
 | 变量 | 用途 |
 |---|---|
@@ -72,7 +72,7 @@ Republic 从 `$CODEX_HOME/auth.json` 或 `~/.codex/auth.json` 读取并刷新 Co
 
 ## 4. 配置渠道凭据
 
-每个渠道有自己的设置前缀。内置 Telegram 渠道读取 `BUB_TELEGRAM_*`：
+每个渠道有自己的配置前缀。内置 Telegram 渠道读取 `BUB_TELEGRAM_*`：
 
 ```bash
 BUB_TELEGRAM_TOKEN=123456:abcdef...

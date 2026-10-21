@@ -92,7 +92,7 @@ def after_tool_call(call, result, state):
     print(f"tool={call.tool} duration_ms={result.duration_ms} error={result.error!r}")
 ```
 
-这些 hooks 观察已经完成的调用，包括普通异常导致的失败，但不报告取消。需要逐块处理输出时，在宿主程序或渠道中使用流接口，并遵守[关闭规则](/zh-cn/docs/reference/types/#streaming)。
+这些 hooks 观察已经完成的调用，包括普通异常导致的失败，但不报告取消。需要逐块处理输出时，在宿主程序或渠道中使用流接口，并遵守[关闭规则](/zh-cn/docs/reference/python-api/#streaming)。
 
 如果要替换整个模型阶段，实现 `run_model` 或 `run_model_stream` 中的一个。[第一个插件](/zh-cn/docs/app/plugins/)演示了文本替换。替换实现负责自己的执行和记录行为；只有使用内置 agent 时，才会运行它的拦截 hooks。
 

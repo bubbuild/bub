@@ -92,7 +92,7 @@ def after_tool_call(call, result, state):
     print(f"tool={call.tool} duration_ms={result.duration_ms} error={result.error!r}")
 ```
 
-These hooks observe completed calls, including ordinary failures. They do not report cancellation. For per-chunk output, use the stream interface in your host or channel and follow its [closing rules](/docs/reference/types/#streaming).
+These hooks observe completed calls, including ordinary failures. They do not report cancellation. For per-chunk output, use the stream interface in your host or channel and follow its [closing rules](/docs/reference/python-api/#streaming).
 
 To replace the entire model stage, implement either `run_model` or `run_model_stream`. [Your first plugin](/docs/app/plugins/) shows a text replacement. A replacement owns its execution and recording behavior; the builtin agent's interception hooks run only when that agent is used.
 
