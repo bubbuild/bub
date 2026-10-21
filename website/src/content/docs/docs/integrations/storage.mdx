@@ -1,9 +1,6 @@
 ---
-title: Store app history in SQLite
+title: Store conversation history in SQLite
 description: Replace the Bub application's file store with SQLite through a tape store plugin.
-sidebar:
-  badge: { text: 'Both', variant: 'success' }
-  order: 2
 ---
 
 Store the Bub application's conversation history in a local SQLite database with [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy). The plugin replaces the app's default file store; you can continue using `,tape.info` and `,tape.search` to inspect records.

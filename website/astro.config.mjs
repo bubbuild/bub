@@ -271,12 +271,12 @@ export default defineConfig({
           translations: { 'zh-CN': '集成' },
           items: [
             'docs/integrations',
-            'docs/integrations/local-models',
-            'docs/integrations/storage',
-            'docs/integrations/observability',
             'docs/integrations/mcp',
             'docs/integrations/agent-plugins',
             'docs/integrations/acp',
+            'docs/integrations/local-models',
+            'docs/integrations/storage',
+            'docs/integrations/observability',
           ],
         },
         {

@@ -1,9 +1,6 @@
 ---
-title: 把应用会话历史存入 SQLite
+title: 用 SQLite 存储会话历史
 description: 通过存储插件，把 Bub 应用的会话历史从文件改存到 SQLite。
-sidebar:
-  badge: { text: '通用', variant: 'success' }
-  order: 2
 ---
 
 通过 [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy)，把 Bub 应用的会话历史存入本地 SQLite 数据库。插件替换应用默认的文件存储，你仍可用 `,tape.info` 和 `,tape.search` 检查记录。
