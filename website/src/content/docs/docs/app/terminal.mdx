@@ -1,6 +1,8 @@
 ---
-title: Use the terminal
+title: Terminal
 description: Continue a conversation with bub chat or run one task from the shell with bub run.
+sidebar:
+  order: 2
 ---
 
 The Bub app has two terminal entry points: `bub chat` for a conversation and `bub run` for one message. [Configure a model](/docs/app/configure/) before calling it.
@@ -41,4 +43,4 @@ bub run ",fs.read path=README.md"
 
 You can enter these commands in an interactive conversation too. Ctrl-X toggles shell mode, which adds the command prefix to your input.
 
-The CLI owns the foreground terminal, so the gateway excludes it by default. See [Channels](/docs/app/gateway/) for gateway selection and batching, or the [CLI reference](/docs/reference/cli/) for every option.
+The CLI owns the foreground terminal, so the gateway excludes it by default. See [Channels](/docs/app/channels/) for gateway selection and batching, or the [CLI reference](/docs/reference/cli/) for every option.

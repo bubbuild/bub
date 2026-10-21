@@ -19,15 +19,15 @@ uv tool install --upgrade --force "bub[app]"
 uv pip install --upgrade "bub[app]"
 ```
 
-插件或发行版的 `pyproject.toml` 也应把普通 `bub` 依赖改为 `bub[app]>=0.6.0`。这个 extra 安装内置运行时、Framework、配置、插件 hooks、skills 和渠道所需的依赖。
+插件或发行版的 `pyproject.toml` 也应把普通 `bub` 依赖改为 `bub[app]>=0.6.0`。这个 extra 安装内置运行时、Framework、配置、插件 hooks、技能和渠道所需的依赖。
 
-运行 `bub --help`，再[完成一轮对话](/zh-cn/docs/app/first-session/)。检查插件是否加载时，使用 `bub hooks`。
+运行 `bub --help`，再在[终端](/zh-cn/docs/app/terminal/)里跑一轮对话。检查插件是否加载时，使用 `bub hooks`。
 
 ## 按代码用途选择接口
 
 | 代码用途 | 依赖与指南 |
 | --- | --- |
 | 直接向 `core.Agent` 传入模型和工具 | `bub`；[构建自己的 Agent](/zh-cn/docs/sdk/) |
-| 使用 `BubAgent`、Framework、应用 hooks 或渠道 | `bub[app]`；[定制 Bub 应用](/zh-cn/docs/app/) |
+| 使用 `BubAgent`、Framework、应用 hooks 或渠道 | `bub[app]`；[使用 Bub 应用](/zh-cn/docs/app/workspace/) |
 
-直接组合的 Agent 在 Python 中接收模型与组件。Bub 应用通过 `BubAgent` 和 Framework 提供配置、skills 与工具策略。[工具](/zh-cn/docs/sdk/tools/)和 [Agent 事件](/zh-cn/docs/concepts/events/)说明共同契约与默认行为的区别。
+直接组合的 Agent 在 Python 中接收模型与组件。Bub 应用通过 `BubAgent` 和 Framework 提供配置、技能与工具策略。[工具](/zh-cn/docs/sdk/tools/)和 [Agent 事件](/zh-cn/docs/concepts/events/)说明共同契约与默认行为的区别。

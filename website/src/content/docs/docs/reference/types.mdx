@@ -135,7 +135,7 @@ from bub.builtin.agent import BubAgent
 
 Application configuration is process-wide. Construct a `BubAgent` inside `framework.running()` when it should use the framework's active store. An explicitly supplied store takes precedence and remains the caller's lifecycle responsibility. Without either store, the agent uses memory.
 
-`run_stream` loads initial state when the caller omits `state` and uses caller-supplied state directly otherwise. The host owns save-state hooks, outbound handling, and concurrent turn scheduling. See [Embed the application](/docs/app/package/#programmatic-embedding) for complete usage.
+`run_stream` loads initial state when the caller omits `state` and uses caller-supplied state directly otherwise. The host owns save-state hooks, outbound handling, and concurrent turn scheduling. See [Embed the application](/docs/app/distribution/#programmatic-embedding) for complete usage.
 
 ## Imports
 

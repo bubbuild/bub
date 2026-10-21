@@ -1,0 +1,159 @@
+---
+title: Channels
+description: Choose the channels the gateway starts, tune batching and session ids, and configure the Telegram bot.
+sidebar:
+  order: 3
+---
+
+A channel is how messages enter and leave the Bub app. `cli` is the terminal, `telegram` is a bot on Telegram, and a plugin can add another messaging platform or a background runtime. The gateway starts the enabled channels, batches their messages, and keys their sessions. The application framework manages channels. A service that uses an Agent directly reads its own input and writes its own output.
+
+## Before you begin
+
+- You have run `bub onboard`, or you wrote `~/.bub/config.yml` yourself. See [Configuration](/docs/app/configure/).
+- You have a Telegram bot token from [@BotFather](https://t.me/BotFather), if you want to use Telegram.
+- For group chats, **Privacy Mode is off** in BotFather. With it on, the bot sees commands only, and the inbound filter cannot decide whether to answer.
+
+## Choose channels
+
+`bub gateway` listens on every enabled channel that has a working config. By default it enables `all`, which expands to every enabled channel that is not an `Interface`. That set includes listeners such as Telegram and `Lifecycle` runtimes such as `mcp.lifecycle`. The builtin `cli` interface is excluded, so a long-running gateway does not take the terminal of the operator.
+
+Enable one channel:
+
+```bash
+bub gateway --enable-channel telegram
+```
+
+Enable several:
+
+```bash
+bub gateway --enable-channel telegram --enable-channel wechat
+```
+
+Exclude a default lifecycle channel:
+
+```bash
+bub gateway --enable-channel all --enable-channel '!mcp.lifecycle'
+```
+
+To pin the default in the config, set `enabled_channels` (comma-separated, or `all`):
+
+```yaml
+enabled_channels: telegram
+```
+
+Or use the environment variable:
+
+```bash
+BUB_ENABLED_CHANNELS=telegram
+```
+
+A channel starts only if its `enabled` property returns `True`. The Telegram channel, for example, returns `False` when `BUB_TELEGRAM_TOKEN` is empty, so the gateway skips it without an error.
+
+## Debounce and batching
+
+A channel that is not the CLI can combine a burst of short messages into one turn. These variables control the debounce:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BUB_DEBOUNCE_SECONDS` | `1.0` | Quiet time after an active message before the batch is flushed. |
+| `BUB_MAX_WAIT_SECONDS` | `10.0` | Hard upper bound on how long a follow-up message can extend the wait. |
+| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | Window in which other messages still count as part of the active conversation. |
+
+Bub stores the pending messages of each session, and it merges them into one `ChannelMessage` when the timer fires.
+
+:::tip
+Comma commands (input that starts with `,`) bypass the debounce. They are dispatched the moment they arrive. This is useful for `,quit`, `,help`, or a tool name.
+:::
+
+## Session ids
+
+Bub keys conversation state by `session_id`. The default rule is `<channel>:<chat_id>`:
+
+- `bub run "..."` (no `--session-id`) gives `cli:local`.
+- A Telegram inbound message gives `telegram:<chat_id>`.
+- The `bub chat` REPL gives `cli_session`, a literal string that does not follow the pattern.
+
+Use `--session-id` on `bub run` or `bub chat` to share state across surfaces.
+
+## Builtin channels
+
+| Channel | On by default | Debounce |
+|---|---|---|
+| `cli` | only through `bub chat` | no |
+| `telegram` | yes, when `BUB_TELEGRAM_TOKEN` is set | yes |
+
+A plugin can register more channels through the `provide_channels` hook. See [Plugins](/docs/app/plugins/).
+
+## Telegram
+
+The Telegram channel is registered as `telegram`. It uses long polling through `python-telegram-bot`. It turns on at runtime when `BUB_TELEGRAM_TOKEN` is set.
+
+### Set the token
+
+```bash
+BUB_TELEGRAM_TOKEN=123456:abcdef...
+```
+
+This one variable is the switch. When it is empty, the channel reports `enabled=False`, and `bub gateway` skips it without an error.
+
+### Restrict who can use the bot
+
+The allowlists are comma-separated, and usernames are case-sensitive:
+
+```bash
+BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
+BUB_TELEGRAM_ALLOW_CHATS=-1001234567890,-1009876543210
+```
+
+The two lists behave in different ways:
+
+- With `BUB_TELEGRAM_ALLOW_CHATS` set, messages from any other chat are dropped silently.
+- With `BUB_TELEGRAM_ALLOW_USERS` set, other users receive `Access denied.`
+- A user matches when either the numeric id or the username is in the list.
+
+:::caution
+If both lists are empty, anyone who finds the bot can drive it. For a production deployment, set at least one.
+:::
+
+### Route through a proxy
+
+```bash
+BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
+# or socks5://user:pass@host:port
+```
+
+The same proxy serves the polling connection and the outbound API calls.
+
+### Start the gateway
+
+```bash
+bub gateway --enable-channel telegram
+```
+
+`--enable-channel telegram` pins the listener to one channel. Without it, `bub gateway` enables every non-`Interface` channel in the default set, which includes Telegram when its token is set, and it also starts the enabled `Lifecycle` runtimes. On startup you should see:
+
+```text
+telegram.start allow_users_count=2 allow_chats_count=1 proxy_enabled=False
+telegram.start polling
+```
+
+### Inbound messages
+
+The channel uses `telegram:<chat_id>` as the session id. A private chat and a group chat stay separate, even when the same user is in both.
+
+- `/start` is handled internally. The bot replies with a fixed greeting, or with the "not allowed" message in a chat that is not in the allowlist.
+- `/bub <text>` is normalized. The `/bub ` prefix is removed, and the rest becomes the prompt.
+- In a private chat, every message that is not a command is ingested.
+- In a group chat, every message that is not a command reaches the channel. A message is active when it mentions `@<bot_username>`, contains the keyword `bub`, or replies to a message from the bot. Other group messages are ignored, unless a conversation for that session is open within `BUB_ACTIVE_TIME_WINDOW`. In that case they join the batch.
+
+### Outbound messages
+
+A normal inbound message sets `output_channel="null"` before it enters the turn pipeline. A plain model answer is therefore not sent back blindly. The bundled `telegram` skill is the normal path for replies, progress updates, and edits.
+
+Comma commands are different. They keep `output_channel="telegram"`, so their tool output goes back to the originating `chat_id`. When the content is JSON with a `message` field, only that field is sent. Otherwise the raw content is sent. An empty payload is dropped.
+
+## Next steps
+
+- [Terminal](/docs/app/terminal/): the REPL and one-shot turns.
+- [Deployment](/docs/app/deploy/): run the bot in a container with persistent state.
+- [Settings reference](/docs/reference/settings/): every channel variable.

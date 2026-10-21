@@ -1,0 +1,159 @@
+---
+title: 渠道
+description: 选择网关启动哪些渠道，设置消息合并与会话 ID，并配置 Telegram 机器人。
+sidebar:
+  order: 3
+---
+
+渠道是消息进出 Bub 应用的方式。`cli` 是终端，`telegram` 是 Telegram 上的机器人，插件还能再加一个聊天平台或后台运行时。网关负责启动已启用的渠道、合并它们的消息、给它们的会话命名。渠道由应用框架管理。直接用 Agent 的服务，自己读输入，自己写输出。
+
+## 开始之前
+
+- 你已运行 `bub onboard`，或者自己写了 `~/.bub/config.yml`。见[配置](/zh-cn/docs/app/configure/)。
+- 要用 Telegram 的话，已从 [@BotFather](https://t.me/BotFather) 拿到机器人 token。
+- 群聊使用时，BotFather 里的 **Privacy Mode 是关闭的**。开着的话机器人只看得到命令，入站过滤器没法判断要不要回复。
+
+## 选择渠道
+
+`bub gateway` 监听所有已启用、配置又齐全的渠道。默认启用 `all`，会展开成所有已启用、且不是 `Interface` 的渠道。这个集合里既有 Telegram 这类监听渠道，也有 `mcp.lifecycle` 这类 `Lifecycle` 后台服务。内置的 `cli` 接口被排除在外，所以长期运行的网关不会占着运维者的终端。
+
+启用一个渠道：
+
+```bash
+bub gateway --enable-channel telegram
+```
+
+启用多个：
+
+```bash
+bub gateway --enable-channel telegram --enable-channel wechat
+```
+
+排除默认的后台渠道：
+
+```bash
+bub gateway --enable-channel all --enable-channel '!mcp.lifecycle'
+```
+
+要在配置里固定默认值，设 `enabled_channels`（逗号分隔，或 `all`）：
+
+```yaml
+enabled_channels: telegram
+```
+
+或者用环境变量：
+
+```bash
+BUB_ENABLED_CHANNELS=telegram
+```
+
+只有渠道的 `enabled` 属性返回 `True` 时它才会启动。比如 `BUB_TELEGRAM_TOKEN` 为空时，Telegram 渠道返回 `False`，网关直接跳过，不报错。
+
+## 防抖与批处理
+
+非 CLI 的渠道可以把一串短消息合成一轮。这三个变量控制防抖：
+
+| 变量 | 默认值 | 含义 |
+|---|---|---|
+| `BUB_DEBOUNCE_SECONDS` | `1.0` | 一条活跃消息之后要保持安静多久，才把这一批发出去。 |
+| `BUB_MAX_WAIT_SECONDS` | `10.0` | 后续消息能延长等待的硬上限。 |
+| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | 在这段时间内，其他消息仍算作当前对话的一部分。 |
+
+Bub 按会话暂存待发的消息，计时到了就合成一条 `ChannelMessage`。
+
+:::tip
+逗号命令（以 `,` 开头的输入）不走防抖。它们一到就分发。`,quit`、`,help`、工具名都属于这类。
+:::
+
+## 会话 ID
+
+Bub 用 `session_id` 索引会话状态。默认规则是 `<channel>:<chat_id>`：
+
+- `bub run "..."`（不带 `--session-id`）→ `cli:local`
+- Telegram 收到的消息 → `telegram:<chat_id>`
+- `bub chat` 的 REPL → `cli_session`，一个固定的字符串，不遵循上面的格式
+
+要在多个接入面之间共享状态，给 `bub run` 或 `bub chat` 加 `--session-id`。
+
+## 内置渠道
+
+| 渠道 | 默认启用 | 防抖 |
+|---|---|---|
+| `cli` | 只在 `bub chat` 里 | 否 |
+| `telegram` | 是，前提是设了 `BUB_TELEGRAM_TOKEN` | 是 |
+
+插件可以通过 `provide_channels` hook 注册更多渠道。见[插件](/zh-cn/docs/app/plugins/)。
+
+## Telegram
+
+Telegram 渠道的注册名是 `telegram`。它用 `python-telegram-bot` 做长轮询。设了 `BUB_TELEGRAM_TOKEN`，它就在运行时打开。
+
+### 设置 token
+
+```bash
+BUB_TELEGRAM_TOKEN=123456:abcdef...
+```
+
+这一个变量就是开关。留空时，渠道报告 `enabled=False`，`bub gateway` 跳过它，不报错。
+
+### 限制谁能用
+
+白名单用逗号分隔，用户名区分大小写：
+
+```bash
+BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
+BUB_TELEGRAM_ALLOW_CHATS=-1001234567890,-1009876543210
+```
+
+两个名单的行为不一样：
+
+- 设了 `BUB_TELEGRAM_ALLOW_CHATS`，其他聊天的消息静默丢弃。
+- 设了 `BUB_TELEGRAM_ALLOW_USERS`，其他用户会收到 `Access denied.`。
+- 数字 id 或用户名命中任意一个，就算通过。
+
+:::caution
+两个名单都空着，等于谁找到机器人都能驱动它。生产环境至少要设一个。
+:::
+
+### 走代理
+
+```bash
+BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
+# 或 socks5://user:pass@host:port
+```
+
+轮询连接和出站 API 调用用的是同一个代理。
+
+### 启动网关
+
+```bash
+bub gateway --enable-channel telegram
+```
+
+`--enable-channel telegram` 把监听器固定在一个渠道上。不带它时，`bub gateway` 会启用默认集合里所有非 `Interface` 的渠道，token 已设时包含 Telegram，同时也会启动已启用的 `Lifecycle` 服务。启动时应该看到：
+
+```text
+telegram.start allow_users_count=2 allow_chats_count=1 proxy_enabled=False
+telegram.start polling
+```
+
+### 入站消息
+
+这个渠道用 `telegram:<chat_id>` 作为会话 ID。同一个用户既在私聊又在群里，两边的会话也是分开的。
+
+- `/start` 由内部处理。机器人回一句固定欢迎语；不在白名单的聊天里，回的是"不允许"。
+- `/bub <text>` 会被规范化。去掉 `/bub ` 前缀，剩下的当作 prompt。
+- 私聊里，所有非命令消息都会被收下。
+- 群聊里，所有非命令消息都会到渠道。提到 `@<bot_username>`、带关键字 `bub`、或者回复机器人的消息，算作活跃。其他群消息被忽略，除非这个会话在 `BUB_ACTIVE_TIME_WINDOW` 内还有对话开着，那它们就并进这一批。
+
+### 出站消息
+
+普通消息进轮次流水线之前会被设成 `output_channel="null"`。所以模型随口一句的回答不会被直接发回 Telegram。回复、进度更新、改消息，走的是内置的 `telegram` 技能。
+
+逗号命令不一样。它们保留 `output_channel="telegram"`，工具输出会发回原来的 `chat_id`。内容是带 `message` 字段的 JSON 时，只发这个字段；否则发原始内容。空载荷直接丢掉。
+
+## 下一步
+
+- [终端](/zh-cn/docs/app/terminal/)：REPL 和单次轮次。
+- [部署](/zh-cn/docs/app/deploy/)：把机器人放进容器，状态持久化。
+- [设置参考](/zh-cn/docs/reference/settings/)：全部渠道变量。

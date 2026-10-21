@@ -3,7 +3,7 @@ title: Application hooks
 description: Hook signatures, dispatch rules, and resource lifecycles for Bub plugins.
 ---
 
-Hooks connect plugins to the Bub application. This reference lists the 26 hooks declared by `BubHookSpecs`. For examples, see [Change application behavior](/docs/app/hooks/); for the order of application stages, see [Turn](/docs/concepts/turn/).
+Hooks connect plugins to the Bub application. This reference lists the 26 hooks declared by `BubHookSpecs`. For examples, see [Hooks](/docs/app/hooks/); for the order of application stages, see [Turn](/docs/concepts/turn/).
 
 `first` below means the first non-`None` result in hook priority order. `all` means every implementation is called. An ordinary hook exception stops that dispatch and propagates; the [agent interception hooks](#agent-loop-hooks-pluginagenthooks) and `on_error` have separate exception handling.
 

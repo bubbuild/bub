@@ -1,11 +1,11 @@
 ---
-title: Add application tools
+title: Tools
 description: Register tools for BubAgent and choose how the app makes them available.
 sidebar:
-  order: 3
+  order: 5
 ---
 
-Give the Bub app an action it can perform for your work. The [shared tools guide](/docs/sdk/tools/) explains function schemas, results, and tool context. This page covers application registration and the policies applied by `BubAgent`.
+Give the Bub app an action it can perform for your work. The [Tools and CodeMode](/docs/sdk/tools/) page explains function schemas, results, and tool context. This page covers application registration and the policies applied by `BubAgent`.
 
 ## Register a tool
 
@@ -99,7 +99,7 @@ The app connects CodeMode to the session's environment and model settings. Code 
 
 Builtin `bash`, `bash.output`, `bash.kill`, `fs.*`, and `run_code` use the session's `Environment`. The default is `LocalEnvironment`, which runs on the host.
 
-Provide another environment through a plugin's `provide_environment(session_id, workspace)` hook. The framework caches one environment per session and closes it when `framework.running()` exits. The [shared tools guide](/docs/sdk/tools/#run-tools-in-an-environment) describes the environment interface.
+Provide another environment through a plugin's `provide_environment(session_id, workspace)` hook. The framework caches one environment per session and closes it when `framework.running()` exits. [Tools and CodeMode](/docs/sdk/tools/#run-tools-in-an-environment) describes the environment interface.
 
 A custom application tool can access that environment with `environment_from_state(context.state)` from `bub.builtin.environment`. The Python tool runs on the host and explicitly delegates operations to the environment when needed.
 

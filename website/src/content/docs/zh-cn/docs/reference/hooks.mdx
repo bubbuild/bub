@@ -3,7 +3,7 @@ title: 应用 Hooks
 description: Bub 插件的 hook 签名、调用规则和资源生命周期。
 ---
 
-Hooks 把插件接到 Bub 应用上。本页列出 `BubHookSpecs` 声明的 26 个 hooks。用法示例见[改变应用行为](/zh-cn/docs/app/hooks/)，应用阶段顺序见[轮次](/zh-cn/docs/concepts/turn/)。
+Hooks 把插件接到 Bub 应用上。本页列出 `BubHookSpecs` 声明的 26 个 hooks。用法示例见[Hooks](/zh-cn/docs/app/hooks/)，应用阶段顺序见[轮次](/zh-cn/docs/concepts/turn/)。
 
 下文的“首个”指按 hook 优先级取得第一个非 `None` 的结果，“全部”指调用每个实现。普通 hook 抛出异常时，本次分发停止，异常向上传播；[agent 拦截 hooks](#agent-loop-hooks-pluginagenthooks) 和 `on_error` 有各自的异常处理规则。
 

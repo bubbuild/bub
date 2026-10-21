@@ -132,6 +132,6 @@ async def mark_reviewed() -> None:
 
 This adapter follows the plugin hook order. It catches exceptions from individual interception hooks, logs them, and skips them. To deny a call, return the correct decision. The other app hooks follow their own error contracts.
 
-See [Change application behavior](/docs/app/hooks/) for plugin examples. For order and signatures, see [Application hooks](/docs/reference/hooks/). EventBus is part of the base SDK installation.
+See [Hooks](/docs/app/hooks/) for plugin examples. For order and signatures, see [Application hooks](/docs/reference/hooks/). EventBus is part of the base SDK installation.
 
 `framework.events` publishes commands, channel work, and user prompts. It uses `CommandChanged`, `WorkChanged`, and `PromptChanged` from `bub.application`. You subscribe and unsubscribe with the same `on()` and `off()` API.

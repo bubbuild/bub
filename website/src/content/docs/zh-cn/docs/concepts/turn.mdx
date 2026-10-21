@@ -27,7 +27,7 @@ sidebar:
 
 ## Agent 调用
 
-内置的 `run_model_stream` hook 调用 `BubAgent.run_stream()`。`BubAgent` 用的是内核的模型与工具循环，再加上配置、skills、命令、steering 和应用的工具策略。
+内置的 `run_model_stream` hook 调用 `BubAgent.run_stream()`。`BubAgent` 用的是内核的模型与工具循环，再加上配置、技能、命令、steering 和应用的工具策略。
 
 框架在流式与非流式 hook 结果之间做转换。`process_inbound(..., stream_output=True)` 让渠道路由器边收边处理，流结束时返回一个完整的 `TurnResult`。
 
@@ -45,4 +45,4 @@ sidebar:
 
 ## 下一步
 
-用[插件设置](/zh-cn/docs/app/plugins/)注册你的实现。常见改法见[改变应用行为](/zh-cn/docs/app/hooks/)。精确的签名和顺序见[应用 Hooks](/zh-cn/docs/reference/hooks/)。
+用[插件设置](/zh-cn/docs/app/plugins/)注册你的实现。常见改法见[Hooks](/zh-cn/docs/app/hooks/)。精确的签名和顺序见[应用 Hooks](/zh-cn/docs/reference/hooks/)。

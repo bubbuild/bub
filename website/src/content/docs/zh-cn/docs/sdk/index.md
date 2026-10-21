@@ -7,7 +7,7 @@ sidebar:
 
 选择模型，加入工具，把 Agent 接到你的程序里。`bub.core.Agent` 负责模型与工具之间的循环；你决定如何保存会话，以及它怎样与你的系统协作。
 
-Agent 的组件由你直接提供。[Bub 应用](/zh-cn/docs/app/)建立在同一个内核上，提供配置和插件发现能力。你也可以在自有服务中[复用应用插件](/zh-cn/docs/sdk/app-plugins/)，保留现有入口和调用代码。
+Agent 的组件由你直接提供。[Bub 应用](/zh-cn/docs/app/workspace/)建立在同一个内核上，提供配置和插件发现能力。你也可以在自有服务中[复用应用插件](/zh-cn/docs/sdk/app-plugins/)，保留现有入口和调用代码。
 
 ## 安装
 
@@ -202,6 +202,6 @@ def check_results(event: StepFinished) -> None:
 
 ## 继续构建
 
-- [添加工具与 CodeMode](/zh-cn/docs/sdk/tools/)，让 Agent 执行动作。
+- [工具与 CodeMode](/zh-cn/docs/sdk/tools/)，让 Agent 执行动作。
 - [保存会话历史](/zh-cn/docs/concepts/tape/)，在多轮运行之间继续工作。
 - [通过 FastAPI 提供服务](/zh-cn/docs/sdk/web-service/)，让其他程序通过 HTTP 调用 Agent。

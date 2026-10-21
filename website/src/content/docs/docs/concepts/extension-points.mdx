@@ -14,13 +14,13 @@ Start with the behavior that you want to add. A new action needs a tool. A new p
 | Change which history becomes model messages | A [TapeContext](/docs/concepts/tape/#context). | Pass it to Agent, or provide it through an app hook. |
 | Teach a procedure that the agent can reuse | A [skill](/docs/app/skills/). | The Bub app discovers it and loads it. |
 | Change the app setup or the message processing | A [plugin](/docs/app/plugins/). | `BubFramework` and its hooks. |
-| Connect a messaging service | A [channel](/docs/app/gateway/). | The inbound and outbound routing of the app. |
+| Connect a messaging service | A [channel](/docs/app/channels/). | The inbound and outbound routing of the app. |
 
 ## Tools and skills
 
 A tool runs Python and returns a result. A skill is a directory with a `SKILL.md` file and, optionally, more files. Its instructions can tell the agent how to use tools. You write the Python functions that the instructions refer to, and you add them separately.
 
-A plain Agent uses the tools and prompt sections that you give it. The Bub app discovers skills and reads `AGENTS.md`. See [Skills](/docs/app/skills/) and [Application tools](/docs/app/tools/).
+A plain Agent uses the tools and prompt sections that you give it. The Bub app discovers skills and reads `AGENTS.md`. See [Skills](/docs/app/skills/) and [Tools](/docs/app/tools/).
 
 The agent can also reach a tool through a [text command](/docs/sdk/tools/#commands), or through Python that the model writes with CodeMode. All these paths use the same tool implementation.
 

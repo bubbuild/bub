@@ -1,0 +1,48 @@
+---
+title: 工作区
+description: 建一个工作区，放进去你的指令，再确认命令能用。
+sidebar:
+  order: 0
+---
+
+Bub 在一个目录里工作，这个目录就是工作区。它在这里读写文件，也从这里取项目的指令。
+
+这一页建一个工作区，放进去你的指令，再确认应用的命令能跑。检查命令不需要模型凭据。
+
+## 准备工作区
+
+给项目建一个目录，后面的命令都在里面跑：
+
+```bash
+mkdir hello-bub
+cd hello-bub
+```
+
+把工作指令写进 `AGENTS.md`：
+
+```bash
+cat > AGENTS.md <<'EOF'
+你是这个工作区的 Bub agent。
+编辑文件前先阅读相关内容。
+回复保持简短、具体。
+EOF
+```
+
+应用构建系统提示词时会读这个文件。用一段时间后，你自然会知道哪些指令有用，再改它。
+
+## 检查命令
+
+```bash
+bub run ",help"
+```
+
+输出会列出 `,skill`、`,tape.info` 这类命令。这一步只检查应用的命令路径，不调用模型。
+
+命令以行首的逗号开头。未知命令会当成 shell 命令执行，所以检查时用上面这种已知命令。
+
+## 下一步
+
+- 增加[项目技能](/zh-cn/docs/app/skills/)，让 Bub 按你的流程走。
+- 增加[工具](/zh-cn/docs/app/tools/)，让 Bub 调你的代码。
+- 写[插件](/zh-cn/docs/app/plugins/)，改应用的行为。
+- 在[终端](/zh-cn/docs/app/terminal/)里聊一次，或者[接一个渠道](/zh-cn/docs/app/channels/)。

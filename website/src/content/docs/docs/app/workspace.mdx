@@ -1,0 +1,48 @@
+---
+title: Workspace
+description: Create a workspace, add your instructions, and check that commands work.
+sidebar:
+  order: 0
+---
+
+Bub works in a directory: the workspace. It reads and writes files there, and it takes the project instructions from there.
+
+This page creates a workspace, adds your instructions, and checks that the app's commands run. The check does not need model credentials.
+
+## Create a workspace
+
+Make a directory for your project, and run the remaining commands in it:
+
+```bash
+mkdir hello-bub
+cd hello-bub
+```
+
+Put your working instructions in `AGENTS.md`:
+
+```bash
+cat > AGENTS.md <<'EOF'
+You are the Bub agent for this workspace.
+Read files before editing them.
+Keep replies short and specific.
+EOF
+```
+
+The application reads this file when it builds the system prompt. Change it as you learn which instructions help with your work.
+
+## Check a command
+
+```bash
+bub run ",help"
+```
+
+The output lists commands such as `,skill` and `,tape.info`. This checks the command path of the app without a model call.
+
+Commands begin with a comma at the start of a line. An unknown command falls back to a shell command, so use a known command for this check.
+
+## Next steps
+
+- Add a [project skill](/docs/app/skills/) for a procedure that you want Bub to follow.
+- Add a [tool](/docs/app/tools/) when Bub must call your code.
+- Write a [plugin](/docs/app/plugins/) to change application behavior.
+- Run a conversation in the [terminal](/docs/app/terminal/), or [connect a channel](/docs/app/channels/).

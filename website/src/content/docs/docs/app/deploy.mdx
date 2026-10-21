@@ -1,8 +1,8 @@
 ---
-title: Deploy the app
+title: Deployment
 description: Run the Bub application with Docker Compose and keep its data across restarts.
 sidebar:
-  order: 3
+  order: 10
 ---
 
 Run the Bub application in a container, mount its data on the host, and choose the gateway channels it starts. Download and unpack the source archive for Bub 0.6.0 from [GitHub Releases](https://github.com/bubbuild/bub/releases), then run the commands below from that directory.
@@ -13,7 +13,7 @@ The repository ships three files that drive the canonical deployment: [`Dockerfi
 
 - Docker (or compatible runtime) and `docker compose` are installed.
 - You have a `.env` with at minimum `BUB_MODEL` and either `BUB_API_KEY` or a provider-specific key: see [Configure](/docs/app/configure/).
-- For a Telegram deployment, `BUB_TELEGRAM_TOKEN` and an allowlist are in `.env`: see [Telegram](/docs/app/telegram/).
+- For a Telegram deployment, `BUB_TELEGRAM_TOKEN` and an allowlist are in `.env`: see [Channels](/docs/app/channels/#telegram).
 
 ## 1. Prepare the env file
 
@@ -140,5 +140,5 @@ Both commands operate on the managed project at `BUB_PROJECT` (default `bub.home
 ## Next steps
 
 - [Configure](/docs/app/configure/): env-var precedence and provider settings.
-- [Telegram](/docs/app/telegram/): bot token and allowlist behavior.
+- [Channels](/docs/app/channels/#telegram): bot token and allowlist behavior.
 - [CLI reference](/docs/reference/cli/): flags for `bub gateway`, `bub install`, `bub update`.

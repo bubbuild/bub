@@ -98,7 +98,7 @@ exec bub acp
 }
 ```
 
-保持编辑器配置和 Bub 配置分离。Zed 负责启动 ACP 进程，并传入 `agent_servers.Bub.env` 里的环境变量；模型设置、tools、skills、Tape 和插件配置仍然由 Bub 自己读取和管理。
+保持编辑器配置和 Bub 配置分离。Zed 负责启动 ACP 进程，并传入 `agent_servers.Bub.env` 里的环境变量；模型设置、工具、技能、Tape 和插件配置仍然由 Bub 自己读取和管理。
 
 ## 4. 启动 Bub 会话
 
@@ -131,4 +131,4 @@ HELLO
 
 - [配置](/zh-cn/docs/app/configure/)：Bub 的模型和运行时设置。
 - [轮次](/zh-cn/docs/concepts/turn/)：Bub 如何把入站消息转成模型调用和出站消息。
-- [构建插件](/zh-cn/docs/app/plugins/)：用 hooks、tools 和渠道扩展 Bub。
+- [构建插件](/zh-cn/docs/app/plugins/)：用 hooks、工具和渠道扩展 Bub。

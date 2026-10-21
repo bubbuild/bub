@@ -50,7 +50,7 @@ uv tool update-shell
 bub --help
 ```
 
-接着阅读[首次运行 Bub](/zh-cn/docs/app/first-session/)，在自己的工作区开始对话。
+接着看[工作区](/zh-cn/docs/app/workspace/)，建一个工作区，写下项目指令。
 
 基础安装与 `bub[app]` 包含相同的包文件；extra 改变的是安装的依赖。缺少应用依赖时，`bub` 命令会退出，并提示安装 `bub[app]`。
 
@@ -95,7 +95,7 @@ requires-python = ">=3.12"
 dependencies = ["bub>=0.6.0"]
 ```
 
-如果包会导入内置 Agent、Framework、插件、skills 或渠道，则声明：
+如果包会导入内置 Agent、Framework、插件、技能或渠道，则声明：
 
 ```toml
 dependencies = ["bub[app]>=0.6.0"]

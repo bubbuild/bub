@@ -1,11 +1,11 @@
 ---
-title: 添加应用工具
+title: 工具
 description: 为 BubAgent 注册工具，并选择应用如何向模型提供它们。
 sidebar:
-  order: 3
+  order: 5
 ---
 
-给 Bub 应用添加工作中需要执行的动作。[公共工具指南](/zh-cn/docs/sdk/tools/)说明函数参数、结果和工具上下文。本页介绍应用注册，以及 `BubAgent` 执行的工具策略。
+给 Bub 应用添加工作中需要执行的动作。[工具与 CodeMode](/zh-cn/docs/sdk/tools/)说明函数参数、结果和工具上下文。本页介绍应用注册，以及 `BubAgent` 执行的工具策略。
 
 ## 注册工具
 
@@ -99,12 +99,12 @@ def get_order(order_id: str) -> dict[str, str]:
 
 内置 `bash`、`bash.output`、`bash.kill`、`fs.*` 和 `run_code` 使用会话的 `Environment`。默认是运行在宿主上的 `LocalEnvironment`。
 
-插件通过 `provide_environment(session_id, workspace)` hook 提供其他环境。Framework 为每个会话缓存一个环境，并在退出 `framework.running()` 时关闭。[公共工具指南](/zh-cn/docs/sdk/tools/#run-tools-in-an-environment)说明环境接口。
+插件通过 `provide_environment(session_id, workspace)` hook 提供其他环境。Framework 为每个会话缓存一个环境，并在退出 `framework.running()` 时关闭。[工具与 CodeMode](/zh-cn/docs/sdk/tools/#run-tools-in-an-environment)说明环境接口。
 
 自定义应用工具可以用 `bub.builtin.environment` 中的 `environment_from_state(context.state)` 取得环境。Python 工具本身在宿主侧运行，需要时再显式调用环境来完成相应操作。
 
 ## 配合工具添加指令
 
-把工作区通用指令写入 `AGENTS.md`，用 [skills](/zh-cn/docs/app/skills/)提供按任务加载的流程。Skill 可以告诉模型何时调用工具，Python 函数则定义工具执行的动作。
+把工作区通用指令写入 `AGENTS.md`，用 [技能](/zh-cn/docs/app/skills/)提供按任务加载的流程。技能可以告诉模型何时调用工具，Python 函数则定义工具执行的动作。
 
 逗号命令让使用者无需请求模型，就能调用已注册的工具。语法见[文本命令](/zh-cn/docs/sdk/tools/#commands)。

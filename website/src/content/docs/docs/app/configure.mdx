@@ -1,5 +1,5 @@
 ---
-title: Configure the app
+title: Configuration
 description: Set the Bub application's model, provider credentials, and channels.
 sidebar:
   order: 1
@@ -79,7 +79,7 @@ BUB_TELEGRAM_ALLOW_CHATS=-1001234567890
 BUB_TELEGRAM_PROXY=http://127.0.0.1:7890   # optional
 ```
 
-For the message-handling and access-control behavior these variables drive, see [Telegram](/docs/app/telegram/).
+For the message-handling and access-control behavior these variables drive, see [Channels](/docs/app/channels/#telegram).
 
 ## 5. Verify
 
@@ -93,6 +93,6 @@ The command prints a routing label (`[<channel>:<chat_id>]`) followed by the res
 
 ## Next steps
 
-- [Channels](/docs/app/gateway/): choose which surfaces Bub listens on.
+- [Channels](/docs/app/channels/): choose which surfaces Bub listens on.
 - [Settings reference](/docs/reference/settings/): full env-var table.
 - [Deploy](/docs/app/deploy/): package this config into a container.

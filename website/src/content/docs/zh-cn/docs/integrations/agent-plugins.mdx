@@ -1,13 +1,13 @@
 ---
 title: 加载 Agent Plugins
-description: 加载包含 skill 和 MCP 服务器的可移植 Agent Plugin，与现有 Bub 扩展一起使用。
+description: 加载包含技能和 MCP 服务器的可移植 Agent Plugin，与现有 Bub 扩展一起使用。
 sidebar:
   badge: { text: '应用', variant: 'note' }
   order: 4
 ---
 
 `bub-agent-plugins` 支持 Agent Plugins 1.0.0 格式的插件包：一个包含 `plugin.json` 清单，以及可选
-`skills/` 和 `mcp.json` 组件的目录。本教程将从同一个可移植插件包加载一个摘要 skill 和一个时间 MCP
+`skills/` 和 `mcp.json` 组件的目录。本教程将从同一个可移植插件包加载一个摘要技能和一个时间 MCP
 服务器，并在 Bub 中验证两者。
 
 接入插件位于
@@ -31,7 +31,7 @@ bub install bub-mcp@main bub-agent-plugins@main
 bub hooks
 ```
 
-请显式安装 `bub-mcp>=0.2.0` 和 `bub-agent-plugins`，仅启用 skills 时也需要同时安装。
+请显式安装 `bub-mcp>=0.2.0` 和 `bub-agent-plugins`，仅启用技能时也需要同时安装。
 
 在 hook 报告的 `load_state` 和 `provide_channels` 行中查找 `agent-plugins`。
 这表示 Python 接入插件已加载；接下来验证一个可移植插件包。
@@ -75,10 +75,10 @@ Read the supplied notes. List the decisions made, then the remaining actions and
 If an owner is missing, say that it is unassigned.
 ```
 
-skill 的 `name` 必须与所在目录名一致。插件内的 skills 复用 Bub 现有的解析器和发现规则；
-工作区与用户目录中的同名 skills 仍然优先。
+技能的 `name` 必须与所在目录名一致。插件内的技能复用 Bub 现有的解析器和发现规则；
+工作区与用户目录中的同名技能仍然优先。
 
-## 3. 验证 skill
+## 3. 验证技能
 
 在工作区中，通过 Bub 执行以下 comma 命令：
 
@@ -88,7 +88,7 @@ bub --workspace . run ',skill name=plugin-summary'
 ```
 
 第一条命令应列出 `plugin-summary`，第二条应打印它的位置和刚保存的指令。
-加载 skills 不需要后台渠道，因此可以使用 `bub run`。
+加载技能不需要后台渠道，因此可以使用 `bub run`。
 
 ## 4. 添加并调用 MCP 服务器
 
@@ -175,7 +175,7 @@ agent-plugins:
 若多个插件包的清单名称相同，采用第一个有效插件包。
 
 设置 `auto_discover: false` 后只使用显式路径。`skills_enabled` 和 `mcp_enabled` 分别控制两种可移植组件。
-普通 Bub skills 和 home MCP 服务器各自使用自己的配置。
+普通 Bub 技能和 home MCP 服务器各自使用自己的配置。
 
 环境变量以 `BUB_AGENT_PLUGINS_` 为前缀，列表值使用 JSON。例如：
 
@@ -199,12 +199,12 @@ stdio 服务器会收到绝对路径形式的 `PLUGIN_ROOT` 和 `PLUGIN_DATA` �
 | --- | --- |
 | `bub hooks` 中没有 `agent-plugins` | 确认两个接入插件都安装在 Bub 的活动环境中。缺少 `bub-mcp` 或版本过旧时，加载错误会指出原因。 |
 | 插件包被拒绝 | 检查 `plugin.json`，包括必填的 `$schema` 和 `name`，并查看 `bub-agent-plugins:` 启动日志。其他插件包仍可加载。 |
-| skill 未出现 | 检查 frontmatter 中的名称是否与目录一致，以及 `skills_enabled` 是否开启。工作区或用户目录中的同名 skill 可能优先。 |
+| 技能未出现 | 检查 frontmatter 中的名称是否与目录一致，以及 `skills_enabled` 是否开启。工作区或用户目录中的同名技能可能优先。 |
 | MCP 工具未出现 | 检查插件包的 `mcp.json`、`mcp_enabled`、已启用的渠道和连接日志。等待 bootstrap 完成后再调用工具。 |
-| skills 可用但 MCP 不可用 | MCP 校验和连接失败不会影响 skills。无效服务器条目会被跳过，同文件中的其他有效服务器仍可加载。 |
+| 技能可用但 MCP 不可用 | MCP 校验和连接失败不会影响技能。无效服务器条目会被跳过，同文件中的其他有效服务器仍可加载。 |
 
 ## 下一步
 
 - [连接 MCP 服务器](/zh-cn/docs/integrations/mcp/)：管理 Bub 数据目录配置中的服务器。
-- [构建 skills](/zh-cn/docs/app/skills/)：编写并验证 Bub skills。
+- [构建技能](/zh-cn/docs/app/skills/)：编写并验证 Bub 技能。
 - [构建插件](/zh-cn/docs/app/plugins/)：使用 Python 包扩展 Bub hooks。

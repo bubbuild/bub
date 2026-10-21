@@ -2,10 +2,10 @@
 title: Plugins
 description: Write a plugin, choose its entry point, and install it into the app.
 sidebar:
-  order: 0
+  order: 7
 ---
 
-A plugin changes how the Bub app handles a task. This page builds a small echo plugin so you can check discovery and turn processing without model credentials, then covers the entry-point choices, tool registration, and sharing.
+A plugin changes how the Bub app handles a task. This page builds a small echo plugin so you can check discovery and turn processing without model credentials, then covers the entry-point choices, tool registration, sharing, and the WebAssembly route for other languages.
 
 A Python package declares an entry point in the `bub` group; Bub imports that target and registers its hook implementations. You can also reuse an existing plugin in your own service while keeping your host's entry point; see [Borrow the app runtime](/docs/sdk/app-plugins/).
 
@@ -143,7 +143,7 @@ class MyPlugin:
         return f"Describe the workspace at {self.framework.workspace}."
 ```
 
-These examples replace the prompt. Choose the hook for your actual task from [Change application behavior](/docs/app/hooks/).
+These examples replace the prompt. Choose the hook for your actual task from [Hooks](/docs/app/hooks/).
 
 ## Register tools during import
 
@@ -153,10 +153,46 @@ If the package defines `@tool` functions, import their module from the entry-poi
 from . import tools  # noqa: F401
 ```
 
-The application takes a snapshot of registered tools when it creates a `BubAgent`. See [Add application tools](/docs/app/tools/) for registration, deferred loading, and code mode.
+The application takes a snapshot of registered tools when it creates a `BubAgent`. See [Tools](/docs/app/tools/) for registration, deferred loading, and code mode.
 
 ## Share the plugin
 
-Build and install a wheel into a separate environment before publishing it. Confirm that the entry point loads and that a representative task uses your hook. If you bundle skills or several plugins, follow [Package a Bub application](/docs/app/package/).
+Build and install a wheel into a separate environment before publishing it. Confirm that the entry point loads and that a representative task uses your hook. If you bundle skills or several plugins, follow [Distribution](/docs/app/distribution/).
 
 Portable Agent Plugins use a different format: `plugin.json`, skills, and MCP servers. The [Agent Plugins integration](/docs/integrations/agent-plugins/) loads those packages through a Python plugin.
+
+<a id="wasm-plugins"></a>
+
+## WASM plugins (experimental)
+
+A plugin does not have to be Python. The [`bub-extism`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) plugin runs WebAssembly modules and maps their exports to hooks. Bub still dispatches the hooks and decides precedence; Extism only calls your module.
+
+Install it into the environment where Bub runs:
+
+```bash
+bub install bub-extism@main
+bub hooks
+```
+
+`extism.json` names each module and the hook it implements. `manifest` uses the Extism format, and `hooks` maps a Bub hook to a wasm export:
+
+```json
+{
+  "plugins": {
+    "prompt": {
+      "manifest": { "wasm": [{ "path": "go-build-prompt.wasm" }] },
+      "wasi": true,
+      "hooks": { "build_prompt": "build_prompt" }
+    }
+  }
+}
+```
+
+```bash
+export BUB_EXTISM_CONFIG_PATH=./extism.json
+bub run "Say hello from a prompt built outside Python."
+```
+
+The [README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) lists the hooks this route supports and how arguments convert. Check both before you depend on it: not every hook is available, and every value crosses a Python-to-wasm boundary. The [examples](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples) build one module in Go and one in Rust.
+
+Keep the builtin implementation for model calls and tape recording. A module suits hooks that do small work on their own.

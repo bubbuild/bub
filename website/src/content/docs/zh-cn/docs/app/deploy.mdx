@@ -1,8 +1,8 @@
 ---
-title: 部署应用
+title: 部署
 description: 用 Docker Compose 运行 Bub 应用，并在重启后保留数据。
 sidebar:
-  order: 3
+  order: 10
 ---
 
 把 Bub 应用放进容器，将数据挂载到宿主机，并选择网关启动的渠道。从 [GitHub Releases](https://github.com/bubbuild/bub/releases) 获取 Bub 0.6.0 的源码归档并解压，在解压后的目录中运行以下命令。
@@ -13,7 +13,7 @@ sidebar:
 
 - 已安装 Docker（或兼容运行时）与 `docker compose`。
 - `.env` 中至少包含 `BUB_MODEL` 以及 `BUB_API_KEY` 或某个提供商专用 key：参见 [配置](/zh-cn/docs/app/configure/)。
-- Telegram 部署还需要 `.env` 中包含 `BUB_TELEGRAM_TOKEN` 与一份白名单：参见 [Telegram](/zh-cn/docs/app/telegram/)。
+- Telegram 部署还需要 `.env` 中包含 `BUB_TELEGRAM_TOKEN` 与一份白名单：参见 [渠道](/zh-cn/docs/app/channels/#telegram)。
 
 ## 1. 准备 env 文件
 
@@ -45,7 +45,7 @@ volumes:
 |---|---|
 | `/workspace` | Bub 视为工作仓库的目录。默认是你执行 `docker compose` 时的目录。 |
 | `/data` | Bub 数据目录的宿主机绑定（命令历史、Tape、插件项目）。 |
-| `/root/.agents` | 共享 skill 目录（沿用 `agents.md` 约定）。 |
+| `/root/.agents` | 共享技能目录（沿用 `agents.md` 约定）。 |
 
 Compose 文件会在容器内设置 `BUB_HOME=/data`。如果要把宿主机侧源路径放到 `~/.bub` 以外的位置，请设置 `BUB_HOME_HOST`。此部署的运行时设置应放在 `.env` 中；`BUB_HOME` 不会移动 Bub 默认的 `config.yml` 路径。
 
@@ -140,5 +140,5 @@ docker compose exec app bub update specific-plugin        # 升级指定插件
 ## 后续阅读
 
 - [配置](/zh-cn/docs/app/configure/)：环境变量优先级与提供商设置。
-- [Telegram](/zh-cn/docs/app/telegram/)：bot token 与白名单行为。
+- [渠道](/zh-cn/docs/app/channels/#telegram)：bot token 与白名单行为。
 - [CLI 参考](/zh-cn/docs/reference/cli/)：`bub gateway`、`bub install`、`bub update` 的参数。

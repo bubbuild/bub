@@ -7,7 +7,7 @@ sidebar:
 
 Choose a model, add tools, and connect the agent to your program. `bub.core.Agent` runs the model and tool loop while you decide how to store conversations and manage the surrounding application.
 
-You supply the agent's components directly. The [Bub application](/docs/app/) builds on the same core and adds configuration and plugin discovery. You can also [reuse application plugins](/docs/sdk/app-plugins/) in your own service while keeping its existing entry points and calling code.
+You supply the agent's components directly. The [Bub application](/docs/app/workspace/) builds on the same core and adds configuration and plugin discovery. You can also [reuse application plugins](/docs/sdk/app-plugins/) in your own service while keeping its existing entry points and calling code.
 
 ## Install
 

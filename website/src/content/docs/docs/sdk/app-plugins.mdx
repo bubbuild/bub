@@ -147,7 +147,7 @@ The plugin's implementation determines what your host must provide:
 | --- | --- |
 | Tools or a store | Import the public component and pass it to Agent. For example, `bub_tapestore_sqlalchemy.store.SQLAlchemyTapeStore` accepts a database URL and can be passed as `store=`. |
 | Model or tool interception, system prompt, continuation, or steering | Register the selected plugin and [attach `AgentPlugins`](#agent-plugins). Check any state fields or tools the plugin expects. |
-| Message preparation, model-stage replacement, state saving, or delivery | [Embed the application pipeline](/docs/app/package/#programmatic-embedding) in your host. It runs these stages and returns a `TurnResult`. |
+| Message preparation, model-stage replacement, state saving, or delivery | [Embed the application pipeline](/docs/app/distribution/#programmatic-embedding) in your host. It runs these stages and returns a `TurnResult`. |
 | Background connections or discovered tools | Open the service, wait until it is ready, attach its tools, then close it with the host. Follow the plugin's own lifecycle API. |
 
 Follow the chosen store's lifecycle contract. `framework.running()` acquires hook-provided resources and closes the context managers it entered. A store returned as an ordinary object keeps its own cleanup requirements.

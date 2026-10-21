@@ -1,6 +1,6 @@
 ---
 title: 扩展点
-description: 判断你的任务需要工具、事件处理器、skill、插件，还是渠道。
+description: 判断你的任务需要工具、事件处理器、技能、插件，还是渠道。
 sidebar:
   order: 5
 ---
@@ -12,15 +12,15 @@ sidebar:
 | 让 agent 读或改某个东西 | [工具](/zh-cn/docs/sdk/tools/)。 | 内核的通用能力。传给 Agent，或者在应用里注册。 |
 | 看住或拦下模型、工具调用 | [事件处理器](/zh-cn/docs/concepts/events/)。 | 内核的 EventBus。应用插件可以用对应的拦截 hooks。 |
 | 改哪段历史变成模型消息 | [TapeContext](/zh-cn/docs/concepts/tape/#context)。 | 传给 Agent，或者通过应用 hook 提供。 |
-| 教 agent 一套可复用的做法 | [skill](/zh-cn/docs/app/skills/)。 | Bub 应用负责发现和加载。 |
+| 教 agent 一套可复用的做法 | [技能](/zh-cn/docs/app/skills/)。 | Bub 应用负责发现和加载。 |
 | 改应用怎么初始化，或者消息怎么处理 | [插件](/zh-cn/docs/app/plugins/)。 | `BubFramework` 和它的 hooks。 |
-| 接一个消息服务 | [渠道](/zh-cn/docs/app/gateway/)。 | 应用的入站和出站路由。 |
+| 接一个消息服务 | [渠道](/zh-cn/docs/app/channels/)。 | 应用的入站和出站路由。 |
 
-## 工具与 skill
+## 工具与技能
 
-工具跑 Python，返回结果。skill 是一个目录，里面有 `SKILL.md`，还可以有别的文件。它的指令可以告诉 agent 怎么用工具。指令里提到的 Python 函数，你自己写，再另外挂上去。
+工具跑 Python，返回结果。技能是一个目录，里面有 `SKILL.md`，还可以有别的文件。它的指令可以告诉 agent 怎么用工具。指令里提到的 Python 函数，你自己写，再另外挂上去。
 
-普通的 Agent 只用你给的工具和提示词片段。Bub 应用会去发现 skills，也会读 `AGENTS.md`。见 [Skills](/zh-cn/docs/app/skills/)和[应用工具](/zh-cn/docs/app/tools/)。
+普通的 Agent 只用你给的工具和提示词片段。Bub 应用会去发现技能，也会读 `AGENTS.md`。见 [技能](/zh-cn/docs/app/skills/)和[工具](/zh-cn/docs/app/tools/)。
 
 agent 也可以用一条[文本命令](/zh-cn/docs/sdk/tools/#commands)调工具，或者用 CodeMode 让模型写 Python 来调。这几条路走的是同一个工具实现。
 

@@ -135,7 +135,7 @@ from bub.builtin.agent import BubAgent
 
 应用配置是进程级共享的。需要使用 framework 当前存储时，在 `framework.running()` 内创建 `BubAgent`。显式提供的 store 优先，生命周期仍由调用方管理。两种 store 都没有时，agent 使用内存存储。
 
-省略 `state` 时，`run_stream` 加载初始状态；传入 `state` 时，则直接使用调用方提供的状态。状态保存 hooks、出站消息处理和并发轮次调度由宿主管理。完整用法见[嵌入应用](/zh-cn/docs/app/package/#programmatic-embedding)。
+省略 `state` 时，`run_stream` 加载初始状态；传入 `state` 时，则直接使用调用方提供的状态。状态保存 hooks、出站消息处理和并发轮次调度由宿主管理。完整用法见[嵌入应用](/zh-cn/docs/app/distribution/#programmatic-embedding)。
 
 ## 导入路径
 

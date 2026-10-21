@@ -19,7 +19,7 @@ Bub 分两层。
 
 **内核**（`bub.core`）有循环、工具接口、对话记录、事件总线和模型客户端。它用 `republic` 调用模型，依赖 `pydantic` 和 `loguru`。
 
-**应用层**（`bub[app]`）加上让内核变成一个能直接运行的程序所需的部分：配置和配置文件、插件与 hooks、skills、消息渠道、网关，以及 `bub` 命令。
+**应用层**（`bub[app]`）加上让内核变成一个能直接运行的程序所需的部分：配置和配置文件、插件与 hooks、技能、消息渠道、网关，以及 `bub` 命令。
 
 `pip install bub` 只装内核。`pip install "bub[app]"` 两层都装。
 
@@ -30,7 +30,7 @@ Bub 分两层。
 | 运行的是什么 | `bub` 命令，独占一个进程 | 你自己的 Python 程序 |
 | 怎么启动 | `bub chat`、`bub run`、`bub gateway` | `Agent(...)` |
 | 你需要提供 | 模型和渠道配置 | 模型、工具、一个 tape |
-| Bub 提供 | 配置、插件、skills、hooks、渠道 | 循环和它的事件 |
+| Bub 提供 | 配置、插件、技能、hooks、渠道 | 循环和它的事件 |
 
 想要一个在终端或聊天软件里就能用的 agent，用应用。想给自己跑的服务加上 agent 行为，就自己构建。
 
@@ -62,7 +62,7 @@ Bub 分两层。
 其余文档，按阅读顺序：
 
 - **[核心概念](/zh-cn/docs/concepts/)**：tape、轮次、事件、扩展点。指南里遇到看不懂的词再回来读，后面的页面不依赖它。
-- **[使用 Bub 应用](/zh-cn/docs/app/)**：先配置，再加工具、skills、插件、hooks 和渠道。
+- **[使用 Bub 应用](/zh-cn/docs/app/workspace/)**：先配置，再加工具、技能、插件、hooks 和渠道。
 - **[构建你的 Bub Agent](/zh-cn/docs/sdk/)**：留下内核，循环周边自己写。
 - **[集成](/zh-cn/docs/integrations/)**：MCP、ACP、agent plugins、本地模型、SQLite、可观测性。
 - **[参考](/zh-cn/docs/reference/)**：CLI 命令、配置项、类型、hooks、版本记录。

@@ -2,10 +2,10 @@
 title: 插件
 description: 编写插件、选择入口点形式，并安装到应用里。
 sidebar:
-  order: 0
+  order: 7
 ---
 
-插件可以改变 Bub 应用处理任务的方式。本页先带你写一个回声插件，无需模型凭据就能检查插件发现和轮次处理，再说明入口点的几种形式、工具注册和分享方式。
+插件可以改变 Bub 应用处理任务的方式。本页先带你写一个回声插件，无需模型凭据就能检查插件发现和轮次处理，再说明入口点的几种形式、工具注册、分享方式，以及用其他语言实现的办法。
 
 Python 包在 `bub` 入口点组中声明目标，Bub 导入这个目标，并注册其中的 hook 实现。你也可以在自己的服务中复用现有插件，继续使用宿主自己的调用入口；参见[借用应用运行时](/zh-cn/docs/sdk/app-plugins/)。
 
@@ -143,7 +143,7 @@ class MyPlugin:
         return f"Describe the workspace at {self.framework.workspace}."
 ```
 
-这些例子会替换提示词。请在[改变应用行为](/zh-cn/docs/app/hooks/)中选择真正适合任务的 hook。
+这些例子会替换提示词。请在[Hooks](/zh-cn/docs/app/hooks/)中选择真正适合任务的 hook。
 
 ## 导入时注册工具
 
@@ -153,10 +153,46 @@ class MyPlugin:
 from . import tools  # noqa: F401
 ```
 
-应用创建 `BubAgent` 时会获取已注册工具的快照。[添加应用工具](/zh-cn/docs/app/tools/)会说明注册、延迟加载和代码模式。
+应用创建 `BubAgent` 时会获取已注册工具的快照。[工具](/zh-cn/docs/app/tools/)会说明注册、延迟加载和代码模式。
 
 ## 分享插件
 
-发布前，构建 wheel 并安装到独立环境，确认入口点能加载，并用一个实际任务检查 hook。如果要同时发布 skills 或多个插件，参见[打包 Bub 应用](/zh-cn/docs/app/package/)。
+发布前，构建 wheel 并安装到独立环境，确认入口点能加载，并用一个实际任务检查 hook。如果要同时发布技能或多个插件，参见[分发](/zh-cn/docs/app/distribution/)。
 
-可移植的 Agent Plugins 使用另一种格式，包括 `plugin.json`、skills 和 MCP servers。[Agent Plugins 集成](/zh-cn/docs/integrations/agent-plugins/)通过一个 Python 插件加载这些包。
+可移植的 Agent Plugins 使用另一种格式，包括 `plugin.json`、技能和 MCP servers。[Agent Plugins 集成](/zh-cn/docs/integrations/agent-plugins/)通过一个 Python 插件加载这些包。
+
+<a id="wasm-plugins"></a>
+
+## WASM 插件（实验性）
+
+插件不一定要用 Python 写。[`bub-extism`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) 插件运行 WebAssembly 模块，把模块导出的函数当作 hook。hook 的分发和优先级仍由 Bub 决定，Extism 只负责调用你的模块。
+
+把它装到 Bub 所在的环境：
+
+```bash
+bub install bub-extism@main
+bub hooks
+```
+
+`extism.json` 为每个模块指定文件和它实现的 hook。`manifest` 用 Extism 的格式，`hooks` 把 Bub 的 hook 名映射到 wasm 导出：
+
+```json
+{
+  "plugins": {
+    "prompt": {
+      "manifest": { "wasm": [{ "path": "go-build-prompt.wasm" }] },
+      "wasi": true,
+      "hooks": { "build_prompt": "build_prompt" }
+    }
+  }
+}
+```
+
+```bash
+export BUB_EXTISM_CONFIG_PATH=./extism.json
+bub run "Say hello from a prompt built outside Python."
+```
+
+[README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism)写明了这条路径支持哪些 hook，以及参数怎么转换。用之前先核对这两点：不是每个 hook 都能用，而且所有值都要跨过 Python 和 wasm 的边界。[示例](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples)分别用 Go 和 Rust 各写了一个模块。
+
+模型调用和 tape 记录继续用内置实现。这种模块适合只做少量独立工作的 hook。

@@ -1,8 +1,8 @@
 ---
-title: 打包 Bub 应用
-description: 嵌入应用框架，或发布包含自有插件和 skills 的 CLI。
+title: 分发
+description: 嵌入应用框架，或发布包含自有插件和技能的 CLI。
 sidebar:
-  order: 5
+  order: 11
 ---
 
 如果产品需要 Bub 的配置、插件和消息路由，可以在 Bub 应用上继续构建。你可以把 `BubFramework` 放进现有进程，也可以发布一个启动它的命令。
@@ -74,7 +74,7 @@ my-bub = "my_bub.cli:main"
 
 声明 `bub[app]>=0.6.0` 应用依赖。更新已有发行包时，按[升级到 0.6.0](/zh-cn/docs/reference/versions/)调整。
 
-## 一起分发插件和 skills
+## 一起分发插件和技能
 
 一个 wheel 可以提供多个入口点：
 
@@ -87,6 +87,6 @@ channels = "my_bub.channels:ChannelPlugin"
 packages = ["src/my_bub", "src/skills"]
 ```
 
-每个目标都遵循[插件注册规则](/zh-cn/docs/app/plugins/)。任务指令按 [skills 包目录结构](/zh-cn/docs/app/skills/#ship-skills-with-your-package)加入发行包。
+每个目标都遵循[插件注册规则](/zh-cn/docs/app/plugins/)。任务指令按 [技能包目录结构](/zh-cn/docs/app/skills/#ship-skills-with-your-package)加入发行包。
 
-发布前，把构建好的 wheel 安装到独立环境，运行命令、核对插件报告、加载打包的 skill，再完成一次有代表性的对话。对于宿主应用，还应检查流或后台工具运行期间的关闭行为。
+发布前，把构建好的 wheel 安装到独立环境，运行命令、核对插件报告、加载打包的技能，再完成一次有代表性的对话。对于宿主应用，还应检查流或后台工具运行期间的关闭行为。
