@@ -67,7 +67,7 @@ order_tool = Tool.from_callable(
 
 ## 访问当前会话
 
-传入 `context=True`，工具就会通过关键字参数 `context` 接收 `ToolContext`。其中包含当前 Tape、本轮状态、run ID 和事件总线。
+传入 `context=True`，工具就会通过关键字参数 `context` 接收 `ToolContext`。其中包含当前 Tape、turn 状态、run ID 和事件总线。
 
 ```python
 from bub.core.tools import ToolContext
@@ -112,11 +112,11 @@ print(order["status"])
 
 在 `run_code` 中，工具名称使用下划线，调用使用关键字参数，结果保留结构化形式。代码支持顶层 `await`。工具调用经过 `ToolCallStarted` 和 `ToolCallFinished`，其中 `context.code_mode=True`。
 
-`CodeMode` 使用你传入的工具，并排除 `exposure="command"`。BubAgent 通过[应用代码模式设置](/zh-cn/docs/app/tools/)对 `auto`、`direct`、`code` 工具分组。
+`CodeMode` 使用你传入的工具，并排除 `exposure="command"`。BubAgent 通过[应用的 code mode 设置](/zh-cn/docs/app/tools/)对 `auto`、`direct`、`code` 工具分组。
 
 | 选项 | 行为 |
 | --- | --- |
-| `tools` | 工具集合，或根据本轮状态返回工具集合的函数。返回 `None` 可以禁止本轮执行代码。 |
+| `tools` | 工具集合，或根据 turn 状态返回工具集合的函数。返回 `None` 可以禁止本轮执行代码。 |
 | `environment` | 代码运行的位置。默认是在当前目录运行的 `LocalEnvironment()`，也可以是根据状态选择环境的函数。 |
 | `models` | 代码调用 Republic 时使用的默认 `provider:model`，或返回模型标识与客户端选项的解析函数。不设置时，代码需要给出模型标识，Republic 从环境读取凭据。 |
 | `stub_dir` | 保存生成的 Python 工具定义的目录。默认直接把定义放入系统提示词；写入文件时，Agent 需要有读取该文件的能力。 |

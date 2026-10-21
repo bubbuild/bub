@@ -1,13 +1,13 @@
 ---
-title: 轮次
+title: Turn
 description: 一条进来的消息，从找会话到把回复发出去。
 sidebar:
   order: 2
 ---
 
-一个轮次就是一条进来的消息，以及它引起的全部工作。`BubFramework` 负责一个轮次：找会话、装载状态、构建 prompt、跑模型、发出回复。每个阶段都留了 hook，插件可以改这一段。
+一个 turn 就是一条进来的消息，以及它引起的全部工作。`BubFramework` 负责一个 turn：找会话、装载状态、构建提示词、跑模型、发出回复。每个阶段都留了 hook，插件可以改这一段。
 
-轮次属于 `bub[app]`。直接调 `core.Agent.run()` 没有轮次：循环就用你给的 prompt、state 和 tape 开始。
+turn 属于 `bub[app]`。直接调 `core.Agent.run()` 没有 turn：循环就用你给的提示词、state 和 tape 开始。
 
 ## 阶段
 
@@ -16,8 +16,8 @@ sidebar:
 | 阶段 | 做什么 |
 | --- | --- |
 | `resolve_session` | 为收到的消息选出会话 ID。 |
-| `load_state` | 从各个 hook 收集本轮状态。 |
-| `build_prompt` | 把收到的内容转成 prompt。 |
+| `load_state` | 从各个 hook 收集这个 turn 的状态。 |
+| `build_prompt` | 把收到的内容转成提示词。 |
 | `run_model` / `run_model_stream` | 产出模型输出：完整结果，或者一个流。 |
 | `save_state` | 收尾模型阶段的工作。它在自己的 `finally` 块里运行。 |
 | `render_outbound` | 把结果转成出站 envelope。 |

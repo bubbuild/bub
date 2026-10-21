@@ -54,7 +54,7 @@ def customer(context: PromptContext) -> str | None:
     return None
 ```
 
-`PromptContext` 包含本轮运行的 prompt、提供给模型的工具、模型标识、Tape、本轮状态和 Agent。`available_tools` 列出 Agent 注册的工具。使用 `agent.system_prompt.remove(section)` 可以移除片段。
+`PromptContext` 包含当前运行的 prompt、提供给模型的工具、模型标识、Tape、turn 状态和 Agent。`available_tools` 列出 Agent 注册的工具。使用 `agent.system_prompt.remove(section)` 可以移除片段。
 
 <a id="tapes-and-state"></a>
 <a id="sessions-and-tapes"></a>
@@ -75,7 +75,7 @@ def customer(context: PromptContext) -> str | None:
 | `system_prompt` | 空。每轮运行渲染一次的文本或函数片段。 |
 | `context` | `default_tape_context()`。选择哪些 Tape 记录进入模型消息。 |
 | `sidecars` | 空。与 Tape 一起挂载的附加存储能力。 |
-| `max_steps` | `sys.maxsize`。一轮运行的模型步骤上限。 |
+| `max_steps` | `sys.maxsize`。一次运行的模型步骤上限。 |
 | `max_tool_concurrency` | `None`，同一次模型响应中的工具调用可以全部并发。设为 `1` 时依次执行。不同运行之间的并发由应用协调。 |
 | `name` | `"agent"`。Agent trace span 使用的名称。 |
 | `command_prefix` | `None`。设置前缀后，可以通过文本命令直接调用工具。 |
@@ -92,8 +92,8 @@ def customer(context: PromptContext) -> str | None:
 
 | 事件 | 发生时机 | 支持的操作 |
 | --- | --- | --- |
-| `MessagesPending` | 每个步骤构建模型请求时，以及步骤结束且没有调用工具时。 | 向 `event.messages` 追加内容；它们在下一个 prompt 之前发送，并一起记录。步骤结束时提供的消息会让运行继续。 |
-| `StepFinished` | 步骤结束。`status == "continue"` 时运行会再走一步。 | 设置 `next_prompt` 为下一步添加用户消息；为 `None` 时直接继续对话。`event.prompt` 是本步骤的 prompt，`event.stream` 保存本次运行的用量。 |
+| `MessagesPending` | 每个步骤构建模型请求时，以及步骤结束且没有调用工具时。 | 向 `event.messages` 追加内容；它们在下一个提示词之前发送，并一起记录。步骤结束时提供的消息会让运行继续。 |
+| `StepFinished` | 步骤结束。`status == "continue"` 时运行会再走一步。 | 设置 `next_prompt` 为下一步添加用户消息；为 `None` 时直接继续对话。`event.prompt` 是本步骤的提示词，`event.stream` 保存本次运行的用量。 |
 
 ```python
 from bub.core.events import MessagesPending, StepFinished

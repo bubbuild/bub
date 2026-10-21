@@ -41,7 +41,7 @@ bub run [OPTIONS] MESSAGE
 
 行为说明：
 
-- 在该次轮次周围打开 `framework.running()`：`provide_tape_store` 在调用前进入，调用后退出。
+- 在一次 turn 期间打开 `framework.running()`：`provide_tape_store` 在调用前进入，调用后退出。
 - 出站消息以 `[channel:chat_id]\n<content>` 的格式打印。
 - **不** 启用流式输出；模型钩子通过 `HookRuntime.run_model` 调用。
 

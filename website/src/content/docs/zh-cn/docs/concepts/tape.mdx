@@ -73,7 +73,7 @@ async def start_next_phase() -> None:
     )
 ```
 
-这里的 `state` 存在 anchor 上，位置在默认查询的起点之前。要把摘要带进下一阶段，就把它放进下一次 prompt，或者在你的上下文策略里显式选它。要把值装回本轮的可变状态，得自己写加载逻辑。新会话会自动得到一个 `session/start` anchor。
+这里的 `state` 存在 anchor 上，位置在默认查询的起点之前。要把摘要带进下一阶段，就把它放进下一次提示词，或者在你的上下文策略里显式选它。要把值装回本轮的可变状态，得自己写加载逻辑。新会话会自动得到一个 `session/start` anchor。
 
 想换一个 anchor，就给 `Agent` 传 `context=TapeContext(...)`。也可以用自己的 `select(entries, context)` 函数。选择器返回 Republic 消息，或者返回它们的 awaitable。`default_tape_context()` 含工具往返；不带 `select` 的 `TapeContext` 用更简单的消息转换。带 `context=False` 的条目，在默认或自定义选择器运行之前就被剔除。
 

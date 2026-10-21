@@ -56,7 +56,7 @@ from bub.hooks.interception import (
 
 应用、插件与渠道使用的接口。
 
-### 消息与轮次结果
+### 消息与 turn 结果
 
 从 `bub.envelope` 导入消息辅助函数：
 
@@ -137,13 +137,13 @@ from bub.builtin.agent import BubAgent
 | `BubFramework()` | 加载应用配置，确定工作区 |
 | `framework.load_hooks()` | 注册内置和已安装插件的 hooks |
 | `framework.running()` | 获取并释放应用资源 |
-| `framework.process_inbound(inbound, stream_output=False)` | 完成应用轮次，返回 `TurnResult` |
+| `framework.process_inbound(inbound, stream_output=False)` | 完成应用的 turn，返回 `TurnResult` |
 | `BubAgent(framework, tools=None, tape_store=None, skill_dirs=None)` | 为核心 agent 接入应用行为 |
 | `agent.run_stream(session_id=..., prompt=..., state=None, ...)` | 返回应用 agent 的输出流 |
 
 应用配置是进程级共享的。需要使用 framework 当前存储时，在 `framework.running()` 内创建 `BubAgent`。显式提供的 store 优先，生命周期仍由调用方管理。两种 store 都没有时，agent 使用内存存储。
 
-省略 `state` 时，`run_stream` 加载初始状态；传入 `state` 时，则直接使用调用方提供的状态。状态保存 hooks、出站消息处理和并发轮次调度由宿主管理。完整用法见[嵌入应用](/zh-cn/docs/app/distribution/#programmatic-embedding)。
+省略 `state` 时，`run_stream` 加载初始状态；传入 `state` 时，则直接使用调用方提供的状态。状态保存 hooks、出站消息处理和并发 turn 调度由宿主管理。完整用法见[嵌入应用](/zh-cn/docs/app/distribution/#programmatic-embedding)。
 
 ## 导入路径
 

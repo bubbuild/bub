@@ -1,6 +1,6 @@
 ---
 title: 接入 MCP 服务器
-description: 安装 bub-mcp 插件，注册一个时间 MCP 服务器，并在 Bub 轮次中调用其工具。
+description: 安装 bub-mcp 插件，注册一个时间 MCP 服务器，并在 Bub turn 中调用其工具。
 sidebar:
   badge: { text: '应用', variant: 'note' }
 ---
@@ -15,7 +15,7 @@ sidebar:
 
 - 已[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并确认 `bub --help` 可用。
 - 系统 `PATH` 中存在 [`uv`](https://docs.astral.sh/uv/)，以便 `uvx mcp-server-time` 能按需启动 [time MCP 服务器](https://pypi.org/project/mcp-server-time/)。
-- 如果想在真实轮次中调用 MCP 工具，需要一个可用的模型提供商（参见最后一节）。
+- 如果想在真实 turn 中调用 MCP 工具，需要一个可用的模型提供商（参见最后一节）。
 
 ## 1. 安装 bub-mcp
 
@@ -92,7 +92,7 @@ uvx mcp-server-time
 
 ## 4. 在运行中的 turn 里使用 MCP 工具
 
-`bub mcp list` 已经足以确认接入正确。**真正在轮次中调用工具，需要 Bub 的渠道运行时**：
+`bub mcp list` 已经足以确认接入正确。**真正在 turn 中调用工具，需要 Bub 的渠道运行时**：
 
 - `bub chat` 会启动 `cli` 交互接口，并自动附着已启用的 `Lifecycle` 后台服务，包括 `mcp.lifecycle`。
 - `bub gateway` 会启动 `provide_channels` 钩子返回的所有渠道（受 `--enable-channel` / `BUB_ENABLED_CHANNELS` 控制）。当 `mcp.lifecycle` 启用后，渠道会在后台启动、把每个远程工具按 `mcp.<server>_<tool>` 名称注册到全局工具表中，模型从此即可调用它们。
@@ -177,7 +177,7 @@ bub mcp remove time
 | `bub hooks` 中没有 `mcp` | 插件没有装进 `bub` 使用的环境。请使用同一个 `bub` 可执行文件重新安装。 |
 | `bub mcp list` 显示 `Status: Disconnected` | 在 Bub 之外直接运行配置的 `command`（或访问 `url`）确认能正常启动；错误信息会显示根本原因。 |
 | `bub mcp add` 在 `Added MCP server …` 之后打印 `CancelledError` | 条目可能已经写入。用 `bub mcp list` 复核，或改为手动编辑 `mcp.json`。 |
-| 轮次中工具未被调用 | 确认 `bub mcp list` 显示 `Status: Connected` 且列出了预期工具，然后提一个明显需要该工具的问题。 |
+| turn 中工具未被调用 | 确认 `bub mcp list` 显示 `Status: Connected` 且列出了预期工具，然后提一个明显需要该工具的问题。 |
 | `mcp.json` 权限被拒绝 | 确认 `~/.bub/` 对当前用户可写，或将 `BUB_HOME` 设到你拥有的目录后重试。 |
 
 ## 下一步

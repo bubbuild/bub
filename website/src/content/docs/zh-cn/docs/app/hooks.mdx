@@ -96,7 +96,7 @@ def after_tool_call(call, result, state):
 
 如果要替换整个模型阶段，实现 `run_model` 或 `run_model_stream` 中的一个。[第一个插件](/zh-cn/docs/app/plugins/)演示了文本替换。替换实现负责自己的执行和记录行为；只有使用内置 agent 时，才会运行它的拦截 hooks。
 
-## 跨轮次保留应用状态
+## 跨 turn 保留应用状态
 
 Framework 为每轮入站消息构建新的状态字典。使用 `load_state` 和 `save_state`，保留应用自己的值：
 
@@ -120,7 +120,7 @@ class TurnCounter:
 turn_counter = TurnCounter()
 ```
 
-这个内存示例统计模型阶段退出的次数，包括失败。进程退出后计数会丢失，并且它假定同一会话一次只处理一轮。生产环境应使用持久化存储，并选择合适的并发策略。
+这个内存示例统计模型阶段退出的次数，包括失败。进程退出后计数会丢失，并且它假定同一会话一次只处理一个 turn。生产环境应使用持久化存储，并选择合适的并发策略。
 
 `save_state` 位于模型阶段的 `finally` 块中，前提是会话解析、状态加载和提示词准备已经成功。这些准备阶段发生错误时，会跳过保存 hook。会话历史另有 [Tape 生命周期](/zh-cn/docs/concepts/tape/#state)。
 

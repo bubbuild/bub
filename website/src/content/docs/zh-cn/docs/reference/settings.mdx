@@ -65,7 +65,7 @@ class AgentSettings(Settings):
 | `BUB_<PROVIDER>_API_KEY` | 未设置 | 不适用 | 按提供商划分的 API 密钥，例如 `BUB_OPENAI_API_KEY`。 |
 | `BUB_<PROVIDER>_API_BASE` | 未设置 | 不适用 | 按提供商划分的 API 基础 URL，例如 `BUB_OPENROUTER_API_BASE`。 |
 | `BUB_PROVIDERS` | `{}` | `providers` | 自定义命名的端点，每个用 `type` 指定走哪个 Republic 提供商的协议，并有自己的 `api_base` 和 `api_key`。见[自定义提供商](#自定义-provider)。 |
-| `BUB_MAX_STEPS` | 不限制 | `max_steps` | 单次轮次内 Agent 循环的最大步数；配置时必须为正整数。 |
+| `BUB_MAX_STEPS` | 不限制 | `max_steps` | 单次 turn 内 Agent 循环的最大步数；配置时必须为正整数。 |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | 单次模型调用的最大 token 数；Codex 端点不传此参数。 |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | 单次调用的超时秒数。 |
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | 传递给底层模型客户端的额外关键字参数(JSON / 字典)。 |

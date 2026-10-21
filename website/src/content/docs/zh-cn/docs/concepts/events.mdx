@@ -67,11 +67,11 @@ def require_refund_permission(event: ToolCallStarted) -> None:
 
 | 事件 | 什么时候发 | 你能做什么 |
 | --- | --- | --- |
-| `RunStarted` | 一次模型运行开始。 | 读 prompt、模型和 metadata。 |
+| `RunStarted` | 一次模型运行开始。 | 读提示词、模型和 metadata。 |
 | `RunFinished` | 这次运行的流关闭。 | 读状态、步骤数、耗时和错误。 |
 | `StepStarted` | 一个模型步骤开始。 | 读进度。 |
 | `StepFinished` | 一个模型步骤结束。 | 读进度。`status == "continue"` 时，设 `next_prompt`，给下一步加一条用户消息。 |
-| `MessagesPending` | 步骤构建模型请求时，或步骤结束时没有调工具。 | 往 `messages` 追加用户消息，排在下一个 prompt 之前。在步骤结束时加的消息，会让运行继续。 |
+| `MessagesPending` | 步骤构建模型请求时，或步骤结束时没有调工具。 | 往 `messages` 追加用户消息，排在下一个提示词之前。在步骤结束时加的消息，会让运行继续。 |
 | `LLMCallStarted` | 调供应商之前。 | 换掉 `request`，或设 `LLMCallDecision.finish(text)`。 |
 | `LLMCallFinished` | 供应商调用完成，或抛异常。 | 读累积的结果。取消和消费方关流，这里不报。 |
 | `ToolCallStarted` | 工具执行之前。 | 换掉 `call`，拒绝调用，或换掉结果。 |
@@ -79,7 +79,7 @@ def require_refund_permission(event: ToolCallStarted) -> None:
 | `ChatFinished` | 这一步的往返可以记录了。 | 读这一次往返。 |
 | `CommandFinished` | 直接命令完成或失败。 | 读命令、状态和输出。 |
 
-命令 prompt 直接跑工具，会发出工具事件和 `CommandFinished`。见[命令](/zh-cn/docs/sdk/tools/#commands)。
+命令提示词直接跑工具，会发出工具事件和 `CommandFinished`。见[命令](/zh-cn/docs/sdk/tools/#commands)。
 
 所有 agent 事件都带本轮的 `state`。从 `TapeEvent` 派生的事件还带当前 tape。工具事件在调用有上下文时，可以从 `event.call.context` 取到。
 

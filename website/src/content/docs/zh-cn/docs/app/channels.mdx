@@ -51,7 +51,7 @@ BUB_ENABLED_CHANNELS=telegram
 
 ## 防抖与批处理
 
-非 CLI 的渠道可以把一串短消息合成一轮。这三个变量控制防抖：
+非 CLI 的渠道可以把一串短消息合成一个 turn。这三个变量控制防抖：
 
 | 变量 | 默认值 | 含义 |
 |---|---|---|
@@ -142,18 +142,18 @@ telegram.start polling
 这个渠道用 `telegram:<chat_id>` 作为会话 ID。同一个用户既在私聊又在群里，两边的会话也是分开的。
 
 - `/start` 由内部处理。机器人回一句固定欢迎语；不在白名单的聊天里，回的是"不允许"。
-- `/bub <text>` 会被规范化。去掉 `/bub ` 前缀，剩下的当作 prompt。
+- `/bub <text>` 会被规范化。去掉 `/bub ` 前缀，剩下的当作提示词。
 - 私聊里，所有非命令消息都会被收下。
 - 群聊里，所有非命令消息都会到渠道。提到 `@<bot_username>`、带关键字 `bub`、或者回复机器人的消息，算作活跃。其他群消息被忽略，除非这个会话在 `BUB_ACTIVE_TIME_WINDOW` 内还有对话开着，那它们就并进这一批。
 
 ### 出站消息
 
-普通消息进轮次流水线之前会被设成 `output_channel="null"`。所以模型随口一句的回答不会被直接发回 Telegram。回复、进度更新、改消息，走的是内置的 `telegram` 技能。
+普通消息进 turn 流水线之前会被设成 `output_channel="null"`。所以模型随口一句的回答不会被直接发回 Telegram。回复、进度更新、改消息，走的是内置的 `telegram` 技能。
 
 逗号命令不一样。它们保留 `output_channel="telegram"`，工具输出会发回原来的 `chat_id`。内容是带 `message` 字段的 JSON 时，只发这个字段；否则发原始内容。空载荷直接丢掉。
 
 ## 下一步
 
-- [终端](/zh-cn/docs/app/terminal/)：REPL 和单次轮次。
+- [终端](/zh-cn/docs/app/terminal/)：REPL 和单次 turn。
 - [部署](/zh-cn/docs/app/deploy/)：把机器人放进容器，状态持久化。
 - [设置参考](/zh-cn/docs/reference/settings/)：全部渠道变量。

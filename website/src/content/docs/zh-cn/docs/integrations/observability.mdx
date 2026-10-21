@@ -24,7 +24,7 @@ description: 检查会话记录，并把模型与工具调用轨迹导出到 Pho
 bub run "What tools do you have, and what small tasks are they useful for?"
 ```
 
-然后让 Bub 检查刚刚被这个轮次更新过的 Tape：
+然后让 Bub 检查刚刚被这个 turn 更新过的 Tape：
 
 ```bash
 bub run ",tape.info"
@@ -133,7 +133,7 @@ bub run ",tape.info"
 这条路径与 Tape 检查互补：
 
 - Tape 回答“这个 Bub 会话记住了什么？”
-- Phoenix 回答“这个 Bub Agent 轮次如何经过模型调用、工具调用和 Tape 更新？”
+- Phoenix 回答“这个 Bub Agent turn 如何经过模型调用、工具调用和 Tape 更新？”
 
 排查生产行为时建议两者一起使用：先用 `,tape.info` 判断会话状态，再用 Phoenix 查看耗时、错误、模型调用和工具调用。
 

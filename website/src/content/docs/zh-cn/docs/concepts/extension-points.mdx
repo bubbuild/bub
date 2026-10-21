@@ -26,8 +26,8 @@ agent 也可以用一条[文本命令](/zh-cn/docs/sdk/tools/#commands)调工具
 
 ## 消息与状态
 
-渠道收一个入站 envelope，发出站 envelope。应用用 envelope 带内容、路由和会话标识。各个 hooks 共用当前这一轮的 `TurnState` 字典。
+渠道收一个入站 envelope，发出站 envelope。应用用 envelope 带内容、路由和会话标识。各个 hooks 共用当前 turn 的 `TurnState` 字典。
 
-[轮次](/zh-cn/docs/concepts/turn/)先把状态和 prompt 准备好，再调 agent。直接用 SDK 的人，自己把 prompt 和 state 交给 Agent。
+[Turn](/zh-cn/docs/concepts/turn/)先把状态和提示词准备好，再调 agent。直接用 SDK 的人，自己把提示词和 state 交给 Agent。
 
 先按要用的能力选依赖，再按宿主选调用入口。一个 Python 服务可以复用应用插件，同时保留自己的请求处理和流。[复用插件](/zh-cn/docs/sdk/reuse-plugins/)讲怎么直接用组件，也讲 framework hooks 在嵌入的宿主里怎么接。
