@@ -1,8 +1,8 @@
 ---
-title: 复用应用插件
+title: 复用插件
 description: 将插件提供的工具和 hooks 接入自己的 Agent，保留现有服务入口与调用方式。
 sidebar:
-  order: 1
+  order: 4
 ---
 
 你可以在现有 Python 服务中使用 Bub 应用插件。宿主继续管理 HTTP 路由、任务入口和输出处理；根据要复用的应用行为，选择 Agent 和运行入口。
@@ -11,7 +11,7 @@ sidebar:
 
 使用 `core.Agent` 时，由你选择组件并接入 hooks。下面分别取用搜索插件的工具、适配上下文插件的调用 hooks，每个示例都说明了该插件需要的依赖。后台服务还需要各自的启动和关闭流程。
 
-## 给 Agent 加入搜索插件
+## 加入搜索工具
 
 [`bub-web-search`](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-web-search) 提供了可供 `core.Agent` 使用的搜索工具。将它安装到运行服务的 Python 环境中。本文示例使用 `bub-contrib` 的 `dev` 分支插件：
 
@@ -70,7 +70,11 @@ if __name__ == "__main__":
 
 `register_tools()` 还会更新进程内的全局工具注册表，请在服务启动时完成这些准备。Agent 使用显式传入或加入的工具；本例取用返回的搜索工具，包注册的其他工具（如 Jina 的 `web.read`）可按需另行加入。
 
-## 进阶：接入单个插件的调用 hooks
+## 扩展运行
+
+`AgentPlugins` 把插件的 hooks 接到你的 Agent 事件上。
+
+### 模型与工具调用
 
 [`bub-context-budget`](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-context-budget) 在模型调用前后工作。当估算的上下文超过阈值时，它会加入一条指令，请模型调用 `tape.handoff`。将这个工具交给 Agent，再把插件 hooks 接到 Agent 事件上即可。
 
@@ -109,9 +113,9 @@ Handoff 把摘要保存在锚点上。下一次模型请求需要这份摘要时
 
 <a id="agent-plugins"></a>
 
-## 接入插件的其他 agent 循环 hooks
+### 其他 hooks
 
-`AgentPlugins` 接入所有影响 agent 循环的 hooks，不只是调用拦截。每个 hook 对应核心 Agent 的一个扩展点：
+其余 hooks 决定一次运行中有什么。每个 hook 对应核心 Agent 的一个扩展点：
 
 | Hook | 核心 Agent 扩展点 |
 | --- | --- |
@@ -137,9 +141,9 @@ async with plugins.running():
 
 没有 hook 提供的组件不会出现在 `components()` 中，Agent 保留默认值；你自己传入的参数会替代它们。hooks 提供的存储和 steering inbox 只在 `plugins.running()`（即 `framework.running()`）内可用。先调用 `attach()`，再注册自己的处理器，这样它们能看到 hooks 的修改。
 
-`build_prompt`、`run_model`、`save_state`、`render_outbound`、`dispatch_outbound` 等消息流程 hooks 不属于 agent 循环，只在 `process_inbound()` 中运行。`plugins=[...]` 只注册列出的插件。不带参数的 `AgentPlugins()` 和 `bub` 命令一样，加载 Bub 内置 hooks 和已安装的插件。传入 `framework` 则使用已有 framework 的 hooks，同时传入的 `plugins` 会注册到它上面。
+`build_prompt`、`run_model`、`save_state`、`render_outbound`、`dispatch_outbound` 等消息流程 hooks 不属于 agent 循环，只在 `process_inbound()` 中运行。`plugins=[...]` 只注册列出的插件。多个插件实现同一个 hook 时都会执行：重名的工具、存储和 Tape 上下文取优先级最高者，提示词片段按优先级从低到高拼接。不带参数的 `AgentPlugins()` 和 `bub` 命令一样，加载 Bub 内置 hooks 和已安装的插件。传入 `framework` 则使用已有 framework 的 hooks，同时传入的 `plugins` 会注册到它上面。
 
-## 按插件能力选择接法
+## 选择接入方式
 
 宿主需要提供什么，取决于插件实现了哪些能力：
 
@@ -156,9 +160,9 @@ async with plugins.running():
 
 <a id="app-runtime"></a>
 
-## 复用 Bub 应用的默认行为
+## 复用 BubAgent
 
-`BubAgent` 在内核循环上接入 Bub 设置、技能、工具策略和插件 hooks。宿主可以通过 `framework.load_hooks()` 加载已安装插件，进入 `framework.running()` 后构造 `BubAgent`。它的 `run_stream()` 返回由宿主消费和关闭的流。
+`BubAgent` 在内核循环上接入 Bub 设置、技能、工具策略和插件 hooks。宿主可以通过 `framework.load_hooks()` 加载已安装插件，进入 `framework.running()` 后构造 `BubAgent(framework)`。它的 `run_stream(*, session_id, prompt, state=None, ...)` 返回由宿主消费和关闭的流。
 
 如果也需要这些应用默认行为，可以选择这种接法。内置系统提示词不要求 Agent 通过 channel skill 回复；`bub gateway` 和 `bub chat` 背后的 channel manager 会注册一个 `system_prompt` hook，只在它运行的轮次中加入这条指令。自己调用 `process_inbound()` 的服务可以注册自己的 `system_prompt` hook，说明回复如何送达。替换 `agent.system_prompt` 会替换所有片段，包括插件、技能、延迟工具和 CodeMode 的指令。
 

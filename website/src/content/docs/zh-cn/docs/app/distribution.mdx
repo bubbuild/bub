@@ -49,7 +49,7 @@ asyncio.run(main())
 
 ## 在自己的服务中复用插件
 
-宿主可以使用插件提供的工具、存储或 hooks，同时保留自己的 API 和流处理方式。按[在 Agent 中复用插件](/zh-cn/docs/sdk/app-plugins/)中的步骤，把这些能力接到 `core.Agent` 上。
+宿主可以使用插件提供的工具、存储或 hooks，同时保留自己的 API 和流处理方式。按[复用插件](/zh-cn/docs/sdk/reuse-plugins/)中的步骤，把这些能力接到 `core.Agent` 上。
 
 `BubAgent` 还包含应用的提示词和渠道发送约定。需要这些应用行为时，可以选择它，并在宿主中接好对应的输出处理。
 

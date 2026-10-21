@@ -1,0 +1,118 @@
+---
+title: 配置 Agent
+description: 选择模型、指令，以及影响一次运行的其他选项。
+sidebar:
+  order: 1
+---
+
+这些选项决定 Agent 怎么跑。先在[基础 Agent](/zh-cn/docs/sdk/)的示例上跑通，再按需修改。
+
+<a id="models"></a>
+
+## 选择模型
+
+将 Republic chat model 传给 `Agent(model=...)`，可以设置默认模型；传给 `agent.run(model=...)`，则只用于当前运行。如果运行需要模型，而两处都没有提供，就会抛出 `ValueError`。模型的生命周期由你管理，请用 `async with` 包住使用它的运行过程。
+
+Republic 可以直接接收凭据和服务地址：
+
+```python
+async with republic.get_model(
+    "openai:gpt-5-mini", api_key="...", api_base="https://example.test/v1"
+) as model:
+    agent = Agent(model=model)
+    async with agent.run("Hello", tape="example", options={"max_tokens": 4096}) as stream:
+        async for event in stream:
+            print(event.kind, event.data)
+```
+
+`options` 是每次模型调用使用的 Republic chat options，Agent 会补入当前步骤的工具。模型通过 Republic 的参数或环境变量配置；`BUB_*` 设置用于 Bub 应用。
+
+如果需要自己的模型回退、凭据选择或超时策略，可以实现 `bub.core.ModelClient`：
+
+| 成员 | 要求 |
+| --- | --- |
+| `spec` | 默认的 `provider:model` 字符串。 |
+| `max_tokens` | 默认输出 token 上限，或 `None`。 |
+| `open_stream(messages, *, spec, options)` | 异步上下文管理器，产出 `(provider_name, republic_stream)`。messages 是 `republic.Message` 对象，options 包含本步骤的工具。 |
+
+`LLMCallStarted` 处理器可以更改请求的模型。使用 Republic chat model 时，同一供应商内的切换复用当前客户端；切换到其他供应商会读取 Republic 环境配置创建客户端。需要不同策略时，提供自己的 `ModelClient`。
+
+<a id="system-prompt"></a>
+
+## 设置指令
+
+`system_prompt` 接收文本、函数，或按顺序排列的两者。函数接收 `PromptContext`，支持同步和异步。Agent 在每轮运行的第一个模型步骤前渲染一次这些片段，忽略空结果，再用空行拼接；同一轮运行的后续步骤复用这段文本。
+
+```python
+from bub.core import PromptContext
+
+
+@agent.system_prompt.add
+def customer(context: PromptContext) -> str | None:
+    if (name := context.state.get("user")) is not None:
+        return f"You are helping {name}."
+    return None
+```
+
+`PromptContext` 包含本轮运行的 prompt、提供给模型的工具、模型标识、Tape、本轮状态和 Agent。`available_tools` 列出 Agent 注册的工具。使用 `agent.system_prompt.remove(section)` 可以移除片段。
+
+<a id="tapes-and-state"></a>
+<a id="sessions-and-tapes"></a>
+
+传给运行的 `state` 是可变字典，由工具、提示词片段和事件处理器共用。哪些值需要保存、下次运行时如何恢复，由你决定，详见[本轮状态](/zh-cn/docs/concepts/tape/#state)。
+
+<a id="tools"></a>
+
+<a id="agent-parameters"></a>
+
+## 设置其他参数
+
+| 参数 | 默认值与用途 |
+| --- | --- |
+| `model` | `None`。默认 Republic chat model 或 `ModelClient`。 |
+| `store` | 新建的 `InMemoryTapeStore`。也可以传入同步或异步存储。 |
+| `tools` | 空。接收 `Tool` 对象，以及 `republic.tools.WebSearch()` 等供应商执行的工具。 |
+| `system_prompt` | 空。每轮运行渲染一次的文本或函数片段。 |
+| `context` | `default_tape_context()`。选择哪些 Tape 记录进入模型消息。 |
+| `sidecars` | 空。与 Tape 一起挂载的附加存储能力。 |
+| `max_steps` | `sys.maxsize`。一轮运行的模型步骤上限。 |
+| `max_tool_concurrency` | `None`，同一次模型响应中的工具调用可以全部并发。设为 `1` 时依次执行。不同运行之间的并发由应用协调。 |
+| `name` | `"agent"`。Agent trace span 使用的名称。 |
+| `command_prefix` | `None`。设置前缀后，可以通过文本命令直接调用工具。 |
+
+传入的 `Tool` 按名称保存在 `agent.tools` 中，供应商工具保存在 `agent.builtin_tools` 中。构造或更新 Agent 时，由你显式选择这些工具。
+
+<a id="customize-the-loop"></a>
+
+## 定制步骤准备方式
+
+当工具选择需要自己的业务逻辑时，可以继承 `Agent` 并重写 `prepare_tools(tape, prompt)`。默认提供传入的工具，排除 `exposure="command"`。Agent 在每轮运行的第一个模型步骤前准备一次工具，之后每一步都提供同一组工具；调用不在其中的工具时，会重新执行 `prepare_tools(tape, None)` 来解析，因此运行中新变为可用的工具仍可调用。`tape.context.state` 就是本轮状态。
+
+运行过程中到达的新消息和继续运行时的下一步提示，由两个循环事件控制：
+
+| 事件 | 发生时机 | 支持的操作 |
+| --- | --- | --- |
+| `MessagesPending` | 每个步骤构建模型请求时，以及步骤结束且没有调用工具时。 | 向 `event.messages` 追加内容；它们在下一个 prompt 之前发送，并一起记录。步骤结束时提供的消息会让运行继续。 |
+| `StepFinished` | 步骤结束。`status == "continue"` 时运行会再走一步。 | 设置 `next_prompt` 为下一步添加用户消息；为 `None` 时直接继续对话。`event.prompt` 是本步骤的 prompt，`event.stream` 保存本次运行的用量。 |
+
+```python
+from bub.core.events import MessagesPending, StepFinished
+
+inbox: dict[str, list[str]] = {}
+
+
+@agent.events.on(MessagesPending)
+def send_queued(event: MessagesPending) -> None:
+    event.messages.extend([text] for text in inbox.pop(event.tape.name, []))
+
+
+@agent.events.on(StepFinished)
+def check_results(event: StepFinished) -> None:
+    if event.status == "continue":
+        event.next_prompt = ["Check the tool results before answering."]
+```
+
+`agent.session(name, state=...)` 打开一个由你管理生命周期的 Tape。把它返回的 `Tape` 对象（不是名称）传给 `agent.run_on(tape, prompt, model=...)` 或 `agent.run_once(prompt, model=..., tape=<Tape>)`。`run_on()` 返回的流需要由你关闭；`run_once()` 只产出一个模型步骤，适合自己驱动循环的场景。
+
+<a id="events"></a>
+<a id="commands"></a>

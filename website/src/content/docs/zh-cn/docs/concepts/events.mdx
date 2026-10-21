@@ -128,7 +128,7 @@ async def mark_reviewed() -> None:
 
 ## 应用插件
 
-`AgentPlugins` 把四个 hook 接到调用事件上：`before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call`。它把 `continue_prompt` 接到 `StepFinished`，把 steering inbox 接到 `MessagesPending`。插件按 hook 的要求返回值，适配器去改对应的事件。`BubAgent` 用的就是这个适配器，核心 Agent [也可以这么用](/zh-cn/docs/sdk/app-plugins/#agent-plugins)。
+`AgentPlugins` 把四个 hook 接到调用事件上：`before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call`。它把 `continue_prompt` 接到 `StepFinished`，把 steering inbox 接到 `MessagesPending`。插件按 hook 的要求返回值，适配器去改对应的事件。`BubAgent` 用的就是这个适配器，核心 Agent [也可以这么用](/zh-cn/docs/sdk/reuse-plugins/#agent-plugins)。
 
 这个适配器遵循插件 hook 的顺序。单个拦截 hook 抛异常时，它接住、记日志、跳过。要拒绝一次调用，就返回对应的 decision。其他应用 hooks 按各自的出错规则处理。
 

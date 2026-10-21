@@ -8,7 +8,7 @@ sidebar:
 
 Store the Bub application's conversation history in a local SQLite database with [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy). The plugin replaces the app's default file store; you can continue using `,tape.info` and `,tape.search` to inspect records.
 
-This guide configures the plugin for the Bub CLI through `BUB_*` settings. In your own Python program, you can construct `SQLAlchemyTapeStore` and pass it directly to `core.Agent`; see [Reuse plugins in your agent](/docs/sdk/app-plugins/). [Tape and context](/docs/concepts/tape/) explains the shared storage behavior.
+This guide configures the plugin for the Bub CLI through `BUB_*` settings. In your own Python program, you can construct `SQLAlchemyTapeStore` and pass it directly to `core.Agent`; see [Reusing plugins](/docs/sdk/reuse-plugins/). [Tape and context](/docs/concepts/tape/) explains the shared storage behavior.
 
 ## Before you begin
 

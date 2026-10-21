@@ -8,7 +8,7 @@ sidebar:
 
 通过 [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy)，把 Bub 应用的会话历史存入本地 SQLite 数据库。插件替换应用默认的文件存储，你仍可用 `,tape.info` 和 `,tape.search` 检查记录。
 
-本指南通过 `BUB_*` 设置为 Bub CLI 配置插件。在自己的 Python 程序中，可以构造 `SQLAlchemyTapeStore` 并直接传给 `core.Agent`，具体用法见[在 Agent 中复用插件](/zh-cn/docs/sdk/app-plugins/)。[Tape 与上下文](/zh-cn/docs/concepts/tape/)说明两种用法共用的存储行为。
+本指南通过 `BUB_*` 设置为 Bub CLI 配置插件。在自己的 Python 程序中，可以构造 `SQLAlchemyTapeStore` 并直接传给 `core.Agent`，具体用法见[复用插件](/zh-cn/docs/sdk/reuse-plugins/)。[Tape 与上下文](/zh-cn/docs/concepts/tape/)说明两种用法共用的存储行为。
 
 ## 前置条件
 

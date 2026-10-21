@@ -1,8 +1,8 @@
 ---
-title: 通过 FastAPI 提供 Agent 服务
+title: 示例：FastAPI 服务
 description: 为 Agent 提供 HTTP 接口，并为每个会话保留独立历史。
 sidebar:
-  order: 7
+  order: 5
 ---
 
 为 Agent 提供 HTTP 接口，让其他程序可以向它提交任务。每个请求指定会话名称；使用相同名称的请求会继续磁盘上保存的会话。
@@ -19,9 +19,7 @@ cd bub-api
 uv add bub fastapi uvicorn
 ```
 
-这个服务使用基础 SDK 依赖，以及 FastAPI 和 Uvicorn。
-
-如果要接入已有的 Bub 插件，见[复用应用插件](/zh-cn/docs/sdk/app-plugins/)。加入插件工具或指定 hooks 后，仍可沿用下面的接口与请求生命周期。
+如果要接入已有的 Bub 插件，见[复用插件](/zh-cn/docs/sdk/reuse-plugins/)。加入插件工具或指定 hooks 后，仍可沿用下面的接口与请求生命周期。
 
 ## 编写服务
 

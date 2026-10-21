@@ -31,11 +31,11 @@ agent = Agent(tools=[add_tool])
 
 运行时保留 `math.add` 这个名称；提供给模型时，点会换成下划线，因此模型看到的是 `math_add`。也可以通过 `description=` 显式提供描述。
 
-普通 `Agent` 会把传入的工具提供给模型，仅排除 `exposure="command"`。延迟加载、`allowed_tools` 状态和 `state["code_mode"]` 开关属于 [BubAgent 的应用策略](/zh-cn/docs/app/tools/)。在自己的 Agent 中按轮次选择工具，可以覆写 [`prepare_tools()`](/zh-cn/docs/sdk/#customize-the-loop)。
+普通 `Agent` 会把传入的工具提供给模型，仅排除 `exposure="command"`。延迟加载、`allowed_tools` 状态和 `state["code_mode"]` 开关属于 [BubAgent 的应用策略](/zh-cn/docs/app/tools/)。在自己的 Agent 中按轮次选择工具，可以覆写 [`prepare_tools()`](/zh-cn/docs/sdk/options/#customize-the-loop)。
 
 <a id="structured-results"></a>
 
-## 返回调用方需要的数据
+## 返回可用数据
 
 工具可以返回字典、列表、带类型的值或字符串。模型直接调用工具时，可以用 `renderer` 将结构化结果转成文本：
 
@@ -103,7 +103,7 @@ agent = Agent(
 )
 ```
 
-按 [SDK 指南](/zh-cn/docs/sdk/#models)中的方式管理模型并运行 Agent。模型可以向 `run_code` 传入这样的代码：
+按 [SDK 指南](/zh-cn/docs/sdk/options/#models)中的方式管理模型并运行 Agent。模型可以向 `run_code` 传入这样的代码：
 
 ```python
 order = await tools.lookup_order(order_id="A123")
@@ -121,6 +121,7 @@ print(order["status"])
 | `models` | 代码调用 Republic 时使用的默认 `provider:model`，或返回模型标识与客户端选项的解析函数。不设置时，代码需要给出模型标识，Republic 从环境读取凭据。 |
 | `stub_dir` | 保存生成的 Python 工具定义的目录。默认直接把定义放入系统提示词；写入文件时，Agent 需要有读取该文件的能力。 |
 | `media_tools` | 默认 `True`。增加用于返回媒体的 `attach_image`、`attach_audio`、`attach_video`。 |
+| `name` | `run_code` 工具的名称，默认 `run_code`。 |
 
 代码可以通过 Republic 桥接接口调用聊天、嵌入和决策模型。请求经过宿主进程的模型解析器，由宿主处理这些调用的供应商凭据。
 

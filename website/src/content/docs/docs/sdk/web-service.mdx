@@ -1,8 +1,8 @@
 ---
-title: Serve your agent with FastAPI
+title: "Example: FastAPI service"
 description: Give your Agent an HTTP endpoint and keep a separate conversation for each session.
 sidebar:
-  order: 7
+  order: 5
 ---
 
 Give your Agent an HTTP endpoint so another program can send it work. Each request names a session; requests with the same name continue a conversation stored on disk.
@@ -19,9 +19,7 @@ cd bub-api
 uv add bub fastapi uvicorn
 ```
 
-This service uses the base SDK dependencies together with FastAPI and Uvicorn.
-
-To add an existing Bub plugin, follow [Reuse application plugins](/docs/sdk/app-plugins/). You can add its tools or selected hooks while keeping the endpoint and request lifecycle below.
+To add an existing Bub plugin, follow [Reusing plugins](/docs/sdk/reuse-plugins/). You can add its tools or selected hooks while keeping the endpoint and request lifecycle below.
 
 ## Write the service
 

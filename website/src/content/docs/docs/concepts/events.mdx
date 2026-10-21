@@ -128,7 +128,7 @@ async def mark_reviewed() -> None:
 
 ## App plugins
 
-`AgentPlugins` connects four hooks to the call events: `before_llm_call`, `after_llm_call`, `before_tool_call`, and `after_tool_call`. It connects the `continue_prompt` hook to `StepFinished`. It connects the steering inbox to `MessagesPending`. A plugin returns the values that the hook contract requires, and the adapter updates the event. `BubAgent` uses this adapter, and a core Agent can [use it too](/docs/sdk/app-plugins/#agent-plugins).
+`AgentPlugins` connects four hooks to the call events: `before_llm_call`, `after_llm_call`, `before_tool_call`, and `after_tool_call`. It connects the `continue_prompt` hook to `StepFinished`. It connects the steering inbox to `MessagesPending`. A plugin returns the values that the hook contract requires, and the adapter updates the event. `BubAgent` uses this adapter, and a core Agent can [use it too](/docs/sdk/reuse-plugins/#agent-plugins).
 
 This adapter follows the plugin hook order. It catches exceptions from individual interception hooks, logs them, and skips them. To deny a call, return the correct decision. The other app hooks follow their own error contracts.
 
