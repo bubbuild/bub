@@ -1,0 +1,99 @@
+---
+title: Quick start
+description: Run Bub in your terminal, or embed it in a Python program.
+sidebar:
+  order: 2
+---
+
+import { CardGrid, LinkCard, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Bub runs in two places: as an application in its own process, or as a library inside your Python program. Both run the same kernel, so you can move between them later.
+
+This page assumes [Bub is installed](/docs/getting-started/install/).
+
+## Run it
+
+<Tabs syncKey="form">
+<TabItem label="Use Bub App">
+
+Configure a model once, then start a conversation in any project directory:
+
+```bash
+bub onboard
+```
+
+```bash
+mkdir hello-bub && cd hello-bub
+bub chat
+```
+
+Ask it something:
+
+```text
+> Summarize the files in this directory
+```
+
+Bub reads `AGENTS.md` when the directory has one, records the turn on its tape, and answers with the model you configured. Press `Ctrl+C` to leave.
+
+Next: [your first session](/docs/app/first-session/) covers workspaces, commands, and session names.
+
+</TabItem>
+<TabItem label="Build your own Bub Agent">
+
+Add Bub to a project and drive the loop yourself:
+
+```bash
+uv init --python 3.12 my-agent && cd my-agent
+uv add bub
+```
+
+Save this as `main.py`:
+
+```python
+import asyncio
+
+import republic
+
+from bub.core import Agent
+
+
+async def main() -> None:
+    agent = Agent(system_prompt="Be concise.")
+    async with republic.get_model("openai:gpt-5-mini") as model:
+        async with agent.run("What can you do?", model=model, tape="demo") as stream:
+            async for event in stream:
+                if event.kind == "text":
+                    print(event.data.get("delta", ""), end="")
+
+
+asyncio.run(main())
+```
+
+```bash
+export REPUBLIC_OPENAI_API_KEY=sk-...
+uv run python main.py
+```
+
+`Agent` owns the model and tool loop; you pass the model, the tools, and the tape name. The stream reports `text` for the answer, plus `tool_call` and `tool_result` when the model calls a tool.
+
+Next: [Build your own Bub Agent](/docs/sdk/) adds a tool and explains the stream lifecycle.
+
+</TabItem>
+</Tabs>
+
+## Where each path goes
+
+<CardGrid>
+  <LinkCard
+    title="Use the Bub app"
+    href="/docs/app/"
+    description="Configure it, add tools and skills, connect channels, deploy it"
+  />
+  <LinkCard
+    title="Build your own Bub Agent"
+    href="/docs/sdk/"
+    description="Choose the model and storage, then call the agent from your service"
+  />
+</CardGrid>
+
+Concepts are optional. Every page says when it is worth reading, so you can skip them and come back when a task needs them.

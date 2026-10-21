@@ -9,21 +9,6 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Choose the installation for the way you want to use Bub. Add Bub to a Python project with [uv](https://docs.astral.sh/uv/getting-started/installation/), or install the application with a setup script or uv.
 
-<a id="agent-install"></a>
-
-## Build your own agent
-
-Use Python 3.12 or later and add Bub to your project:
-
-```bash
-uv add bub
-uv run python -c "from bub.core import Agent; print(Agent.__name__)"
-```
-
-If you are starting a new project, first run `uv init --python 3.12 my-agent` and `cd my-agent`.
-
-The base installation includes the kernel's dependencies: Republic, Pydantic, Loguru, and typing-extensions. The import check needs no model credentials. Continue with [Build your own agent](/docs/sdk/) to configure a model in Python and run the first example.
-
 <a id="app-install"></a>
 
 ## Run the Bub application
@@ -68,6 +53,21 @@ bub --help
 Continue with [Run Bub for the first time](/docs/app/first-session/) to start a conversation in your own workspace.
 
 The base install and `bub[app]` contain the same package files. The extra changes which dependencies are installed. Without the application dependencies, the `bub` command exits with an instruction to install `bub[app]`.
+
+<a id="agent-install"></a>
+
+## Build your own agent
+
+Use Python 3.12 or later and add Bub to your project:
+
+```bash
+uv add bub
+uv run python -c "from bub.core import Agent; print(Agent.__name__)"
+```
+
+If you are starting a new project, first run `uv init --python 3.12 my-agent` and `cd my-agent`.
+
+The base installation includes the kernel's dependencies: Republic, Pydantic, Loguru, and typing-extensions. The import check needs no model credentials. Continue with [Build your own agent](/docs/sdk/) to configure a model in Python and run the first example.
 
 <a id="app-development"></a>
 

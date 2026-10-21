@@ -1,26 +1,68 @@
 ---
-title: 构建适合你工作的 Bub
-description: 把 Agent 接入自己的 Python 程序，或从现成的 Bub 应用开始定制。
+title: Bub 是什么？
+description: 一个用 Python 写的 agent 运行时。可以作为应用运行，也可以引入到你自己的程序里。
 sidebar:
   order: 0
 ---
 
-把 Agent 接入自己的 Python 程序，或从现成的 Bub 应用开始定制。Bub 应用使用同一个 Agent 内核，并提供配置、插件和渠道接入。
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-## 使用 Bub 应用
+Bub 是一个用 Python 写的 agent 运行时。它要求 Python 3.12 或更高版本，用 `pip` 或 `uv` 从 PyPI 安装。
 
-先运行 Bub，再通过配置和插件添加需要的行为。这条路线也包含 skills、渠道和部署。
+你给 Bub 三样东西：一个模型、一组工具、一个存放对话的地方。然后它重复同一个循环：调用模型，执行模型要求的工具，把结果写进对话，再调用模型。模型不再要求工具、直接给出回答时，循环结束。
 
-从[运行第一轮对话](/zh-cn/docs/app/first-session/)开始；应用跑通后，到[使用 Bub 应用](/zh-cn/docs/app/)选择下一步要扩展的部分。
+Bub 其余的部分，都是为了让这个循环在演示之外也能用：配置、存储、渠道、插件，以及看清一次运行在做什么的手段。
 
-## 构建你的 Bub Agent
+## 它由什么组成
 
-选择模型和工具，用 `bub.core.Agent` 组合 Agent，再接入自己的程序。先定义一个查询订单状态的工具，让 Agent 调用一次。
+Bub 分两层。
 
-[构建你的 Bub Agent](/zh-cn/docs/sdk/)会带你跑通这个 Python 示例。需要 HTTP 接口时，继续阅读 [FastAPI 接入](/zh-cn/docs/sdk/web-service/)。
+**内核**（`bub.core`）有循环、工具接口、对话记录、事件总线和模型客户端。它用 `republic` 调用模型，依赖 `pydantic` 和 `loguru`。
 
-## 用到时，再查共同机制
+**应用层**（`bub[app]`）加上让内核变成一个能直接运行的程序所需的部分：配置和配置文件、插件与 hooks、skills、消息渠道、网关，以及 `bub` 命令。
 
-工具、会话历史和事件的工作方式共用一份[说明](/zh-cn/docs/concepts/)。各自的指南给出接入步骤和默认行为。
+`pip install bub` 只装内核。`pip install "bub[app]"` 两层都装。
 
-按所选路线[安装 Bub](/zh-cn/docs/getting-started/install/)，然后运行第一个示例。
+## 两种用法
+
+| | 使用 Bub 应用 | 构建你的 Bub Agent |
+| --- | --- | --- |
+| 运行的是什么 | `bub` 命令，独占一个进程 | 你自己的 Python 程序 |
+| 怎么启动 | `bub chat`、`bub run`、`bub gateway` | `Agent(...)` |
+| 你需要提供 | 模型和渠道配置 | 模型、工具、一个 tape |
+| Bub 提供 | 配置、插件、skills、hooks、渠道 | 循环和它的事件 |
+
+想要一个在终端或聊天软件里就能用的 agent，用应用。想给自己跑的服务加上 agent 行为，就自己构建。
+
+两者并不冲突。导入 `BubAgent` 的程序会拿到内核，外加应用的配置和插件 hooks，但不需要跑 `bub` 命令。
+
+## 核心设计
+
+几条约束让循环保持简单：
+
+- 历史只追加。每一轮写进 tape。模型读的是这份记录的一个切片，而不是一个无限增长的 chat 数组。
+- 每一步都发事件。模型调用和工具调用各自发出开始、结束和结果。宿主可以旁观一次运行，改掉下一次的输入，或者把它停下来。
+- 工具就是函数。带类型标注的 Python 函数就够了。code mode 让模型写一小段程序，一步里调用多个工具。
+
+## 接下来
+
+<CardGrid>
+  <LinkCard
+    title="安装 Bub"
+    href="/zh-cn/docs/getting-started/install/"
+    description="一条脚本或一条 uv 命令，装应用或装库。"
+  />
+  <LinkCard
+    title="快速上手"
+    href="/zh-cn/docs/getting-started/quickstart/"
+    description="两分钟跑起来：在终端里，或者在你的 Python 程序里。"
+  />
+</CardGrid>
+
+其余文档，按阅读顺序：
+
+- **[核心概念](/zh-cn/docs/concepts/)**：tape、轮次、事件、扩展点。指南里遇到看不懂的词再回来读，后面的页面不依赖它。
+- **[使用 Bub 应用](/zh-cn/docs/app/)**：先配置，再加工具、skills、插件、hooks 和渠道。
+- **[构建你的 Bub Agent](/zh-cn/docs/sdk/)**：留下内核，循环周边自己写。
+- **[集成](/zh-cn/docs/integrations/)**：MCP、ACP、agent plugins、本地模型、SQLite、可观测性。
+- **[参考](/zh-cn/docs/reference/)**：CLI 命令、配置项、类型、hooks、版本记录。

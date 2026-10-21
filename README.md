@@ -9,7 +9,7 @@
 
 <p><strong>Build your Bub.</strong></p>
 
-[Website](https://bub.build) · [Docs](https://bub.build/docs/getting-started/) · [Hub](https://hub.bub.build)
+[Website](https://bub.build) · [Docs](https://bub.build/docs/) · [Hub](https://hub.bub.build)
 
 </div>
 
@@ -55,7 +55,7 @@ bub chat
 
 ## Documentation
 
-- [Choose a starting point](https://bub.build/docs/getting-started/)
+- [Choose a starting point](https://bub.build/docs/)
 - [Shared concepts and capabilities](https://bub.build/docs/concepts/)
 - [API and application reference](https://bub.build/docs/reference/)
 

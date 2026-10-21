@@ -147,8 +147,8 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Get started',
-          translations: { 'zh-CN': '快速开始' },
-          items: ['docs/getting-started', 'docs/getting-started/install'],
+          translations: { 'zh-CN': '开始' },
+          items: ['docs/getting-started', 'docs/getting-started/install', 'docs/getting-started/quickstart'],
         },
         {
           label: 'Concepts',

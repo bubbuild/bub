@@ -9,21 +9,6 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 按你的使用方式选择安装路径。Python 项目通过 [uv](https://docs.astral.sh/uv/getting-started/installation/) 添加 Bub；运行应用可以使用安装脚本或 uv。
 
-<a id="agent-install"></a>
-
-## 构建自己的 Agent
-
-使用 Python 3.12 或更高版本，在项目中添加 Bub：
-
-```bash
-uv add bub
-uv run python -c "from bub.core import Agent; print(Agent.__name__)"
-```
-
-如果还没有项目，先运行 `uv init --python 3.12 my-agent`，再进入 `cd my-agent`。
-
-基础安装包含内核所需的 Republic、Pydantic、Loguru 和 typing-extensions。导入检查无需模型凭据。接着阅读[构建自己的 Agent](/zh-cn/docs/sdk/)，在 Python 中配置模型并运行第一个示例。
-
 <a id="app-install"></a>
 
 ## 运行 Bub 应用
@@ -68,6 +53,21 @@ bub --help
 接着阅读[首次运行 Bub](/zh-cn/docs/app/first-session/)，在自己的工作区开始对话。
 
 基础安装与 `bub[app]` 包含相同的包文件；extra 改变的是安装的依赖。缺少应用依赖时，`bub` 命令会退出，并提示安装 `bub[app]`。
+
+<a id="agent-install"></a>
+
+## 构建自己的 Agent
+
+使用 Python 3.12 或更高版本，在项目中添加 Bub：
+
+```bash
+uv add bub
+uv run python -c "from bub.core import Agent; print(Agent.__name__)"
+```
+
+如果还没有项目，先运行 `uv init --python 3.12 my-agent`，再进入 `cd my-agent`。
+
+基础安装包含内核所需的 Republic、Pydantic、Loguru 和 typing-extensions。导入检查无需模型凭据。接着阅读[构建自己的 Agent](/zh-cn/docs/sdk/)，在 Python 中配置模型并运行第一个示例。
 
 <a id="app-development"></a>
 
