@@ -27,7 +27,7 @@ uv add bub
 
 Run your first agent with the [SDK guide](https://bub.build/docs/sdk/), then [serve it with FastAPI](https://bub.build/docs/sdk/web-service/) when you need an HTTP endpoint.
 
-You can also embed `BubAgent` to reuse the application's settings and plugin hooks in your service. This uses `bub[app]`; [Reuse application plugins](https://bub.build/docs/sdk/app-plugins/) explains the integration choices and their requirements.
+You can also embed `BubAgent` to reuse the application's settings and plugin hooks in your service. This uses `bub[app]`; [Reuse application plugins](https://bub.build/docs/sdk/reuse-plugins/) explains the integration choices and their requirements.
 
 ## Customize the Bub app
 
@@ -51,7 +51,7 @@ Follow the prompts to choose plugins and configure your model, then start a conv
 bub chat
 ```
 
-[Run your first conversation](https://bub.build/docs/app/first-session/) walks through a task in your workspace. [Customize the Bub app](https://bub.build/docs/app/) covers tools, plugins, and packaging. For `uv tool install` and other setup options, see [Install Bub](https://bub.build/docs/getting-started/install/#app-install).
+[Run your first conversation](https://bub.build/docs/app/workspace/) walks through a task in your workspace. [Customize the Bub app](https://bub.build/docs/app/workspace/) covers tools, plugins, and packaging. For `uv tool install` and other setup options, see [Install Bub](https://bub.build/docs/getting-started/install/#app-install).
 
 ## Documentation
 

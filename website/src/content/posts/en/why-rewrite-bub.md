@@ -62,7 +62,7 @@ So what extension points does Bub provide today? Here are a few of the main ones
 4. `provide_tape_store()`: allows plugins to define custom tape storage, whether in a database or in an external service. This makes it a natural extension point for memory-system experimentation. Example: [bub-tapestore-sqlite](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite)
 5. `provide_channels()`: allows plugins to provide one or more channels. These channels are started when the application starts and torn down when it exits. That makes them useful not only for messaging, but also for any long-running service, such as an HTTP server. [Bub's scheduling system](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-schedule), for example, is built on this interface even though it does not sound like a “channel” at first glance.
 
-For the full plugin API, see the [Bub documentation](https://bub.build/docs/build/hooks/).
+For the full plugin API, see the [Bub documentation](https://bub.build/docs/app/hooks/).
 
 [^4]: A turn is one complete pass of handling a user prompt, including the entire ReAct loop.
 
