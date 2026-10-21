@@ -1,8 +1,6 @@
 ---
 title: Channels
 description: Choose the channels the gateway starts, tune batching and session ids, and configure the Telegram bot.
-sidebar:
-  order: 3
 ---
 
 A channel is how messages enter and leave the Bub app. `cli` is the terminal, `telegram` is a bot on Telegram, and a plugin can add another messaging platform or a background runtime. The gateway starts the enabled channels, batches their messages, and keys their sessions. The application framework manages channels. A service that uses an Agent directly reads its own input and writes its own output.

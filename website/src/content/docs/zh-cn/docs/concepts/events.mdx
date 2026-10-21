@@ -1,8 +1,6 @@
 ---
 title: 事件
 description: 看一次运行，改掉或叫停模型与工具调用，并记录你需要的事件。
-sidebar:
-  order: 4
 ---
 
 Agent 事件能让你看到一次运行，也能让你在模型或工具调用之前做决定。每个 Agent 都会建一个 `EventBus`，并挂上一个 `TapeRecorder`。你通过 `agent.events` 添加处理器。

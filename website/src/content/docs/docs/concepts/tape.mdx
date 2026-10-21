@@ -1,8 +1,6 @@
 ---
 title: Tape
 description: Where Bub keeps the conversation, what the model reads on the next call, and what survives a run.
-sidebar:
-  order: 3
 ---
 
 An agent needs two things. It needs a record of its work. It also needs a useful set of messages for the next model call. Bub keeps the record in a tape. It builds the model context from the entries that you select. Because these are separate, you can keep the full history and still send a short request.

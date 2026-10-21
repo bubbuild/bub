@@ -1,8 +1,6 @@
 ---
 title: 基础 Agent
 description: 在一个最小的 Python 程序里跑起 Agent，并控制它产生的输出流。
-sidebar:
-  order: 0
 ---
 
 选择模型，加入工具，把 Agent 接到你的程序里。`bub.core.Agent` 负责模型与工具之间的循环；你决定如何保存会话，以及它怎样与你的系统协作。

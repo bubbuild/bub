@@ -1,8 +1,6 @@
 ---
 title: Basic agent
 description: Create a basic agent in your own Python program and control the stream it produces.
-sidebar:
-  order: 0
 ---
 
 Choose a model, add tools, and connect the agent to your program. `bub.core.Agent` runs the model and tool loop while you decide how to store conversations and manage the surrounding application.

@@ -1,8 +1,6 @@
 ---
 title: Turn
 description: One inbound message, from the session lookup to the reply that leaves the app.
-sidebar:
-  order: 2
 ---
 
 A turn is one inbound message, and all the work that it causes. `BubFramework` handles a turn: it finds the session, loads the state, builds the prompt, runs the model, and delivers the reply. Each stage has a hook, so a plugin can change that stage.

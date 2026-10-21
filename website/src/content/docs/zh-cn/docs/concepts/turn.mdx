@@ -1,8 +1,6 @@
 ---
 title: Turn
 description: 一条进来的消息，从找会话到把回复发出去。
-sidebar:
-  order: 2
 ---
 
 一个 turn 就是一条进来的消息，以及它引起的全部工作。`BubFramework` 负责一个 turn：找会话、装载状态、构建提示词、跑模型、发出回复。每个阶段都留了 hook，插件可以改这一段。
