@@ -125,9 +125,3 @@ HELLO
 | 编辑器无法加载或恢复会话 | 确认编辑器启动的是同一个 `bub` 环境，且其中 `bub acp --help` 可用；同时保持每次启动使用稳定的 `BUB_HOME`。 |
 | 重启编辑器后旧线程消失 | 保持每次启动使用同一个 Bub 环境和 `BUB_HOME`。`bub-acp-server` 会把 ACP 会话元数据保存在 Bub 数据目录下，并从 Bub Tape 加载历史。 |
 | turn 已开始但界面没有活动显示 | 在 Zed 中运行 `dev: open acp logs`，检查 Zed 与 Bub 之间的 JSON-RPC 消息。 |
-
-## 下一步
-
-- [配置](/zh-cn/docs/app/configure/)：Bub 的模型和运行时设置。
-- [Turn](/zh-cn/docs/concepts/turn/)：Bub 如何把入站消息转成模型调用和出站消息。
-- [构建插件](/zh-cn/docs/app/plugins/)：用 hooks、工具和渠道扩展 Bub。

@@ -201,9 +201,3 @@ stdio 服务器会收到绝对路径形式的 `PLUGIN_ROOT` 和 `PLUGIN_DATA` �
 | 技能未出现 | 检查 frontmatter 中的名称是否与目录一致，以及 `skills_enabled` 是否开启。工作区或用户目录中的同名技能可能优先。 |
 | MCP 工具未出现 | 检查插件包的 `mcp.json`、`mcp_enabled`、已启用的渠道和连接日志。等待 bootstrap 完成后再调用工具。 |
 | 技能可用但 MCP 不可用 | MCP 校验和连接失败不会影响技能。无效服务器条目会被跳过，同文件中的其他有效服务器仍可加载。 |
-
-## 下一步
-
-- [接入 MCP 服务器](/zh-cn/docs/integrations/mcp/)：管理 Bub 数据目录配置中的服务器。
-- [构建技能](/zh-cn/docs/app/skills/)：编写并验证 Bub 技能。
-- [构建插件](/zh-cn/docs/app/plugins/)：使用 Python 包扩展 Bub hooks。

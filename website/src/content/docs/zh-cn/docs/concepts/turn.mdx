@@ -9,6 +9,17 @@ import { Aside, Steps } from '@astrojs/starlight/components';
 
 turn 属于 `bub[app]`。直接调 `core.Agent.run()` 没有 turn：循环就用你给的提示词、state 和 tape 开始。这一页讲的是消息从渠道进来之后的那一层。
 
+## turn、run 与 step {#turn-run-step}
+
+同一个“一次”有三种粒度，先分清它们：
+
+```mermaid
+flowchart LR
+  T["Turn<br/>一条消息引起的全部工作"] --> R["Run<br/>一次 agent.run()"] --> S["Step<br/>一次模型调用 + 它要求的工具"]
+```
+
+turn ⊃ run ⊃ step：一次 turn 通常包含一次 run，一次 run 又包含多个 step。反过来不成立——直接用 SDK 时，一次 `agent.run()` 可以独立存在，没有 turn；而 step 始终属于某一次 run。
+
 ## 为什么需要 turn {#why-a-turn}
 
 如果只有一个模型循环，你就得在每个调用点自己写一遍同样的事：这次消息属于哪个会话？上一次的状态要不要带上？回复应该发到哪里？

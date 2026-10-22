@@ -179,9 +179,3 @@ bub mcp remove time
 | `bub mcp add` 在 `Added MCP server …` 之后打印 `CancelledError` | 条目可能已经写入。用 `bub mcp list` 复核，或改为手动编辑 `mcp.json`。 |
 | turn 中工具未被调用 | 确认 `bub mcp list` 显示 `Status: Connected` 且列出了预期工具，然后提一个明显需要该工具的问题。 |
 | `mcp.json` 权限被拒绝 | 确认 `~/.bub/` 对当前用户可写，或将 `BUB_HOME` 设到你拥有的目录后重试。 |
-
-## 下一步
-
-- [加载 Agent Plugins](/zh-cn/docs/integrations/agent-plugins/)：在 `mcp.json` 之外加载可移植的技能和 MCP 服务器。
-- [配置](/zh-cn/docs/app/configure/)：Bub 的配置层与环境变量。
-- [bub-mcp 源码](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp)：插件完整源码与高级选项。

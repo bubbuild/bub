@@ -179,9 +179,3 @@ bub mcp remove time
 | `bub mcp add` prints `CancelledError` after `Added MCP server …` | The entry may already be written. Use `bub mcp list` to verify, or edit `mcp.json` by hand. |
 | Tool never called during a turn | Confirm `bub mcp list` shows `Status: Connected` and lists the expected tool, then ask a question that clearly maps to that tool. |
 | Permission denied on `mcp.json` | Verify `~/.bub/` is writable, or set `BUB_HOME` to a directory you own. |
-
-## Next steps
-
-- [Load Agent Plugins](/docs/integrations/agent-plugins/): load portable skills and MCP servers alongside `mcp.json`.
-- [Configure](/docs/app/configure/): Bub's config layer and environment variables.
-- [bub-mcp source](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp): the plugin's full source and advanced options.

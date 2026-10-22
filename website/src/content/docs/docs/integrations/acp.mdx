@@ -125,9 +125,3 @@ When the editor reopens an existing thread, `bub-acp-server` loads the matching 
 | The editor cannot load or resume a thread | Confirm the editor is launching the same `bub` environment where `bub acp --help` works, and keep `BUB_HOME` stable across launches. |
 | Previous threads disappear after restarting the editor | Keep the same Bub environment and `BUB_HOME` across launches. `bub-acp-server` stores ACP session metadata under Bub home and loads history from Bub tapes. |
 | A turn starts but no activity is visible | Open Zed's `dev: open acp logs` command and inspect the JSON-RPC messages between Zed and Bub. |
-
-## Next steps
-
-- [Configure](/docs/app/configure/): Bub's model and runtime settings.
-- [Turn](/docs/concepts/turn/): how Bub turns inbound messages into model calls and outbound messages.
-- [Build plugins](/docs/app/plugins/): extend Bub with hooks, tools, and channels.

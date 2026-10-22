@@ -9,6 +9,17 @@ A turn is one inbound message, and all the work that it causes. `BubFramework` h
 
 A turn belongs to `bub[app]`. A direct `core.Agent.run()` call has no turn — the loop starts with the prompt, state, and tape that you give it. This page covers the layer between a channel and that loop.
 
+## Turn, run, and step {#turn-run-step}
+
+There are three granularities of "one" here. Separate them first:
+
+```mermaid
+flowchart LR
+  T["Turn<br/>all the work one message causes"] --> R["Run<br/>one agent.run() call"] --> S["Step<br/>one model call + the tools it requires"]
+```
+
+turn ⊃ run ⊃ step: a turn usually contains one run, and a run contains multiple steps. The reverse does not hold — when using the SDK directly, an `agent.run()` call can exist independently, with no turn; a step always belongs to a run.
+
 ## Why a turn exists {#why-a-turn}
 
 With just a model loop, every call site has to answer the same questions again: which session is this message from? Should last round's state come along? Where does the reply go?

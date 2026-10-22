@@ -149,9 +149,3 @@ The channel uses `telegram:<chat_id>` as the session id. A private chat and a gr
 A normal inbound message sets `output_channel="null"` before it enters the turn pipeline. A plain model answer is therefore not sent back blindly. The bundled `telegram` skill is the normal path for replies, progress updates, and edits.
 
 Comma commands are different. They keep `output_channel="telegram"`, so their tool output goes back to the originating `chat_id`. When the content is JSON with a `message` field, only that field is sent. Otherwise the raw content is sent. An empty payload is dropped.
-
-## Next steps
-
-- [Terminal](/docs/app/terminal/): the REPL and one-shot turns.
-- [Deployment](/docs/app/deploy/): run the bot in a container with persistent state.
-- [Settings reference](/docs/reference/settings/): every channel variable.
