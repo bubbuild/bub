@@ -9,7 +9,7 @@ description: 将插件提供的工具和 hooks 接入自己的 Agent，保留现
 
 使用 `core.Agent` 时，由你选择组件并接入 hooks。下面分别取用搜索插件的工具、适配上下文插件的调用 hooks，每个示例都说明了该插件需要的依赖。后台服务还需要各自的启动和关闭流程。
 
-## 加入搜索工具
+## 加入搜索工具 {#add-a-search-tool}
 
 [`bub-web-search`](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-web-search) 提供了可供 `core.Agent` 使用的搜索工具。将它安装到运行服务的 Python 环境中。本文示例使用 `bub-contrib` 的 `dev` 分支插件：
 
@@ -68,11 +68,11 @@ if __name__ == "__main__":
 
 `register_tools()` 还会更新进程内的全局工具注册表，请在服务启动时完成这些准备。Agent 使用显式传入或加入的工具；本例取用返回的搜索工具，包注册的其他工具（如 Jina 的 `web.read`）可按需另行加入。
 
-## 扩展运行
+## 扩展运行 {#extend-the-run}
 
 `AgentPlugins` 把插件的 hooks 接到你的 Agent 事件上。
 
-### 模型与工具调用
+### 模型与工具调用 {#model-and-tool-calls}
 
 [`bub-context-budget`](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-context-budget) 在模型调用前后工作。当估算的上下文超过阈值时，它会加入一条指令，请模型调用 `tape.handoff`。将这个工具交给 Agent，再把插件 hooks 接到 Agent 事件上即可。
 
@@ -109,7 +109,7 @@ Handoff 把摘要保存在锚点上。下一次模型请求需要这份摘要时
 
 适配器会捕获普通插件异常并跳过失败的 hook。需要阻止工具执行时，hook 应返回 `ToolCallDecision.deny(...)`。具体拦截语义见 [Agent 事件](/zh-cn/docs/concepts/events/)。
 
-### 其他 hooks
+### 其他 hooks {#other-hooks}
 
 其余 hooks 决定一次运行中有什么。每个 hook 对应核心 Agent 的一个扩展点：
 
@@ -139,7 +139,7 @@ async with plugins.running():
 
 `build_prompt`、`run_model`、`save_state`、`render_outbound`、`dispatch_outbound` 等消息流程 hooks 不属于 agent 循环，只在 `process_inbound()` 中运行。`plugins=[...]` 只注册列出的插件。多个插件实现同一个 hook 时都会执行：重名的工具、存储和 Tape 上下文取优先级最高者，提示词片段按优先级从低到高拼接。不带参数的 `AgentPlugins()` 和 `bub` 命令一样，加载 Bub 内置 hooks 和已安装的插件。传入 `framework` 则使用已有 framework 的 hooks，同时传入的 `plugins` 会注册到它上面。
 
-## 选择接入方式
+## 选择接入方式 {#choose-how-to-connect}
 
 宿主需要提供什么，取决于插件实现了哪些能力：
 
@@ -154,7 +154,7 @@ async with plugins.running():
 
 接入 MCP 时，按照插件的[嵌入示例](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-mcp#embedding)，用 `MCPChannel.connect()` 建立连接，通过 `bind_agent()` 把工具绑定到 `BubAgent`，最后调用 `stop()` 关闭连接。宿主在使用 `framework.running()` 之外，还需要管理这段生命周期。
 
-## 复用 BubAgent
+## 复用 BubAgent {#reuse-bubagent}
 
 `BubAgent` 在内核循环上接入 Bub 设置、技能、工具策略和插件 hooks。宿主可以通过 `framework.load_hooks()` 加载已安装插件，进入 `framework.running()` 后构造 `BubAgent(framework)`。它的 `run_stream(*, session_id, prompt, state=None, ...)` 返回由宿主消费和关闭的流。
 
@@ -164,7 +164,7 @@ async with plugins.running():
 
 直接调用流入口会跳过初始 `build_prompt`、`run_model` / `run_model_stream`、`save_state`、渲染和分发 hooks。宿主负责输出、自有状态的保存，以及同一会话的并发协调。需要完整消息流程时，使用 `process_inbound()`；即使设置 `stream_output=True`，它也会自行消费流，再返回完整的 `TurnResult`。
 
-## 继续构建
+## 继续构建 {#keep-building}
 
 - [工具与 CodeMode](/zh-cn/docs/sdk/tools/)：Agent 如何使用你提供的工具。
 - [Tape 与上下文](/zh-cn/docs/concepts/tape/)：存储与 handoff。

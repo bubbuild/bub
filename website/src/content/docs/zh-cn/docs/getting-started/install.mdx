@@ -5,7 +5,7 @@ description: 跟着文档一步步安装 Bub，提供了多种安装途径。
 
 import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
-## 安装 CLI 应用
+## 安装 CLI 应用 {#app-install}
 
 <Tabs syncKey="bub-app-install">
 <TabItem label="macOS / Linux">
@@ -40,7 +40,7 @@ uv tool update-shell
     如果当前环境提示找不到命令，请检查环境变量是否包含了可执行文件所在路径，或者手动把 `~/.local/bin` 加入 PATH。
 </Aside>
 
-## 安装 SDK
+## 安装 SDK {#agent-install}
 
 自 0.6.0 起，Bub 默认只包含核心，可以根据使用对应包管理工具将 Bub 作为依赖安装到项目中。这里以 uv 为例：
 
@@ -49,7 +49,7 @@ uv add bub
 uv run python -c "from bub.core import Agent; print(Agent.__name__)"
 ```
 
-## 从源码运行
+## 从源码运行 {#from-source}
 
 克隆项目仓库，按如下步骤同步依赖即可：
 

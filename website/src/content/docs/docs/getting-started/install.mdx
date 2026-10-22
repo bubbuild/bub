@@ -5,7 +5,7 @@ description: Install Bub step by step, with several install paths to choose from
 
 import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
-## Install the CLI app
+## Install the CLI app {#app-install}
 
 <Tabs syncKey="bub-app-install">
 <TabItem label="macOS / Linux">
@@ -40,7 +40,7 @@ When it finishes, run `bub --help`, then run `bub onboard` to start configuring,
     If the command is not found, check whether the environment variables include the directory that holds the executable, or add `~/.local/bin` to PATH yourself.
 </Aside>
 
-## Install the SDK
+## Install the SDK {#agent-install}
 
 From 0.6.0 on, Bub ships the core only. Use your package manager to add Bub to your project as a dependency. Here is uv:
 
@@ -49,7 +49,7 @@ uv add bub
 uv run python -c "from bub.core import Agent; print(Agent.__name__)"
 ```
 
-## Run from source
+## Run from source {#from-source}
 
 Clone the repository and sync its dependencies:
 

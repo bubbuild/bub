@@ -7,7 +7,7 @@ Hooks 把插件接到 Bub 应用上。本页列出 `BubHookSpecs` 声明的 26 �
 
 下文的“首个”指按 hook 优先级取得第一个非 `None` 的结果，“全部”指调用每个实现。普通 hook 抛出异常时，本次分发停止，异常向上传播；[agent 拦截 hooks](#通过-pluginagenthooks-拦截调用) 和 `on_error` 有各自的异常处理规则。
 
-## Turn Hooks
+## Turn Hooks {#turn-hooks}
 
 | Hook | 签名 | 行为 |
 | --- | --- | --- |
@@ -25,7 +25,7 @@ Hooks 把插件接到 Bub 应用上。本页列出 `BubHookSpecs` 声明的 26 �
 
 模型适配器先按插件注册顺序的逆序选择文本或流式 hook，再按 hook 优先级分发选中的名称。它可以把流收集为文本，也可以把文本回复包装成流。每个插件选择一种模型 hook 实现。
 
-## 应用资源与配置
+## 应用资源与配置 {#application-resources-and-configuration}
 
 | Hook | 签名 | 行为 |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ Hooks 把插件接到 Bub 应用上。本页列出 `BubHookSpecs` 声明的 26 �
 
 同步分发跳过 awaitable 返回值，并记录 `hook.async_not_supported` 告警。资源 provider 可以返回同步或异步生成器，Bub 会把它们作为上下文管理器进入。
 
-## Agent 拦截 Hooks
+## Agent 拦截 Hooks {#agent-interception-hooks}
 
 | Hook | 签名 | 行为 |
 | --- | --- | --- |
@@ -57,7 +57,7 @@ Hooks 把插件接到 Bub 应用上。本页列出 `BubHookSpecs` 声明的 26 �
 
 <span id="how-hooks-are-invoked"></span>
 
-## 优先级与分发
+## 优先级与分发 {#priority-and-dispatch}
 
 Bub 先注册内置 hooks，再注册已安装插件的入口点。普通实现优先级相同时，后注册的先运行。`@hookimpl(tryfirst=True)` 和 `@hookimpl(trylast=True)` 会改变优先级。这些标记与注册顺序共同决定哪个实现先运行。
 
@@ -67,13 +67,13 @@ Bub 先注册内置 hooks，再注册已安装插件的入口点。普通实现�
 
 `bub hooks` 按 pluggy 内部保存的顺序显示绑定，用于确认注册结果。执行时遵循上面的优先级规则。
 
-## 提示词内容
+## 提示词内容 {#prompt-content}
 
 `build_prompt` 可以返回包含字符串和 Republic 媒体的列表，媒体类型包括 `republic.Image`、`Audio` 和 `Video`。使用 `republic.image(...)`、`republic.audio(...)`、`republic.video(...)` 构造媒体。
 
 旧格式的字符串和内容块字典仍可使用。接收提示词的 hooks（`run_model`、`run_model_stream`、`continue_prompt`、`system_prompt`）收到的是旧格式：没有媒体时是字符串，否则是带媒体 URL 的内容块。内联媒体使用 data URL。`bub.prompt.to_content(prompt)` 可以转换为用户内容。
 
-## 运行时资源
+## 运行时资源 {#runtime-resources}
 
 `framework.running()` 先进入 lifespan providers，再获取会话存储和 steering inbox。退出时按相反顺序关闭已经进入的资源，发生错误时也是如此。执行环境缓存也会在作用域退出时关闭。
 
@@ -85,14 +85,14 @@ Bub 先注册内置 hooks，再注册已安装插件的入口点。普通实现�
 
 Tape sidecar providers 提供具名的关联 tape。Bub 把它们挂载到应用的根 Tape 上，fork、merge、archive 和 reset 都会处理已挂载的 sidecars。移除 provider 后，已保存的数据仍然保留。公共存储语义见 [Tape 与上下文](/zh-cn/docs/concepts/tape/)。
 
-## 通过 PluginAgentHooks 拦截调用
+## 通过 PluginAgentHooks 拦截调用 {#interception-through-pluginagenthooks}
 <span id="agent-loop-hooks-agenthooks"></span>
 
 `AgentPlugins.attach()` 把 `PluginAgentHooks` 订阅到核心 agent 的 LLM 和工具开始、完成事件上；`BubAgent` 将它接到自身。应用插件通过这个适配器介入调用。
 
 Before hooks 按 hook 优先级运行，每个实现都能看到前序实现的更新。`LLMCallDecision.finish(text)`、`ToolCallDecision.replace(result)` 和 `ToolCallDecision.deny(message)` 会停止后续 before 实现。LLM finish decision 不调用供应商，也没有对应的 `after_llm_call`。
 
-适配器捕获每个拦截 hook 的普通异常，记录 `hook.agent_hook_failed` 后继续。需要拒绝调用时，返回 decision。直接注册到[核心 EventBus](/zh-cn/docs/concepts/events/#处理器) 的 handler 会向上传播异常。
+适配器捕获每个拦截 hook 的普通异常，记录 `hook.agent_hook_failed` 后继续。需要拒绝调用时，返回 decision。直接注册到[核心 EventBus](/zh-cn/docs/concepts/events/#handlers) 的 handler 会向上传播异常。
 
 After hooks 观察成功调用和普通异常失败，取消与消费方关闭不会触发。`after_tool_call` 也会处理拒绝或替换的调用，各个实现共享同一个结果对象。修改 `result.result` 会改变向后传递的值，`result.error` 则保留原始失败信息。
 

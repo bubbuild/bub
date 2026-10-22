@@ -7,7 +7,7 @@ description: 定义一个动作，再直接交给 Agent，或通过 CodeMode 从
 
 本页说明共同的工具接口和 SDK 接入方式。安装步骤与完整的模型循环示例见[构建自己的 Agent](/zh-cn/docs/sdk/)。
 
-## 定义工具
+## 定义工具 {#define-the-action}
 
 `Tool.from_callable()` 从类型注解生成参数定义，从 docstring 读取描述。它支持同步和异步函数，返回的工具由你传给 Agent。
 
@@ -29,7 +29,7 @@ agent = Agent(tools=[add_tool])
 
 普通 `Agent` 会把传入的工具提供给模型，仅排除 `exposure="command"`。延迟加载、`allowed_tools` 状态和 `state["code_mode"]` 开关属于 [BubAgent 的应用策略](/zh-cn/docs/app/tools/)。在自己的 Agent 中按轮次选择工具，可以覆写 [`prepare_tools()`](/zh-cn/docs/sdk/options/#定制步骤准备方式)。
 
-## 返回可用数据
+## 返回可用数据 {#return-data-the-caller-can-use}
 
 工具可以返回字典、列表、带类型的值或字符串。模型直接调用工具时，可以用 `renderer` 将结构化结果转成文本：
 
@@ -55,9 +55,9 @@ order_tool = Tool.from_callable(
 
 `Tool.render(result)` 使用这个 renderer。默认情况下，字符串直接保留，Pydantic 模型与可序列化的值转为 JSON，其他值使用 `str()`。面向模型的执行器在 `ToolCallFinished` 之前渲染结果，因此处理器看到的是将交给模型的内容。CodeMode 使用的执行器会保留结构化结果。
 
-在模型循环中，工具执行错误会作为工具结果交回模型，让模型决定如何回答或重试。直接通过命令调用时，错误会传播给调用方。[事件处理器](/zh-cn/docs/concepts/events/#处理器)有自己的异常规则。
+在模型循环中，工具执行错误会作为工具结果交回模型，让模型决定如何回答或重试。直接通过命令调用时，错误会传播给调用方。[事件处理器](/zh-cn/docs/concepts/events/#handlers)有自己的异常规则。
 
-## 访问当前会话
+## 访问当前会话 {#use-the-current-conversation}
 
 传入 `context=True`，工具就会通过关键字参数 `context` 接收 `ToolContext`。其中包含当前 Tape、turn 状态、run ID 和事件总线。
 
@@ -76,7 +76,7 @@ remember_tool = Tool.from_callable(remember, context=True)
 
 这会在 Tape 中写入一条业务事件。默认上下文选择器读取会话消息与工具交互；要把这条事件交给模型，需要提供自己的选择逻辑。哪些已保存的信息应交给模型，由[Tape](/zh-cn/docs/concepts/tape/#context)中的选择规则决定。
 
-## 组合工具与 CodeMode
+## 组合工具与 CodeMode {#compose-tools-with-codemode}
 
 CodeMode 让模型编写 Python 来调用工具。它提供 `run_code` 工具，以及描述代码中可用工具的提示词片段。使用普通 Agent 时，需要显式加入这两部分：
 
@@ -117,7 +117,7 @@ print(order["status"])
 
 `run_code` 返回打印的输出和附带媒体，默认超时为 120 秒，可以通过 `timeout_seconds` 调整。使用 `LocalEnvironment` 时，每次调用都会启动一个拥有宿主用户权限的 Python 进程，在完成或取消时停止它及其子进程。如果需要不同的执行边界，请选择其他环境。
 
-## 选择执行环境
+## 选择执行环境 {#choose-an-execution-environment}
 
 `bub.environment` 中的 `Environment` 接口提供进程执行、文件访问和 Python 执行能力。`CodeMode(environment=...)` 使用你传入的环境。在 Bub 应用中，[`provide_environment` hook](/zh-cn/docs/reference/hooks/)负责为会话选择环境。
 
@@ -131,7 +131,7 @@ print(order["status"])
 
 环境执行生成的代码，通过回调交给宿主执行你的 Python 工具。应用不再使用自定义环境时，需要关闭它。
 
-## 不经过模型调用工具
+## 不经过模型调用工具 {#call-a-tool-without-a-model}
 
 设置 `command_prefix` 后，就可以接收文本命令。下面使用前面定义的 `add_tool`，不需要模型凭据：
 

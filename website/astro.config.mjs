@@ -4,6 +4,7 @@ import { defineConfig, envField } from 'astro/config';
 import tailwindcss from '@tailwindcss/vite';
 import starlight from '@astrojs/starlight';
 import cloudflare from '@astrojs/cloudflare';
+import headingAnchors from './src/integrations/heading-anchors.mjs';
 import peleDiagrams from './src/integrations/pele.mjs';
 
 const astro_image_mode =
@@ -54,6 +55,8 @@ export default defineConfig({
     },
   },
   integrations: [
+    // Let headings carry an explicit id so every locale shares the same anchor.
+    headingAnchors(),
     // Transform Mermaid fences before Starlight highlights code blocks.
     peleDiagrams(),
     starlight({

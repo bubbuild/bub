@@ -42,7 +42,7 @@ class OrdersPlugin:
 
 调用 `BubAgent.run_stream` 时，传入 `allowed_tools` 限制该 turn 里模型可用的工具。它接受运行时名称或模型名称。`None` 允许全部实例工具，空集合不允许任何工具。未知名称会抛出 `ValueError`。
 
-这个筛选适用于模型和 code mode 中的工具。逗号命令直接使用 agent 实例的工具。如果规则也需要约束命令执行，使用[工具调用 decision](/zh-cn/docs/app/hooks/#控制一次模型或工具调用)。
+这个筛选适用于模型和 code mode 中的工具。逗号命令直接使用 agent 实例的工具。如果规则也需要约束命令执行，使用[工具调用 decision](/zh-cn/docs/app/hooks/#control-a-model-or-tool-call)。
 
 ## 按需加载工具
 
@@ -83,15 +83,15 @@ turn 的允许列表同时约束工具的展示和加载。code mode 中，允�
 
 如果排除了 `run_code`，该 turn 按关闭 code mode 时的规则选择工具。应用把 Python 工具声明文件写入 `<BUB_HOME>/codemode/`，并把路径加入系统提示词。`await tools.orders_get(order_id="123")` 这样的 Python 调用使用已选工具，并经过应用的拦截 hooks。
 
-应用把 CodeMode 接到会话的执行环境和模型设置上。代码可以使用 [CodeMode](/zh-cn/docs/sdk/tools/#组合工具与-codemode) 中介绍的 Republic bridge 和媒体附加工具。通过 bridge 使用模型时，凭据保留在宿主侧；默认的本地执行环境仍在这个宿主上运行代码。
+应用把 CodeMode 接到会话的执行环境和模型设置上。代码可以使用 [CodeMode](/zh-cn/docs/sdk/tools/#compose-tools-with-codemode) 中介绍的 Republic bridge 和媒体附加工具。通过 bridge 使用模型时，凭据保留在宿主侧；默认的本地执行环境仍在这个宿主上运行代码。
 
-`BubAgent` 读取 `state["code_mode"]` 和 `deferred` 标记，执行这些筛选规则。使用普通 `core.Agent` 时，需要[显式组合 CodeMode](/zh-cn/docs/sdk/tools/#组合工具与-codemode)；如需延迟加载，也由你提供相应策略。
+`BubAgent` 读取 `state["code_mode"]` 和 `deferred` 标记，执行这些筛选规则。使用普通 `core.Agent` 时，需要[显式组合 CodeMode](/zh-cn/docs/sdk/tools/#compose-tools-with-codemode)；如需延迟加载，也由你提供相应策略。
 
 ## 选择执行环境
 
 内置 `bash`、`bash.output`、`bash.kill`、`fs.*` 和 `run_code` 使用会话的 `Environment`。默认是运行在宿主上的 `LocalEnvironment`。
 
-插件通过 `provide_environment(session_id, workspace)` hook 提供其他环境。Framework 为每个会话缓存一个环境，并在退出 `framework.running()` 时关闭。[工具与 CodeMode](/zh-cn/docs/sdk/tools/#选择执行环境)说明环境接口。
+插件通过 `provide_environment(session_id, workspace)` hook 提供其他环境。Framework 为每个会话缓存一个环境，并在退出 `framework.running()` 时关闭。[工具与 CodeMode](/zh-cn/docs/sdk/tools/#choose-an-execution-environment)说明环境接口。
 
 自定义应用工具可以用 `bub.builtin.environment` 中的 `environment_from_state(context.state)` 取得环境。Python 工具本身在宿主侧运行，需要时再显式调用环境来完成相应操作。
 
@@ -99,4 +99,4 @@ turn 的允许列表同时约束工具的展示和加载。code mode 中，允�
 
 把工作区通用指令写入 `AGENTS.md`，用 [技能](/zh-cn/docs/app/skills/)提供按任务加载的流程。技能可以告诉模型何时调用工具，Python 函数则定义工具执行的动作。
 
-逗号命令让使用者无需请求模型，就能调用已注册的工具。语法见[文本命令](/zh-cn/docs/sdk/tools/#不经过模型调用工具)。
+逗号命令让使用者无需请求模型，就能调用已注册的工具。语法见[文本命令](/zh-cn/docs/sdk/tools/#call-a-tool-without-a-model)。

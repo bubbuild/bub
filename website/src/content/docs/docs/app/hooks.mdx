@@ -9,7 +9,7 @@ These examples belong in a [plugin](/docs/app/plugins/). Module-level functions 
 
 The [hooks reference](/docs/reference/hooks/) defines signatures, priority, and lifecycle rules.
 
-## Change the prompt
+## Change the prompt {#change-the-prompt}
 
 Use `build_prompt` to replace the incoming content:
 
@@ -36,7 +36,7 @@ def system_prompt(prompt, state):
     return "Explain which files support your answer."
 ```
 
-## Control a model or tool call
+## Control a model or tool call {#control-a-model-or-tool-call}
 
 Use the agent interception hooks when you want to retain the builtin agent and change an individual call. For example, cap a request's output tokens:
 
@@ -70,7 +70,7 @@ Your authorization logic sets `can_cancel_orders`; the hook uses that value to a
 
 An exception in these interception hooks is logged and skipped. Use `deny`, `replace`, or `LLMCallDecision.finish` for control. The [interception contract](/docs/reference/hooks/#interception-through-pluginagenthooks) explains when a decision stops the chain.
 
-## Observe completed calls
+## Observe completed calls {#observe-completed-calls}
 
 For call metrics, use the completion hooks:
 
@@ -92,7 +92,7 @@ These hooks observe completed calls, including ordinary failures. They do not re
 
 To replace the entire model stage, implement either `run_model` or `run_model_stream`. [Your first plugin](/docs/app/plugins/) shows a text replacement. A replacement owns its execution and recording behavior; the builtin agent's interception hooks run only when that agent is used.
 
-## Keep application state across turns
+## Keep application state across turns {#keep-application-state-across-turns}
 
 The framework builds a fresh state dictionary for each inbound turn. Use `load_state` and `save_state` to carry your application's own values between turns:
 
@@ -120,7 +120,7 @@ This in-memory example counts model-stage exits, including failures. It resets w
 
 `save_state` runs in the model stage's `finally` block, after session, state, and prompt preparation have succeeded. Errors during that preparation skip the save hook. Conversation history has a separate [Tape lifecycle](/docs/concepts/tape/#state).
 
-## Provide a tape store
+## Provide a tape store {#provide-a-tape-store}
 <span id="5-provide-a-tape-store"></span>
 
 Return the store you want the application to use:
@@ -158,7 +158,7 @@ def provide_tape_sidecar():
 
 The [shared Tape explanation](/docs/concepts/tape/) describes sidecar naming and merge behavior.
 
-## Add an application command
+## Add an application command {#add-an-application-command}
 
 `register_cli_commands` receives the root Typer app:
 

@@ -9,7 +9,7 @@ Use Bub's application plugins in your existing Python service. Your host keeps i
 
 With `core.Agent`, you choose the components and connect the hooks yourself. The examples below take a search tool from one plugin and adapt the call hooks of another. Each example covers that plugin's dependencies; background services need their own startup and shutdown.
 
-## Add a search tool
+## Add a search tool {#add-a-search-tool}
 
 [`bub-web-search`](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-web-search) exposes a search tool that works with `core.Agent`. Install it in the environment that runs your service. These examples use plugin packages from the `dev` branch of `bub-contrib`:
 
@@ -68,11 +68,11 @@ For an existing Agent, add the returned tool with `agent.tools[search.name] = se
 
 `register_tools()` also updates the process-wide tool registry, so do this setup during startup. An Agent uses the tools you explicitly pass or add to it. This example takes the returned search tool; add the package's other tools, such as Jina's `web.read`, separately if needed.
 
-## Extend the run
+## Extend the run {#extend-the-run}
 
 `AgentPlugins` connects a plugin's hooks to your Agent's events.
 
-### Model and tool calls
+### Model and tool calls {#model-and-tool-calls}
 
 [`bub-context-budget`](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-context-budget) runs before and after model calls. When its estimate crosses a threshold, it adds an instruction asking the model to call `tape.handoff`. Give the Agent that tool and subscribe the plugin's hooks to its events.
 
@@ -109,7 +109,7 @@ Register and attach once during service startup. This plugin runs entirely throu
 
 The adapter catches ordinary plugin exceptions and skips the failed hook. A hook that blocks a tool must return `ToolCallDecision.deny(...)`; see [Agent events](/docs/concepts/events/) for interception semantics.
 
-### Other hooks
+### Other hooks {#other-hooks}
 
 The other hooks decide what the run has. Each hook maps to a core Agent extension point:
 
@@ -139,7 +139,7 @@ async with plugins.running():
 
 Message-pipeline hooks, such as `build_prompt`, `run_model`, `save_state`, `render_outbound`, and `dispatch_outbound`, are not part of the agent loop and only run in `process_inbound()`. `plugins=[...]` registers exactly the listed plugins. When several plugins implement the same hook, all of them run: duplicate tools, stores, and tape contexts keep the highest-priority provider, and prompt sections join from low to high priority. `AgentPlugins()` without arguments loads Bub's builtin hooks and the installed plugins, as the `bub` command does. Pass `framework` to use an existing framework's hooks; `plugins` given with it are registered on it.
 
-## Choose how to connect
+## Choose how to connect {#choose-how-to-connect}
 
 The plugin's implementation determines what your host must provide:
 
@@ -154,7 +154,7 @@ Follow the chosen store's lifecycle contract. `framework.running()` acquires hoo
 
 For MCP, follow the plugin's [embedding example](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-mcp#embedding): connect with `MCPChannel.connect()`, attach tools to a `BubAgent` with `bind_agent()`, and close connections with `stop()`. Your host must manage this lifecycle in addition to `framework.running()`.
 
-## Reuse BubAgent
+## Reuse BubAgent {#reuse-bubagent}
 
 `BubAgent` combines the core loop with Bub settings, skills, tool policies, and plugin hooks. A host can load installed plugins with `framework.load_hooks()`, enter `framework.running()`, then construct `BubAgent(framework)`. Its `run_stream(*, session_id, prompt, state=None, ...)` returns a stream for the host to consume and close.
 
@@ -164,7 +164,7 @@ Choose this when you also want those application defaults. The builtin system pr
 
 The direct stream call bypasses the initial `build_prompt`, `run_model` / `run_model_stream`, `save_state`, rendering, and dispatch hooks. The host handles output, saves its own state, and coordinates concurrent runs on one session. Use `process_inbound()` when you need the complete message pipeline; even with `stream_output=True`, that method consumes the stream and returns a completed `TurnResult`.
 
-## Keep building
+## Keep building {#keep-building}
 
 - [Tools and CodeMode](/docs/sdk/tools/) explains how Agent uses the tools you supply.
 - [Tape and context](/docs/concepts/tape/) covers storage and handoffs.

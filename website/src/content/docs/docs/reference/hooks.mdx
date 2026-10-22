@@ -7,7 +7,7 @@ Hooks connect plugins to the Bub application. This reference lists the 26 hooks 
 
 `first` below means the first non-`None` result in hook priority order. `all` means every implementation is called. An ordinary hook exception stops that dispatch and propagates; the [agent interception hooks](#interception-through-pluginagenthooks) and `on_error` have separate exception handling.
 
-## Turn hooks
+## Turn hooks {#turn-hooks}
 
 | Hook | Signature | Behavior |
 | --- | --- | --- |
@@ -25,7 +25,7 @@ These hooks may be synchronous or asynchronous. `continue_prompt` receives a `St
 
 The model adapter chooses between text and stream hooks by examining plugins in reverse registration order. It then dispatches the selected hook name by hook priority. It can collect a stream into text or wrap a text response in a stream. Choose one model hook per plugin.
 
-## Application resources and configuration
+## Application resources and configuration {#application-resources-and-configuration}
 
 | Hook | Signature | Behavior |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ The model adapter chooses between text and stream hooks by examining plugins in 
 
 Synchronous dispatch skips awaitable return values with a `hook.async_not_supported` warning. Resource providers can return sync or async generators, which Bub enters as context managers.
 
-## Agent interception hooks
+## Agent interception hooks {#agent-interception-hooks}
 
 | Hook | Signature | Behavior |
 | --- | --- | --- |
@@ -57,7 +57,7 @@ Synchronous dispatch skips awaitable return values with a `hook.async_not_suppor
 
 <span id="how-hooks-are-invoked"></span>
 
-## Priority and dispatch
+## Priority and dispatch {#priority-and-dispatch}
 
 Bub registers builtin hooks first, then installed entry-point plugins. For ordinary implementations at the same priority, later registrations run first. `@hookimpl(tryfirst=True)` and `@hookimpl(trylast=True)` alter priority. These flags and registration order together determine which implementation runs first.
 
@@ -67,13 +67,13 @@ Bub registers builtin hooks first, then installed entry-point plugins. For ordin
 
 `bub hooks` confirms registration by displaying bindings in pluggy's stored order. Execution follows the priority rules above.
 
-## Prompt content
+## Prompt content {#prompt-content}
 
 `build_prompt` can return a list containing strings and Republic media: `republic.Image`, `Audio`, or `Video`. Build media with `republic.image(...)`, `republic.audio(...)`, and `republic.video(...)`.
 
 Legacy strings and content-block dictionaries remain accepted. Hooks receiving a prompt (`run_model`, `run_model_stream`, `continue_prompt`, `system_prompt`) receive the legacy form: a string without media, otherwise content blocks with media URLs. Inline media uses data URLs. `bub.prompt.to_content(prompt)` converts this to user content.
 
-## Runtime resources
+## Runtime resources {#runtime-resources}
 
 `framework.running()` enters lifespan providers, then acquires the tape store and steering inbox. It closes entered resources in reverse order, including after an error. The environment cache is also closed on scope exit.
 
@@ -85,7 +85,7 @@ The builtin lifespan owns background shell processes started within that scope. 
 
 Tape sidecar providers contribute named sibling tapes. Bub mounts them on the application's root Tape and applies fork, merge, archive, and reset to mounted sidecars. Stored data remains after a provider is removed. See [Tape and context](/docs/concepts/tape/) for shared storage semantics.
 
-## Interception through PluginAgentHooks
+## Interception through PluginAgentHooks {#interception-through-pluginagenthooks}
 <span id="agent-loop-hooks-agenthooks"></span>
 
 `AgentPlugins.attach()` subscribes `PluginAgentHooks` to the core agent's LLM and tool start/finish events; `BubAgent` attaches it to itself. This adapter gives application plugins access to those calls.

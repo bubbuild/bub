@@ -7,7 +7,7 @@ A tool gives your agent an action: look up an order, read a file, or call a serv
 
 This page covers the shared tool contract and direct SDK use. For installation and a complete model loop, start with [Build your own agent](/docs/sdk/).
 
-## Define the action
+## Define the action {#define-the-action}
 
 `Tool.from_callable()` reads parameter types from annotations and a description from the docstring. It accepts synchronous and asynchronous functions and returns a tool for you to pass to an Agent.
 
@@ -29,7 +29,7 @@ The runtime keeps the name `math.add`; model-facing names replace dots with unde
 
 Plain `Agent` offers all supplied tools except those marked `exposure="command"`. Deferred loading, the `allowed_tools` state value, and the `state["code_mode"]` switch are [BubAgent policies](/docs/app/tools/). To choose tools per run in your own agent, override [`prepare_tools()`](/docs/sdk/options/#customize-how-a-step-is-prepared).
 
-## Return data the caller can use
+## Return data the caller can use {#return-data-the-caller-can-use}
 
 Return a dictionary, list, typed value, or string that represents the result. A `renderer` can turn structured data into text when the model calls the tool directly:
 
@@ -57,7 +57,7 @@ order_tool = Tool.from_callable(
 
 Tool execution errors become tool results in the model loop, giving the model a chance to respond or retry. A direct command call propagates its error to the caller. [Event handlers](/docs/concepts/events/#handlers) have their own exception behavior.
 
-## Use the current conversation
+## Use the current conversation {#use-the-current-conversation}
 
 Pass `context=True` to receive a `ToolContext` as the keyword argument `context`. It carries the current tape, turn state, run ID, and event bus.
 
@@ -76,7 +76,7 @@ remember_tool = Tool.from_callable(remember, context=True)
 
 This writes a business event to the tape. The default context selector reads conversation messages and tool exchanges; including this event in a model request requires your own selection logic. Use [Tape and context](/docs/concepts/tape/#context) to decide which saved information the model should read.
 
-## Compose tools with CodeMode
+## Compose tools with CodeMode {#compose-tools-with-codemode}
 
 CodeMode lets the model write Python that calls your tools. It provides a `run_code` tool and a prompt section describing the tools available inside that code. Add both explicitly to a plain Agent:
 
@@ -117,7 +117,7 @@ The code receives a Republic bridge for chat, embedding, and decision model call
 
 `run_code` returns printed output and attached media. Its default timeout is 120 seconds; callers may pass `timeout_seconds`. With `LocalEnvironment`, each call starts a Python process with the host user's permissions and stops that process and its descendants on completion or cancellation. Choose another environment when you need a different execution boundary.
 
-## Choose an execution environment
+## Choose an execution environment {#choose-an-execution-environment}
 
 The `Environment` interface in `bub.environment` supplies process execution, file access, and Python execution. `CodeMode(environment=...)` uses the environment you provide. In the Bub application, the [`provide_environment` hook](/docs/reference/hooks/) selects an environment per session.
 
@@ -131,7 +131,7 @@ The `Environment` interface in `bub.environment` supplies process execution, fil
 
 The environment runs the generated code and calls back to the host to execute your Python tools. Close custom environments when your application stops using them.
 
-## Call a tool without a model
+## Call a tool without a model {#call-a-tool-without-a-model}
 
 Set `command_prefix` to accept text commands. This example uses the `add_tool` defined above and needs no model credentials:
 

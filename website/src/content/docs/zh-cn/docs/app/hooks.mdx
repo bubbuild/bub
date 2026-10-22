@@ -9,7 +9,7 @@ description: 通过 hooks 调整提示词、控制调用、保存应用状态并
 
 [Hooks 参考](/zh-cn/docs/reference/hooks/)定义了签名、优先级和生命周期规则。
 
-## 调整提示词
+## 调整提示词 {#change-the-prompt}
 
 用 `build_prompt` 替换收到的内容：
 
@@ -36,7 +36,7 @@ def system_prompt(prompt, state):
     return "Explain which files support your answer."
 ```
 
-## 控制一次模型或工具调用
+## 控制一次模型或工具调用 {#control-a-model-or-tool-call}
 
 保留内置 agent，并调整某次调用时，使用 agent 拦截 hooks。例如，限制一次请求的输出 token 数：
 
@@ -68,9 +68,9 @@ def before_tool_call(call: ToolCall, state):
 
 由你的授权逻辑设置 `can_cancel_orders`，hook 根据这个值允许或拒绝调用。
 
-这些拦截 hooks 抛出的异常会被记录并跳过。要控制执行，使用 `deny`、`replace` 或 `LLMCallDecision.finish`。[拦截契约](/zh-cn/docs/reference/hooks/#通过-pluginagenthooks-拦截调用)说明了 decision 何时终止调用链。
+这些拦截 hooks 抛出的异常会被记录并跳过。要控制执行，使用 `deny`、`replace` 或 `LLMCallDecision.finish`。[拦截契约](/zh-cn/docs/reference/hooks/#interception-through-pluginagenthooks)说明了 decision 何时终止调用链。
 
-## 观察已经完成的调用
+## 观察已经完成的调用 {#observe-completed-calls}
 
 统计调用情况时，使用完成 hooks：
 
@@ -92,7 +92,7 @@ def after_tool_call(call, result, state):
 
 如果要替换整个模型阶段，实现 `run_model` 或 `run_model_stream` 中的一个。[第一个插件](/zh-cn/docs/app/plugins/)演示了文本替换。替换实现负责自己的执行和记录行为；只有使用内置 agent 时，才会运行它的拦截 hooks。
 
-## 跨 turn 保留应用状态
+## 跨 turn 保留应用状态 {#keep-application-state-across-turns}
 
 Framework 为每轮入站消息构建新的状态字典。使用 `load_state` 和 `save_state`，保留应用自己的值：
 
@@ -120,7 +120,7 @@ turn_counter = TurnCounter()
 
 `save_state` 位于模型阶段的 `finally` 块中，前提是会话解析、状态加载和提示词准备已经成功。这些准备阶段发生错误时，会跳过保存 hook。会话历史另有 [Tape 生命周期](/zh-cn/docs/concepts/tape/#state)。
 
-## 提供会话存储
+## 提供会话存储 {#provide-a-tape-store}
 <span id="5-provide-a-tape-store"></span>
 
 返回希望应用使用的 store：
@@ -158,7 +158,7 @@ def provide_tape_sidecar():
 
 [公共 Tape 说明](/zh-cn/docs/concepts/tape/)介绍了 sidecar 的命名和合并行为。
 
-## 添加应用命令
+## 添加应用命令 {#add-an-application-command}
 
 `register_cli_commands` 接收根 Typer app：
 
