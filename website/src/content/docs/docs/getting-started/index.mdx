@@ -1,66 +1,39 @@
 ---
 title: What is Bub?
-description: An agent runtime written in Python. Run it as an application, or import it in your own program.
+description: A lightweight agent runtime written in Python. Run it as-is, or embed it in your own program.
 ---
+import { Aside } from '@astrojs/starlight/components';
 
-import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+Bub is a lightweight agent runtime written in Python. It ships a ready-to-run agent application, and it lets you replace the execution logic and compose plugins as you see fit.
 
-Bub is an agent runtime written in Python. It needs Python 3.12 or newer and installs from PyPI with `pip` or `uv`.
+An agent is at heart a loop: the model reads the context and decides which tool to call, the tool result goes back into the context, and the model reads it again. The loop ends when the model stops asking for tools and answers directly.
 
-You give Bub three things: a model, a set of tools, and a place to keep the conversation. Then it repeats one loop. It calls the model, runs the tools the model asks for, writes the results to the conversation, and calls the model again. The loop ends when the model answers without asking for a tool.
+So an agent rests on four things: a **model**, **tools**, a **context**, and the **loop** that drives them. Working from that shared understanding, Bub keeps a small core and builds a ready-to-run application around it:
 
-Everything else in Bub exists to make that loop usable outside a demo: settings, storage, channels, plugins, and a way to watch what a run is doing.
+- **The core layer**: composable agent capabilities such as the loop, tools, context, the event bus, and the model client. It calls models through [republic](https://getrepublic.org) and depends only on [pydantic](https://pydantic.dev) and [loguru](https://github.com/delgan/loguru).
 
-## What it contains
+- **The app layer**: a ready-to-run harness — settings, plugins, hooks, skills, message channels, a gateway, and more. None of it needs to be built yourself; a little configuration is enough to start.
 
-Bub has two layers.
+Which one should you use?
 
-**The kernel** (`bub.core`) has the loop, the tool interface, the conversation record, the event bus, and the model client. It uses `republic` for model calls, and depends on `pydantic` and `loguru`.
+- If you want to **combine Bub with your existing codebase or service**, use the core layer [SDK](/docs/sdk/) directly;
+- If you want **Bub to work out of the box**, use the app layer [App](/docs/app/workspace/).
 
-**The application layer** (`bub[app]`) adds what turns the kernel into a program you can run: settings and config files, plugins and hooks, skills, message channels, a gateway, and the `bub` command.
-
-`pip install bub` installs the kernel. `pip install "bub[app]"` installs both layers.
-
-## Two ways to use it
-
-| | Use Bub App | Build your own Bub Agent |
-| --- | --- | --- |
-| What runs | the `bub` command, in its own process | your Python program |
-| How you start it | `bub chat`, `bub run`, `bub gateway` | `Agent(...)` |
-| What you provide | model and channel settings | a model, tools, and a tape |
-| What Bub provides | settings, plugins, skills, hooks, channels | the loop and its events |
-
-Use the app when you want an agent that already works in a terminal or a chat service. Build your own agent when you are adding agent behavior to a service you run yourself.
-
-The two are not exclusive. A program that imports `BubAgent` gets the kernel plus the app's settings and plugin hooks, without running the `bub` command.
+<Aside type="tip">
+  The two are not exclusive. When you need to, you can even [reuse the App inside the SDK](/docs/sdk/reuse-plugins/#reuse-bubagent).
+</Aside>
 
 ## Core design
 
-A few rules keep the loop small:
+Bub is built on being simple, composable, and extensible. That means you can freely combine Bub's capabilities, or build your own agent on top of it:
 
-- History is append-only. Each turn is written to a tape. The model reads a slice of that tape, not a chat array that grows without limit.
-- Every step reports an event. Model calls and tool calls each report a start, an end, and a result. A host can watch a run, change the next input, or stop it.
-- A tool is a function. A Python function with type hints is enough. Code mode lets the model write a short program that calls several tools in one step.
+1. **Context is append-only.** Each turn appends to the tape and never rewrites an entry. The model reads a slice of the tape, not a message array that grows without limit.
+2. **Every step reports an event.** Model calls and tool calls each report a start, an end, and a result. A host can watch a run, change the next input, or stop it.
+3. **A tool is a function.** A Python function with type hints is enough. Code mode lets the model write a short program that calls several tools in one step.
+4. **Everything is a plugin.** Every capability in Bub can come from a plugin. A plugin can be a tool, an event listener, a message channel, or a whole set of skills.
 
-## Where to go next
+The [concepts](/docs/concepts/) section defines all of this in full.
 
-<CardGrid>
-  <LinkCard
-    title="Install Bub"
-    href="/docs/getting-started/install/"
-    description="One script or one uv command, for the app or for the library."
-  />
-  <LinkCard
-    title="Quick start"
-    href="/docs/getting-started/quickstart/"
-    description="A running agent in two minutes, in a terminal or in Python."
-  />
-</CardGrid>
+---
 
-The rest of the documentation, in reading order:
-
-- **[Concepts](/docs/concepts/)**: tape, turns, events, extension points. Read these when a term in the guides is unclear; nothing else depends on them.
-- **[Use the Bub app](/docs/app/workspace/)**: configure it, then add tools, skills, plugins, hooks, and channels.
-- **[Build your own agent](/docs/sdk/)**: keep the kernel and write the loop's surroundings yourself.
-- **[Integrations](/docs/integrations/)**: MCP, ACP, agent plugins, local models, SQLite, and tracing.
-- **[Reference](/docs/reference/cli/)**: CLI commands, settings, Python API, and hooks.
+Now you can explore the Bub docs freely, or follow the next page and start your own journey with Bub.

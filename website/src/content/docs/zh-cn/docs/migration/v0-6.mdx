@@ -1,33 +1,46 @@
 ---
 title: 升级到 0.6.0
-description: 为应用依赖添加 app extra，并按代码需要选择 Agent 接口。
+description: 0.6.0 内核与应用依赖分离的迁移说明。
 ---
 
-Bub 0.6.0 将 Agent 内核依赖与应用依赖分开。升级 CLI 安装、插件或发行版时，请加入 `app` extra。
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-## 更新应用安装
+0.6.0 之前版本的 `bub` 包含应用和内核两个部分；从 0.6.0 开始，安装 `bub` 时仅包含内核，而应用挪到了 `app` 可选依赖中。如果你需要使用 Bub 应用层的能力（如配置、插件、hooks、技能、消息渠道、网关等），请在安装时加上 `bub[app]`。
 
-通过 `uv tool` 安装的应用使用：
+## 升级指南
+
+根据你当前的安装方式，选择下面的升级方法：
+
+<Tabs>
+<TabItem label="uv">
+
+用 `uv tool` 安装的：
 
 ```bash
 uv tool install --upgrade --force "bub[app]"
 ```
 
-已经激活的应用虚拟环境使用：
+</TabItem>
+<TabItem label="虚拟环境">
+
+在已经激活的虚拟环境里：
 
 ```bash
 uv pip install --upgrade "bub[app]"
 ```
 
-插件或发行版的 `pyproject.toml` 也应把普通 `bub` 依赖改为 `bub[app]>=0.6.0`。这个 extra 安装内置运行时、Framework、配置、插件 hooks、技能和渠道所需的依赖。
+</TabItem>
+<TabItem label="pyproject.toml">
 
-运行 `bub --help`，再在[终端](/zh-cn/docs/app/terminal/)里跑一轮对话。检查插件是否加载时，使用 `bub hooks`。
+插件或发行版改 `pyproject.toml` 里的依赖：
 
-## 按代码用途选择接口
+```toml
+dependencies = ["bub[app]>=0.6.0"]
+```
 
-| 代码用途 | 依赖与指南 |
-| --- | --- |
-| 直接向 `core.Agent` 传入模型和工具 | `bub`；[构建自己的 Agent](/zh-cn/docs/sdk/) |
-| 使用 `BubAgent`、Framework、应用 hooks 或渠道 | `bub[app]`；[使用 Bub 应用](/zh-cn/docs/app/workspace/) |
+</TabItem>
+</Tabs>
 
-直接组合的 Agent 在 Python 中接收模型与组件。Bub 应用通过 `BubAgent` 和 Framework 提供配置、技能与工具策略。[工具](/zh-cn/docs/sdk/tools/)和 [Agent 事件](/zh-cn/docs/concepts/events/)说明共同契约与默认行为的区别。
+## 升级验证
+
+升级完成后在去[终端](/zh-cn/docs/app/terminal/)命令行中输入 `bub --help`、快速开始一轮对话或再用 `bub hooks` 看插件加载情况。

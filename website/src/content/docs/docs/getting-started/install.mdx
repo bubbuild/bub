@@ -1,17 +1,11 @@
 ---
 title: Install Bub
-description: Install Bub 0.6.0 for your own Python agent or the Bub application.
+description: Install Bub step by step, with several install paths to choose from.
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
-Choose the installation for the way you want to use Bub. Add Bub to a Python project with [uv](https://docs.astral.sh/uv/getting-started/installation/), or install the application with a setup script or uv.
-
-<a id="app-install"></a>
-
-## Run the Bub application
-
-Choose an installation method:
+## Install the CLI app
 
 <Tabs syncKey="bub-app-install">
 <TabItem label="macOS / Linux">
@@ -35,77 +29,29 @@ uv tool install "bub[app]"
 uv tool update-shell
 ```
 
-Open a new terminal, then run `bub onboard` to configure your model and channels.
-
 </TabItem>
 </Tabs>
 
-The shell and PowerShell scripts set up uv and Python 3.12 as needed, then install `bub[app]` into `~/.bub/.venv`. They prompt you to choose a plugin preset and configure your model and channels.
+The script installs uv and Python 3.12, and puts `bub[app]` into your current environment.
 
-When installation finishes, make sure the command directory is on your PATH, then check:
+When it finishes, run `bub --help`, then run `bub onboard` to start configuring, and confirm the command line works.
 
-```bash
-bub --help
-```
+<Aside type="tip">
+    If the command is not found, check whether the environment variables include the directory that holds the executable, or add `~/.local/bin` to PATH yourself.
+</Aside>
 
-Continue with [Workspace](/docs/app/workspace/) to create a workspace and add your project instructions.
+## Install the SDK
 
-The base install and `bub[app]` contain the same package files. The extra changes which dependencies are installed. Without the application dependencies, the `bub` command exits with an instruction to install `bub[app]`.
-
-<a id="agent-install"></a>
-
-## Build your own agent
-
-Use Python 3.12 or later and add Bub to your project:
+From 0.6.0 on, Bub ships the core only. Use your package manager to add Bub to your project as a dependency. Here is uv:
 
 ```bash
 uv add bub
 uv run python -c "from bub.core import Agent; print(Agent.__name__)"
 ```
 
-If you are starting a new project, first run `uv init --python 3.12 my-agent` and `cd my-agent`.
+## Run from source
 
-The base installation includes the kernel's dependencies: Republic, Pydantic, Loguru, and typing-extensions. The import check needs no model credentials. Continue with [Build your own agent](/docs/sdk/) to configure a model in Python and run the first example.
-
-<a id="app-development"></a>
-
-## Use a virtual environment for application development
-
-For plugin development or adding packages such as tracing exporters, use an environment you can activate:
-
-```bash
-uv venv --python 3.12
-source .venv/bin/activate
-uv pip install "bub[app]"
-bub --help
-```
-
-In PowerShell, replace the activation command with `.\.venv\Scripts\Activate.ps1`. Run the application and install its extensions from this same environment. If your project already uses `uv`, you can instead add `"bub[app]"` with `uv add` and run its commands with `uv run bub`.
-
-<a id="project-dependency"></a>
-
-## Declare a package dependency
-
-Add the dependency to the existing `[project]` table in your package's `pyproject.toml`. For direct Agent use:
-
-```toml
-requires-python = ">=3.12"
-dependencies = ["bub>=0.6.0"]
-```
-
-For a package that imports the builtin agent, Framework, plugins, skills, or channels:
-
-```toml
-dependencies = ["bub[app]>=0.6.0"]
-```
-
-Synchronize your project after editing its dependencies. Existing applications should follow [Upgrade to 0.6.0](/docs/migration/v0-6/) when updating the dependency.
-
-<a id="from-source"></a>
-
-## Contribute from source
-
-Clone the repository to work on Bub itself:
+Clone the repository and sync its dependencies:
 
 ```bash
 git clone https://github.com/bubbuild/bub.git
@@ -113,4 +59,8 @@ cd bub
 uv sync
 ```
 
-`uv sync` installs the development group, including application dependencies and Python check tools. You can then use `uv run bub` and the repository's test commands.
+Then run it with `uv run bub`.
+
+---
+
+With that in place, go and give Bub a try.

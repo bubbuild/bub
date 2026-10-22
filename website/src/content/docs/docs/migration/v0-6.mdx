@@ -1,33 +1,46 @@
 ---
 title: Upgrade to 0.6.0
-description: Update application dependencies for the app extra and choose the Agent interfaces your code needs.
+description: Migration notes for the 0.6.0 split of kernel and application dependencies.
 ---
 
-Bub 0.6.0 separates the Agent kernel's dependencies from the application's dependencies. When upgrading a CLI installation, plugin, or distribution, include the `app` extra.
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-## Update an application installation
+Before 0.6.0, `bub` covered both the application and the kernel; from 0.6.0 on, installing `bub` gives you the kernel only, and the application moved into the optional `app` dependencies. If you need the Bub application layer (configuration, plugins, hooks, skills, message channels, the gateway, and so on), add `bub[app]` when you install.
 
-For an application installed with `uv tool`:
+## Upgrade guide
+
+Pick the upgrade step for your current install:
+
+<Tabs>
+<TabItem label="uv">
+
+Installed with `uv tool`:
 
 ```bash
 uv tool install --upgrade --force "bub[app]"
 ```
 
-For an activated application environment:
+</TabItem>
+<TabItem label="Virtual environment">
+
+In an activated virtual environment:
 
 ```bash
 uv pip install --upgrade "bub[app]"
 ```
 
-In a plugin or distribution's `pyproject.toml`, use `bub[app]>=0.6.0` in place of a plain `bub` dependency. The extra installs the dependencies required by the builtin runtime, Framework, settings, plugin hooks, skills, and channels.
+</TabItem>
+<TabItem label="pyproject.toml">
 
-Run `bub --help`, then [run a conversation in the terminal](/docs/app/terminal/). Use `bub hooks` when checking that your plugins loaded.
+For a plugin or a distribution, change the dependency in `pyproject.toml`:
 
-## Choose the interfaces your code uses
+```toml
+dependencies = ["bub[app]>=0.6.0"]
+```
 
-| Your code | Dependency and guide |
-| --- | --- |
-| Supplies a model and tools directly to `core.Agent` | `bub`; [Build your own agent](/docs/sdk/) |
-| Uses `BubAgent`, the Framework, application hooks, or channels | `bub[app]`; [Use the Bub app](/docs/app/workspace/) |
+</TabItem>
+</Tabs>
 
-A directly composed Agent takes its model and components in Python. The Bub application supplies its settings, skills, and tool policies through `BubAgent` and the Framework. [Tools](/docs/sdk/tools/) and [Agent events](/docs/concepts/events/) explain the shared contracts and the differences in default behavior.
+## Verify the upgrade
+
+Once the upgrade finishes, go to the [terminal](/docs/app/terminal/) and enter `bub --help`, start a quick conversation, and run `bub hooks` to see which plugins loaded.

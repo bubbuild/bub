@@ -1,17 +1,11 @@
 ---
 title: 安装 Bub
-description: 安装 Bub 0.6.0，用于组合自己的 Python Agent 或运行 Bub 应用。
+description: 跟着文档一步步安装 Bub，提供了多种安装途径。
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
-按你的使用方式选择安装路径。Python 项目通过 [uv](https://docs.astral.sh/uv/getting-started/installation/) 添加 Bub；运行应用可以使用安装脚本或 uv。
-
-<a id="app-install"></a>
-
-## 运行 Bub 应用
-
-选择适合你的安装方式：
+## 安装 CLI 应用
 
 <Tabs syncKey="bub-app-install">
 <TabItem label="macOS / Linux">
@@ -35,77 +29,29 @@ uv tool install "bub[app]"
 uv tool update-shell
 ```
 
-打开新终端后，运行 `bub onboard` 配置模型和渠道。
-
 </TabItem>
 </Tabs>
 
-脚本会按需安装 uv 和 Python 3.12，并将 `bub[app]` 安装到 `~/.bub/.venv`。按提示选择插件预设，再完成模型和渠道配置。
+运行上述脚本会帮你安装 uv 和 Python 3.12，并把 `bub[app]` 到当前环境中。
 
-安装结束后，确认命令目录已加入 PATH，再检查：
+完成后在命令中执行 `bub --help` 并用 `bub onboard` 开始配置以确认命令行是否能正常工作。
 
-```bash
-bub --help
-```
+<Aside type="tip">
+    如果当前环境提示找不到命令，请检查环境变量是否包含了可执行文件所在路径，或者手动把 `~/.local/bin` 加入 PATH。
+</Aside>
 
-接着看[工作区](/zh-cn/docs/app/workspace/)，建一个工作区，写下项目指令。
+## 安装 SDK
 
-基础安装与 `bub[app]` 包含相同的包文件；extra 改变的是安装的依赖。缺少应用依赖时，`bub` 命令会退出，并提示安装 `bub[app]`。
-
-<a id="agent-install"></a>
-
-## 构建自己的 Agent
-
-使用 Python 3.12 或更高版本，在项目中添加 Bub：
+自 0.6.0 起，Bub 默认只包含核心，可以根据使用对应包管理工具将 Bub 作为依赖安装到项目中。这里以 uv 为例：
 
 ```bash
 uv add bub
 uv run python -c "from bub.core import Agent; print(Agent.__name__)"
 ```
 
-如果还没有项目，先运行 `uv init --python 3.12 my-agent`，再进入 `cd my-agent`。
+## 从源码运行
 
-基础安装包含内核所需的 Republic、Pydantic、Loguru 和 typing-extensions。导入检查无需模型凭据。接着阅读[构建自己的 Agent](/zh-cn/docs/sdk/)，在 Python 中配置模型并运行第一个示例。
-
-<a id="app-development"></a>
-
-## 在虚拟环境中开发应用
-
-开发插件或添加追踪导出器等包时，可以创建并激活一个虚拟环境：
-
-```bash
-uv venv --python 3.12
-source .venv/bin/activate
-uv pip install "bub[app]"
-bub --help
-```
-
-PowerShell 中的激活命令为 `.\.venv\Scripts\Activate.ps1`。在同一个环境中运行应用并安装扩展。如果项目已经使用 `uv`，也可以通过 `uv add` 添加 `"bub[app]"`，再用 `uv run bub` 运行命令。
-
-<a id="project-dependency"></a>
-
-## 声明包依赖
-
-把依赖添加到项目 `pyproject.toml` 已有的 `[project]` 表。直接使用 Agent 的包声明：
-
-```toml
-requires-python = ">=3.12"
-dependencies = ["bub>=0.6.0"]
-```
-
-如果包会导入内置 Agent、Framework、插件、技能或渠道，则声明：
-
-```toml
-dependencies = ["bub[app]>=0.6.0"]
-```
-
-修改依赖后，同步项目环境。现有应用更新依赖时，参照[升级到 0.6.0](/zh-cn/docs/migration/v0-6/)。
-
-<a id="from-source"></a>
-
-## 从源码参与开发
-
-为 Bub 本身贡献代码时，克隆仓库：
+克隆项目仓库，按如下步骤同步依赖即可：
 
 ```bash
 git clone https://github.com/bubbuild/bub.git
@@ -113,4 +59,8 @@ cd bub
 uv sync
 ```
 
-`uv sync` 会安装开发依赖组，其中包含应用依赖和 Python 检查工具。之后可以使用 `uv run bub` 和仓库的测试命令。
+之后执行 `uv run bub` 运行即可。
+
+---
+
+一切就绪之后就可以开始上手试试怎么使用 Bub 吧！

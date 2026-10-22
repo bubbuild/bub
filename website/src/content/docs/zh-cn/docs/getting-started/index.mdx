@@ -1,66 +1,39 @@
 ---
 title: Bub 是什么？
-description: 一个用 Python 写的 agent 运行时。可以作为应用运行，也可以引入到你自己的程序里。
+description: 一个由 Python 构建的轻量级 Agent 运行时。可以直接运行，也可以嵌入你自己的程序。
+---
+import { Aside } from '@astrojs/starlight/components';
+
+Bub 是一个由 Python 构建的轻量级 Agent 运行时。它自带一个开箱即用的 Agent 应用，也可以按需替换执行逻辑、自由组合插件。
+
+Agent 的本质是一个循环：模型读取上下文并决定调用哪个工具，工具的结果写回上下文，再交给模型；当模型不再请求工具、直接给出答案时，循环结束。
+
+构成一个 Agent 的核心有四个：**模型**、**工具**、**上下文**，以及驱动它们的**循环**。所以在这样的共识下 Bub 设计了精简的内核，并围绕内核构建出了一个开箱即用的应用：
+
+- **核心层**：提供可自由组合的 Agent 能力，如循环、工具、上下文、事件总线、模型客户端等，它通过 [republic](https://getrepublic.org) 调用模型，仅依赖 [pydantic](https://pydantic.dev) 与 [loguru](https://github.com/delgan/loguru)。
+
+- **应用层**：提供了开箱即用的 Harness，如配置、插件、hooks、技能、消息渠道、网关等，这些能力都无需你去一一实现，使用时只需简单配置即可开始使用。
+
+如何选择？
+
+- 如果你想**把 Bub 与你现有的代码库或服务相结合**，那么请直接使用 Bub 核心层的 [SDK](/zh-cn/docs/sdk/)；
+- 如果你想**开箱即用 Bub**，那么请直接使用 Bub 应用层的 [App](/zh-cn/docs/app/workspace/)。
+
+<Aside type="tip">
+  二者并不互斥，必要时你甚至可以在 SDK 中[复用 App](/zh-cn/docs/sdk/reuse-plugins/#复用-bubagent)。
+</Aside>
+
+## 核心设计理念
+
+Bub 秉持着简单、可组合、可扩展的设计理念，这意味着你可以自由组合 Bub 的能力，或在 Bub 的基础上构建自己的 Agent：
+
+1. **追加式上下文**：每个 turn 追加写入 tape，不修改已有条目。模型读的是 tape 的一个切片，而不是一个不断增长的 message 数组。
+2. **事件驱动**：模型调用与工具调用各自发出开始、结束和结果。宿主可以旁观一次运行、改写下一步的输入，或直接中止。
+3. **工具即函数**：一个有类型标注的 Python 函数即可成为工具。Code mode 让模型自己写一小段程序，在一步之内调用多个工具。
+4. **插件化**：Bub 的能力都可以通过插件提供。插件可以是一个工具、一个事件监听器、一个消息渠道，或一个完整的技能集合。
+
+完整定义见[核心概念](/zh-cn/docs/concepts/)。
+
 ---
 
-import { CardGrid, LinkCard } from '@astrojs/starlight/components';
-
-Bub 是一个用 Python 写的 agent 运行时。它要求 Python 3.12 或更高版本，用 `pip` 或 `uv` 从 PyPI 安装。
-
-你给 Bub 三样东西：一个模型、一组工具、一个存放对话的地方。然后它重复同一个循环：调用模型，执行模型要求的工具，把结果写进对话，再调用模型。模型不再要求工具、直接给出回答时，循环结束。
-
-Bub 其余的部分，都是为了让这个循环在演示之外也能用：配置、存储、渠道、插件，以及看清一次运行在做什么的手段。
-
-## 它由什么组成
-
-Bub 分两层。
-
-**内核**（`bub.core`）有循环、工具接口、对话记录、事件总线和模型客户端。它用 `republic` 调用模型，依赖 `pydantic` 和 `loguru`。
-
-**应用层**（`bub[app]`）加上让内核变成一个能直接运行的程序所需的部分：配置和配置文件、插件与 hooks、技能、消息渠道、网关，以及 `bub` 命令。
-
-`pip install bub` 只装内核。`pip install "bub[app]"` 两层都装。
-
-## 两种用法
-
-| | 使用 Bub 应用 | 构建你的 Bub Agent |
-| --- | --- | --- |
-| 运行的是什么 | `bub` 命令，独占一个进程 | 你自己的 Python 程序 |
-| 怎么启动 | `bub chat`、`bub run`、`bub gateway` | `Agent(...)` |
-| 你需要提供 | 模型和渠道配置 | 模型、工具、一个 tape |
-| Bub 提供 | 配置、插件、技能、hooks、渠道 | 循环和它的事件 |
-
-想要一个在终端或聊天软件里就能用的 agent，用应用。想给自己跑的服务加上 agent 行为，就自己构建。
-
-两者并不冲突。导入 `BubAgent` 的程序会拿到内核，外加应用的配置和插件 hooks，但不需要跑 `bub` 命令。
-
-## 核心设计
-
-几条约束让循环保持简单：
-
-- 历史只追加。每次 turn 写进 tape。模型读的是这份记录的一个切片，而不是一个无限增长的 chat 数组。
-- 每一步都发事件。模型调用和工具调用各自发出开始、结束和结果。宿主可以旁观一次运行，改掉下一次的输入，或者把它停下来。
-- 工具就是函数。带类型标注的 Python 函数就够了。code mode 让模型写一小段程序，一步里调用多个工具。
-
-## 接下来
-
-<CardGrid>
-  <LinkCard
-    title="安装 Bub"
-    href="/zh-cn/docs/getting-started/install/"
-    description="一条脚本或一条 uv 命令，装应用或装库。"
-  />
-  <LinkCard
-    title="快速上手"
-    href="/zh-cn/docs/getting-started/quickstart/"
-    description="两分钟跑起来：在终端里，或者在你的 Python 程序里。"
-  />
-</CardGrid>
-
-其余文档，按阅读顺序：
-
-- **[核心概念](/zh-cn/docs/concepts/)**：tape、turn、事件、扩展点。指南里遇到看不懂的词再回来读，后面的页面不依赖它。
-- **[使用 Bub 应用](/zh-cn/docs/app/workspace/)**：先配置，再加工具、技能、插件、hooks 和渠道。
-- **[构建你的 Bub Agent](/zh-cn/docs/sdk/)**：留下内核，循环周边自己写。
-- **[集成](/zh-cn/docs/integrations/)**：MCP、ACP、agent plugins、本地模型、SQLite、可观测性。
-- **[参考](/zh-cn/docs/reference/cli/)**：CLI 命令、配置项、Python API 和 hooks。
+现在你可以开始自由探索 Bub 文档，或者跟着下一页，开始你的 Bub 之旅。
