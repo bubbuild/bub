@@ -2,17 +2,26 @@
 title: Bub 是什么？
 description: 一个由 Python 构建的轻量级 Agent 运行时。可以直接运行，也可以嵌入你自己的程序。
 ---
-import { Aside } from '@astrojs/starlight/components';
+import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
 
 Bub 是一个由 Python 构建的轻量级 Agent 运行时。它自带一个开箱即用的 Agent 应用，也可以按需替换执行逻辑、自由组合插件。
 
 Agent 的本质是一个循环：模型读取上下文并决定调用哪个工具，工具的结果写回上下文，再交给模型；当模型不再请求工具、直接给出答案时，循环结束。
 
-构成一个 Agent 的核心有四个：**模型**、**工具**、**上下文**，以及驱动它们的**循环**。所以在这样的共识下 Bub 设计了精简的内核，并围绕内核构建出了一个开箱即用的应用：
+构成一个 Agent 的核心有四个：**模型**、**工具**、**上下文**，以及驱动它们的**循环**。所以在这样的共识下 Bub 设计了精简的内核，并围绕内核构建出了一个开箱即用的应用。
 
-- **核心层**：提供可自由组合的 Agent 能力，如循环、工具、上下文、事件总线、模型客户端等，它通过 [republic](https://getrepublic.org) 调用模型，仅依赖 [pydantic](https://pydantic.dev) 与 [loguru](https://github.com/delgan/loguru)。
+<CardGrid>
+  <Card title="核心层" icon="puzzle">
+    提供可自由组合的 Agent 能力：循环、工具、上下文、事件总线、模型客户端。
 
-- **应用层**：提供了开箱即用的 Harness，如配置、插件、hooks、技能、消息渠道、网关等，这些能力都无需你去一一实现，使用时只需简单配置即可开始使用。
+    通过 [republic](https://getrepublic.org) 调用模型，仅依赖 [pydantic](https://pydantic.dev) 与 [loguru](https://github.com/delgan/loguru)。
+  </Card>
+  <Card title="应用层" icon="rocket">
+    在核心层之上给出开箱即用的 Harness：配置、插件、hooks、技能、消息渠道、网关。
+
+    这些都不需要你从头实现，配好就能开始用。
+  </Card>
+</CardGrid>
 
 如何选择？
 
@@ -27,10 +36,20 @@ Agent 的本质是一个循环：模型读取上下文并决定调用哪个工�
 
 Bub 秉持着简单、可组合、可扩展的设计理念，这意味着你可以自由组合 Bub 的能力，或在 Bub 的基础上构建自己的 Agent：
 
-1. **追加式上下文**：每个 turn 追加写入 tape，不修改已有条目。模型读的是 tape 的一个切片，而不是一个不断增长的 message 数组。
-2. **事件驱动**：模型调用与工具调用各自发出开始、结束和结果。宿主可以旁观一次运行、改写下一步的输入，或直接中止。
-3. **工具即函数**：一个有类型标注的 Python 函数即可成为工具。Code mode 让模型自己写一小段程序，在一步之内调用多个工具。
-4. **插件化**：Bub 的能力都可以通过插件提供。插件可以是一个工具、一个事件监听器、一个消息渠道，或一个完整的技能集合。
+<CardGrid>
+  <Card title="追加式上下文" icon="database">
+    每个 turn 追加写入 tape，不修改已有条目。模型读的是 tape 的一个切片，而不是一个不断增长的 message 数组。
+  </Card>
+  <Card title="事件驱动" icon="analytics">
+    模型调用与工具调用各自发出开始、结束和结果。宿主可以旁观一次运行、改写下一步的输入，或直接中止。
+  </Card>
+  <Card title="工具即函数" icon="code-branch">
+    一个有类型标注的 Python 函数即可成为工具。Code mode 让模型自己写一小段程序，在一步之内调用多个工具。
+  </Card>
+  <Card title="插件化" icon="setting">
+    Bub 的能力都可以通过插件提供。插件可以是一个工具、一个事件监听器、一个消息渠道，或一个完整的技能集合。
+  </Card>
+</CardGrid>
 
 完整定义见[核心概念](/zh-cn/docs/concepts/)。
 

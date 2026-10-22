@@ -2,7 +2,7 @@
 title: What is Bub?
 description: A lightweight agent runtime written in Python. Run it as-is, or embed it in your own program.
 ---
-import { Aside } from '@astrojs/starlight/components';
+import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
 
 Bub is a lightweight agent runtime written in Python. It ships a ready-to-run agent application, and it lets you replace the execution logic and compose plugins as you see fit.
 
@@ -10,9 +10,18 @@ An agent is at heart a loop: the model reads the context and decides which tool 
 
 So an agent rests on four things: a **model**, **tools**, a **context**, and the **loop** that drives them. Working from that shared understanding, Bub keeps a small core and builds a ready-to-run application around it:
 
-- **The core layer**: composable agent capabilities such as the loop, tools, context, the event bus, and the model client. It calls models through [republic](https://getrepublic.org) and depends only on [pydantic](https://pydantic.dev) and [loguru](https://github.com/delgan/loguru).
+<CardGrid>
+  <Card title="The core layer" icon="puzzle">
+    Composable agent capabilities: the loop, tools, context, the event bus, and the model client.
 
-- **The app layer**: a ready-to-run harness — settings, plugins, hooks, skills, message channels, a gateway, and more. None of it needs to be built yourself; a little configuration is enough to start.
+    It calls models through [republic](https://getrepublic.org) and depends only on [pydantic](https://pydantic.dev) and [loguru](https://github.com/delgan/loguru).
+  </Card>
+  <Card title="The app layer" icon="rocket">
+    A ready-to-run harness: settings, plugins, hooks, skills, message channels, a gateway, and more.
+
+    None of it needs to be built yourself; a little configuration is enough to start.
+  </Card>
+</CardGrid>
 
 Which one should you use?
 
@@ -27,10 +36,20 @@ Which one should you use?
 
 Bub is built on being simple, composable, and extensible. That means you can freely combine Bub's capabilities, or build your own agent on top of it:
 
-1. **Context is append-only.** Each turn appends to the tape and never rewrites an entry. The model reads a slice of the tape, not a message array that grows without limit.
-2. **Every step reports an event.** Model calls and tool calls each report a start, an end, and a result. A host can watch a run, change the next input, or stop it.
-3. **A tool is a function.** A Python function with type hints is enough. Code mode lets the model write a short program that calls several tools in one step.
-4. **Everything is a plugin.** Every capability in Bub can come from a plugin. A plugin can be a tool, an event listener, a message channel, or a whole set of skills.
+<CardGrid>
+  <Card title="Context is append-only" icon="database">
+    Each turn appends to the tape and never rewrites an entry. The model reads a slice of the tape, not a message array that grows without limit.
+  </Card>
+  <Card title="Every step reports an event" icon="analytics">
+    Model calls and tool calls each report a start, an end, and a result. A host can watch a run, change the next input, or stop it.
+  </Card>
+  <Card title="A tool is a function" icon="code-branch">
+    A Python function with type hints is enough. Code mode lets the model write a short program that calls several tools in one step.
+  </Card>
+  <Card title="Everything is a plugin" icon="setting">
+    Every capability in Bub can come from a plugin. A plugin can be a tool, an event listener, a message channel, or a whole set of skills.
+  </Card>
+</CardGrid>
 
 The [concepts](/docs/concepts/) section defines all of this in full.
 
