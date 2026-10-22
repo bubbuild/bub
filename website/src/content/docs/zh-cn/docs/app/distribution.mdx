@@ -7,8 +7,6 @@ description: 嵌入应用框架，或发布包含自有插件和技能的 CLI。
 
 这条路径使用[安装 Bub](/zh-cn/docs/getting-started/install/)中说明的应用依赖。如果希望直接组合 Agent 和各个组件，请从[构建自己的 Agent](/zh-cn/docs/sdk/)开始。
 
-<a id="programmatic-embedding"></a>
-
 ## 嵌入应用
 
 用 `BubFramework.process_inbound` 执行应用的完整 turn：解析会话、加载状态、准备提示词、执行、保存状态、生成并发送出站消息。
@@ -42,8 +40,6 @@ asyncio.run(main())
 让 `framework.running()` 覆盖服务的整个生命周期。它获取 hooks 提供的资源，并在退出时执行相应上下文管理器中的清理逻辑。创建需要使用 framework 存储的 agent 前，先进入这个作用域；同一个 framework 实例不要使用相互重叠的作用域。
 
 `process_inbound` 返回已经完成的 `TurnResult`。设置 `stream_output=True` 后，它先通过绑定的渠道 router 消费流，再返回结果。宿主程序负责并发消息调度，并按需要管理会话锁。
-
-<a id="需要自行消费流时使用-bubagent"></a>
 
 ## 在自己的服务中复用插件
 
@@ -85,6 +81,6 @@ channels = "my_bub.channels:ChannelPlugin"
 packages = ["src/my_bub", "src/skills"]
 ```
 
-每个目标都遵循[插件注册规则](/zh-cn/docs/app/plugins/)。任务指令按 [技能包目录结构](/zh-cn/docs/app/skills/#ship-skills-with-your-package)加入发行包。
+每个目标都遵循[插件注册规则](/zh-cn/docs/app/plugins/)。任务指令按 [技能包目录结构](/zh-cn/docs/app/skills/#把技能放进-wheel)加入发行包。
 
 发布前，把构建好的 wheel 安装到独立环境，运行命令、核对插件报告、加载打包的技能，再完成一次有代表性的对话。对于宿主应用，还应检查流或后台工具运行期间的关闭行为。

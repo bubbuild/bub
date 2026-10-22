@@ -36,8 +36,6 @@ def system_prompt(prompt, state):
     return "Explain which files support your answer."
 ```
 
-<a id="control-calls"></a>
-
 ## Control a model or tool call
 
 Use the agent interception hooks when you want to retain the builtin agent and change an individual call. For example, cap a request's output tokens:
@@ -70,7 +68,7 @@ def before_tool_call(call: ToolCall, state):
 
 Your authorization logic sets `can_cancel_orders`; the hook uses that value to allow or deny the call.
 
-An exception in these interception hooks is logged and skipped. Use `deny`, `replace`, or `LLMCallDecision.finish` for control. The [interception contract](/docs/reference/hooks/#agent-loop-hooks-pluginagenthooks) explains when a decision stops the chain.
+An exception in these interception hooks is logged and skipped. Use `deny`, `replace`, or `LLMCallDecision.finish` for control. The [interception contract](/docs/reference/hooks/#interception-through-pluginagenthooks) explains when a decision stops the chain.
 
 ## Observe completed calls
 
@@ -90,7 +88,7 @@ def after_tool_call(call, result, state):
     print(f"tool={call.tool} duration_ms={result.duration_ms} error={result.error!r}")
 ```
 
-These hooks observe completed calls, including ordinary failures. They do not report cancellation. For per-chunk output, use the stream interface in your host or channel and follow its [closing rules](/docs/reference/python-api/#streaming).
+These hooks observe completed calls, including ordinary failures. They do not report cancellation. For per-chunk output, use the stream interface in your host or channel and follow its [closing rules](/docs/reference/python-api/#streams).
 
 To replace the entire model stage, implement either `run_model` or `run_model_stream`. [Your first plugin](/docs/app/plugins/) shows a text replacement. A replacement owns its execution and recording behavior; the builtin agent's interception hooks run only when that agent is used.
 

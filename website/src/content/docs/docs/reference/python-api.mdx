@@ -9,8 +9,6 @@ Look up an interface by what it belongs to. Core interfaces work in a Python pro
 
 Interfaces for the core loop. They do not load application configuration.
 
-<a id="streaming"></a>
-
 ### Streams
 
 ```python
@@ -50,7 +48,7 @@ from bub.hooks.interception import (
 )
 ```
 
-`BubError.kind` identifies the error category; `as_dict()` returns a payload suitable for transport. Interception payloads are shared with `bub.core.events`. Their use by plugins, including exception handling, is defined in [Hooks](/docs/reference/hooks/#agent-loop-hooks-pluginagenthooks).
+`BubError.kind` identifies the error category; `as_dict()` returns a payload suitable for transport. Interception payloads are shared with `bub.core.events`. Their use by plugins, including exception handling, is defined in [Hooks](/docs/reference/hooks/#interception-through-pluginagenthooks).
 
 ## Application
 
@@ -143,7 +141,7 @@ from bub.builtin.agent import BubAgent
 
 Application configuration is process-wide. Construct a `BubAgent` inside `framework.running()` when it should use the framework's active store. An explicitly supplied store takes precedence and remains the caller's lifecycle responsibility. Without either store, the agent uses memory.
 
-`run_stream` loads initial state when the caller omits `state` and uses caller-supplied state directly otherwise. The host owns save-state hooks, outbound handling, and concurrent turn scheduling. See [Embed the application](/docs/app/distribution/#programmatic-embedding) for complete usage.
+`run_stream` loads initial state when the caller omits `state` and uses caller-supplied state directly otherwise. The host owns save-state hooks, outbound handling, and concurrent turn scheduling. See [Embed the application](/docs/app/distribution/#embed-the-application) for complete usage.
 
 ## Imports
 

@@ -42,9 +42,7 @@ Run `bub hooks` to check that your plugin implements `provide_tools`. The model-
 
 When calling `BubAgent.run_stream`, pass `allowed_tools` to limit the model's tools for that turn. It accepts runtime names or model-facing names. `None` allows all instance tools; an empty collection allows none. Unknown names raise `ValueError`.
 
-This filter applies to model and code-mode tools. Comma commands use the agent's instance tools directly. Use [tool-call decisions](/docs/app/hooks/#control-calls) when a rule must also govern command execution.
-
-<a id="load-tools-on-demand"></a>
+This filter applies to model and code-mode tools. Comma commands use the agent's instance tools directly. Use [tool-call decisions](/docs/app/hooks/#control-a-model-or-tool-call) when a rule must also govern command execution.
 
 ## Load tools when needed
 
@@ -63,8 +61,6 @@ def get_order(order_id: str) -> dict[str, str]:
 `BubAgent` lists allowed deferred tools in the system prompt and supplies `tool_describe` when at least one remains. The model calls `tool_describe` to load a definition. The application records `tool.loaded` entries, so loaded tools remain available until the tape is reset: the model can call a tool in the steps after loading it, and later turns offer it directly. Asking `tool_describe` for a tool that is already loaded returns its name under `already_loaded` instead of the definition.
 
 The turn's allowlist controls both listing and loading. In code mode, allowed `auto` and `code` tools are available to Python immediately; deferral applies to the tools still offered directly to the model.
-
-<a id="code-mode"></a>
 
 ## Use code mode in the app
 
@@ -87,17 +83,15 @@ When `run_code` is allowed, the app selects tools according to `exposure`:
 
 If `run_code` is excluded, the turn uses the code-mode-off selection. The app writes a Python tool stub under `<BUB_HOME>/codemode/` and includes its path in the system prompt. Python calls such as `await tools.orders_get(order_id="123")` use the selected tools and pass through the application's interception hooks.
 
-The app connects CodeMode to the session's environment and model settings. Code can use the Republic bridge and media attachment tools described in [CodeMode](/docs/sdk/tools/#code-mode). Model credentials remain on the host when using the bridge; the default local execution environment still runs code on that host.
+The app connects CodeMode to the session's environment and model settings. Code can use the Republic bridge and media attachment tools described in [CodeMode](/docs/sdk/tools/#compose-tools-with-codemode). Model credentials remain on the host when using the bridge; the default local execution environment still runs code on that host.
 
-`BubAgent` interprets `state["code_mode"]` and the `deferred` flag to apply these selection rules. With a plain `core.Agent`, [compose CodeMode explicitly](/docs/sdk/tools/#code-mode) and supply your own deferred-loading policy if you need one.
-
-<a id="run-tools-in-an-environment"></a>
+`BubAgent` interprets `state["code_mode"]` and the `deferred` flag to apply these selection rules. With a plain `core.Agent`, [compose CodeMode explicitly](/docs/sdk/tools/#compose-tools-with-codemode) and supply your own deferred-loading policy if you need one.
 
 ## Choose the execution environment
 
 Builtin `bash`, `bash.output`, `bash.kill`, `fs.*`, and `run_code` use the session's `Environment`. The default is `LocalEnvironment`, which runs on the host.
 
-Provide another environment through a plugin's `provide_environment(session_id, workspace)` hook. The framework caches one environment per session and closes it when `framework.running()` exits. [Tools and CodeMode](/docs/sdk/tools/#run-tools-in-an-environment) describes the environment interface.
+Provide another environment through a plugin's `provide_environment(session_id, workspace)` hook. The framework caches one environment per session and closes it when `framework.running()` exits. [Tools and CodeMode](/docs/sdk/tools/#choose-an-execution-environment) describes the environment interface.
 
 A custom application tool can access that environment with `environment_from_state(context.state)` from `bub.builtin.environment`. The Python tool runs on the host and explicitly delegates operations to the environment when needed.
 
@@ -105,4 +99,4 @@ A custom application tool can access that environment with `environment_from_sta
 
 Put workspace-wide instructions in `AGENTS.md`. Use [skills](/docs/app/skills/) for procedures the model can load for a task. A skill can tell the model when to call your tool; the Python function defines what that tool does.
 
-Comma commands let a person invoke registered tools without asking the model. See [text commands](/docs/sdk/tools/#commands) for command syntax.
+Comma commands let a person invoke registered tools without asking the model. See [text commands](/docs/sdk/tools/#call-a-tool-without-a-model) for command syntax.

@@ -5,7 +5,7 @@ description: Hook signatures, dispatch rules, and resource lifecycles for Bub pl
 
 Hooks connect plugins to the Bub application. This reference lists the 26 hooks declared by `BubHookSpecs`. For examples, see [Hooks](/docs/app/hooks/); for the order of application stages, see [Turn](/docs/concepts/turn/).
 
-`first` below means the first non-`None` result in hook priority order. `all` means every implementation is called. An ordinary hook exception stops that dispatch and propagates; the [agent interception hooks](#agent-loop-hooks-pluginagenthooks) and `on_error` have separate exception handling.
+`first` below means the first non-`None` result in hook priority order. `all` means every implementation is called. An ordinary hook exception stops that dispatch and propagates; the [agent interception hooks](#interception-through-pluginagenthooks) and `on_error` have separate exception handling.
 
 ## Turn hooks
 
@@ -57,8 +57,6 @@ Synchronous dispatch skips awaitable return values with a `hook.async_not_suppor
 
 <span id="how-hooks-are-invoked"></span>
 
-<a id="iteration-order"></a>
-
 ## Priority and dispatch
 
 Bub registers builtin hooks first, then installed entry-point plugins. For ordinary implementations at the same priority, later registrations run first. `@hookimpl(tryfirst=True)` and `@hookimpl(trylast=True)` alter priority. These flags and registration order together determine which implementation runs first.
@@ -87,8 +85,6 @@ The builtin lifespan owns background shell processes started within that scope. 
 
 Tape sidecar providers contribute named sibling tapes. Bub mounts them on the application's root Tape and applies fork, merge, archive, and reset to mounted sidecars. Stored data remains after a provider is removed. See [Tape and context](/docs/concepts/tape/) for shared storage semantics.
 
-<a id="agent-loop-hooks-pluginagenthooks"></a>
-
 ## Interception through PluginAgentHooks
 <span id="agent-loop-hooks-agenthooks"></span>
 
@@ -96,7 +92,7 @@ Tape sidecar providers contribute named sibling tapes. Bub mounts them on the ap
 
 The before hooks run in hook priority order. Each sees updates made by earlier implementations. `LLMCallDecision.finish(text)`, `ToolCallDecision.replace(result)`, and `ToolCallDecision.deny(message)` stop the remaining before implementations. A finished LLM decision never calls the provider and has no matching `after_llm_call`.
 
-The adapter catches ordinary exceptions from each interception hook, logs `hook.agent_hook_failed`, and continues. Return a decision to deny a call. Handlers registered directly on the [core EventBus](/docs/concepts/events/#delivery) propagate their exceptions.
+The adapter catches ordinary exceptions from each interception hook, logs `hook.agent_hook_failed`, and continues. Return a decision to deny a call. Handlers registered directly on the [core EventBus](/docs/concepts/events/#handlers) propagate their exceptions.
 
 After hooks observe successful calls and ordinary failures. Cancellation and consumer close bypass them. `after_tool_call` also runs for denied or replaced calls; implementations share the same result object. Changing `result.result` changes the value passed onward, while `result.error` retains the original failure.
 

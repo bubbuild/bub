@@ -7,8 +7,6 @@ An agent needs two things. It needs a record of its work. It also needs a useful
 
 `core.Agent` and `BubAgent` share this model. Their default stores and session names are different.
 
-<a id="storage"></a>
-
 ## Storage
 
 A plain `Agent` creates an `InMemoryTapeStore` by default. That history lives as long as the store. To keep it between processes, pass a file store:
@@ -45,8 +43,6 @@ To use your own store, implement `TapeStore` or `AsyncTapeStore` from `bub.core.
 
 Use synchronous methods for `TapeStore` and asynchronous methods for `AsyncTapeStore`. The agent adapts a synchronous store for async use. Your store and your app handle persistence and coordination between processes.
 
-<a id="context"></a>
-
 ## Context
 
 Tape entries are messages, tool calls, tool results, events, and anchors. Normal recording only appends entries. To clear history, call an explicit operation such as `Tape.reset()`.
@@ -77,15 +73,11 @@ To choose another anchor, pass `context=TapeContext(...)` to `Agent`. You can al
 
 When the agent recognizes a context-length error, it makes one automatic handoff. It then retries the prompt with the shorter context. If you need a summary of the earlier history, create it before the handoff. The retry can still fail if the request is too large.
 
-<a id="state"></a>
-
 ## State
 
 The `state` that you pass to `agent.run()` is a mutable dictionary. Tools, prompt sections, and event handlers share it during the run. Your app owns its persistence. Keep durable data in your own store, or write selected facts to the tape and read them back when you need them.
 
 The default [TapeRecorder](/docs/concepts/events/#recording) saves conversation exchanges and selected lifecycle records. To keep other variables, custom events, or decisions, record them yourself.
-
-<a id="forks"></a>
 
 ## Forks
 
@@ -102,8 +94,6 @@ If two runs share a tape and must see each other's completed work, serialize the
 A `TapeSidecar` stores related data in a separate tape. A mounted sidecar follows the main tape through forks, merges, and resets. Its entries stay out of the main context. Pass sidecars to `Agent(sidecars=...)` when your app needs them.
 
 The Bub app mounts a spill sidecar for large tool results. It keeps a short preview and a handle in the conversation. The agent can then read parts of the result with `spill.read`. If a sidecar fails during a fork merge or a tape reset, the app records the failure separately. The main tape operation can still complete. The spill limits are in the [app configuration](/docs/app/configure/).
-
-<a id="application-storage"></a>
 
 ## App storage
 

@@ -15,8 +15,6 @@ Three kinds of information have three different jobs:
 
 The agent loop controls execution. It calls the event handlers at fixed points, before it continues. TapeRecorder saves selected exchanges and lifecycle records. Your handlers can record the other events that you need to keep.
 
-<a id="delivery"></a>
-
 ## Handlers
 
 This example uses the `agent` from the [SDK guide](/docs/sdk/):
@@ -42,8 +40,6 @@ To remove a handler, call `agent.events.off(StepFinished, report_step)`. A handl
 For each emission, the matching handlers run in the order of registration. The bus waits for each async handler before it starts the next one. The bus ignores the return value of a handler. An exception goes to the caller of `emit()` and can fail the run. If work must continue after an observer fails, catch the exception inside that observer.
 
 This order applies to one emission. Concurrent tool calls or runs can emit events at the same time. Shared handler state therefore needs its own coordination.
-
-<a id="control"></a>
 
 ## Call control
 
@@ -77,11 +73,9 @@ To change the arguments and continue, replace `event.call` with `dataclasses.rep
 | `ChatFinished` | The exchange of a step is ready to record. | Read the exchange. |
 | `CommandFinished` | A direct command finishes or fails. | Read the command, the status, and the output. |
 
-Command prompts run tools directly. They emit tool events and `CommandFinished`. See [Commands](/docs/sdk/tools/#commands).
+Command prompts run tools directly. They emit tool events and `CommandFinished`. See [Commands](/docs/sdk/tools/#call-a-tool-without-a-model).
 
 All agent events carry the turn `state`. Events that derive from `TapeEvent` also carry the active tape. For tool events, the tool context is available as `event.call.context` when the call has one.
-
-<a id="recording"></a>
 
 ## Recording
 
@@ -90,8 +84,6 @@ The Agent registers TapeRecorder before your handlers. It records `RunStarted`, 
 Recording is part of normal operation. It writes to the configured store. That store is in memory unless you supply another one. Recording does not depend on the tracing configuration.
 
 To save a custom event, add a handler that writes it to the tape. Use the interception events to change a request or a result. A `ChatFinished` observer runs after the default recorder has saved that exchange.
-
-<a id="custom-events"></a>
 
 ## Custom events
 
@@ -122,11 +114,9 @@ async def mark_reviewed() -> None:
 
 `emit()` returns the event after the handlers have run. A custom mutable event can carry a response back to its emitter. Override its `stopped` property if delivery must end when that response is set. Tools can emit events through `context.events`, with the same turn state.
 
-<a id="application-hooks"></a>
-
 ## App plugins
 
-`AgentPlugins` connects four hooks to the call events: `before_llm_call`, `after_llm_call`, `before_tool_call`, and `after_tool_call`. It connects the `continue_prompt` hook to `StepFinished`. It connects the steering inbox to `MessagesPending`. A plugin returns the values that the hook contract requires, and the adapter updates the event. `BubAgent` uses this adapter, and a core Agent can [use it too](/docs/sdk/reuse-plugins/#agent-plugins).
+`AgentPlugins` connects four hooks to the call events: `before_llm_call`, `after_llm_call`, `before_tool_call`, and `after_tool_call`. It connects the `continue_prompt` hook to `StepFinished`. It connects the steering inbox to `MessagesPending`. A plugin returns the values that the hook contract requires, and the adapter updates the event. `BubAgent` uses this adapter, and a core Agent can [use it too](/docs/sdk/reuse-plugins/#other-hooks).
 
 This adapter follows the plugin hook order. It catches exceptions from individual interception hooks, logs them, and skips them. To deny a call, return the correct decision. The other app hooks follow their own error contracts.
 

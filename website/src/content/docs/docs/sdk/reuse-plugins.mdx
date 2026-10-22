@@ -5,7 +5,7 @@ description: Bring plugin tools and hooks into your own agent while keeping your
 
 Use Bub's application plugins in your existing Python service. Your host keeps its HTTP routes, task handlers, and output handling. Choose the agent and runtime according to the application behavior you want to reuse.
 
-`BubAgent` is Bub's existing combination of the core loop, settings, plugin hooks, skills, and tool policies. Its [direct stream entry point](#app-runtime) also works inside a host application. Use `BubFramework.process_inbound()` when you want the full message pipeline.
+`BubAgent` is Bub's existing combination of the core loop, settings, plugin hooks, skills, and tool policies. Its [direct stream entry point](#reuse-bubagent) also works inside a host application. Use `BubFramework.process_inbound()` when you want the full message pipeline.
 
 With `core.Agent`, you choose the components and connect the hooks yourself. The examples below take a search tool from one plugin and adapt the call hooks of another. Each example covers that plugin's dependencies; background services need their own startup and shutdown.
 
@@ -109,8 +109,6 @@ Register and attach once during service startup. This plugin runs entirely throu
 
 The adapter catches ordinary plugin exceptions and skips the failed hook. A hook that blocks a tool must return `ToolCallDecision.deny(...)`; see [Agent events](/docs/concepts/events/) for interception semantics.
 
-<a id="agent-plugins"></a>
-
 ### Other hooks
 
 The other hooks decide what the run has. Each hook maps to a core Agent extension point:
@@ -148,15 +146,13 @@ The plugin's implementation determines what your host must provide:
 | Plugin capability | How to reuse it |
 | --- | --- |
 | Tools or a store | Import the public component and pass it to Agent. For example, `bub_tapestore_sqlalchemy.store.SQLAlchemyTapeStore` accepts a database URL and can be passed as `store=`. |
-| Model or tool interception, system prompt, continuation, or steering | Register the selected plugin and [attach `AgentPlugins`](#agent-plugins). Check any state fields or tools the plugin expects. |
-| Message preparation, model-stage replacement, state saving, or delivery | [Embed the application pipeline](/docs/app/distribution/#programmatic-embedding) in your host. It runs these stages and returns a `TurnResult`. |
+| Model or tool interception, system prompt, continuation, or steering | Register the selected plugin and [attach `AgentPlugins`](#other-hooks). Check any state fields or tools the plugin expects. |
+| Message preparation, model-stage replacement, state saving, or delivery | [Embed the application pipeline](/docs/app/distribution/#embed-the-application) in your host. It runs these stages and returns a `TurnResult`. |
 | Background connections or discovered tools | Open the service, wait until it is ready, attach its tools, then close it with the host. Follow the plugin's own lifecycle API. |
 
 Follow the chosen store's lifecycle contract. `framework.running()` acquires hook-provided resources and closes the context managers it entered. A store returned as an ordinary object keeps its own cleanup requirements.
 
 For MCP, follow the plugin's [embedding example](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-mcp#embedding): connect with `MCPChannel.connect()`, attach tools to a `BubAgent` with `bind_agent()`, and close connections with `stop()`. Your host must manage this lifecycle in addition to `framework.running()`.
-
-<a id="app-runtime"></a>
 
 ## Reuse BubAgent
 

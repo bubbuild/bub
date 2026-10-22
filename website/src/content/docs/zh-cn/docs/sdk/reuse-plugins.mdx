@@ -5,7 +5,7 @@ description: 将插件提供的工具和 hooks 接入自己的 Agent，保留现
 
 你可以在现有 Python 服务中使用 Bub 应用插件。宿主继续管理 HTTP 路由、任务入口和输出处理；根据要复用的应用行为，选择 Agent 和运行入口。
 
-`BubAgent` 已经将内核循环、设置、插件 hooks、技能和工具策略组合在一起，它的[直接流入口](#app-runtime)也可以嵌入宿主程序。需要完整消息处理流程时，使用 `BubFramework.process_inbound()`。
+`BubAgent` 已经将内核循环、设置、插件 hooks、技能和工具策略组合在一起，它的[直接流入口](#复用-bubagent)也可以嵌入宿主程序。需要完整消息处理流程时，使用 `BubFramework.process_inbound()`。
 
 使用 `core.Agent` 时，由你选择组件并接入 hooks。下面分别取用搜索插件的工具、适配上下文插件的调用 hooks，每个示例都说明了该插件需要的依赖。后台服务还需要各自的启动和关闭流程。
 
@@ -109,8 +109,6 @@ Handoff 把摘要保存在锚点上。下一次模型请求需要这份摘要时
 
 适配器会捕获普通插件异常并跳过失败的 hook。需要阻止工具执行时，hook 应返回 `ToolCallDecision.deny(...)`。具体拦截语义见 [Agent 事件](/zh-cn/docs/concepts/events/)。
 
-<a id="agent-plugins"></a>
-
 ### 其他 hooks
 
 其余 hooks 决定一次运行中有什么。每个 hook 对应核心 Agent 的一个扩展点：
@@ -148,15 +146,13 @@ async with plugins.running():
 | 插件能力 | 接入方式 |
 | --- | --- |
 | 工具或存储 | 导入公开组件并传给 Agent。例如，`bub_tapestore_sqlalchemy.store.SQLAlchemyTapeStore` 接收数据库 URL，可作为 `store=` 传入。 |
-| 模型或工具拦截、系统提示词、继续运行或 steering | 注册指定插件并[接入 `AgentPlugins`](#agent-plugins)，同时核对插件需要的状态字段和工具。 |
-| 消息准备、模型阶段替换、状态保存或消息发送 | 在宿主中[嵌入应用流程](/zh-cn/docs/app/distribution/#programmatic-embedding)，执行这些阶段并取得 `TurnResult`。 |
+| 模型或工具拦截、系统提示词、继续运行或 steering | 注册指定插件并[接入 `AgentPlugins`](#其他-hooks)，同时核对插件需要的状态字段和工具。 |
+| 消息准备、模型阶段替换、状态保存或消息发送 | 在宿主中[嵌入应用流程](/zh-cn/docs/app/distribution/#嵌入应用)，执行这些阶段并取得 `TurnResult`。 |
 | 后台连接或动态发现的工具 | 启动服务、等待就绪、绑定工具，并随宿主关闭。具体顺序遵循插件自己的生命周期接口。 |
 
 按所选存储的生命周期约定管理资源。`framework.running()` 会获取 hooks 提供的资源，并在退出时关闭它进入的上下文管理器。返回普通对象的存储仍需遵循自己的清理约定。
 
 接入 MCP 时，按照插件的[嵌入示例](https://github.com/bubbuild/bub-contrib/tree/dev/packages/bub-mcp#embedding)，用 `MCPChannel.connect()` 建立连接，通过 `bind_agent()` 把工具绑定到 `BubAgent`，最后调用 `stop()` 关闭连接。宿主在使用 `framework.running()` 之外，还需要管理这段生命周期。
-
-<a id="app-runtime"></a>
 
 ## 复用 BubAgent
 

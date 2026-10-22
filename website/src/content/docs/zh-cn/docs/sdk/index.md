@@ -7,8 +7,6 @@ description: 在一个最小的 Python 程序里跑起 Agent，并控制它产�
 
 这一页假设你已经按 Agent 的方式装好 Bub，见[安装 Bub](/zh-cn/docs/getting-started/install/#agent-install)。[Bub 应用](/zh-cn/docs/app/workspace/)建立在同一个内核上，额外提供配置和插件发现。
 
-<a id="create-an-agent"></a>
-
 ## 运行示例
 
 在项目中保存为 `sdk_example.py`：
@@ -63,8 +61,6 @@ uv run python sdk_example.py
 工具返回示例订单状态。接入实际应用时，把函数体换成自己的订单服务。Agent 将工具结果交回模型，由模型生成回答。
 
 使用相同的 `tape` 名称再次运行程序，就会继续 `sessions/` 中保存的会话。换一个名称即可开始独立会话。
-
-<a id="streams-and-lifecycle"></a>
 
 ## 管理运行与输出流
 

@@ -36,8 +36,6 @@ def system_prompt(prompt, state):
     return "Explain which files support your answer."
 ```
 
-<a id="control-calls"></a>
-
 ## 控制一次模型或工具调用
 
 保留内置 agent，并调整某次调用时，使用 agent 拦截 hooks。例如，限制一次请求的输出 token 数：
@@ -70,7 +68,7 @@ def before_tool_call(call: ToolCall, state):
 
 由你的授权逻辑设置 `can_cancel_orders`，hook 根据这个值允许或拒绝调用。
 
-这些拦截 hooks 抛出的异常会被记录并跳过。要控制执行，使用 `deny`、`replace` 或 `LLMCallDecision.finish`。[拦截契约](/zh-cn/docs/reference/hooks/#agent-loop-hooks-pluginagenthooks)说明了 decision 何时终止调用链。
+这些拦截 hooks 抛出的异常会被记录并跳过。要控制执行，使用 `deny`、`replace` 或 `LLMCallDecision.finish`。[拦截契约](/zh-cn/docs/reference/hooks/#通过-pluginagenthooks-拦截调用)说明了 decision 何时终止调用链。
 
 ## 观察已经完成的调用
 
@@ -90,7 +88,7 @@ def after_tool_call(call, result, state):
     print(f"tool={call.tool} duration_ms={result.duration_ms} error={result.error!r}")
 ```
 
-这些 hooks 观察已经完成的调用，包括普通异常导致的失败，但不报告取消。需要逐块处理输出时，在宿主程序或渠道中使用流接口，并遵守[关闭规则](/zh-cn/docs/reference/python-api/#streaming)。
+这些 hooks 观察已经完成的调用，包括普通异常导致的失败，但不报告取消。需要逐块处理输出时，在宿主程序或渠道中使用流接口，并遵守[关闭规则](/zh-cn/docs/reference/python-api/#流)。
 
 如果要替换整个模型阶段，实现 `run_model` 或 `run_model_stream` 中的一个。[第一个插件](/zh-cn/docs/app/plugins/)演示了文本替换。替换实现负责自己的执行和记录行为；只有使用内置 agent 时，才会运行它的拦截 hooks。
 
@@ -121,8 +119,6 @@ turn_counter = TurnCounter()
 这个内存示例统计模型阶段退出的次数，包括失败。进程退出后计数会丢失，并且它假定同一会话一次只处理一个 turn。生产环境应使用持久化存储，并选择合适的并发策略。
 
 `save_state` 位于模型阶段的 `finally` 块中，前提是会话解析、状态加载和提示词准备已经成功。这些准备阶段发生错误时，会跳过保存 hook。会话历史另有 [Tape 生命周期](/zh-cn/docs/concepts/tape/#state)。
-
-<a id="provide-a-tape-store"></a>
 
 ## 提供会话存储
 <span id="5-provide-a-tape-store"></span>

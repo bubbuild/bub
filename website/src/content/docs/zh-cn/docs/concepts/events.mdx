@@ -15,8 +15,6 @@ Agent 事件能让你看到一次运行，也能让你在模型或工具调用�
 
 循环控制执行，并在固定位置调用事件处理器，然后才往下走。TapeRecorder 保存选定的往返和生命周期记录。其他你要留的事件，由自己的处理器记录。
 
-<a id="delivery"></a>
-
 ## 处理器
 
 下面用的是 [SDK 指南](/zh-cn/docs/sdk/)里的 `agent`：
@@ -42,8 +40,6 @@ agent.events.on(StepFinished, report_step)
 每次派发，匹配的处理器按注册顺序执行。总线会等一个异步处理器做完，再调下一个。处理器返回什么，总线都不看。异常会抛给 `emit()` 的调用方，可能让整次运行失败。如果希望某个观察器出错后工作照旧往下走，就在观察器内部把异常接住。
 
 这个顺序只管一次派发。并发的工具调用或两个运行，可能同时发事件。处理器里共享的状态，仍要自己协调。
-
-<a id="control"></a>
 
 ## 调用控制
 
@@ -77,11 +73,9 @@ def require_refund_permission(event: ToolCallStarted) -> None:
 | `ChatFinished` | 这一步的往返可以记录了。 | 读这一次往返。 |
 | `CommandFinished` | 直接命令完成或失败。 | 读命令、状态和输出。 |
 
-命令提示词直接跑工具，会发出工具事件和 `CommandFinished`。见[命令](/zh-cn/docs/sdk/tools/#commands)。
+命令提示词直接跑工具，会发出工具事件和 `CommandFinished`。见[命令](/zh-cn/docs/sdk/tools/#不经过模型调用工具)。
 
 所有 agent 事件都带本轮的 `state`。从 `TapeEvent` 派生的事件还带当前 tape。工具事件在调用有上下文时，可以从 `event.call.context` 取到。
-
-<a id="recording"></a>
 
 ## 记录
 
@@ -90,8 +84,6 @@ Agent 在你的处理器之前注册 TapeRecorder。它记录 `RunStarted`、`Ru
 记录是正常流程的一部分。它写进你配置的存储，没另外指定就写在内存里。记录和 tracing 的配置无关。
 
 要存自定义事件，加一个处理器把它写进 tape。要改请求或结果，用调用拦截事件。`ChatFinished` 的观察器运行时，默认记录器已经把这次往返存好了。
-
-<a id="custom-events"></a>
 
 ## 自定义事件
 
@@ -122,11 +114,9 @@ async def mark_reviewed() -> None:
 
 `emit()` 在处理器跑完后返回事件。自定义的可变事件可以把结果带回发出方。结果一确定就该停止派发时，覆写它的 `stopped` 属性。工具可以通过 `context.events` 发事件，用的是同一份本轮状态。
 
-<a id="application-hooks"></a>
-
 ## 应用插件
 
-`AgentPlugins` 把四个 hook 接到调用事件上：`before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call`。它把 `continue_prompt` 接到 `StepFinished`，把 steering inbox 接到 `MessagesPending`。插件按 hook 的要求返回值，适配器去改对应的事件。`BubAgent` 用的就是这个适配器，核心 Agent [也可以这么用](/zh-cn/docs/sdk/reuse-plugins/#agent-plugins)。
+`AgentPlugins` 把四个 hook 接到调用事件上：`before_llm_call`、`after_llm_call`、`before_tool_call`、`after_tool_call`。它把 `continue_prompt` 接到 `StepFinished`，把 steering inbox 接到 `MessagesPending`。插件按 hook 的要求返回值，适配器去改对应的事件。`BubAgent` 用的就是这个适配器，核心 Agent [也可以这么用](/zh-cn/docs/sdk/reuse-plugins/#其他-hooks)。
 
 这个适配器遵循插件 hook 的顺序。单个拦截 hook 抛异常时，它接住、记日志、跳过。要拒绝一次调用，就返回对应的 decision。其他应用 hooks 按各自的出错规则处理。
 

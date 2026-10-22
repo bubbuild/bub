@@ -5,8 +5,6 @@ description: Choose the model, the instructions, and the other options that shap
 
 These options shape how an agent runs. Start from the [basic agent](/docs/sdk/) example, then change the options you need.
 
-<a id="models"></a>
-
 ## Choose a model
 
 Pass a Republic chat model to `Agent(model=...)` for a default, or to `agent.run(model=...)` for one run. A run that needs a model raises `ValueError` when neither is supplied. You own the model's lifetime, so open it with `async with` around the runs that use it.
@@ -35,8 +33,6 @@ For your own fallback, credential, or timeout policy, implement `bub.core.ModelC
 
 A `LLMCallStarted` handler can change the requested model. With a Republic chat model, a change within the same provider reuses its client; a different provider uses a client configured from Republic's environment. Supply a `ModelClient` when this policy needs to differ.
 
-<a id="system-prompt"></a>
-
 ## Set the instructions
 
 `system_prompt` accepts text, a function, or an ordered list of either. Functions receive a `PromptContext` and may be synchronous or asynchronous. The agent renders the sections once per run, before its first model step, omits empty results, and joins the rest with blank lines. Later steps of the run reuse that text.
@@ -54,14 +50,7 @@ def customer(context: PromptContext) -> str | None:
 
 `PromptContext` carries the run's prompt, model-facing tools, model spec, tape, turn state, and agent. `available_tools` lists the agent's registered tools. Remove a section with `agent.system_prompt.remove(section)`.
 
-<a id="tapes-and-state"></a>
-<a id="sessions-and-tapes"></a>
-
 The `state` passed to a run is a mutable dictionary shared by tools, prompt sections, and event handlers. You decide which values to save and how to restore them for another run. See [Turn state](/docs/concepts/tape/#state) for what to keep between runs.
-
-<a id="tools"></a>
-
-<a id="agent-parameters"></a>
 
 ## Set the other parameters
 
@@ -79,8 +68,6 @@ The `state` passed to a run is a mutable dictionary shared by tools, prompt sect
 | `command_prefix` | `None`. Set a prefix to invoke tools through text commands without a model. |
 
 The agent keeps supplied `Tool` objects in `agent.tools` by name and provider tools in `agent.builtin_tools`. You select its tools explicitly when constructing or updating the agent.
-
-<a id="customize-the-loop"></a>
 
 ## Customize how a step is prepared
 
@@ -111,6 +98,3 @@ def check_results(event: StepFinished) -> None:
 ```
 
 `agent.session(name, state=...)` opens a tape whose lifecycle you manage. Pass that `Tape` object, not its name, to `agent.run_on(tape, prompt, model=...)` or to `agent.run_once(prompt, model=..., tape=<Tape>)`. `run_on()` returns a stream you must close. `run_once()` yields one model step when you drive the loop yourself.
-
-<a id="events"></a>
-<a id="commands"></a>

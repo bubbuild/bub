@@ -7,8 +7,6 @@ Choose a model, add tools, and connect the agent to your program. `bub.core.Agen
 
 This page assumes Bub is installed for the agent path; see [Install Bub](/docs/getting-started/install/#agent-install). The [Bub application](/docs/app/workspace/) builds on the same core and adds configuration and plugin discovery.
 
-<a id="create-an-agent"></a>
-
 ## Run the example
 
 Save this as `sdk_example.py` in your project:
@@ -63,8 +61,6 @@ uv run python sdk_example.py
 The tool returns a demonstration order status. Replace its body with your own order service when you use it in an application. The agent gives the tool result back to the model, which writes the answer.
 
 Run the program again with the same `tape` name to continue the conversation stored under `sessions/`. Change the name to start a separate conversation.
-
-<a id="streams-and-lifecycle"></a>
 
 ## Manage the run and its stream
 

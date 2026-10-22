@@ -88,7 +88,7 @@ With no other plugin overriding the model stage, the response contains:
 
 If `echo` is missing, check that the package was installed in the environment running `bub`, its entry-point group, and startup logs for an import failure. Changes to package metadata require reinstalling the package. If it is listed but another response wins, inspect the other model hooks and their priority.
 
-Bub registers builtin hooks before entry-point plugins. Hooks at equal priority generally run in reverse registration order; `tryfirst` and `trylast` affect that order. The [dispatch rules](/docs/reference/hooks/#iteration-order) explain which implementation runs first.
+Bub registers builtin hooks before entry-point plugins. Hooks at equal priority generally run in reverse registration order; `tryfirst` and `trylast` affect that order. The [dispatch rules](/docs/reference/hooks/#priority-and-dispatch) explain which implementation runs first.
 
 ## Choose an entry-point target
 
@@ -158,8 +158,6 @@ The application takes a snapshot of registered tools when it creates a `BubAgent
 Build and install a wheel into a separate environment before publishing it. Confirm that the entry point loads and that a representative task uses your hook. If you bundle skills or several plugins, follow [Distribution](/docs/app/distribution/).
 
 Portable Agent Plugins use a different format: `plugin.json`, skills, and MCP servers. The [Agent Plugins integration](/docs/integrations/agent-plugins/) loads those packages through a Python plugin.
-
-<a id="wasm-plugins"></a>
 
 ## WASM plugins (experimental)
 

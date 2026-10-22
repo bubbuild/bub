@@ -88,7 +88,7 @@ uv run bub run "hello from my plugin"
 
 如果没有看到 `echo`，检查安装插件的环境是否就是运行 `bub` 的环境、入口点组名，以及启动日志中的导入错误。修改包元数据后，需要重新安装包。如果已经列出却返回其他回复，检查其他模型 hooks 及其优先级。
 
-Bub 先注册内置 hooks，再注册入口点插件。同等优先级通常按注册顺序的逆序调用；`tryfirst` 和 `trylast` 会影响顺序。[调用规则](/zh-cn/docs/reference/hooks/#iteration-order)说明了哪个实现先运行。
+Bub 先注册内置 hooks，再注册入口点插件。同等优先级通常按注册顺序的逆序调用；`tryfirst` 和 `trylast` 会影响顺序。[调用规则](/zh-cn/docs/reference/hooks/#优先级与分发)说明了哪个实现先运行。
 
 ## 选择入口点形式
 
@@ -158,8 +158,6 @@ from . import tools  # noqa: F401
 发布前，构建 wheel 并安装到独立环境，确认入口点能加载，并用一个实际任务检查 hook。如果要同时发布技能或多个插件，参见[分发](/zh-cn/docs/app/distribution/)。
 
 可移植的 Agent Plugins 使用另一种格式，包括 `plugin.json`、技能和 MCP servers。[Agent Plugins 集成](/zh-cn/docs/integrations/agent-plugins/)通过一个 Python 插件加载这些包。
-
-<a id="wasm-plugins"></a>
 
 ## WASM 插件（实验性）
 
