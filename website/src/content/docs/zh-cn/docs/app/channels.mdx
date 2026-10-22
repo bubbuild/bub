@@ -149,9 +149,3 @@ telegram.start polling
 普通消息进 turn 流水线之前会被设成 `output_channel="null"`。所以模型随口一句的回答不会被直接发回 Telegram。回复、进度更新、改消息，走的是内置的 `telegram` 技能。
 
 逗号命令不一样。它们保留 `output_channel="telegram"`，工具输出会发回原来的 `chat_id`。内容是带 `message` 字段的 JSON 时，只发这个字段；否则发原始内容。空载荷直接丢掉。
-
-## 下一步
-
-- [终端](/zh-cn/docs/app/terminal/)：REPL 和单次 turn。
-- [部署](/zh-cn/docs/app/deploy/)：把机器人放进容器，状态持久化。
-- [设置参考](/zh-cn/docs/reference/settings/)：全部渠道变量。
