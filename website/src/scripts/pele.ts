@@ -15,6 +15,10 @@ async function mountDiagrams() {
     try {
       const chinese = document.documentElement.lang.toLowerCase().startsWith('zh');
       const diagram = await mountAsync(container, container.dataset.peleSource!, {
+        // The build keeps left-to-right diagrams horizontal; keeping the same
+        // breakpoint here stops the client re-render from flipping them back to
+        // a vertical layout in the narrow docs column.
+        directionBreakpoint: 1,
         zoom: {
           labels: chinese
             ? { zoomIn: '放大', zoomOut: '缩小', reset: '重置' }

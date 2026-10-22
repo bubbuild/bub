@@ -1,46 +1,81 @@
 ---
 title: Turn
-description: 一条进来的消息，从找会话到把回复发出去。
+description: 一条进来的消息，从找出会话到把回复发出去，以及每一步留给插件的位置。
 ---
 
-一个 turn 就是一条进来的消息，以及它引起的全部工作。`BubFramework` 负责一个 turn：找会话、装载状态、构建提示词、跑模型、发出回复。每个阶段都留了 hook，插件可以改这一段。
+import { Aside, Steps } from '@astrojs/starlight/components';
 
-turn 属于 `bub[app]`。直接调 `core.Agent.run()` 没有 turn：循环就用你给的提示词、state 和 tape 开始。
+一个 turn 就是一条进来的消息，以及它引起的全部工作。`BubFramework` 负责一个 turn：找会话、装载状态、构建提示词、跑模型、发出回复。每个阶段都留了 hook，插件可以补一段或整段替换。
 
-## 阶段
+turn 属于 `bub[app]`。直接调 `core.Agent.run()` 没有 turn：循环就用你给的提示词、state 和 tape 开始。这一页讲的是消息从渠道进来之后的那一层。
 
-`framework.process_inbound(message)` 按下面的顺序执行：
+## 为什么需要 turn {#why-a-turn}
 
-| 阶段 | 做什么 |
-| --- | --- |
-| `resolve_session` | 为收到的消息选出会话 ID。 |
-| `load_state` | 从各个 hook 收集这个 turn 的状态。 |
-| `build_prompt` | 把收到的内容转成提示词。 |
-| `run_model` / `run_model_stream` | 产出模型输出：完整结果，或者一个流。 |
-| `save_state` | 收尾模型阶段的工作。它在自己的 `finally` 块里运行。 |
-| `render_outbound` | 把结果转成出站 envelope。 |
-| `dispatch_outbound` | 发出每一个出站 envelope。 |
+如果只有一个模型循环，你就得在每个调用点自己写一遍同样的事：这次消息属于哪个会话？上一次的状态要不要带上？回复应该发到哪里？
 
-内置插件提供应用的默认行为。其他插件可以在 hook 允许的范围内补充或替换行为。[Hooks 参考](/zh-cn/docs/reference/hooks/)定义了首个有效结果、结果合并和优先级。
+turn 把这些从工具和模型代码里拿出来，固定成一串有名字的阶段。这样做的收益是具体的：
 
-## Agent 调用
+- **每一段都可以替换**，但替换点有名字，不需要 fork 整个流程。
+- **错误发生在哪个阶段是明确的**，`on_error(stage=...)` 能拿到阶段名。
+- **一条消息是一个事务**，状态在开头装载、在结尾保存，中间的失败有确定的收尾行为。
 
-内置的 `run_model_stream` hook 调用 `BubAgent.run_stream()`。`BubAgent` 用的是内核的模型与工具循环，再加上配置、技能、命令、steering 和应用的工具策略。
+## 阶段 {#stages}
 
-框架在流式与非流式 hook 结果之间做转换。`process_inbound(..., stream_output=True)` 让渠道路由器边收边处理，流结束时返回一个完整的 `TurnResult`。
+`framework.process_inbound(message)` 按顺序执行下面七个阶段。
 
-插件替换 `run_model` 就会改掉这一步。比如一个 echo 插件可以直接返回文本，根本不创建 agent run。只有选中的实现真的用了内核 agent，才会产生核心事件和 tape 记录。
+<Steps>
 
-## 资源和失败
+1. **`resolve_session`**：为收到的消息选出会话 ID。取首个非空结果；都为空时用渠道和聊天标识构造一个默认值。
 
-当 hooks 要提供存储或其他应用资源时，用 `async with framework.running():`。它打开这些资源，退出时释放。内置的单条消息 lifespan 在装载状态时打开，在 `save_state` 里关闭。
+2. **`load_state`**：从各个 hook 收集这个 turn 的状态片段，合并成一个 `TurnState` 字典。低优先级先合，高优先级覆盖。
 
-执行进到模型阶段后，`save_state` 就会运行，模型阶段抛异常也一样。会话解析、状态装载或 `build_prompt` 的失败发生在这个 `finally` 块之前，所以不会触发它。插件如果在这几个较早的阶段拿了资源，要自己释放。
+3. **`build_prompt`**：把收到的内容转成提示词。取首个结果；没有 hook 提供时，直接用入站内容。
 
-内置的 `save_state` 关闭单条消息 lifespan。应用另外保存选定的配置项。要保存其他状态，得自己定持久化策略。
+4. **`run_model` / `run_model_stream`**：产出模型输出，完整结果或一个流。内置实现调用 `BubAgent.run_stream()`，也就是进入下面那条循环。
+
+5. **`save_state`**：收尾模型阶段的工作。它在自己的 `finally` 块里运行，所以上一步抛异常也会走到这里。
+
+6. **`render_outbound`**：把结果转成出站 envelope。多个 hook 的返回值拼在一起；全为空时用一条默认回复。
+
+7. **`dispatch_outbound`**：把每一个出站 envelope 真正发出去，交给渠道。
+
+</Steps>
+
+前三个阶段准备输入，中间一个阶段产生输出，后三个阶段把输出送出去。只有第 4 步会跑很久——其余几步都是围绕它的前置和收尾。
+
+内置插件提供这七个阶段的默认实现。其他插件可以在 hook 的约束内补充或替换行为。[Hooks 参考](/zh-cn/docs/reference/hooks/#turn-hooks)定义哪些 hook 取首个结果、哪些收集全部结果，以及优先级怎么算。
+
+## 阶段之间传什么 {#what-crosses-stages}
+
+三个阶段之间只传三样东西，这是 turn 的完整内部状态：
+
+| 传递物 | 类型 | 谁写 | 谁读 |
+| --- | --- | --- | --- |
+| `session_id` | `str` | `resolve_session` | 后面所有阶段，以及 `TurnResult` |
+| `state` | `TurnState` | `load_state` 的各个片段；运行期间工具和处理器也会改它 | 提示词构建、模型调用、工具、`save_state` |
+| `prompt` | `list[UserContent]` | `build_prompt` | 模型阶段 |
+
+`state` 是最容易被忽略的一个。它是一个普通字典，本轮从装载到保存之间一直活着，工具和事件处理器拿到的是同一个对象。想让它跨 turn 存在，得自己在 `save_state` 里写出去，下次在 `load_state` 里读回来——内置应用只持久化选定的配置项。[Tape 的状态一节](/zh-cn/docs/concepts/tape/#state)讲了长期数据该放哪。
+
+## 模型阶段 {#agent-call}
+
+内置的 `run_model_stream` hook 调用 `BubAgent.run_stream()`。`BubAgent` 用的是内核的模型与工具循环，再加上应用的默认行为：配置、技能、命令、steering 和工具策略。
+
+框架会在流式与非流式 hook 结果之间做转换，所以插件只实现其中一种也能工作。`process_inbound(..., stream_output=True)` 让渠道路由器边收边处理，流结束时仍然返回一个完整的 `TurnResult`。
+
+```python
+result = await framework.process_inbound(message, stream_output=True)
+print(result.session_id, len(result.outbounds))
+```
+
+替换 `run_model` 就会改掉这一步。一个 echo 插件可以直接返回文本，根本不创建 agent run——这时不会有核心事件，也不会写入 tape 记录。**只有当被选中的实现真的用了核心 agent，事件和 tape 才会出现**，这是判断一次 turn 走了多远的最直接依据。
+
+## 失败与资源 {#resources-and-failures}
+
+<Aside type="caution" title="save_state 的边界">
+  `save_state` 只在执行进入模型阶段后才会运行，模型阶段抛异常也照样运行。会话解析、状态装载或提示词构建失败发生在 `finally` 块之前，**不会**触发 `save_state`。插件如果在这三个阶段拿了资源，要自己释放。
+</Aside>
 
 模型阶段抛出未处理异常时，框架先跑 `save_state`，然后跳过渲染和分发。外层的错误路径调用 `on_error(stage="turn", ...)`，再把异常抛出去。内置的错误观察器可以通过出站分发发一条错误回复。某个 `on_error` 观察器失败，不影响其他观察器。
 
-## 下一步
-
-用[插件设置](/zh-cn/docs/app/plugins/)注册你的实现。常见改法见[Hooks](/zh-cn/docs/app/hooks/)。精确的签名和顺序见[Hooks 参考](/zh-cn/docs/reference/hooks/)。
+hooks 需要提供存储或其他应用资源时，用 `async with framework.running():`。它打开这些资源，退出时释放。内置的单条消息 lifespan 在装载状态时打开，在 `save_state` 里关闭。

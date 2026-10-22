@@ -20,6 +20,8 @@ Anything not listed is an ordinary technical word. Translate it the usual way; j
 | `envelope` | `envelope` | Never 信封. |
 | `trace` | `trace` | Never 轨迹, 追踪. |
 | `CodeMode` | `CodeMode` | The class. The feature is `code mode`. Never 代码模式. |
+| `harness` | `Harness` | The app layer around the loop. Keep the capital H. |
+
 
 ## Punctuation (zh-cn)
 

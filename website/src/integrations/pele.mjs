@@ -19,10 +19,17 @@ export const pelePlugin = {
       .update(`${context.fileURL}:${JSON.stringify(node.position)}:${node.value}`)
       .digest('hex').slice(0, 12);
     // Fail the build on invalid diagrams, and keep an SVG visible without JavaScript.
+    //
+    // Pele re-renders against the container width and flips `flowchart LR` to a
+    // vertical layout once the container is narrower than `directionBreakpoint`
+    // (640 by default). The docs column is 576px, so every left-to-right diagram
+    // silently became a tall one. Keep the declared direction and let the section
+    // below scroll horizontally instead.
     const { svg } = render(node.value, {
       idPrefix: `pele-${id}`,
       fontFamily: 'Outfit Variable, sans-serif',
       fontFamilyMono: 'JetBrains Mono Variable, monospace',
+      directionBreakpoint: 1,
     });
     return {
       type: 'html',

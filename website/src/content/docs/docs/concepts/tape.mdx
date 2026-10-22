@@ -1,13 +1,44 @@
 ---
 title: Tape
-description: Where Bub keeps the conversation, what the model reads on the next call, and what survives a run.
+description: Where the conversation is stored, what the next model call reads, and what survives a run.
 ---
 
-An agent needs two things. It needs a record of its work. It also needs a useful set of messages for the next model call. Bub keeps the record in a tape. It builds the model context from the entries that you select. Because these are separate, you can keep the full history and still send a short request.
+import { Aside } from '@astrojs/starlight/components';
 
-`core.Agent` and `BubAgent` share this model. Their default stores and session names are different.
+An agent needs two things. It needs a record of its work. It also needs a useful set of messages for the next model call. Bub puts the record in a tape and builds the model context from the entries you select.
 
-## Storage
+Keeping the two apart is the most useful decision in Bub: you can keep a complete history and still send a short request. This page covers how each side works and where the edges are.
+
+`core.Agent` and `BubAgent` share this model. Their default stores and session names differ.
+
+## One conversation, two readings {#history-and-context}
+
+Start with this distinction; everything below hangs off it.
+
+```mermaid
+flowchart LR
+  subgraph store["store"]
+    E1["anchor<br/>session/start"]
+    E2["message<br/>user: where is order A123"]
+    E3["tool_call<br/>lookup_order"]
+    E4["tool_result"]
+    E5["message<br/>assistant: shipped"]
+    E6["event<br/>loop.step"]
+    E7["anchor<br/>order-reviewed"]
+    E8["message<br/>user: and the shipping cost"]
+    E1 --- E2 --- E3 --- E4 --- E5 --- E6 --- E7 --- E8
+  end
+
+  E1 -.->|"kept"| A["full history<br/>every entry readable"]
+  E7 ==>|"enters the context"| B["model reads<br/>only after the anchor"]
+```
+
+- **History** is every entry in write order, append-only. Incident review, audit, and debugging read it.
+- **Context** is a filtered slice, converted to Republic messages and handed to the model. The model never sees what was filtered out.
+
+The filter is `TapeContext`, and its default rule is "conversation entries after the last anchor".
+
+## Storage {#storage}
 
 A plain `Agent` creates an `InMemoryTapeStore` by default. That history lives as long as the store. To keep it between processes, pass a file store:
 
@@ -20,9 +51,9 @@ from bub.core.store import FileTapeStore
 agent = Agent(store=FileTapeStore(Path("sessions")))
 ```
 
-Each `agent.run(..., tape="customer-42")` uses the named tape in that store. Use the same name to continue a conversation. Use another name to keep conversations apart. `Agent` uses the name as given. The app has its own workspace and session naming.
+Each `agent.run(..., tape="customer-42")` uses the tape named `customer-42` in that store. The same name continues the earlier conversation; a different name starts a separate one. `Agent` uses the name you give it as is. The app has its own workspace and session naming rules; see [app storage](#app-storage).
 
-`agent.tape(name)` gives you a view of a tape outside a run. Its writes go straight to the store:
+`agent.tape(name)` gives you the tape outside a run. Writes through it go straight to the store:
 
 ```python
 async def inspect_history() -> None:
@@ -32,32 +63,29 @@ async def inspect_history() -> None:
     print(len(messages), "model messages;", len(entries), "stored entries")
 ```
 
-To use your own store, implement `TapeStore` or `AsyncTapeStore` from `bub.core.store`. Pass the instance as `Agent(store=my_store)`.
+`read_messages()` applies the context rules; `query()` reads raw entries. One tape, two readings — the diagram above, in code.
 
-| Method | What it does |
-| --- | --- |
-| `list_tapes()` | Return the names of the stored tapes. |
-| `fetch_all(query)` | Return the entries that match the `TapeQuery`, with its filters and order. |
-| `append(tape, entry)` | Append an entry to the named tape. |
-| `reset(tape)` | Clear the named tape. |
+To write your own store, implement `TapeStore` or `AsyncTapeStore` from `bub.core.store`. The store interface and `TapeQuery` filters are in the [Python API reference](/docs/reference/python-api/). Your store and your app handle persistence and coordination between processes; the [SQLAlchemy guide](/docs/integrations/storage/) shows a complete replacement.
 
-Use synchronous methods for `TapeStore` and asynchronous methods for `AsyncTapeStore`. The agent adapts a synchronous store for async use. Your store and your app handle persistence and coordination between processes.
+## Context {#context}
 
-## Context
+Tape entries are messages, tool calls, tool results, events, and anchors. Normal recording only appends. To clear history, call an explicit operation such as `Tape.reset()`.
 
-Tape entries are messages, tool calls, tool results, events, and anchors. Normal recording only appends entries. To clear history, call an explicit operation such as `Tape.reset()`.
-
-The default `TapeContext` selects the conversation entries after the latest anchor. It then converts them to Republic messages:
+The default `TapeContext` selects conversation entries after the last anchor, then converts them to Republic messages:
 
 | Entry | Model context |
 | --- | --- |
-| `anchor` | The default query leaves it out. If a custom query selects anchors, the default selector converts them to assistant messages. |
-| `message` | The saved message. |
-| `tool_call` | An assistant message that carries the calls. |
-| `tool_result` | Tool messages, paired with the calls before them. |
-| Other events | The default selector leaves them out. |
+| `anchor` | The default query excludes it. If a custom query selects an anchor, the default selector turns it into an assistant message. |
+| `message` | The stored message. |
+| `tool_call` | One assistant message carrying the calls. |
+| `tool_result` | A tool message, paired with the earlier call. |
+| Other events | The default selector skips them. |
 
-An anchor marks a new starting point for the context. `handoff()` writes one and keeps the earlier entries:
+Note the last row. **Events do not enter the context by default**, so what you record on the tape and what the model sees are two different things. That is both a freedom and a trap: you can record plenty of useful information that the model never reads.
+
+### Cutting context with an anchor {#anchors}
+
+An anchor marks a new starting point for the context. `handoff()` writes one, and earlier entries stay:
 
 ```python
 async def start_next_phase() -> None:
@@ -67,38 +95,94 @@ async def start_next_phase() -> None:
     )
 ```
 
-This `state` is saved on the anchor, before the starting point of the default query. To carry a summary into the next phase, put it in the next prompt or select it in your context strategy. To load values back into the run's mutable state, write your own loader. A new session gets a `session/start` anchor automatically.
+The `state` here is stored on the anchor, before the default query's start. **To bring the summary into the next phase you must put it into the next prompt, or select it explicitly in your context strategy** — a handoff does not hand anything to the model by itself.
 
-To choose another anchor, pass `context=TapeContext(...)` to `Agent`. You can also use your own `select(entries, context)` function. A selector returns Republic messages, or an awaitable of them. `default_tape_context()` includes tool exchanges. A bare `TapeContext` without `select` uses the simpler message-only conversion. Entries marked `context=False` are removed before either selector runs.
+This is the most common misunderstanding about handoff: it is a mechanism for **forgetting**, not for remembering. It decides what old entries become invisible; it does not compress them into something new.
 
-When the agent recognizes a context-length error, it makes one automatic handoff. It then retries the prompt with the shorter context. If you need a summary of the earlier history, create it before the handoff. The retry can still fail if the request is too large.
+A new session gets a `session/start` anchor automatically, so the first run has a starting point too.
 
-## State
+### Choosing another rule {#custom-selectors}
 
-The `state` that you pass to `agent.run()` is a mutable dictionary. Tools, prompt sections, and event handlers share it during the run. Your app owns its persistence. Keep durable data in your own store, or write selected facts to the tape and read them back when you need them.
+To choose another anchor, pass `context=TapeContext(...)` to `Agent`. You can also supply your own `select(entries, context)` function:
 
-The default [TapeRecorder](/docs/concepts/events/#recording) saves conversation exchanges and selected lifecycle records. To keep other variables, custom events, or decisions, record them yourself.
+```python
+from bub.core import Agent
+from bub.core.context import default_tape_context
+from bub.core.tape import TapeContext
 
-## Forks
 
-Each `agent.run()` opens a fork of its tape. When the stream closes, the fork appends its new entries to the parent tape. This also happens after an exception or an early cancellation. A failed run can therefore leave useful partial history.
+def select_recent_business_events(entries, context):
+    """Hand business events to the model, not just messages."""
+    return default_tape_context().select(entries, context)
 
-Pass `merge_back=False` to discard the records of the fork on exit. This affects tape writes only. Tool side effects, such as a sent request or a changed file, stay.
 
-For a block of work that you control directly, use `agent.session(name, merge_back=...)` or `tape.fork_tape(merge_back=...)`. Both merge on exit by default, including exits with an exception.
+agent = Agent(context=TapeContext(anchor=None, select=select_recent_business_events))
+```
 
-If two runs share a tape and must see each other's completed work, serialize them. Your app provides the session lock. The [FastAPI example](/docs/sdk/web-service/) shows locking in one process. Multiple workers need coordination between processes.
+A selector returns Republic messages, or an awaitable of them. `default_tape_context()` includes tool round-trips; a `TapeContext` without `select` uses a simpler message conversion. Entries with `context=False` are dropped before either the default or a custom selector runs.
 
-## Sidecars
+### When the context overflows {#context-overflow}
 
-A `TapeSidecar` stores related data in a separate tape. A mounted sidecar follows the main tape through forks, merges, and resets. Its entries stay out of the main context. Pass sidecars to `Agent(sidecars=...)` when your app needs them.
+When the agent recognizes a context-length error, it makes one automatic handoff and retries with the shorter context.
 
-The Bub app mounts a spill sidecar for large tool results. It keeps a short preview and a handle in the conversation. The agent can then read parts of the result with `spill.read`. If a sidecar fails during a fork merge or a tape reset, the app records the failure separately. The main tape operation can still complete. The spill limits are in the [app configuration](/docs/app/configure/).
+<Aside type="caution">
+  An automatic handoff only moves the starting point forward. **If you want a summary of the earlier history, create it before the handoff.** The retry can still fail if the remaining request is too large.
+</Aside>
 
-## App storage
+To manage context against a budget on purpose, the [`bub-context-budget` plugin](/docs/sdk/reuse-plugins/) is a working example: it asks the model to call `tape.handoff` as the limit approaches.
 
-`BubAgent` uses the store that `BubFramework` provides. The built-in app uses `FuzzyFileTapeStore` under the Bub home directory, normally `~/.bub/tapes/`. The tape name combines hashes of the workspace path and the session ID. The same session ID in two workspaces therefore has two separate histories.
+## State {#state}
 
-To replace the store, an app uses `provide_tape_store`. To select the context, it uses `build_tape_context`. The [SQLAlchemy guide](/docs/integrations/storage/) shows this plugin route. For a direct SDK service, pass your implementation to `Agent(store=...)` as shown above.
+The `state` that you pass to `agent.run()` is a mutable dictionary. Tools, prompt sections, and event handlers share it during the run.
 
-The built-in app restores selected session settings from tape records. Other turn-state values need their own persistence.
+It is **not** persisted. When the run ends, nothing owns the dictionary. Your app owns its persistence: keep durable data in your own store, or write selected facts to the tape and read them back when you need them.
+
+The default [TapeRecorder](/docs/concepts/events/#recording) saves conversation exchanges and selected lifecycle records. To keep other variables, custom events, or decisions, record them yourself — either in `state` for the duration of the run, or with `append_event` on the tape for the long term.
+
+| What you need to keep | Where it goes |
+| --- | --- |
+| A value computed during this run | `state`, discarded when the run ends |
+| A business fact you must query later | an `event` entry on the tape |
+| Structured data to read back next run | your own store, or an anchor's `state` plus explicit loading |
+| A fully auditable conversation | the tape itself (TapeRecorder already does this) |
+
+## Forks {#forks}
+
+Each `agent.run()` opens a fork of its tape. When the stream closes, the fork appends its new entries to the parent tape.
+
+That holds on the error path too: an exception or an early cancellation still merges. A failed run can therefore leave useful partial history, which is valuable when debugging.
+
+```mermaid
+flowchart LR
+  P[("parent tape<br/>existing entries")]
+  P --> F["fork<br/>the run writes here"]
+  F -->|"stream closes / raises / cancelled"| M["merged into the parent"]
+  F -.->|"merge_back=False"| D["this run's writes dropped"]
+  M --> P2[("parent tape<br/>has the new entries")]
+```
+
+Pass `merge_back=False` and the fork's records are dropped on exit. This affects tape writes only: side effects a tool already produced, such as a sent request or a changed file, remain. **A fork isolates records, not side effects.**
+
+To manage a piece of work yourself, use `agent.session(name, merge_back=...)` or `tape.fork_tape(merge_back=...)`. Both merge on exit by default, including on an exception.
+
+To let two runs share a tape and see each other's finished work, chain them. Your app provides the session lock. The [FastAPI example](/docs/sdk/web-service/) shows locking within one process; multiple workers need separate coordination.
+
+## Sidecars {#sidecars}
+
+A `TapeSidecar` stores related data in a separate tape that still belongs to the same tape conceptually.
+
+A mounted sidecar forks, merges, and resets with the main tape. Its entries do not enter the main context, so they cannot crowd the model request. Pass one with `Agent(sidecars=...)` when your app needs it.
+
+The Bub app mounts a spill sidecar for large tool results. It keeps a short preview and a handle in the conversation, and the agent can then read parts of the result with `spill.read`. This is another way to apply "history can be large, context must be small": move the bulk aside instead of deleting it.
+
+If a sidecar fails during a fork merge or a tape reset, the failure is recorded separately and the main tape operation still completes — a sidecar is an add-on, and a broken one should not take the main flow down. The spill limits are in the [app configuration](/docs/app/configure/).
+
+## App storage {#app-storage}
+
+`BubAgent` uses the store that `BubFramework` provides. The built-in app uses `FuzzyFileTapeStore` under the Bub home directory, normally `~/.bub/tapes/`.
+
+The tape name combines hashes of the workspace path and the session ID. The same session ID in two workspaces therefore has two separate histories: using one session name in `~/work` and `~/scratch` will not show you what the other said.
+
+To change the store, the app uses `provide_tape_store`. To choose context, it uses `build_tape_context`. The [SQLAlchemy guide](/docs/integrations/storage/) shows that plugin route. For a service that uses the SDK directly, pass the implementation to `Agent(store=...)` as shown in [Storage](#storage).
+
+The built-in app restores some session settings from tape records. Any other per-turn state is yours to persist.

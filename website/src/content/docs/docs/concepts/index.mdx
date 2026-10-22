@@ -1,45 +1,93 @@
 ---
 title: Overview
-description: The four concepts that both ways of using Bub share, the layer each one lives in, and where to read about it.
+description: Why Bub splits into a kernel and plugins, and what the four concepts each own in one interaction.
 ---
 
-Bub has four concepts. A **turn** carries one message through the app. A **tape** stores the conversation. **Events** report what the loop does. An **extension point** is a place where new behavior goes. Your own Agent and the Bub app use all four.
+## Background {#background}
 
-Read the pages in any order. Each page starts with the short answer, then the details.
+Bub used to keep everything in the main package. Every new message channel meant another class under `bub.channels` plus a batch of tools or skills, and every new capability meant another switch. The author recorded the call at the time in [Why we rewrote Bub](/posts/why-rewrite-bub/):
 
-## Layers
+> If we kept going in that direction, Bub would eventually become another Nanobot, or even another OpenClaw. [...] Most users only need one or two providers and one or two channels, yet they still end up staring at a wall of settings and switches. Even if most of them are disabled by default, the complexity is still there, and users still get lost in it.
 
-`core.Agent` takes a model, tools, prompt sections, and a tape store. You pass these components in yourself, so a small Python service needs only the core dependencies.
+So the rewrite took the opposite direction:
 
-`BubAgent` adds the app defaults: settings, skills, commands, tool selection, and steering. `BubFramework` manages plugins, message processing, and outbound routing around it. Use these parts when you want the behavior they provide.
+> My answer is to split extra functionality out of the core and move to a model with a **carefully designed lightweight kernel** plus **freely vibe-coded feature plugins**.
 
-`pip install bub` installs the kernel. `pip install "bub[app]"` installs both layers. The [installation guide](/docs/getting-started/install/) explains the dependency choices.
+The kernel has to be stable, understandable by agents, and quality-controlled by maintainers. Plugins can be written however people like, even generated on the spot by an agent. One maintenance model is strict; the other is loose.
 
-## Concepts
+Which raises the question: **once the pieces are split, where do the boundaries go?** This section is those boundaries. The four pages after it expand one each.
 
-| Concept | What it is | Read |
+## The journey of one interaction {#journey}
+
+Take the most common interaction: you ask something in the terminal, and Bub answers.
+
+```mermaid
+flowchart LR
+  A["message"] --> B["prepare"] --> C["loop"] --> D["wrap up"] --> E["reply"]
+  C -.-> T[("tape")]
+```
+
+**Prepare** decides which session the message belongs to, restores what the previous turn left behind, and turns the message into a prompt. **Loop** takes the prompt to the model, runs any tools the model asks for, feeds the results back into the context, and asks again until the model answers without asking for tools. **Wrap up** saves the result, packages it as an outbound message, and hands it to the channel.
+
+Of the three, only the middle one is general. It does not matter whether the message came from a terminal, Telegram, or anywhere else: the "model ⇄ tools" stretch is identical. The two stages around it both deal with where a message comes from and where the reply goes, and that is exactly the part that changes with deployment.
+
+That is where the line falls. The loop stays in the kernel; both ends belong to the app.
+
+## The four concepts {#concepts}
+
+Along that line, four concepts show up in order. The order is not arbitrary: each one answers a question the previous one left open.
+
+### Turn: gather both ends into named stages {#turn}
+
+If both ends belong to the app, then the whole stretch from receiving a message to sending a reply should have a clear shape. That is a **turn**: one inbound message, and all the work it causes. `BubFramework` cuts it into seven stages, each with a name and a matching hook.
+
+This follows one of the three principles the rewrite settled on: one-way dependencies. The app knows the kernel; the kernel does not know the app. The kernel reads no settings and recognizes no plugins. Hooks belong to the app: a plugin implements them, and `BubFramework` calls them. The same `core.Agent` therefore behaves identically in both layers, so what you verified through the SDK still holds inside the App.
+
+**Three words inside a turn need separating**: a turn can contain one **run** (one `agent.run()` call), and a run can contain several **steps** (one model call plus the tools it asks for). turn ⊃ run ⊃ step.
+
+To change how messages arrive or how replies leave, change this page. [Read Turn](/docs/concepts/turn/)
+
+### Tape: split history from context {#tape}
+
+The loop needs a context, so the first question is where that context comes from.
+
+The obvious approach is to keep a message array and append to it each round. Bub does not do that. This is the second principle, **append-only context**: every record is written to a **tape** without modifying earlier entries, and the model reads a slice of that tape rather than an ever-growing array.
+
+The benefit of splitting them is direct. History keeps everything, so you can audit it later; the context selects only the entries worth reading, so requests stay short. And because recording only appends, changing your mind never corrupts what is already stored.
+
+The cost is a few new words. A tape **entry** is a message, tool call, tool result, event, or anchor. An **anchor** marks where the context starts, and a **handoff** writes a new anchor **without deleting** older entries — it is a switch for forgetting, not a switch for compressing. The turn's **state** is something else again: a plain dictionary shared within the run, never persisted.
+
+To change how much the agent remembers, change this page. [Read Tape](/docs/concepts/tape/)
+
+### Events: let the loop narrate each step {#events}
+
+Once the loop is running, the host has one question left: how do I know what it is doing?
+
+Bub's answer is the third principle, **event-driven**. Every model call and every tool execution emits a start, an end, and a result. The host can watch a run, and can also rewrite a call before it happens, or stop it outright.
+
+The easiest thing to confuse here is the three kinds of "event": `AgentEvent` on the `EventBus` (you can intercept and change it), the `StreamEvent` given to the caller (read-only; it cannot change the run), and the `TapeEntry` written to the tape (readable afterwards; it does not affect the step in progress). Get the direction wrong and the behavior is wrong too.
+
+Logging, permissions, budgets, auditing, and progress bars are all just handlers attached to the bus. None of them requires touching the loop or the tools. [Read Events](/docs/concepts/events/)
+
+### Extension points: actions, procedures, connections {#extension-points}
+
+Last, back to the original question: you want to add something, so where does it go?
+
+This is where the remaining two principles land. **Tools are functions** — a type-hinted Python function is a tool, so adding an action is cheap. **Everything is a plugin** — capabilities can all be provided by plugins, and a plugin can be a tool, an event listener, a message channel, or a whole set of skills.
+
+But precisely because it can hold anything, the responsibilities need separating: a tool performs an action, a **skill** describes a procedure (instructions only, no code execution), a **channel** connects to where people work, and a **plugin** packages the earlier ones. The message unit passed between channels is an **envelope**; interjecting during a run is **steering**.
+
+Roles do not overlap, so you know which part to change. Conversely, Bub has no universal extension point that requires no other change — first decide whether you are adding an action, knowledge, or a connection. [Read Extension points](/docs/concepts/extension-points/)
+
+## Summary {#summary}
+
+The four concepts are the principles from [Core design](/docs/getting-started/#core-design), told a different way:
+
+| Concept | The question it answers | The principle behind it |
 | --- | --- | --- |
-| Turn | One inbound message, and all the work that it causes. | [Turn](/docs/concepts/turn/) |
-| Tape | The stored conversation, and the part of it that the model reads. | [Tape](/docs/concepts/tape/) |
-| Events | The bus that reports each step, and lets a handler change the next one. | [Events](/docs/concepts/events/) |
-| Extension points | Where new behavior goes: a tool, a skill, a plugin, or a channel. | [Extension points](/docs/concepts/extension-points/) |
+| Turn | What does the app do, in order, after a message arrives? | One-way dependencies: the app knows the kernel, not the reverse |
+| Tape | Where does history live, and what does the model read? | Append-only context: write, never modify; read a slice |
+| Events | How do I watch, change, or stop a call? | Event-driven: start, end, and result are all emitted |
+| Extension points | What should the thing I want to add become? | Tools are functions; everything is a plugin |
 
-## Terms
-
-An **Agent** runs the model and tool loop. A **run** is one `agent.run()` call, and it can contain several **steps**. A **step** is one model call and the tools that it asks for. A **turn** is one inbound message and the run that answers it.
-
-A **tape** stores the conversation. Its **entries** are messages, tool calls, results, and events. An **anchor** marks the point where the context starts. A **handoff** writes a new anchor. The turn's **state** is a separate dictionary that tools and handlers share.
-
-The app adds three parts. **Plugins** provide Python hooks. **Skills** provide written instructions. **Channels** carry messages in and out.
-
-## Design notes
-
-The kernel does not read settings or plugin hooks. Hooks belong to the app: a plugin implements them, and `BubFramework` calls them. The core therefore works the same in both layers.
-
-History and context stay separate. The tape keeps every entry. The context selects the entries that the next model call reads. An anchor starts a new context and keeps the earlier entries, so you can read the full history and still send a short request.
-
-Each part has one job. A tool performs an action. A skill describes a procedure. A channel connects the app to a place where people work. These roles stay separate, so you know which part to change.
-
-## Background
-
-[Why we rewrote Bub](/posts/why-rewrite-bub/) and [Socialized evaluation and agent partnership](/posts/socialized-evaluation/) explain the earlier design. For the current interfaces, use the guides and the reference.
+Read the pages in any order, but start here: the other four expand different cuts of the same journey.
