@@ -1,97 +1,104 @@
 ---
 title: 快速上手
-description: 在终端里运行 Bub，或把它嵌进 Python 程序。
+description: 学会如何快速开始在终端或在自己的 Python 项目中使用 Bub。
 ---
 
-import { CardGrid, LinkCard, Tabs, TabItem } from '@astrojs/starlight/components';
+import { CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
 
-Bub 有两种跑法：作为独立进程的应用，或作为 Python 程序里的库。两者跑的是同一套内核，之后可以随时换。
+自 0.6.0 版本起，Bub 本体拆分成了两部分，因此你可以根据需要选择使用哪部分来玩转 Bub。
 
 这一页假设你已经[安装 Bub](/zh-cn/docs/getting-started/install/)。
 
-## 跑起来
+## 从 CLI 启动
 
-<Tabs syncKey="form">
-<TabItem label="使用 Bub 应用">
+打开你系统的终端，然后按如下步骤在命令行中进行操作：
 
-先配置一次模型，然后在任意项目目录里开始对话：
+<Steps>
 
-```bash
-bub onboard
-```
+1. （可选）如果你从未配置过 Bub，可以先执行如下命令来完成初始配置：
 
-```bash
-mkdir hello-bub && cd hello-bub
-bub chat
-```
+   ```bash
+   bub onboard
+   ```
 
-问它一个问题：
+2. 在任意目录中创建一个工作区（目录）并切换到当中，然后使用 `bub chat` 启动一个交互式会话：
 
-```text
-> Summarize the files in this directory
-```
+   ```bash
+   mkdir hello-bub && cd hello-bub
+   bub chat
+   ```
 
-目录里有 `AGENTS.md` 时 Bub 会读取它，把这次 turn 记到 tape 上，再用你配置的模型回答。按 `Ctrl+C` 退出。
+3. 现在，可以尝试复制粘贴如下文本并与 Bub 进行对话：
 
-下一步：[工作区](/zh-cn/docs/app/workspace/)讲 `AGENTS.md` 和应用的命令。
+   ```shell
+   Summarize the files in this directory
+   ```
 
-</TabItem>
-<TabItem label="构建你的 Bub Agent">
+</Steps>
 
-在自己的项目里添加 Bub，然后自己驱动循环：
+一切都很简单对吧？现在你可以使用 <kbd>Ctrl+C</kbd> 退出 Bub 交互式会话，然后可以输入 `bub --help` 查看更多命令和选项，或是[查阅文档](/zh-cn/docs/reference/cli)以了解更多信息。
 
-```bash
-uv init --python 3.12 my-agent && cd my-agent
-uv add bub
-```
+## 用 SDK 运行
 
-把这段保存为 `main.py`：
+作为 Python 工匠，也许你想写点代码，那么可以按以下方式来尝试在 Python 项目中使用 Bub SDK。
 
-```python
-import asyncio
+<Steps>
 
-import republic
+1. 创建新项目并安装 Bub：
 
-from bub.core import Agent
+   ```bash
+   uv init --python 3.12 my-agent && cd my-agent
+   uv add bub
+   ```
 
+2. 把下面这段代码保存为 `main.py`
 
-async def main() -> None:
-    agent = Agent(system_prompt="Be concise.")
-    async with republic.get_model("openai:gpt-5-mini") as model:
-        async with agent.run("What can you do?", model=model, tape="demo") as stream:
-            async for event in stream:
-                if event.kind == "text":
-                    print(event.data.get("delta", ""), end="")
+   ```python
+   import asyncio
+
+   import republic
+
+   from bub.core import Agent
 
 
-asyncio.run(main())
-```
+   async def main() -> None:
+       agent = Agent(system_prompt="Be concise.")
+       async with republic.get_model("openai:gpt-5-mini") as model:
+           async with agent.run("What can you do?", model=model, tape="demo") as stream:
+               async for event in stream:
+                   if event.kind == "text":
+                       print(event.data.get("delta", ""), end="")
 
-```bash
-export REPUBLIC_OPENAI_API_KEY=sk-...
-uv run python main.py
-```
 
-`Agent` 负责模型与工具循环；模型、工具和 tape 名字由你传入。事件流里 `text` 是回答，模型调用工具时还会有 `tool_call` 和 `tool_result`。
+   asyncio.run(main())
+   ```
 
-下一步：[构建你的 Bub Agent](/zh-cn/docs/sdk/)会加一个工具，并讲清事件流的生命周期。
+3. 用你的 API Key 跑起来
 
-</TabItem>
-</Tabs>
+   ```bash
+   export REPUBLIC_OPENAI_API_KEY=sk-...
+   uv run python main.py
+   ```
 
-## 两条路各自通向哪里
+</Steps>
+
+不知道代码里面有哪些 API？没关系，你可以在[API 文档](/zh-cn/docs/reference/python-api/)中找到更多 API 参考。
+
+## 下一步
+
+恭喜你，已经掌握 Bub 的基本使用方式了，接下来你可以继续深入探索这两种方式以解锁更多使用场景。
 
 <CardGrid>
   <LinkCard
-    title="使用 Bub 应用"
+    title="CLI App"
     href="/zh-cn/docs/app/workspace/"
-    description="配置它、加工具和技能、接渠道、部署上线"
+    description="带你更完整地使用 Bub 的应用层能力"
   />
   <LinkCard
-    title="构建你的 Bub Agent"
+    title="SDK"
     href="/zh-cn/docs/sdk/"
-    description="选模型和存储，再在自己的服务里调用 agent"
+    description="一步步教你如何构建自己的 Bub Agent"
   />
 </CardGrid>
 
-概念部分可以跳过。每页都会写明什么时候值得读，你可以在遇到具体问题时再回头。
+当然，如果你愿意的话，也可以继续了解一下 Bub 有哪些设计巧思。

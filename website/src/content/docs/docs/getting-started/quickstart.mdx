@@ -1,97 +1,104 @@
 ---
 title: Quick start
-description: Run Bub in your terminal, or embed it in a Python program.
+description: Get up and running with Bub in your terminal or in your own Python project.
 ---
 
-import { CardGrid, LinkCard, Tabs, TabItem } from '@astrojs/starlight/components';
+import { CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
 
-Bub runs in two places: as an application in its own process, or as a library inside your Python program. Both run the same kernel, so you can move between them later.
+Since 0.6.0, Bub itself is split in two, so you can pick whichever part fits how you want to use it.
 
 This page assumes [Bub is installed](/docs/getting-started/install/).
 
-## Run it
+## Start from the CLI
 
-<Tabs syncKey="form">
-<TabItem label="Use Bub App">
+Open your terminal and work through the following steps on the command line:
 
-Configure a model once, then start a conversation in any project directory:
+<Steps>
 
-```bash
-bub onboard
-```
+1. (Optional) If you have never configured Bub, run this command first to finish the initial setup:
 
-```bash
-mkdir hello-bub && cd hello-bub
-bub chat
-```
+   ```bash
+   bub onboard
+   ```
 
-Ask it something:
+2. Create a workspace (a directory) anywhere and switch into it, then launch an interactive session with `bub chat`:
 
-```text
-> Summarize the files in this directory
-```
+   ```bash
+   mkdir hello-bub && cd hello-bub
+   bub chat
+   ```
 
-Bub reads `AGENTS.md` when the directory has one, records the turn on its tape, and answers with the model you configured. Press `Ctrl+C` to leave.
+3. Now try copying and pasting the text below to have a conversation with Bub:
 
-Next: [Workspace](/docs/app/workspace/) covers `AGENTS.md` and the commands of the app.
+   ```shell
+   Summarize the files in this directory
+   ```
 
-</TabItem>
-<TabItem label="Build your own Bub Agent">
+</Steps>
 
-Add Bub to a project and drive the loop yourself:
+Easy enough, right? Press <kbd>Ctrl+C</kbd> to leave the interactive session, then run `bub --help` to see more commands and options, or [read the docs](/docs/reference/cli) to learn more.
 
-```bash
-uv init --python 3.12 my-agent && cd my-agent
-uv add bub
-```
+## Run it with the SDK
 
-Save this as `main.py`:
+A Python craftsperson may want to write some code, so here is how to try the Bub SDK inside a Python project.
 
-```python
-import asyncio
+<Steps>
 
-import republic
+1. Create a new project and install Bub:
 
-from bub.core import Agent
+   ```bash
+   uv init --python 3.12 my-agent && cd my-agent
+   uv add bub
+   ```
 
+2. Save the following code as `main.py`:
 
-async def main() -> None:
-    agent = Agent(system_prompt="Be concise.")
-    async with republic.get_model("openai:gpt-5-mini") as model:
-        async with agent.run("What can you do?", model=model, tape="demo") as stream:
-            async for event in stream:
-                if event.kind == "text":
-                    print(event.data.get("delta", ""), end="")
+   ```python
+   import asyncio
+
+   import republic
+
+   from bub.core import Agent
 
 
-asyncio.run(main())
-```
+   async def main() -> None:
+       agent = Agent(system_prompt="Be concise.")
+       async with republic.get_model("openai:gpt-5-mini") as model:
+           async with agent.run("What can you do?", model=model, tape="demo") as stream:
+               async for event in stream:
+                   if event.kind == "text":
+                       print(event.data.get("delta", ""), end="")
 
-```bash
-export REPUBLIC_OPENAI_API_KEY=sk-...
-uv run python main.py
-```
 
-`Agent` owns the model and tool loop; you pass the model, the tools, and the tape name. The stream reports `text` for the answer, plus `tool_call` and `tool_result` when the model calls a tool.
+   asyncio.run(main())
+   ```
 
-Next: [Build your own Bub Agent](/docs/sdk/) adds a tool and explains the stream lifecycle.
+3. Run it with your API key:
 
-</TabItem>
-</Tabs>
+   ```bash
+   export REPUBLIC_OPENAI_API_KEY=sk-...
+   uv run python main.py
+   ```
 
-## Where each path goes
+</Steps>
+
+Not sure which APIs the code uses? The [API reference](/docs/reference/python-api/) has more.
+
+## Next steps
+
+Congrats — you know the basics of Bub. From here you can explore either path more deeply to unlock more use cases.
 
 <CardGrid>
   <LinkCard
-    title="Use the Bub app"
+    title="CLI App"
     href="/docs/app/workspace/"
-    description="Configure it, add tools and skills, connect channels, deploy it"
+    description="A fuller walk through the app layer of Bub"
   />
   <LinkCard
-    title="Build your own Bub Agent"
+    title="SDK"
     href="/docs/sdk/"
-    description="Choose the model and storage, then call the agent from your service"
+    description="Build your own Bub agent, step by step"
   />
 </CardGrid>
 
-Concepts are optional. Every page says when it is worth reading, so you can skip them and come back when a task needs them.
+And if you like, you can also read up on the design ideas behind Bub.
