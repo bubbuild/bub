@@ -148,7 +148,7 @@ export default defineConfig({
                 'docs/app/workspace',
                 'docs/app/configure',
                 'docs/app/terminal',
-                'docs/app/channels',
+                'docs/app/gateway',
               ],
             },
             {
@@ -158,13 +158,14 @@ export default defineConfig({
               items: [
                 'docs/app/tools',
                 'docs/app/skills',
+                'docs/app/subagents',
                 'docs/app/plugins',
                 'docs/app/hooks',
               ],
             },
             {
-              label: 'Ship',
-              translations: { 'zh-CN': '上线' },
+              label: 'Deploy and distribute',
+              translations: { 'zh-CN': '部署与分发' },
               collapsed: false,
               items: [
                 'docs/app/deploy',
@@ -188,9 +189,12 @@ export default defineConfig({
           label: 'Integrations',
           translations: { 'zh-CN': '集成' },
           items: [
-            'docs/integrations',
             'docs/integrations/mcp',
-            'docs/integrations/agent-plugins',
+            {
+              label: 'Portable Agent Plugins',
+              translations: { 'zh-CN': '可移植 Agent Plugins' },
+              slug: 'docs/integrations/agent-plugins',
+            },
             'docs/integrations/acp',
             'docs/integrations/local-models',
             'docs/integrations/storage',
@@ -202,8 +206,9 @@ export default defineConfig({
           translations: { 'zh-CN': '参考' },
           items: [
             'docs/reference/cli',
-            'docs/reference/python-api',
             'docs/reference/settings',
+            'docs/reference/tools',
+            'docs/reference/python-api',
             'docs/reference/hooks',
           ],
         },

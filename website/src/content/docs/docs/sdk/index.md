@@ -1,15 +1,15 @@
 ---
-title: Basic agent
-description: Create a basic agent in your own Python program and control the stream it produces.
+title: Run an agent in Python
+description: Run an Agent in a Python program, add tools, and manage sessions and output streams.
 ---
 
-Choose a model, add tools, and connect the agent to your program. `bub.core.Agent` runs the model and tool loop while you decide how to store conversations and manage the surrounding application.
+`bub.core.Agent` handles the loop between the model and its tools. You provide the model and tools, and decide how sessions are saved and how output connects to your existing system.
 
-This page assumes Bub is installed for the agent path; see [Install Bub](/docs/getting-started/install/#agent-install). The [Bub application](/docs/app/workspace/) builds on the same core and adds configuration and plugin discovery.
+This page uses the base SDK installation and does not need the `app` optional dependency. See [Install the SDK](/docs/getting-started/install/#agent-install) for the command. When you need configuration, skills, channels, and plugin discovery, use the [Bub application](/docs/app/workspace/).
 
-## Run the example
+## Run an agent with a tool {#basic-agent}
 
-Save this as `sdk_example.py` in your project:
+Save the following code as `sdk_example.py`:
 
 ```python
 import asyncio
@@ -52,29 +52,42 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Set `REPUBLIC_OPENAI_API_KEY` in your shell, then run:
+Set the OpenAI API key and run it:
 
 ```bash
+export REPUBLIC_OPENAI_API_KEY=sk-...
 uv run python sdk_example.py
 ```
 
-The tool returns a demonstration order status. Replace its body with your own order service when you use it in an application. The agent gives the tool result back to the model, which writes the answer.
+`lookup_order` returns demonstration data; replace its body when connecting a real system. The Agent gives the tool result back to the model, which then writes the answer.
 
-Run the program again with the same `tape` name to continue the conversation stored under `sessions/`. Change the name to start a separate conversation.
+`FileTapeStore` saves records under `sessions/`. Using `tape="customer-42"` again continues that session; changing the name starts a different one. If you omit `store`, an in-memory store is used.
 
-## Manage the run and its stream
+## Consume the output stream {#stream-lifecycle}
 
-`agent.run()` yields a stream. Iterating the stream drives the loop: call the model, run its requested tools, then call the model again until it answers without further tool calls. A `final` event ends one model step; exhaust the stream to finish the run.
+`agent.run()` is an async context manager that yields an `AsyncStreamEvents` once entered. **Iterating the stream is what drives the model and tool loop.** The run ends when the model no longer requests tools and there are no pending messages.
 
-Keep the stream inside `async with`. Leaving the block closes it after normal completion, an exception, or an early `break`. Closing also releases the open model stream and merges the run's tape fork. Records already written are kept even when the run fails; see [Forks and partial results](/docs/concepts/tape/#forks).
+A `final` event only marks the end of one model Step. A Step that contains tool calls may be followed by another Step. When handling text output, keep iterating until the stream ends; do not stop after the first `final`.
 
-If another component will consume the stream, `await agent.start(...)` takes the same arguments and returns the stream. That component must close it, including when it never starts iteration. Prefer `run()` when you own the consuming code.
+`async with` closes the stream, releases the model connection, and merges the run's Tape fork on normal completion, on an exception, or on an early `break`. Closing early marks the unfinished Run as `cancelled`; records already written are kept by default. See [Tape forks](/docs/concepts/tape/#forks).
 
-Stream events include `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, and `final`. Handle error events and exceptions from iteration. For internal lifecycle notifications and call interception, use [agent events](/docs/concepts/events/).
+If another component owns output consumption, `await agent.start(...)` takes the same arguments and returns the stream. That receiver must close it, including when it has not started iterating. Prefer `run()` when you consume the stream yourself.
 
-## Next steps
+Stream events include:
 
-- [Configure the agent](/docs/sdk/options/): the model, the instructions, and the rest of the `Agent` parameters.
-- [Tools and CodeMode](/docs/sdk/tools/): give the agent actions.
-- [Reusing plugins](/docs/sdk/reuse-plugins/): bring existing plugin tools and hooks into your agent.
-- [Example: FastAPI service](/docs/sdk/web-service/): put the agent behind an HTTP endpoint.
+| `kind` | Contents |
+| --- | --- |
+| `text` / `reasoning` | Text or reasoning deltas |
+| `tool_call` / `tool_result` | Tool calls and results |
+| `usage` | Model usage |
+| `error` | Error payload |
+| `final` | The current model Step ended |
+
+Errors can surface as an `error` event, or be raised while iterating. To observe internal lifecycle notifications or intercept calls, use [Agent events](/docs/concepts/events/); do not rely only on the output stream.
+
+## Next steps {#next-steps}
+
+- [Configure the agent](/docs/sdk/options/): the model, the prompts, and run parameters.
+- [Custom tools and code mode](/docs/sdk/tools/): give the agent actions to perform.
+- [Reuse application plugins](/docs/sdk/reuse-plugins/): connect application plugins to the core Agent.
+- [FastAPI service](/docs/sdk/web-service/): expose an HTTP endpoint with per-session history.

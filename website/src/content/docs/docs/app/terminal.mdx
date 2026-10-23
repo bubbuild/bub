@@ -1,44 +1,123 @@
 ---
 title: Terminal
-description: Continue a conversation with bub chat or run one task from the shell with bub run.
+description: Interactive sessions, steering a running agent, commands, and background processes in Bub.
 ---
 
-The Bub app has two terminal entry points: `bub chat` for a conversation and `bub run` for one message. [Configure a model](/docs/app/configure/) before calling it.
+import { Aside } from '@astrojs/starlight/components';
 
-## Continue a conversation
+`bub run` handles a single message, while `bub chat` keeps a session open and is better suited to continuous work. Both use the same model, tools, and Tape.
+
+## Start an interactive session
 
 ```bash
 bub chat
 ```
 
-Each input submits a message. Press Ctrl-D or enter `,quit` or `,exit` to leave. The default session ID is `cli_session`.
+Type your message and press Enter to send it. `,help` lists the internal commands currently available, and <kbd>Ctrl+D</kbd>, `,quit`, or `,exit` exits. Input history is saved per workspace in the `history/` directory under the Bub home, separately from the session's Tape.
 
-The toolbar shows the speed of the latest model call, measured from the first streamed chunk to the end of the response. It counts every output token, reasoning included, and excludes both the time before the first chunk and tool execution. The `ttft` next to it is that excluded time to first chunk. When the provider does not report usage, it shows `speed:- tok/s`.
-
-## Run a task from the shell
+You can also submit the first message directly at startup:
 
 ```bash
-bub run "summarize CHANGELOG.md"
+bub chat "Inspect this repository and suggest a first task."
 ```
 
-The command prints a channel label and the response. Its default session ID is `cli:local`. To share history with an interactive conversation, supply the same ID:
+## Steer a running agent {#steering}
+
+**Steering** adds an instruction while the current Turn is still running so the agent can adjust the task in progress. You don't have to wait for the current generation to finish; just type the correction and press Enter:
+
+```text
+Do not modify files yet. List the problems and suggestions first.
+```
+
+The CLI hands the message to the steering inbox (`SteeringInbox`). The agent reads it when building a model request in a later Step; a model or tool call already in progress is not forcibly interrupted.
+
+Steering and queueing differ in when the message takes effect:
+
+| Approach | Handling | Use it for |
+| --- | --- | --- |
+| Steering | Injects into later model requests in the current Turn; messages that cannot be consumed in time become pending messages | Correcting direction, adding constraints, and providing new information relevant to the current task |
+| Queue up | Processed as a follow-up task after the current Turn ends | Adding another task or running several requests in order |
+
+The current CLI steers ordinary input by default while a run is in progress; there is no separate queueing shortcut. Steering messages that the current Turn does not consume automatically enter the pending queue instead of being dropped.
+
+To stop the task in the current session, use `,quit`; it clears pending messages and cancels running tasks.
+
+## View the reasoning process
+
+Enter `,thinking` to toggle between expanded and collapsed:
+
+```text
+,thinking
+```
+
+It only controls whether the terminal displays the `reasoning` deltas returned by the model; it does not change the model or the reasoning effort. To adjust reasoning effort, use:
+
+```text
+,reasoning_effort high
+```
+
+The available values depend on the model provider. The setting takes effect from the next Turn and is saved in the current session's Tape.
+
+## Choose a session
+
+`bub run` uses `cli:local` by default, and `bub chat` uses `cli_session`. Specify the same session ID explicitly to continue history between the two entry points:
 
 ```bash
-bub chat --session-id cli:review
-bub run --session-id cli:review "Summarize our decisions."
+bub chat --session-id cli:echo
+bub run --session-id cli:echo "Summarize what we discussed."
 ```
 
-Use the same workspace and storage configuration to read the same conversation history.
+The Tape name also includes the workspace path, so the same session ID does not share history across different workspaces.
 
-## Run a command directly
+## Use commands {#commands}
 
-The default command prefix is a comma. Commands call tools or the shell without a model request:
+The command prefix defaults to `,` and is used to skip the model call and execute a tool directly:
 
 ```bash
 bub run ",help"
 bub run ",fs.read path=README.md"
 ```
 
-You can enter these commands in an interactive conversation too. Ctrl-X toggles shell mode, which adds the command prefix to your input.
+You can enter commands directly in an interactive session too. Press <kbd>Ctrl-X</kbd> to switch between Agent and Shell input modes; Shell mode automatically adds the command prefix to your input.
 
-The CLI owns the foreground terminal, so the gateway excludes it by default. See [Channels](/docs/app/channels/) for gateway selection and batching, or the [CLI](/docs/reference/cli/) for every option.
+Common commands:
+
+| Command | Purpose |
+| --- | --- |
+| `,model openai:gpt-5-mini` | Switch the model for the current session |
+| `,reasoning_effort high` | Set the reasoning effort for the current session |
+| `,code_mode enable=true` | Enable code mode |
+| `,tape.info` | View entries, anchors, and token usage |
+| `,tape.search query=error` | Search the current session record |
+| `,tape.anchors` | List context boundaries |
+| `,tape.handoff name=reviewed summary='...'` | Move the default context start point and save a summary |
+| `,tape.reset archive=true` | Archive the current Tape and start over |
+| `,thinking` | Expand or collapse reasoning output |
+
+`,tape.reset archive=true` backs up the main Tape and its sidecar to `<BUB_HOME>/tapes/`, with a UTC timestamp and a `.bak` suffix in the file names. Using `archive=false` or plain `,tape.reset` skips the backup. After a reset, a new `session/start` anchor is created, and the old files are not restored automatically.
+
+`handoff` does not generate or inject a summary automatically. `summary` is stored in the anchor's `state`; whether it is read later depends on the prompt or context policy. See [Tape](/docs/concepts/tape/#anchors) for details.
+
+<Aside type="caution">
+  Unregistered commands are handed to `bash` for execution. Before entering an unknown command, make sure it is a shell command you are willing to run.
+</Aside>
+
+## Run background processes {#background-shell}
+
+In `bub chat`, use `background=true` to start long-running processes such as a development server:
+
+```text
+,bash command='npm run dev' background=true
+```
+
+The result includes a `shell_id`. Use it to read output incrementally or terminate the process:
+
+```text
+,bash.output shell_id=bsh-12345678
+,bash.output shell_id=bsh-12345678 offset=1200 limit=4000
+,bash.kill shell_id=bsh-12345678
+```
+
+`offset` is the character position in the buffered output, not a line number; use `next_offset` from the returned value for the next read. `limit` caps the number of characters returned in this call.
+
+A foreground `bash` call waits 30 seconds by default. On timeout, the process is not treated as failed; it moves to the background and returns a `shell_id`. Adjust this with `timeout_seconds`. Background tasks should be managed within the same `bub chat` or gateway process, and they are cleaned up when the application exits.

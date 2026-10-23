@@ -1,0 +1,288 @@
+---
+title: Gateway
+description: Configure and run the Bub gateway, connect chat platforms, and manage messages and sessions.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+`bub gateway` runs the enabled channels continuously and hands platform messages to [Turn](/docs/concepts/turn/) for processing. Bub ships with a Telegram channel; terminal interaction uses [`bub chat`](/docs/app/terminal/), and other platforms connect through plugins.
+
+## Start the Telegram gateway {#telegram}
+
+First make sure `bub chat` can reply normally, and get a bot token from [@BotFather](https://t.me/BotFather). See [Configuration](/docs/app/configure/) for model settings.
+
+<Steps>
+
+1. **Configure `.env`**
+
+   Set these in `.env` at the workspace root:
+
+   ```bash
+   BUB_TELEGRAM_TOKEN=123456:abcdef...
+   BUB_TELEGRAM_ALLOW_USERS=123456789
+   ```
+
+   Keep the model settings such as `BUB_MODEL` and `BUB_API_KEY` in the file. Set `BUB_TELEGRAM_ALLOW_USERS` to your numeric ID; you can look it up with [@userinfobot](https://t.me/userinfobot).
+
+   Pass variables through `.env` or `export`. Writing `BUB_TELEGRAM_TOKEN=...` in the shell without exporting it does not pass it to a `bub` process started later.
+
+2. **Start the gateway**
+
+   Run it in the workspace that contains `.env`:
+
+   ```bash
+   bub gateway
+   ```
+
+   Example log from a successful startup:
+
+   ```text
+   telegram.start allow_users_count=1 allow_chats_count=0 proxy_enabled=False
+   telegram.start polling
+   ```
+
+3. **Verify a private chat**
+
+   Send the bot a private message. While the Turn runs, the chat window shows typing. If there is no reply, see [Configure replies](#telegram-outbound) and [Troubleshooting](#troubleshooting).
+
+</Steps>
+
+The Telegram channel is enabled whenever `BUB_TELEGRAM_TOKEN` is non-empty. The gateway needs at least one enabled channel.
+
+## Configure Telegram
+
+### Restrict access
+
+`BUB_TELEGRAM_ALLOW_USERS` restricts users, and `BUB_TELEGRAM_ALLOW_CHATS` restricts chats. Separate multiple values with commas; usernames are case-sensitive:
+
+```bash
+BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
+BUB_TELEGRAM_ALLOW_CHATS=-1001234567890,-1009876543210
+```
+
+| Allowlist | Pass condition | When it fails |
+| --- | --- | --- |
+| `BUB_TELEGRAM_ALLOW_USERS` | Numeric ID or username matches | The user receives `Access denied.` |
+| `BUB_TELEGRAM_ALLOW_CHATS` | Chat ID matches | The message is dropped silently |
+
+When both are set, both must pass. When both are empty, anyone can use the bot; set at least one before deploying it publicly.
+
+### Configure group chats {#telegram-inbound}
+
+Turn off **Privacy Mode** in BotFather. Otherwise the bot only sees commands and cannot read ordinary group messages.
+
+| Message source or type | Received when |
+| --- | --- |
+| Non-command messages in a private chat | Always |
+| Text messages in a group chat | Mentions `@<bot_username>`, contains `bub`, or replies to the bot |
+| Images and files with text captions in a group chat | Same as text messages |
+| Non-text messages without captions in a group chat | Only when replying to the bot |
+| `/bub <text>` | The `/bub ` prefix is removed and the rest becomes the prompt |
+
+Group messages that do not meet these conditions are ignored. If the session is still within `BUB_ACTIVE_TIME_WINDOW`, those messages may also join the current batch. `bub` uses substring matching, so `bubble` also matches.
+
+### Configure replies {#telegram-outbound}
+
+| Input | `output_channel` | How it is sent |
+| --- | --- | --- |
+| Ordinary message | `"null"` | The built-in `telegram` skill sends replies, progress, and edits |
+| Comma command | `"telegram"` | Tool output goes to the originating `chat_id` |
+
+The model output for an ordinary message is not sent to Telegram automatically; the model must call the `telegram` skill, or the user receives no reply. Typing is renewed every 4 seconds and only means the Turn has not finished.
+
+When a comma command's output is JSON with a `message` field, only that field is sent; other non-empty output is sent as-is, and empty output is dropped.
+
+### Merge consecutive messages
+
+Telegram merges consecutive messages sent within a short period into one Turn:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `BUB_DEBOUNCE_SECONDS` | `1.0` | Short wait that is reset by each active message |
+| `BUB_MAX_WAIT_SECONDS` | `10.0` | Upper bound on waiting for inactive follow-up messages |
+| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | Time window in which inactive messages can join the batch |
+
+Messages explicitly addressed to the bot in private and group chats are active; subsequent unmentioned group messages in the same session are inactive. Both are staged per session and merged with newlines once the timer ends. Input that starts with the command prefix (`,` by default) does not participate in merging and is dispatched immediately.
+
+### Session IDs
+
+The default session format is `<channel>:<chat_id>`:
+
+| Entry | Default `session_id` |
+| --- | --- |
+| `bub run "..."` | `cli:local` |
+| `bub chat` | `cli_session` |
+| Telegram | `telegram:<chat_id>` |
+
+Different entries do not share history by default. To continue a conversation across entries, explicitly use the same `--session-id`:
+
+```bash
+bub chat --session-id shared:demo
+bub run --session-id shared:demo "Continue the previous topic"
+```
+
+### Media, proxy, and polling {#telegram-reference}
+
+| Message type | Text that enters the context |
+| --- | --- |
+| Image | `[Photo message] Caption: ...` |
+| Sticker | `[Sticker: 😀 from sticker_set]` |
+| Voice / audio | `[Voice message: 12s]` / `[Audio: artist - title (12s)]` |
+| Video / video message | `[Video: 12s]` / `[Video note: 12s]` |
+| File | `[Document: report.pdf (application/pdf)]` |
+
+Images, audio, and video are passed to the model as Republic media content; the model must support the corresponding modality. Ordinary files only provide the text description above and are not passed to the model as media attachments. Media that needs downloading and exceeds 2 MB is skipped. When replying to a message, the replied-to content is added to the context through `reply_to_message`.
+
+Polling and the Telegram API share the same proxy:
+
+```bash
+BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
+# socks5://user:<password>@host:port is also supported
+```
+
+See [TelegramSettings](/docs/reference/settings/#telegram-settings) for the full fields. The channel handles only `message` updates; at startup it discards updates that accumulated while it was down and does not replay offline messages.
+
+## Choose channels
+
+The default `all` starts every entry whose `enabled` is true and whose type is not `Interface`. Channels decide enablement from credentials; Telegram checks the token.
+
+`all` also includes background services such as `mcp.lifecycle`. When you name chat channels explicitly, enabled background services still start; exclude them with `!name`:
+
+```bash
+bub gateway --enable-channel telegram --enable-channel '!mcp.lifecycle'
+bub gateway --enable-channel telegram --enable-channel discord
+```
+
+Quote exclusions so the shell does not treat `!` as history expansion. The built-in `cli` is an `Interface` and does not start with the gateway.
+
+You can also specify channels in the configuration:
+
+```yaml
+# config.yml
+enabled_channels: telegram
+```
+
+```bash
+BUB_ENABLED_CHANNELS=telegram
+```
+
+The command line takes precedence over the config file and environment variables. When no channel is available, `bub gateway` prints `No channels are enabled` and exits.
+
+## Connect other platforms
+
+After installing a plugin, restart the gateway and use `bub hooks` to confirm the corresponding name appears under `provide_channels`. Channels without configured credentials are skipped.
+
+```bash
+bub install bub-discord@main
+```
+
+| Platform | Channel name | Plugin |
+| --- | --- | --- |
+| Discord | `discord` | [`bub-discord`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-discord) |
+| Slack | `slack` | [`bub-slack`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-slack) |
+| WeChat | `wechat` | [`bub-wechat`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-wechat) |
+| WeCom | `wecom` | [`bub-wecom`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-wecom) |
+| Feishu | `feishu` | [`bub-feishu`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-feishu) |
+| DingTalk | `dingtalk` | [`bub-dingtalk`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-dingtalk) |
+| QQ | `qq` | [`bub-qq`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-qq) |
+
+For configuration, session rules, and access policies, see each plugin's README. See [bub-contrib](https://github.com/bubbuild/bub-contrib/tree/main/packages) and [hub.bub.build](https://hub.bub.build) for more packages.
+
+## Deploy the gateway
+
+Run it in the foreground for debugging, then install it as a system service once verified:
+
+```bash
+bub gateway --install
+bub gateway --uninstall
+```
+
+| System | Behavior |
+| --- | --- |
+| Linux | systemd user unit `bub-gateway.service`; to keep it running after logout, run `loginctl enable-linger $USER` |
+| Windows | Scheduled task for the current user; starts at login and restarts on failure |
+| macOS | `--install` is not supported; use launchd, tmux, or [container deployment](/docs/app/deploy/) |
+
+Installation records the current Python interpreter, workspace, and explicit `--enable-channel` values. Reinstall after changing the environment or workspace.
+
+## Custom channels {#custom-channels}
+
+When no existing plugin fits, implement your own channel. Subclass `Channel`, set `name`, and implement `start` / `stop`; implement `send` as well when replies need to go back to the platform:
+
+```python
+import asyncio
+
+from bub.channels.base import Channel
+from bub.channels.message import ChannelMessage
+
+
+class MyChannel(Channel):
+    name = "myapp"  # The name passed to --enable-channel
+
+    def __init__(self, on_receive, token: str) -> None:
+        self._on_receive = on_receive
+        self._token = token
+        self._listener: asyncio.Task | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self._token)
+
+    async def start(self, stop_event: asyncio.Event) -> None:
+        # Do not block: the gateway continues consuming messages only after start returns.
+        self._listener = asyncio.create_task(self._listen(stop_event))
+
+    async def stop(self) -> None:
+        if self._listener is not None:
+            self._listener.cancel()
+
+    async def _listen(self, stop_event: asyncio.Event) -> None:
+        while not stop_event.is_set():
+            chat_id, text = await self._next_message()  # Your platform protocol
+            await self._on_receive(
+                ChannelMessage(
+                    session_id=f"myapp:{chat_id}",
+                    channel=self.name,
+                    chat_id=chat_id,
+                    content=text,
+                )
+            )
+
+    async def send(self, message: ChannelMessage) -> None:
+        await self._post(message.chat_id, message.content)
+```
+
+Follow four contracts when implementing it:
+
+- Call the framework-provided `on_receive` for every inbound message; Turn output returns through `send`.
+- Use `<channel>:<chat_id>` for `session_id` so sessions from different platforms do not collide.
+- Return `False` from `enabled` when the configuration is incomplete; the gateway skips that channel.
+- Return `True` from `needs_debounce` when consecutive short messages need to be merged.
+
+Expose the channel through a plugin's entry-point module with `provide_channels`:
+
+```python
+import os
+
+from bub import hookimpl
+
+
+@hookimpl
+def provide_channels(message_handler):
+    return [MyChannel(on_receive=message_handler, token=os.environ.get("MYAPP_TOKEN", ""))]
+```
+
+After installing the plugin, run `bub gateway --enable-channel myapp`. See [Plugins](/docs/app/plugins/) for packaging and installation; for fields such as messages, media, and streaming output, see the [Python API](/docs/reference/python-api/#channels); for the rest of the channel interface, see the [Hooks reference](/docs/reference/hooks/).
+
+## Troubleshooting {#troubleshooting}
+
+| Symptom | Possible cause | Fix |
+| --- | --- | --- |
+| `No channels are enabled` | No usable channel | Check the token and the `.env` location; inspect plugins with `bub hooks` |
+| No `telegram.start` in the log | Telegram token is empty | Set the token and confirm it reaches the `bub` process |
+| Private chat receives `Access denied.` | The user allowlist rejected the user | Add the numeric ID or username to `BUB_TELEGRAM_ALLOW_USERS` |
+| No response in a private chat | The chat allowlist rejected the chat | Add the chat ID to `BUB_TELEGRAM_ALLOW_CHATS` |
+| No response in a group chat | Privacy Mode is on, or receive conditions are not met | Turn off Privacy Mode; for testing, @-mention the bot directly |
+| Typing forever with no reply | The model did not call the `telegram` skill | See [reply rules](#telegram-outbound) |
+| `409 Conflict` | Multiple long-polling processes use the same token | Stop the duplicate instances |
+| No offline messages after a restart | Backlog updates are discarded at startup | Expected behavior |

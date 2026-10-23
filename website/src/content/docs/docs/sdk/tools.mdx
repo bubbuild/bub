@@ -1,15 +1,13 @@
 ---
-title: Tools and CodeMode
-description: Define an action once, then give it to an Agent directly or compose it with CodeMode.
+title: Custom tools and code mode
+description: Define and register tools, access the current session, and compose multiple tool calls with code mode.
 ---
 
-A tool gives your agent an action: look up an order, read a file, or call a service. `Tool` describes the action's name, parameters, and result. You can pass it directly to an Agent or register it with the [Bub application](/docs/app/tools/).
+Tools let an agent query data, modify files, or call external services. `Tool` describes the action's name, parameters, and result. You can pass it directly to an Agent, or register it through a plugin in the [Bub application](/docs/app/tools/).
 
-This page covers the shared tool contract and direct SDK use. For installation and a complete model loop, start with [Build your own agent](/docs/sdk/).
+## Define a tool {#define-the-action}
 
-## Define the action {#define-the-action}
-
-`Tool.from_callable()` reads parameter types from annotations and a description from the docstring. It accepts synchronous and asynchronous functions and returns a tool for you to pass to an Agent.
+`Tool.from_callable()` reads parameter types from annotations and a description from the docstring. It accepts synchronous and asynchronous functions:
 
 ```python
 from bub.core import Agent
@@ -25,13 +23,36 @@ add_tool = Tool.from_callable(add, name="math.add")
 agent = Agent(tools=[add_tool])
 ```
 
-The runtime keeps the name `math.add`; model-facing names replace dots with underscores, so the model sees `math_add`. Use `description=` to supply a description explicitly.
+The runtime keeps the name `math.add`; model-facing names replace dots with underscores, so the model sees `math_add`. Use `name=` and `description=` to override the name and description explicitly.
 
-Plain `Agent` offers all supplied tools except those marked `exposure="command"`. Deferred loading, the `allowed_tools` state value, and the `state["code_mode"]` switch are [BubAgent policies](/docs/app/tools/). To choose tools per run in your own agent, override [`prepare_tools()`](/docs/sdk/options/#customize-how-a-step-is-prepared).
+Plain `Agent` offers the supplied tools and excludes only those marked `exposure="command"`. Deferred loading, `allowed_tools`, and `state["code_mode"]` are [BubAgent application policies](/docs/app/tools/). To choose tools per Step in a core Agent, override [`prepare_tools()`](/docs/sdk/options/#customize-how-a-step-is-prepared).
 
-## Return data the caller can use {#return-data-the-caller-can-use}
+### Use a Pydantic parameter model {#pydantic-input}
 
-Return a dictionary, list, typed value, or string that represents the result. A `renderer` can turn structured data into text when the model calls the tool directly:
+For tools with many parameters or constraints, pass a Pydantic model through `model=`. The handler receives one model instance instead of expanded fields:
+
+```python
+from pydantic import BaseModel, Field
+
+from bub import tool
+
+
+class RefundInput(BaseModel):
+    order_id: str = Field(description="The order to refund")
+    amount: float = Field(gt=0, description="Refund amount in the order currency")
+
+
+@tool(name="orders.refund", model=RefundInput)
+def refund_order(param: RefundInput) -> dict[str, str | float]:
+    """Refund a paid order."""
+    return {"order_id": param.order_id, "amount": param.amount}
+```
+
+Field descriptions and the JSON schema are provided to the model. If parameter validation fails, Bub returns an `invalid_input` tool error without executing the handler. To receive a `ToolContext`, also pass `context=True` and declare the handler as `(param, *, context)`.
+
+## Return results the model can use {#return-data-the-caller-can-use}
+
+A tool can return a dictionary, list, Pydantic model, or string. A `renderer` converts structured results into the text that is provided directly to the model:
 
 ```python
 from typing import TypedDict
@@ -53,13 +74,40 @@ order_tool = Tool.from_callable(
 )
 ```
 
-`Tool.render(result)` applies the renderer. By default, strings pass through, Pydantic models and JSON-serializable values become JSON, and other values use `str()`. The model-facing executor renders before `ToolCallFinished`, so handlers see the result that will be sent to the model. The executor used by CodeMode keeps structured results intact.
+`Tool.render(result)` applies the renderer. By default, strings pass through, Pydantic models and JSON-serializable values become JSON, and other values use `str()`.
 
-Tool execution errors become tool results in the model loop, giving the model a chance to respond or retry. A direct command call propagates its error to the caller. [Event handlers](/docs/concepts/events/#handlers) have their own exception behavior.
+When the model calls a tool directly, the executor renders successful results before `ToolCallFinished`, so handlers see the content that will be sent to the model. Code mode uses `render=False` and keeps structured results intact.
 
-## Use the current conversation {#use-the-current-conversation}
+Tool errors in the model loop are returned to the model as tool results; an error from a direct command call propagates to the caller. [Event handlers](/docs/concepts/events/#handlers) have their own exception rules.
 
-Pass `context=True` to receive a `ToolContext` as the keyword argument `context`. It carries the current tape, turn state, run ID, and event bus.
+### Return images, audio, or video {#media-results}
+
+A regular renderer only produces text. To let the model read media, use `content_result()` to return text and media together:
+
+```python
+from pathlib import Path
+
+import republic
+
+from bub.core.tools import Tool, content_result
+
+
+def read_chart(path: str) -> dict:
+    """Read a chart image for the model."""
+    return content_result([
+        "The chart generated by the latest test run:",
+        republic.image("image/png", data=Path(path).read_bytes()),
+    ])
+
+
+chart_tool = Tool.from_callable(read_chart)
+```
+
+`content_result()` converts the content into a JSON structure that can be written to the tape. Direct tool calls pass its text and media to the model; code mode keeps the structured result for generated code to process. Use the corresponding `result_content()` when you only need to retrieve the model content.
+
+## Access the current conversation {#use-the-current-conversation}
+
+Set `context=True` to receive a `ToolContext` through the keyword argument `context`:
 
 ```python
 from bub.core.tools import ToolContext
@@ -74,66 +122,13 @@ async def remember(note: str, *, context: ToolContext) -> str:
 remember_tool = Tool.from_callable(remember, context=True)
 ```
 
-This writes a business event to the tape. The default context selector reads conversation messages and tool exchanges; including this event in a model request requires your own selection logic. Use [Tape and context](/docs/concepts/tape/#context) to decide which saved information the model should read.
+`ToolContext` provides the current `tape`, shared `state`, `run_id`, and `events`, plus the `code_mode` and `command` flags.
 
-## Compose tools with CodeMode {#compose-tools-with-codemode}
+`append_event()` writes a business `event` entry. The default context selector skips it; provide custom [tape context](/docs/concepts/tape/#context) when the model needs to read that event.
 
-CodeMode lets the model write Python that calls your tools. It provides a `run_code` tool and a prompt section describing the tools available inside that code. Add both explicitly to a plain Agent:
+## Call a tool with a text command {#call-a-tool-without-a-model}
 
-```python
-from bub.core.codemode import CodeMode
-
-code_mode = CodeMode([add_tool, order_tool])
-agent = Agent(
-    tools=[code_mode.run_code],
-    system_prompt=[
-        "Use the available tools to answer the user's question.",
-        code_mode.prompt,
-    ],
-)
-```
-
-Run this agent with the model lifecycle shown in [Configure the agent](/docs/sdk/options/#choose-a-model). The model can call `run_code` with code such as:
-
-```python
-order = await tools.lookup_order(order_id="A123")
-print(order["status"])
-```
-
-Inside `run_code`, tool names use underscores, calls take keyword arguments, and results retain their structured form. Top-level `await` is supported. Calls pass through `ToolCallStarted` and `ToolCallFinished` with `context.code_mode=True`.
-
-`CodeMode` takes the tools you supply, excluding `exposure="command"`. BubAgent groups `auto`, `direct`, and `code` tools through its [application code mode settings](/docs/app/tools/).
-
-| Option | Behavior |
-| --- | --- |
-| `tools` | A tool collection, or a function of turn state returning that collection. Return `None` to disable code execution for a run. |
-| `environment` | Where code runs. Defaults to `LocalEnvironment()` in the current directory. May also be a function of turn state. |
-| `models` | Default `provider:model` for Republic calls made by the code, or a resolver returning a model spec and client options. Without it, code must supply a spec and Republic uses environment credentials. |
-| `stub_dir` | Optional directory for the generated Python tool definitions. By default, the definitions appear in the system prompt. A file-based stub requires an agent that can read that file. |
-| `media_tools` | `True` by default. Adds `attach_image`, `attach_audio`, and `attach_video` for returning media. |
-| `name` | Name of the `run_code` tool. Defaults to `run_code`. |
-
-The code receives a Republic bridge for chat, embedding, and decision model calls. Requests go through the host's model resolver. The host handles provider credentials for these calls.
-
-`run_code` returns printed output and attached media. Its default timeout is 120 seconds; callers may pass `timeout_seconds`. With `LocalEnvironment`, each call starts a Python process with the host user's permissions and stops that process and its descendants on completion or cancellation. Choose another environment when you need a different execution boundary.
-
-## Choose an execution environment {#choose-an-execution-environment}
-
-The `Environment` interface in `bub.environment` supplies process execution, file access, and Python execution. `CodeMode(environment=...)` uses the environment you provide. In the Bub application, the [`provide_environment` hook](/docs/reference/hooks/) selects an environment per session.
-
-| Operation | Responsibility |
-| --- | --- |
-| `spawn(command, *, cwd, env)` | Return a process with output streams, input, wait, and process-tree signalling. |
-| `read_text`, `write_text`, `read_bytes` | Access files inside the environment. |
-| `workspace`, `resolve_path` | Define its working directory and resolve relative paths. |
-| `run_code(code, *, tools, call_tool, write)` | Run Python, route tool calls through `call_tool`, and send stdout to `write`. Stop execution when cancelled. |
-| `close()` | Release resources owned by the environment. |
-
-The environment runs the generated code and calls back to the host to execute your Python tools. Close custom environments when your application stops using them.
-
-## Call a tool without a model {#call-a-tool-without-a-model}
-
-Set `command_prefix` to accept text commands. This example uses the `add_tool` defined above and needs no model credentials:
+Set `command_prefix` to call tools directly without a model:
 
 ```python
 import asyncio
@@ -150,6 +145,133 @@ async def calculate() -> None:
 asyncio.run(calculate())
 ```
 
-It prints `5`. Commands invoke supplied tools and emit tool events plus `CommandFinished`; they bypass the model loop. Prefixes must be non-empty and contain no whitespace. The parser accepts positional arguments followed by `key=value` arguments. A command that does not name a tool falls back to the agent's `bash` tool if one was supplied.
+This example prints `5`. Commands use the runtime name `math.add`, emit tool events and `CommandFinished`, and bypass the model run.
 
-The [Bub application](/docs/app/tools/) supplies commands such as `,skill` and `,code_mode`.
+Arguments accept positional values in tool parameter order, followed by `key=value` arguments. Prefixes must be non-empty and contain no whitespace. If a command name is not registered and the agent has a `bash` tool, the entire line is passed to that tool; shell commands in an application should be treated as trusted code.
+
+The [Bub application](/docs/app/tools/) also provides commands such as `,skill` and `,code_mode`.
+
+## Compose tools with code mode {#compose-tools-with-codemode}
+
+Code mode lets the model write Python that combines multiple tools in one `run_code` call. `CodeMode` provides a `run_code` tool and a prompt section describing the available tools; add both explicitly to a plain Agent:
+
+```python
+from bub.core.codemode import CodeMode
+
+code_mode = CodeMode([add_tool, order_tool])
+agent = Agent(
+    tools=[code_mode.run_code],
+    system_prompt=[
+        "Use the available tools to answer the user's question.",
+        code_mode.prompt,
+    ],
+)
+```
+
+The model can submit the following to `run_code`:
+
+```python
+order = await tools.lookup_order(order_id="A123")
+print(order["status"])
+```
+
+Inside the code, tool names use underscores, calls take keyword arguments, and top-level `await` is supported. Results retain their structured form, and `run_code` returns only what the code prints, so use `print()` explicitly. Calls still pass through `ToolCallStarted` and `ToolCallFinished` with `context.code_mode=True`.
+
+Code can also attach generated images, audio, or video to the result so the model can read them:
+
+```python
+await tools.attach_image(image="artifacts/chart.png")
+print("Chart attached.")
+```
+
+`attach_image`, `attach_audio`, and `attach_video` accept file paths in the environment, URLs, data URLs, or the corresponding Republic media objects. They are only valid inside `run_code`.
+
+`CodeMode` takes only the tools you supply, excluding `exposure="command"`. See [application tools](/docs/app/tools/) for how BubAgent groups `auto`, `direct`, and `code` tools.
+
+### CodeMode options {#codemode-options}
+
+| Option | Default and behavior |
+| --- | --- |
+| `tools` | `()`. A fixed tool collection, or a function of turn state returning that collection. Return `None` to disable code mode for a run. |
+| `environment` | `LocalEnvironment()`. May also be a function that selects an environment from state. |
+| `models` | `None`. A default Republic model spec or resolver. Without it, code must supply a model spec explicitly. |
+| `stub_dir` | `None`; tool definitions go directly into the system prompt. When a directory is specified, definitions are written to `.pyi` files that the agent must be able to read. |
+| `media_tools` | `True`; provides `attach_image`, `attach_audio`, and `attach_video`. |
+| `name` | `"run_code"`. |
+
+Code can call chat, embedding, and decision models through the Republic bridge. The host process resolves these calls, so model credentials do not need to be passed to generated code.
+
+`run_code(code, timeout_seconds=120)` returns printed output and attached media. The default local environment starts a Python process with the host user's permissions and stops the process tree on completion or cancellation; it is not a security sandbox. Provide another `Environment` when you need isolated execution.
+
+### Call models from generated code {#republic-models}
+
+Inside `run_code`, `republic` provides chat, embedding, and decision models as well as media constructors. The generated code receives proxy objects; the host process makes the actual requests, so provider credentials are not passed to the code.
+
+`CodeMode(models=...)` controls model resolution. A string supplies the default for `republic.get_model()` without a spec. A resolver can select a model and client options from the current `ToolContext`. `BubAgent` already connects these calls to the session model, credentials, and API base.
+
+Wait for a complete chat response:
+
+```python
+model = republic.get_model()
+response = await model.chat("Explain why the last tool call failed.", max_tokens=300)
+print(response.text)
+```
+
+You can also pass messages built with `republic.system()`, `republic.user()`, `republic.assistant()`, and media objects. These model calls **do not accept tools**; use `tools.*` when the code needs to perform an action.
+
+Consume a response incrementally with a stream:
+
+```python
+from republic.events import TextDelta
+
+model = republic.get_model("openai:gpt-5-mini")
+async with model.stream("Summarize the current task.") as stream:
+    async for event in stream:
+        if isinstance(event, TextDelta):
+            print(event.chunk, end="")
+
+print("\nFull response:", stream.text)
+```
+
+A stream can be iterated only once. Consume it fully before reading `stream.response`, `stream.text`, or `stream.token_usage`. `async with` closes the stream; `CodeMode` also closes any streams left open when the code finishes.
+
+Embedding models provide `embed()` and `embed_many()`:
+
+```python
+model = republic.get_embedding_model("openai:text-embedding-3-small")
+response = await model.embed_many(["first document", "second document"])
+print(len(response.vectors), len(response.vectors[0]))
+```
+
+Decision models answer a group of `Noul`, `Choice`, and `Score` questions:
+
+```python
+from republic.decisions import Choice, Noul
+
+model = republic.get_decision_model("openai:gpt-5-mini")
+response = await model.decide(
+    {"tests_passed": False, "reviewed": True},
+    questions={
+        "ready": Noul("Can this change be released?"),
+        "next_action": Choice("What should happen next?", ["fix", "review", "release"]),
+    },
+)
+print(response.answers)
+```
+
+These calls can fail or time out like other model requests and share the overall `run_code` deadline. To restrict which models generated code may use, implement a custom `ModelResolver`; a prompt is not an enforcement boundary.
+
+## Choose an execution environment {#choose-an-execution-environment}
+
+The `Environment` interface in `bub.environment` supplies process execution, file access, and Python execution:
+
+| Operation | Contract |
+| --- | --- |
+| `spawn(command, *, cwd=None, env=None)` | Return a `Process` with output streams, input, wait, and process-tree signalling. |
+| `read_text(path)` / `read_bytes(path)` | Read files inside the environment. |
+| `write_text(path, content)` | Write UTF-8 text and create parent directories. |
+| `workspace` / `resolve_path(path)` | Define the working directory and resolve relative paths. |
+| `run_code(code, *, tools, call_tool, write)` | Run Python with top-level `await`, route tool calls through `call_tool`, and send stdout to `write`. |
+| `close()` | Release resources owned by the environment. |
+
+`CodeMode(environment=...)` uses the environment you provide. In the application, the [`provide_environment` hook](/docs/reference/hooks/) supplies an environment per session, and the Framework closes it when `running()` exits; in the core SDK, the caller is responsible for closing it.

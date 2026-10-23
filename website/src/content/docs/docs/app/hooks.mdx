@@ -1,17 +1,30 @@
 ---
 title: Hooks
-description: Use hooks to shape prompts, control calls, save application state, and provide resources.
+description: Use hooks to adjust prompts, intercept model and tool calls, save state, and provide application resources.
 ---
 
-Choose a hook at the point where you want to change the Bub app. Keep the rest of the application in place: a prompt hook changes the input, a tool decision controls one call, and a store provider changes where conversation history lives.
+Hooks are the Bub app's extension interface. You replace only the parts you need to change; the remaining stages keep using built-in implementations.
 
-These examples belong in a [plugin](/docs/app/plugins/). Module-level functions can use a module entry point. For a class, register an instance or a factory that accepts the framework.
+First choose a hook by task:
 
-The [hooks reference](/docs/reference/hooks/) defines signatures, priority, and lifecycle rules.
+| Goal | Hook |
+| --- | --- |
+| Rewrite model input | `build_prompt`, `system_prompt` |
+| Modify or block a model or tool call before it happens | `before_llm_call`, `before_tool_call` |
+| Measure completed calls | `after_llm_call`, `after_tool_call` |
+| Save application state across Turns | `load_state`, `save_state` |
+| Replace Tape storage or context | `provide_tape_store`, `build_tape_context` |
+| Provide long-lived resources such as a database connection | `provide_lifespan` |
+| Connect a new channel or background service | `provide_channels` |
+| Add CLI commands | `register_cli_commands` |
+
+Signatures, return values, and dispatch rules are in the [Hooks reference](/docs/reference/hooks/); call order within a Turn is in [Turn](/docs/concepts/turn/#stages).
+
+The code below belongs in a [plugin](/docs/app/plugins/). Module-level functions use a module entry point; a class needs a registered instance, or a factory that receives `BubFramework`.
 
 ## Change the prompt {#change-the-prompt}
 
-Use `build_prompt` to replace the incoming content:
+`build_prompt` receives the inbound message, session ID, and state for the current turn, and returns the model input. Use `content_of()` to read plain text:
 
 ```python
 from bub import hookimpl
@@ -20,12 +33,13 @@ from bub.envelope import content_of
 
 @hookimpl
 def build_prompt(message, session_id, state):
-    return f"Answer using the project's terminology.\n\n{content_of(message)}"
+    text = content_of(message)
+    return [f"Answer using the project's terminology.\n\n{text}"]
 ```
 
-This text-only example reads the envelope through `content_of`. For media, return the user content types described in the [reference](/docs/reference/hooks/#prompt-content).
+The return value is `list[UserContent]`; elements can be strings or media objects such as `republic.image()`. Legacy formats such as plain strings are still converted, but new code should return a list.
 
-To add a system instruction while keeping the incoming prompt, contribute a `system_prompt` fragment instead:
+If you only want to append system instructions and keep the inbound content, use `system_prompt`:
 
 ```python
 from bub import hookimpl
@@ -36,9 +50,13 @@ def system_prompt(prompt, state):
     return "Explain which files support your answer."
 ```
 
+`system_prompt` is an append-only hook; results from multiple plugins are joined with blank lines according to priority and do not replace each other. Keep each turn's system instructions stable to help model provider caching.
+
 ## Control a model or tool call {#control-a-model-or-tool-call}
 
-Use the agent interception hooks when you want to retain the builtin agent and change an individual call. For example, cap a request's output tokens:
+Interception hooks run once, before the call happens. Exceptions they raise are logged and skipped, so to prevent execution you must return a decision.
+
+Cap output tokens:
 
 ```python
 from dataclasses import replace
@@ -49,10 +67,11 @@ from bub.hooks.interception import LLMCallRequest
 
 @hookimpl
 def before_llm_call(request: LLMCallRequest, state):
-    return replace(request, max_tokens=min(request.max_tokens or 512, 512))
+    max_tokens = min(request.max_tokens or 512, 512)
+    return replace(request, max_tokens=max_tokens)
 ```
 
-Return a decision to prevent a tool from running:
+Deny a tool call:
 
 ```python
 from bub import hookimpl
@@ -66,13 +85,19 @@ def before_tool_call(call: ToolCall, state):
     return None
 ```
 
-Your authorization logic sets `can_cancel_orders`; the hook uses that value to allow or deny the call.
+The three `ToolCallDecision` outcomes:
 
-An exception in these interception hooks is logged and skipped. Use `deny`, `replace`, or `LLMCallDecision.finish` for control. The [interception contract](/docs/reference/hooks/#interception-through-pluginagenthooks) explains when a decision stops the chain.
+| Return value | Effect |
+| --- | --- |
+| `None` / `proceed()` | Continue execution; parameters may be replaced at the same time |
+| `replace(result)` | Skip the tool and use the specified result |
+| `deny(message)` | Skip the tool and return the message as a tool error |
+
+`replace` and `deny` stop later interception implementations. `LLMCallDecision.finish(text)` skips the model provider and uses the text directly as the result. See [Interception rules](/docs/reference/hooks/#interception-through-pluginagenthooks) for the full contract.
 
 ## Observe completed calls {#observe-completed-calls}
 
-For call metrics, use the completion hooks:
+Completion hooks run after a call finishes and suit logging, metrics, and auditing:
 
 ```python
 from bub import hookimpl
@@ -80,50 +105,56 @@ from bub import hookimpl
 
 @hookimpl
 def after_llm_call(request, result, state):
-    print(f"model={request.model} duration_ms={result.duration_ms} error={result.error!r}")
+    print(f"model={request.model} error={result.error!r} elapsed={result.duration_ms}ms")
 
 
 @hookimpl
 def after_tool_call(call, result, state):
-    print(f"tool={call.tool} duration_ms={result.duration_ms} error={result.error!r}")
+    print(f"tool={call.tool} error={result.error!r} elapsed={result.duration_ms}ms")
 ```
 
-These hooks observe completed calls, including ordinary failures. They do not report cancellation. For per-chunk output, use the stream interface in your host or channel and follow its [closing rules](/docs/reference/python-api/#streams).
+They cover successes and ordinary exceptions, but not cancellation or a consumer closing the stream early. To process text chunk by chunk, consume the stream returned by `agent.run()`; interception hooks do not provide streaming increments.
 
-To replace the entire model stage, implement either `run_model` or `run_model_stream`. [Your first plugin](/docs/app/plugins/) shows a text replacement. A replacement owns its execution and recording behavior; the builtin agent's interception hooks run only when that agent is used.
+To replace the entire model stage, implement one of `run_model` or `run_model_stream`. A replacement owns its own call, event, and recording behavior; the interception hooks above only fire when the built-in Agent is used.
 
 ## Keep application state across turns {#keep-application-state-across-turns}
 
-The framework builds a fresh state dictionary for each inbound turn. Use `load_state` and `save_state` to carry your application's own values between turns:
+The framework creates a new `TurnState` for each inbound message. `load_state` returns the initial fields, and `save_state` writes them back when the model stage ends:
 
 ```python
+import asyncio
+
 from bub import hookimpl
 
 
 class TurnCounter:
     def __init__(self) -> None:
         self.counts: dict[str, int] = {}
+        self.lock = asyncio.Lock()
 
     @hookimpl
-    def load_state(self, message, session_id):
-        return {"completed_turns": self.counts.get(session_id, 0)}
+    async def load_state(self, message, session_id):
+        async with self.lock:
+            return {"completed_turns": self.counts.get(session_id, 0)}
 
     @hookimpl
-    def save_state(self, session_id, state, message, model_output):
-        self.counts[session_id] = state["completed_turns"] + 1
+    async def save_state(self, session_id, state, message, model_output):
+        async with self.lock:
+            self.counts[session_id] = state.get("completed_turns", 0) + 1
 
 
 turn_counter = TurnCounter()
 ```
 
-This in-memory example counts model-stage exits, including failures. It resets when the process exits and assumes one turn at a time per session. Use durable storage and an appropriate concurrency strategy for production state.
+This example only stores state in the process. Counts are lost after a restart and are not shared across processes; production environments should write to a database or another persistent store.
 
-`save_state` runs in the model stage's `finally` block, after session, state, and prompt preparation have succeeded. Errors during that preparation skip the save hook. Conversation history has a separate [Tape lifecycle](/docs/concepts/tape/#state).
+`save_state` sits in the model stage's `finally`, so it is still called when the model fails or is cancelled. Failures in session resolution, state loading, or prompt construction never reach the model stage and therefore do not save. To distinguish success from failure, inspect `state` or the model output; do not assume a save means success.
 
-## Provide a tape store {#provide-a-tape-store}
-<span id="5-provide-a-tape-store"></span>
+Multiple `load_state` implementations are merged by priority, with higher-priority fields overriding same-named lower-priority fields; all `save_state` implementations run. Turn concurrency is decided by the host or channel policy, and there is no automatic session lock between `load_state` and `save_state`.
 
-Return the store you want the application to use:
+## Provide Tape storage and context {#provide-a-tape-store}
+
+`provide_tape_store` selects the backend for conversation history:
 
 ```python
 from pathlib import Path
@@ -137,11 +168,35 @@ def provide_tape_store():
     return FileTapeStore(Path("./application-tapes"))
 ```
 
-This example selects a plain JSONL file store in the current directory. Bub's builtin application store adds application-specific search behavior; choose the store whose behavior you need. For a database-backed application store, see the [SQLAlchemy integration](/docs/integrations/storage/).
+The framework calls the provider once when entering `framework.running()`. A backend that needs cleanup can return a synchronous or asynchronous generator, closing resources when the scope exits. Keep only one store provider; a higher-priority implementation overrides a lower-priority one. See the [SQLAlchemy integration](/docs/integrations/storage/) for a database backend example.
 
-The framework resolves the provider once when `framework.running()` opens. A provider can yield a store and release it in `finally`. The [reference](/docs/reference/hooks/#runtime-resources) covers that lifecycle and the corresponding `provide_lifespan` hook.
+```python
+@hookimpl
+def provide_tape_store():
+    store = open_tape_store()
+    try:
+        yield store
+    finally:
+        store.close()
+```
 
-A plugin can also contribute a named sibling tape:
+`build_tape_context` decides which Tape entries become model messages:
+
+```python
+from dataclasses import replace
+
+from bub import hookimpl
+from bub.core import default_tape_context
+
+
+@hookimpl
+def build_tape_context():
+    return replace(default_tape_context(), anchor="reviewed")
+```
+
+When replacing the context, keep the tool round-trip handling unless you truly need custom message types. Constructing a bare `TapeContext()` only rebuilds ordinary `message` entries. The `reviewed` anchor in the example must already exist on the Tape; reads raise `NOT_FOUND` when it is missing.
+
+A sidecar stores associated data in a companion Tape instead of the main context:
 
 ```python
 from bub import hookimpl
@@ -156,11 +211,34 @@ def provide_tape_sidecar():
     return ArtifactSidecar()
 ```
 
-The [shared Tape explanation](/docs/concepts/tape/) describes sidecar naming and merge behavior.
+A sidecar with the same name keeps the higher-priority implementation. See [Tape sidecar](/docs/concepts/tape/#sidecars) for merge, reset, and failure behavior.
 
-## Add an application command {#add-an-application-command}
+## Manage application resources {#runtime-resources}
 
-`register_cli_commands` receives the root Typer app:
+`provide_lifespan` holds resources for the duration of the app run. Return a synchronous or asynchronous generator:
+
+```python
+from bub import hookimpl
+
+
+@hookimpl
+async def provide_lifespan():
+    client = await connect_database()  # Provided by your module
+    try:
+        yield
+    finally:
+        await client.close()
+```
+
+Do not return an object produced by a `@contextmanager` / `@asynccontextmanager` decorator; the current runtime treats it as a plain value and does not enter the context. The generator itself is closed when the scope exits.
+
+The framework enters in the order `provide_lifespan` → `provide_tape_store` → `provide_steering_inbox`, and closes in reverse order on exit. Cleanup also runs when any stage raises. See [Runtime resources](/docs/reference/hooks/#runtime-resources) for resource and lifecycle details.
+
+`bub run`'s scope covers a single message; `bub chat` and `bub gateway` cover the entire app run; an embedded service should wrap its service lifecycle with `framework.running()`. The same Framework should not enter two overlapping scopes at once.
+
+## Add a CLI command {#add-an-application-command}
+
+`register_cli_commands` receives the root Typer app and must be implemented synchronously:
 
 ```python
 import typer
@@ -175,6 +253,45 @@ def register_cli_commands(app: typer.Typer):
         typer.echo(f"hello, {name}")
 ```
 
-After installing the plugin, run `bub hello --name bub`. This hook must be synchronous.
+After installing the plugin, you can run:
 
-For other application tasks, use `onboard_config` to contribute configuration, `provide_channels` to connect a transport, or `provide_environment` to choose where builtin tools run. Their inputs and return values are in the [hooks reference](/docs/reference/hooks/).
+```bash
+bub hello --name bub
+```
+
+Plugins can also connect channels through `provide_channels`, replace the execution environment through `provide_environment`, and add configuration flows through `onboard_config`. See the [Hooks reference](/docs/reference/hooks/) for parameters and lifecycle.
+
+## Prompt for interactive input {#prompt-for-input}
+
+`register_cli_commands` and `onboard_config` are synchronous entry points. Use `bub.inquirer` to ask terminal users for input; do not create an event loop inside these hooks:
+
+```python
+import typer
+
+from bub import hookimpl
+from bub.inquirer import ask_confirm, ask_secret, ask_select, ask_text
+
+
+@hookimpl
+def register_cli_commands(app: typer.Typer):
+    @app.command()
+    def configure_orders() -> None:
+        endpoint = ask_text("Orders API URL")
+        environment = ask_select("Environment", ["development", "production"])
+        token = ask_secret("API token")
+        if ask_confirm("Save this configuration?", kind="permission"):
+            save_orders_config(endpoint, environment, token)
+```
+
+| Function | Result and purpose |
+| --- | --- |
+| `ask_text(message, default="")` | Text input |
+| `ask_secret(message)` | Hidden credential input |
+| `ask_confirm(message, default=False, kind="question")` | Boolean confirmation; pass `kind="permission"` for permission prompts |
+| `ask_select(message, choices, default="")` | Select one item from a list |
+| `ask_fuzzy(message, choices, default=None)` | Fuzzy-search and select one item |
+| `ask_checkbox(message, choices, enabled=None, validate=None)` | Select multiple items; the validator returns `True` or an error message |
+
+<kbd>Ctrl+C</kbd>, quitting a prompt, or an empty result raises `typer.Abort`. When called through the Bub CLI, these helpers publish `PromptChanged` as prompts open and close. Terminal status and external UIs can use it to display `question`, `permission`, or `auth` states.
+
+These helpers are for interactive CLIs. Gateways and HTTP requests have no terminal user; obtain input through configuration, channel messages, or the host's own UI instead.

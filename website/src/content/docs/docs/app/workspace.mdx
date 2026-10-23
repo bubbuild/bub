@@ -1,39 +1,41 @@
 ---
 title: Workspace
-description: Create a workspace, add your instructions, and check that commands work.
+description: How to use Bub within a workspace.
 ---
 
-Bub works in a directory: the workspace. It reads and writes files there, and it takes the project instructions from there.
+import { Aside } from '@astrojs/starlight/components';
 
-This page creates a workspace, adds your instructions, and checks that the app's commands run. The check does not need model credentials.
+By default, Bub runs in a workspace, which is simply a directory. It reads information and instructions about the current workspace from there.
 
-## Create a workspace
+## Prepare a workspace (optional)
 
-Make a directory for your project, and run the remaining commands in it:
+If you don't have a project yet and are just getting started with Bub, create a directory first:
 
 ```bash
 mkdir hello-bub
 cd hello-bub
 ```
 
-Put your working instructions in `AGENTS.md`:
+Then create an `AGENTS.md` file in that directory and write the following content into it:
 
-```bash
-cat > AGENTS.md <<'EOF'
+```
 You are the Bub agent for this workspace.
-Read files before editing them.
+Read the relevant content before editing files.
 Keep replies short and specific.
-EOF
 ```
 
-The application reads this file when it builds the system prompt. Change it as you learn which instructions help with your work.
+From then on, each time Bub runs, it reads these rules from the instructions so the model can follow them in its output. After trying the example, keep editing this file and see how the model's output changes under different rules.
 
-## Check a command
+<Aside type="tip">
+    `AGENTS.md` is a simple open format introduced by OpenAI for guiding coding agents, much like the `README.md` file that many projects have. Learn more about [AGENTS.md](https://agents.md/).
+</Aside>
+
+## Check commands
+
+Now try listing the commands available in Bub from the terminal in a workspace:
 
 ```bash
 bub run ",help"
 ```
 
-The output lists commands such as `,skill` and `,tape.info`. This checks the command path of the app without a model call.
-
-Commands begin with a comma at the start of a line. An unknown command falls back to a shell command, so use a known command for this check.
+From then on, any input that starts with a `,` comma calls the related command. You can change it to any character you like in the [settings](/docs/reference/settings/#agent-settings).

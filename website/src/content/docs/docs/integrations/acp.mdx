@@ -1,73 +1,47 @@
 ---
 title: Connect an IDE over ACP
-description: Install bub-acp-server and connect Bub to an ACP-compatible editor such as Zed.
+description: Install bub-acp-server and run Bub in Zed or another ACP-compatible client.
 sidebar:
   badge: { text: 'App', variant: 'note' }
 ---
 
-Use the Bub application from an editor that supports the [Agent Client Protocol](https://agentclientprotocol.com/). The `bub-acp-server` plugin connects the editor to the app's existing model configuration, tools, and conversation history.
+The [Agent Client Protocol](https://agentclientprotocol.com/) (ACP) lets an editor launch an agent process and exchange sessions, prompts, tool calls, and streaming updates over JSON-RPC. `bub-acp-server` connects the Bub application to this protocol.
 
-This guide uses Zed and starts the agent process over stdio. Check the CLI connection first, then add it to your editor.
+This guide starts with stdio in Zed, then covers HTTP/WebSocket and troubleshooting. ACP only handles the editor interface; the model, tools, skills, and Tape are still configured by Bub.
 
-## Before you begin
+## Before you start {#before-you-start}
 
-You need:
+- You have [installed the Bub application](/docs/getting-started/install/#app-install) and confirmed that `bub --help` works.
+- `bub run "Reply with one short sentence."` can use the model normally.
+- Zed is installed. Other ACP clients also work, but their launch configuration fields differ.
 
-- Bub installed in a Python environment where you can run `bub --help`.
-- A working Bub model configuration. Confirm this outside the editor first with `bub run`.
-- An editor or client that can launch a custom ACP agent. This tutorial uses Zed.
+The ACP process reads the Bub configuration from its current environment. Zed may start the process with a different working directory and environment than your terminal, so first confirm that `bub` points to the executable where you installed the plugin:
 
-The ACP process reads the same Bub configuration and environment variables as `bub run` and `bub chat`.
+```bash
+command -v bub
+bub --version
+```
 
-## 1. Install the ACP server plugin
-
-`bub-acp-server` lives in [`bubbuild/bub-contrib`](https://github.com/bubbuild/bub-contrib). Install it into the same environment that provides your `bub` command:
+## 1. Install and verify the plugin {#install}
 
 ```bash
 bub install bub-acp-server@main
-```
-
-Verify that the command is available:
-
-```bash
 bub acp --help
 ```
 
-Expected output includes:
+The output should include:
 
 ```text
 Usage: bub acp [OPTIONS]
 ```
 
-If `bub acp` is missing, the plugin was installed into a different Python environment than the one your shell resolves as `bub`.
+`bub-acp-server` lives in [`bubbuild/bub-contrib`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-acp-server). The plugin depends on the latest version of `bub-mcp`, which it uses for MCP servers in ACP sessions. If the command is missing, check whether the plugin was installed into the environment that `command -v bub` resolves.
 
-## 2. Check Bub before adding the editor
+`bub acp` communicates over stdio by default. The old `bub acp serve` command still works for now but prints a deprecation warning; new configurations should use `bub acp` directly.
 
-Run one turn from the same shell or environment that your editor will use:
+## 2. Configure Zed {#zed}
 
-```bash
-bub run "Reply with one short sentence: hello from Bub."
-```
-
-Resolve any configuration or network errors here before connecting the editor.
-
-If your Bub configuration is stored in a project `.env`, make sure the ACP process starts with that environment loaded. One portable way is to create a small wrapper script:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-cd /path/to/your/project
-set -a
-. ./.env
-set +a
-exec bub acp
-```
-
-Use this wrapper only when you need it. If `bub run` already works from the editor's environment, you can launch `bub acp` directly.
-
-## 3. Configure Zed
-
-Open Zed's settings with `zed: open settings` and add a custom agent server:
+Run `zed: open settings` from the command palette and add the following to `settings.json`:
 
 ```json
 {
@@ -82,7 +56,17 @@ Open Zed's settings with `zed: open settings` and add a custom agent server:
 }
 ```
 
-If Zed cannot find `bub`, use an absolute path or the wrapper script from the previous step:
+If Zed cannot find `bub`, replace `command` with the absolute path printed by `command -v bub`. When a project stores its configuration in a project `.env`, use a wrapper script that loads it first:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd /path/to/project
+set -a
+. ./.env
+set +a
+exec /absolute/path/to/bub acp
+```
 
 ```json
 {
@@ -97,31 +81,76 @@ If Zed cannot find `bub`, use an absolute path or the wrapper script from the pr
 }
 ```
 
-Keep editor configuration and Bub configuration separate. Zed starts the ACP process and passes the environment you put under `agent_servers.Bub.env`; Bub still owns its model settings, tools, skills, tapes, and plugin configuration.
+The `cd` in the wrapper script also determines ACP's default workspace. If you want the project opened in the editor to become the workspace, pass the ACP `cwd` from the client, or have the wrapper script change into that directory.
 
-## 4. Start a Bub thread
+Use `env` only to supply variables that Bub cannot read on its own. Model credentials, tools, and plugins are still managed by Bub's configuration files and environment variables; do not maintain the same token in two places.
 
-Reload Zed after saving settings. Open the agent panel with `cmd-?` on macOS or `ctrl-?` on Linux and Windows, then use the `+` button to create a new thread and select `Bub`.
+## 3. Start a session {#start}
 
-Send a small message such as:
+Save the settings and reload Zed. Open the agent panel with `cmd-?` on macOS or `ctrl-?` on Linux and Windows, create a new thread, and select **Bub**. Send a simple message:
 
 ```text
-HELLO
+hello
 ```
 
-You should see Bub respond in the agent panel. Tool calls and streamed model text are forwarded as ACP session updates, so the editor can show activity while the turn is running.
+The reply should appear in the agent panel. ACP converts text deltas, tool calls, and status updates into events the editor can display.
 
-![A Zed agent panel showing Bub connected as an ACP external agent](/docs/acp-server/zed-session-content.png)
+Images and files are handled by the ACP client according to its own capabilities. When Zed supports them, Bub's `bash`, `fs.read`, `fs.write`, and `fs.edit` can use the terminal and file system provided by the editor; when the client does not declare the corresponding capabilities, they fall back to local tools.
 
-When the editor reopens an existing thread, `bub-acp-server` loads the matching Bub tape and replays it through the same ACP streaming path used by live turns. That keeps restored user messages, assistant text, and tool events aligned with how Bub records the session.
+## 4. Sessions and restore {#sessions}
 
-## Troubleshooting
+`bub-acp-server` supports creating, loading, resuming, listing, and deleting ACP sessions. Session metadata is stored in `acp-sessions.json` under Bub home; history is read from Bub's current Tape store.
+
+- **Load**: restore an existing session and replay user messages, assistant text, and tool events.
+- **Resume**: reattach to the same session without replaying history.
+- **Delete**: clean up the ACP metadata, active turn, and the session's Tape and sidecar Tape.
+- **Close**: end the connection while keeping the history.
+
+To keep the thread list in your editor, therefore, keep `BUB_HOME` and the Tape storage configuration stable. ACP only isolates the protocol session ID; internally Bub adds a channel prefix so it does not share a Tape with other channels using the same ID.
+
+An ACP client can choose the model and reasoning effort for each session. The values actually available depend on the current provider; the choice is saved with the ACP session and feeds model calls in subsequent Bub turns.
+
+## 5. HTTP and WebSocket (optional) {#http}
+
+The default stdio transport is enough for a local editor. For remote clients or a long-running ACP service, install the HTTP dependencies from a `bub-contrib` checkout, then start the gateway channel:
+
+```bash
+git clone https://github.com/bubbuild/bub-contrib
+cd bub-contrib
+uv pip install -e 'packages/bub-acp-server[http]'   # should target the virtual environment where bub is installed
+bub gateway --enable-channel acp-server
+```
+
+The default endpoint is `http://127.0.0.1:28200/acp`. Configuration options:
+
+| Environment variable | Default | Description |
+| --- | --- | --- |
+| `BUB_ACP_SERVER_HOST` | `127.0.0.1` | Listen address |
+| `BUB_ACP_SERVER_PORT` | `28200` | Listen port |
+| `BUB_ACP_SERVER_CERTFILE` | — | TLS certificate; must be set together with the key |
+| `BUB_ACP_SERVER_KEYFILE` | — | TLS private key |
+
+`acp-server` is an `Interface` channel and is not started automatically by `all`; you must enable it explicitly. The HTTP endpoint has no authentication by default, so it is only suitable for the local machine or a trusted network. When exposing it remotely, put an authenticating proxy in front and enable TLS.
+
+You can also run it directly without going through the gateway:
+
+```bash
+bub acp --transport http
+bub acp --transport websocket
+```
+
+The default WebSocket endpoint is `ws://127.0.0.1:28200/acp`. HTTP and WebSocket are provided by the same SDK web transport; TLS uses `https://` or `wss://`. The gateway channel reuses active session resources; reconnecting after a disconnect and resending unsent events remain the client's responsibility.
+
+## Troubleshooting {#troubleshooting}
 
 | Symptom | Check |
-|---|---|
-| `bub acp` is missing | Reinstall `bub-acp-server` into the environment that provides the `bub` executable used by the editor. |
-| The editor says it cannot start Bub | Use an absolute `command` path, or point `command` at a wrapper script that activates the right environment. |
-| Bub starts but reports a configuration error | Confirm `bub run` works in the same environment. If required settings are in `.env`, load that file before `bub acp`. |
-| The editor cannot load or resume a thread | Confirm the editor is launching the same `bub` environment where `bub acp --help` works, and keep `BUB_HOME` stable across launches. |
-| Previous threads disappear after restarting the editor | Keep the same Bub environment and `BUB_HOME` across launches. `bub-acp-server` stores ACP session metadata under Bub home and loads history from Bub tapes. |
-| A turn starts but no activity is visible | Open Zed's `dev: open acp logs` command and inspect the JSON-RPC messages between Zed and Bub. |
+| --- | --- |
+| `bub acp` does not exist | Install the plugin into the `bub` environment Zed actually uses, and launch it by absolute path. |
+| The editor cannot start the process | Run `bub acp` manually in the same working directory first and inspect stderr; a stdio process must not print ordinary logs to stdout. |
+| The model configuration is wrong after startup | Run `bub run "hello"` in the same environment. Use a wrapper script when the project `.env` is not loaded. |
+| Tool calls do not show up | Open Zed's `dev: open acp logs` and inspect the JSON-RPC traffic and ACP capability negotiation. |
+| Threads disappear after a restart | Keep `BUB_HOME`, the workspace, and the Tape storage unchanged. |
+| An HTTP client cannot connect | Confirm that the `acp-server` channel or `bub acp --transport http` is running, and check the listen address, port, and TLS. |
+| Long sessions are compacted | `bub-acp-server` reports `tape.handoff` as a context-compaction event; this is the Tape context policy, not an editor cache. |
+
+The plugin [README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-acp-server) is the authority on the protocol and advanced capabilities. Once client file or terminal capabilities are enabled, the corresponding tools run in the editor; model selection, cost, and Tape storage are still managed by Bub.

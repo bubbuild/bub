@@ -1,36 +1,25 @@
 ---
 title: Observability
-description: Inspect conversation records and export model and tool traces to Phoenix or Logfire.
+description: Inspect session Tapes and export model and tool call traces to Phoenix or Logfire.
 ---
 
-Inspect a Bub application's conversation history, then export execution traces when you need model and tool timing. Start with the local tape commands; add Phoenix or Logfire to inspect a run across calls.
+Keep two things separate: use the Tape commands to see **what a session remembered**, and use OTLP / Logfire to see **how a turn ran**. Even without an external tracing backend, the agent still saves the selected conversation and run records. See [Events](/docs/concepts/events/) for the distinction between events, output streams, and persisted records.
 
-This guide uses the app's CLI and configuration. Tape recording and trace export have separate lifecycles: the default agent records selected conversation and run entries even without a tracing backend. See [Events and control](/docs/concepts/events/) for the distinction between events, output streams, and stored records.
+## Prerequisites
 
-## Before you begin
+- `bub --help` works.
+- In a workspace, `bub run "What tools do you have?"` can call the configured model.
+- Docker or Podman is required to run Phoenix locally.
+- Activate the [application virtual environment](/docs/getting-started/install/#app-install) before installing the tracing dependencies.
 
-You need:
-
-- Bub installed and runnable with `bub --help`.
-- One workspace where `bub run "What tools do you have?"` can call your configured model.
-- Docker or Podman if you want to run Phoenix locally.
-- An activated [application environment](/docs/getting-started/install/#app-install) if you will add tracing dependencies.
-
-## 1. Ask Bub for its current tape
-
-Run an English natural-language task first:
+## Inspect the Tape {#inspect-tape}
 
 ```bash
-bub run "What tools do you have, and what small tasks are they useful for?"
-```
-
-Then ask Bub to inspect the tape that was updated by that turn:
-
-```bash
+bub run "What tools do you have, and what is each one good for?"
 bub run ",tape.info"
 ```
 
-Expected output looks like this:
+Expected output is similar to:
 
 ```text
 name: becda04eb9f7369c__065943a03cbe6395
@@ -42,37 +31,35 @@ last_token_usage: 7458
 last_token_cache_hit_rate: 72.50%
 ```
 
-![A terminal screenshot showing `tape.info` after a Bub task run](/docs/observability/tape-info.png)
+![A terminal screenshot showing `tape.info` output after a Bub task run](/docs/observability/tape-info.png)
 
-The fields are useful when the model starts behaving oddly:
+| Field | Purpose |
+|---|---|
+| `entries` | How much history the session has accumulated |
+| `anchors` / `last_anchor` | Number of anchors and the latest context boundary |
+| `entries_since_last_anchor` | Whether a handoff is worthwhile to shorten the next prompt |
+| `last_token_usage` | Usage recorded by the most recent model path, when available |
+| `last_token_cache_hit_rate` | Share of prompt tokens served from cache in that same call, when the provider reports the detail |
 
-- `entries` tells you how much history the session has accumulated.
-- `anchors` and `last_anchor` identify the boundaries available to the context selector.
-- `entries_since_last_anchor` tells you whether a handoff could shorten the next prompt.
-- `last_token_usage` appears when token usage has been recorded by the model path.
-- `last_token_cache_hit_rate` shows the cached share of prompt tokens for that same model call when available.
-
-The tape stores conversation entries and selected run records. The context selector decides which entries become model input; `,tape.info` and `,tape.search` let you inspect the stored record. See [Tape and context](/docs/concepts/tape/) for the persistence boundary.
-
-## 2. Search the tape for symptoms
-
-Use `tape.search` when you need to find a prior tool call, error, or handoff:
+Search for tool calls, errors, or handoffs:
 
 ```bash
 bub run ",tape.search query=loop.step"
 ```
 
-You can also ask the model to inspect the tape and explain what it sees:
+When you need the model to interpret the results, run a natural-language request (this depends on credentials):
 
 ```bash
-bub run "Inspect the current tape and summarize the last turn."
+bub run "Inspect the current tape and summarize what the last turn did."
 ```
 
-That second command may call the model, so use it only after provider credentials are configured.
+See [Tape](/docs/concepts/tape/) for persistence and context selection rules.
 
-## 3. Start Phoenix locally
+## Export execution traces {#export-traces}
 
-Run Phoenix with OTLP HTTP ingestion enabled:
+Export traces when you need to see model and tool timing, concurrency relationships, and error paths. Tape and telemetry are independent of each other.
+
+### Phoenix (OTLP)
 
 ```bash
 docker run --rm --name bub-phoenix \
@@ -80,115 +67,74 @@ docker run --rm --name bub-phoenix \
   arizephoenix/phoenix:latest
 ```
 
-Open the UI:
+UI: `http://localhost:6006`.
 
-```text
-http://localhost:6006
-```
-
-## 4. Run Bub with OTLP
-
-In your activated application environment, install the tracing dependencies:
+Install the tracing dependencies:
 
 ```bash
+# Source repository
+uv sync --extra app --extra trace
+
+# Or an installed distribution
 uv pip install "bub[app,trace]"
 ```
 
-The `trace` extra includes the OpenTelemetry API, SDK, and HTTP/protobuf OTLP exporter. Bub uses these dependencies to send GenAI spans directly to Phoenix.
-
-In another terminal, run:
+The `trace` optional dependency includes the OpenTelemetry API/SDK and an HTTP/protobuf OTLP exporter. Installing the `logfire` optional dependency also includes the dependencies for `app` and `trace`; if both are installed, an **explicit OTLP endpoint still takes precedence**.
 
 ```bash
 OTEL_SERVICE_NAME=bub \
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces \
 OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf \
-bub run "What tools do you have, and what small tasks are they useful for?"
+bub run "What tools do you have, and what is each one good for?"
 ```
 
-Then run the local tape check with the same telemetry settings:
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is the complete trace URL. You can also set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006` (the exporter appends `/v1/traces`); the trace-specific variable takes precedence. The default protocol is `http/protobuf`; configure headers, timeouts, resource attributes, and sampling with standard OTEL environment variables.
 
-```bash
-OTEL_SERVICE_NAME=bub \
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces \
-OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf \
-bub run ",tape.info"
-```
+An explicit OTLP endpoint uses direct export, and Bub does not configure Logfire even if it is installed. Existing tracer providers are preserved; `OTEL_SDK_DISABLED=true` disables this initialization path. Authenticate with `OTEL_EXPORTER_OTLP_TRACES_HEADERS` (or `OTEL_EXPORTER_OTLP_HEADERS`); for a Phoenix project name, add `x-project-name=my-project`.
 
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is the complete trace URL. Alternatively, set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006`; the exporter appends `/v1/traces`. The trace-specific variable takes precedence. Bub supports `http/protobuf` (the default), with headers, timeouts, resource attributes, and sampling configured through standard OpenTelemetry environment variables.
+In Phoenix, open the default project, then the most recent trace, and look for `invoke_agent bub`, `chat <model>`, and `execute_tool <tool>`.
 
-An explicit OTLP endpoint selects direct export even if Logfire is installed; Bub does not also configure Logfire. Existing tracer providers are preserved, repeated initialization does not add exporters, and `OTEL_SDK_DISABLED=true` disables this initialization. The SDK batches exports and drains queued spans on normal process exit.
+![A screenshot showing Bub GenAI telemetry exported to Phoenix through OTLP](/docs/observability/phoenix-otel.png)
 
-For an authenticated destination, set `OTEL_EXPORTER_OTLP_TRACES_HEADERS` (or `OTEL_EXPORTER_OTLP_HEADERS`). To select a Phoenix project, include `x-project-name=my-project` in those headers; otherwise Phoenix uses its default project.
+### Logfire
 
-## 5. Inspect the trace in Phoenix
-
-In Phoenix:
-
-1. Open the default project.
-2. Open the most recent trace.
-3. Look for `invoke_agent bub`, `chat <model>`, and `execute_tool <tool>` spans.
-
-![A Phoenix screenshot showing Bub GenAI telemetry exported through OTLP](/docs/observability/phoenix-otel.png)
-
-This path complements tape inspection:
-
-- Tape answers "what did this Bub session remember?"
-- Phoenix answers "how did this Bub agent turn run across model calls, tool calls, and tape updates?"
-
-Use both when debugging production behavior: start with `,tape.info` to understand the session state, then use Phoenix to inspect timing, errors, model calls, and tool calls.
-
-## Send trajectories to Logfire
-
-To send trajectories to Logfire, install the `logfire` extra, which includes `bub[app,trace]` and Logfire. With no explicit OTLP endpoint configured, Bub's CLI configures Logfire at startup; no tracing plugin is required.
-
-In your activated application environment, add Logfire. Clear both OTLP endpoint variables, then authenticate with your Logfire project:
+When no explicit OTLP endpoint is set, the Bub CLI configures Logfire at startup (the `logfire` optional dependency must be installed).
 
 ```bash
 unset OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_ENDPOINT
+
+# Source repository
+uv sync --extra app --extra logfire
+
+# Or an installed distribution
 uv pip install "bub[logfire]"
+
 logfire auth
 logfire projects use
 bub run "Inspect this repository and summarize its structure."
 ```
 
-For deployment, provide `LOGFIRE_TOKEN` through your environment. In Logfire's Agents view, look for `bub`. Each invocation contains `chat <model>` and `execute_tool <tool>` spans. Subagents are nested under the tool that launched them, and runs in the same session share `gen_ai.conversation.id`.
+Set `LOGFIRE_TOKEN` in deployments. Look for `bub` on the Logfire Agents page. Subagents are nested under the tool span that launched them; runs in the same session are correlated through `gen_ai.conversation.id`.
 
-## Trace contents and lifecycle
+### Embedding and span contents
 
-The spans record model inputs and outputs, tool arguments and effective results (after result hooks and spill), token usage when supplied by the provider, and errors. Inline media payloads are omitted from message telemetry. Model fallback updates the model attributes and records failed attempts as events. Token usage is recorded on model spans only, avoiding duplicate counts on agent spans.
+Spans record model inputs and outputs, tool arguments and final results (after the result hook / spill), token usage, and errors; inline media is not uploaded. Model fallback updates the model attributes and records failed attempts as events. Token usage is written only on model spans.
 
-Tape events such as loop steps, handoffs, and spill writes appear on the active span. Tape event and chat metadata contain `trace_id` and `span_id` for correlation. Tape storage remains independent of telemetry export.
-
-Trace export requires the `trace` extra and an OTLP endpoint or tracer provider. When embedding Bub, initialize telemetry explicitly: set the endpoint environment variable and call `configure_otlp()`, or configure your own provider. Bub skips tracing when the optional dependencies are absent:
+Tape events such as loop steps, handoffs, and spills are attached to the current span; Tape metadata contains `trace_id` / `span_id`. When embedding, initialize explicitly:
 
 ```python
 from bub.tracing import configure_otlp
 
-configure_otlp()  # Reads OTEL_EXPORTER_OTLP_TRACES_ENDPOINT or OTEL_EXPORTER_OTLP_ENDPOINT.
-# Create and run Bub using your normal embedding entrypoint.
+configure_otlp()  # Reads OTEL_EXPORTER_OTLP_TRACES_ENDPOINT or OTEL_EXPORTER_OTLP_ENDPOINT
 ```
 
-Streams expose `aclose()`. Embedders that may stop consuming early should use `contextlib.aclosing(stream)` so provider streams, tape forks, and spans close promptly. Trace context is active while advancing or closing a stream, then released while consumer code handles the event. Cancellation closes spans and sets `bub.cancelled`; model failures and timeouts set error status.
+When these optional dependencies are missing, tracing is skipped. When you stop consuming a stream early, use `contextlib.aclosing(stream)` so the model stream, Tape branch, and span are closed. Cancellation closes the span and sets `bub.cancelled`.
 
-### Migrating from `bub-tapestore-otel`
-
-Use native tracing for live agent trajectories. The contrib plugin projects batches of committed tape entries into spans after the work has finished; its span timestamps describe the projection, while step duration is stored separately as an attribute. Native spans measure execution directly, preserve parallel tool timing and subagent parentage, and close on cancellation even when no terminal tape entry is committed.
-
-Use the plugin to project stored tape entries into spans. Native tracing captures execution as it happens, alongside your existing tape storage.
-
-To migrate:
-
-1. Install the `trace` extra for Phoenix/OTLP, or the `logfire` extra for Logfire, and configure the destination as shown here.
-2. Set `BUB_TAPESTORE_OTEL_ENABLED=false` if the contrib plugin is still installed.
-3. Keep your existing tape backend.
-
-Native spans also include OpenInference classification, model/token, message, and tool input/output attributes for Phoenix. These compatibility attributes are separate from the standard `gen_ai.*` attributes. Loop steps are events on the agent span.
-
-See the [contrib plugin implementation](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-otel) for the tape-projection approach.
+Native spans provide the OpenInference classification and standard `gen_ai.*` attributes that Phoenix needs. If you still need to project **stored** Tape entries into spans, use the contrib [`bub-tapestore-otel`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-otel); when migrating, install this page's `trace` or `logfire` optional dependency, set `BUB_TAPESTORE_OTEL_ENABLED=false`, and keep your existing Tape storage.
 
 ## Clean up
 
-Stop Phoenix with `Ctrl+C` if it is running in the foreground. If it is detached, remove it:
+Use `Ctrl+C` for a foreground Phoenix. If it is detached:
 
 ```bash
 docker rm -f bub-phoenix

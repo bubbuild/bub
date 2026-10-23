@@ -1,74 +1,85 @@
 ---
 title: Configuration
-description: Set the Bub application's model, provider credentials, and channels.
+description: How to configure the Bub application.
 ---
 
-Choose the model the Bub application calls and the channels it connects to. These settings belong to the application. When you construct `core.Agent` directly, pass its model and components in Python; see [Build your own agent](/docs/sdk/).
+import { Aside } from '@astrojs/starlight/components';
 
-Bub reads its own configuration from these places, in order of precedence (highest first):
+Bub reads configuration in this order, highest priority first:
 
-1. Process environment (`BUB_*` variables).
-2. `.env` values loaded during CLI startup or by settings classes that explicitly declare `env_file=".env"`.
-3. `~/.bub/config.yml` (created by `bub onboard`).
+1. Environment variables (the `BUB_` prefix);
+2. `.env`, loaded from the current workspace at CLI startup, or read by settings classes that declare `env_file=".env"`;
+3. `~/.bub/config.yml`, created by `bub onboard`.
 
-When no explicit Bub key is supplied, Bub reads `<PROVIDER>_API_KEY` and `<PROVIDER>_API_BASE`, using Republic provider names with hyphens replaced by underscores. Examples include `OPENROUTER_API_KEY`, `GOOGLE_API_KEY`, and `AZURE_OPENAI_API_KEY`. Explicit `BUB_*` settings take precedence.
+Fields not declared in the configuration use the settings class defaults. See [Settings › Full example](/docs/reference/settings/#example) for every writable field.
 
-## Before you begin
+<Aside title="Before you begin">
 
-- Bub is installed (`bub --help` works).
-- You have one model provider's API key, or you have run `bub login codex` for OAuth.
+- Make sure the Bub CLI is [installed](/docs/getting-started/install/).
+- You have an API key from a model provider, or you have completed OAuth with `bub login codex` (OpenAI only).
 
-## 1. Run the interactive setup
+</Aside>
 
-`bub onboard` guides you through provider selection, API key and URL (when needed), connection checking, searchable model selection, channels, and streaming settings. Hosted providers use their default URL; choose **OpenAI-compatible** for a custom OpenAI-compatible server. Leave the API key blank to use environment credentials. If the model list is unavailable, you can edit the connection, retry, or enter a model ID manually. The connection check fetches models without generating a completion. Selecting Codex skips model discovery and uses manual model entry. The collected configuration replaces `~/.bub/config.yml`; existing values supply prompt defaults and are preserved unless updated. Plugins may add prompts through the `onboard_config` hook.
+## 1. Finish the initial setup
+
+Run the following command in your terminal to start the interactive setup. When it finishes, it writes the result to `~/.bub/config.yml`.
 
 ```bash
 bub onboard
 ```
 
-The config file defaults to `~/.bub/config.yml`. `BUB_HOME` sets a separate path for runtime data: command history, tapes, and the managed plugin project. Use `BubFramework(config_file=...)` when embedding Bub and you need a different config path.
+## 2. Check the config file
 
-:::note
-`bub onboard` only collects what the loaded plugins ask for via the `onboard_config` hook. If you install a plugin that adds new settings, run `onboard` again.
-:::
-
-## 2. Inspect the config file
-
-A minimal config looks like this:
+Now check whether `~/.bub/config.yml` contains the content described in the [full example](/docs/reference/settings/#example). Here is an example:
 
 ```yaml
 # ~/.bub/config.yml
 model: openrouter:openrouter/free
-api_key: sk-or-v1-...
+api_key: sk-or-...
 telegram:
   token: "123456:abcdef..."
   allow_users: "123456789,your_username"
 ```
 
-Top-level keys map to `AgentSettings` in [src/bub/builtin/settings.py](https://github.com/bubbuild/bub/blob/main/src/bub/builtin/settings.py). Per-channel keys (such as `telegram:`) map to that channel's `Settings` subclass.
+## 3. Override with environment variables
 
-## 3. Override at runtime with environment variables
+**By default, your key is written directly to the config file in plain text.** If you have higher security requirements and don't want provider API keys stored locally in plain text, you can set or override them with environment variables when running Bub. The relevant variables are:
 
-Override application settings with environment variables. Common settings use the `BUB_<UPPERCASE_KEY>` pattern:
-
-| Variable | Purpose |
+| Variable | Description |
 |---|---|
-| `BUB_MODEL` | Model identifier, e.g. `openrouter:openrouter/free` or `codex:<model>`. |
-| `BUB_API_KEY` | API key for the active provider. Leave unset when using `bub login codex`. |
-| `BUB_API_BASE` | Override the provider's base URL. Leave unset to use the selected provider's default endpoint. |
-| `BUB_HOME` | Bub's runtime data directory (history, tapes, managed plugin project). Default `~/.bub`; does not move the default config file. |
-| `BUB_<PROVIDER>_API_KEY` | Per-provider key, e.g. `BUB_OPENROUTER_API_KEY`. |
-| `BUB_<PROVIDER>_API_BASE` | Per-provider base URL. |
+| `BUB_MODEL` | Model identifier, such as `openrouter:openrouter/free` or `codex:<model>`. |
+| `BUB_API_KEY` | API key for the current provider; not needed with `bub login codex`. |
+| `BUB_API_BASE` | Provider service URL; leave it blank for the default endpoint. |
+| `BUB_HOME` | Runtime data directory, default `~/.bub`. |
+| `BUB_<PROVIDER>_API_KEY` | Key for a specific provider, such as `BUB_OPENROUTER_API_KEY`. |
+| `BUB_<PROVIDER>_API_BASE` | Service URL for a specific provider. |
 
-Republic reads and refreshes Codex file credentials from `$CODEX_HOME/auth.json` or `~/.codex/auth.json`. Install the Codex CLI for a new login, then select `codex:<model>` and leave `BUB_API_KEY` unset. Use `openai:<model>` with API credentials for OpenAI API access.
+See the [settings reference](/docs/reference/settings/) for the full table.
 
-To reach an endpoint that speaks a supported API under a name of its own (a company proxy, a relay, a second account), declare it under `providers` and use that name as the model prefix; see [Custom providers](/docs/reference/settings/#custom-providers).
+## 4. Configure the model and fallback models
 
-For the full table, including channel debounce knobs and advanced model-client settings, see [Settings reference](/docs/reference/settings/).
+`model` uses the `provider:model` format. To try fallback models in order when the primary model is unavailable, configure this in `~/.bub/config.yml`:
 
-## 4. Configure channel credentials
+```yaml
+model: openai:gpt-5-mini
+fallback_models:
+  - openrouter:openrouter/free
+```
 
-Each channel has its own settings prefix. The builtin Telegram channel reads `BUB_TELEGRAM_*`:
+Each candidate provider needs its own valid credentials. Fallbacks only cover failures while creating a client and opening a request; an error after the stream has started does not replay on another model, to avoid duplicate side effects. The fallback set is carried only when the current model identifier matches `model` in the configuration; it does not apply after you switch to another model. See [Models and fallback](/docs/reference/settings/#model-routing) for the full rules.
+
+In `bub chat`, you can switch only the current session:
+
+```text
+,model openai:gpt-5-mini
+,reasoning_effort high
+```
+
+Both settings take effect from the next Turn and are saved in the current session's Tape. The available reasoning effort values depend on the provider.
+
+## 5. Configure the Telegram channel (optional)
+
+If you want to use Bub as a Telegram bot, use the built-in Telegram channel. Example configuration:
 
 ```bash
 BUB_TELEGRAM_TOKEN=123456:abcdef...
@@ -77,14 +88,15 @@ BUB_TELEGRAM_ALLOW_CHATS=-1001234567890
 BUB_TELEGRAM_PROXY=http://127.0.0.1:7890   # optional
 ```
 
-For the message-handling and access-control behavior these variables drive, see [Channels](/docs/app/channels/#telegram).
+See [Telegram channel](/docs/app/gateway/#telegram) for more configuration options.
 
-## 5. Verify
+## 6. Verify
 
-Run one conversation turn with the configured model:
+Now try talking to Bub:
 
 ```bash
-bub run "say hi"
-```
+$ bub run "Can you introduce yourself?"
 
-The command prints a routing label (`[<channel>:<chat_id>]`) followed by the response. If you need to check whether a configuration plugin loaded, inspect it with `bub hooks`.
+[cli:local]
+I'm a virtual assistant designed to support a wide range of tasks including coding, design, research, and automation. I can integrate with code repositories, access web resources, leverage specialized skills, and streamline workflows. If you have specific tasks or questions about my capabilities, feel free to ask!
+```

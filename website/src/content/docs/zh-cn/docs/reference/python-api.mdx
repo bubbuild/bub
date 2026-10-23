@@ -1,148 +1,300 @@
 ---
 title: Python API
-description: 核心 agent 与 Bub 应用的接口，按所属范围分组。
+description: bub.core 与应用层的公开类型与入口签名。
 ---
 
-按接口的归属查阅。核心接口在自己的 Python 程序里配好模型和工具即可使用；应用接口用于运行 Bub 应用、编写插件或接入渠道。具体用法见[工具](/zh-cn/docs/sdk/tools/)、[Tape 与上下文](/zh-cn/docs/concepts/tape/)和[事件](/zh-cn/docs/concepts/events/)。
+按所属包查阅公开接口。用法见 [SDK](/zh-cn/docs/sdk/)、[Tape](/zh-cn/docs/concepts/tape/)、[事件](/zh-cn/docs/concepts/events/)、[Turn](/zh-cn/docs/concepts/turn/)。
 
-## 核心
+- **`bub.core`**：Agent 循环、模型适配、工具、Tape、事件。不读 YAML / `BUB_*`。
+- **应用层**：`BubFramework`、`BubAgent`、渠道、配置。需要 [安装](/zh-cn/docs/getting-started/install/) `app` 可选依赖。
 
-核心循环使用的接口，不读取应用配置。
+签名里出现的 `republic.…` 来自外部依赖 Republic，不是 Bub 包的一部分；本页不展开其类型。
 
-### 流
+```python
+import bub.core as core
+from bub import BubFramework
+```
+
+只导入 `bub.core` 不会加载 CLI、设置或插件。
+
+## 核心 {#core}
+
+### Agent {#agent}
+
+```python
+from bub.core import Agent
+
+Agent(
+    *,
+    model=None,
+    store=None,
+    tools=(),
+    system_prompt=(),
+    context=None,
+    sidecars=(),
+    max_steps=sys.maxsize,
+    max_tool_concurrency=None,
+    name="agent",
+    command_prefix=None,
+)
+```
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `model` | `None` | 默认模型：Republic chat model（`republic.ChatModel`）或 `ModelClient`；也可在每次 `run` 时传入 |
+| `store` | 新的 `InMemoryTapeStore` | 同步 `TapeStore` 或 `AsyncTapeStore` |
+| `tools` | `()` | 初始 `Tool` 对象，以及 `republic.tools.WebSearch()` 等提供商执行的工具；同名后者覆盖前者 |
+| `system_prompt` | `()` | 文本、`PromptSection` 或 `SystemPrompt`；每个 Step 重新渲染 |
+| `context` | `default_tape_context()` | Tape 条目到模型消息的选择策略 |
+| `sidecars` | `()` | 随 Tape 挂载的 sidecar |
+| `max_steps` | `sys.maxsize` | 一次 Run 的模型 Step 上限 |
+| `max_tool_concurrency` | `None` | 同一次模型响应中的工具并发上限；`1` 表示依次执行 |
+| `name` | `"agent"` | Agent trace span 的名称 |
+| `command_prefix` | `None` | `None` 禁用命令；非空且不能含空白，设置后可直接调用工具 |
+
+`agent.tools` 按名称保存 `Tool`，`agent.builtin_tools` 保存提供商工具。不同 Run 之间的并发不受 `max_tool_concurrency` 控制，需要宿主协调。构造时会把 `TapeRecorder` 挂到 `events`。完整示例见[在 Python 中运行 Agent](/zh-cn/docs/sdk/)。
+
+主要入口：
+
+| 方法 | 说明 |
+| --- | --- |
+| `run(...)` / `start(...)` | 在命名 Tape 上执行一次 Run；`run` 退出时关闭流，`start` 由调用方调用 `aclose()` |
+| `tape(name, *, state=None)` | 直接读写存储中的 Tape |
+| `session(name, *, state=None, merge_back=True)` | 打开分支，退出时合并 |
+| `run_on(tape, prompt, ...)` | 在已打开的 Tape 上运行 |
+| `run_once(...)` | 只执行一个模型 Step 及其工具调用 |
+| `run_command(tape, line)` | 直接执行命令，不调用模型 |
+| `prepare_tools(tape, prompt)` | 子类可覆写，决定当前 Step 提供的工具 |
+
+`run` / `start` 共用参数：`prompt`、`model`、`options`（外部 `republic.ChatOptions`）、必填 `tape` 名、`state`、`merge_back`、`metadata`。fork / 合并见 [Tape](/zh-cn/docs/concepts/tape/#forks)。
+
+### Model {#model}
+
+```python
+from bub.core import Model, ModelClient, ChatModelClient
+```
+
+| 名字 | 说明 |
+| --- | --- |
+| `Model` | `republic.ChatModel \| ModelClient` |
+| `ModelClient` | Bub 协议：`spec`、`max_tokens`、`open_stream(...)` |
+| `ChatModelClient` | 把 `republic.ChatModel` 适配为 `ModelClient`；模型生命周期由调用方持有 |
+
+### Tools {#tools}
+
+```python
+from bub.core import Tool, ToolContext, tool
+```
+
+`Tool` 字段：`name`、`handler`、`description`、`parameters`、`context`、`exposure`（`auto` / `direct` / `code` / `command`）、`renderer`、`output_schema`、`deferred`。
+
+`@tool` / `tool(...)` 从可调用对象构造 `Tool`；`@tool(model=...)` 使用 Pydantic 参数模型。装饰器不注册全局，需经 `Agent(tools=[...])` 或 `provide_tools` 提供。`ToolContext` 含 `tape`、`run_id`、`state`、`code_mode`、`command`、`events`。
+
+```python
+from bub.core.tools import content_result, result_content
+```
+
+`content_result(content)` 构造包含文本与媒体的工具结果，`result_content(result)` 将其还原为模型内容。普通结果由 `Tool.render()` 转为文本。用法见[自定义工具与 code mode](/zh-cn/docs/sdk/tools/)。
+
+### System prompt {#system-prompt}
+
+```python
+from bub.core import SystemPrompt, PromptSection, PromptContext
+```
+
+- `PromptSection`：固定文本，或 `(PromptContext) -> str | None`（可 async）
+- `SystemPrompt`：有序 section；`add` / `remove` / `render`
+- `PromptContext`：当前 Step 的 `agent`、`tape`、`prompt`、`tools`、`model`
+
+### Prompt 内容 {#prompt}
+
+```python
+from bub.prompt import UserContent
+```
+
+`UserContent` 是 Bub 定义的别名（文本或媒体）。媒体形态与旧 hook 输入转换见 [prompt 约定](/zh-cn/docs/reference/hooks/#prompt-content)。
+
+### Tape 与 store {#tape}
+
+```python
+from bub.core import Tape, TapeContext, default_tape_context, session_tape_name
+from bub.core.store import FileTapeStore, InMemoryTapeStore, TapeQuery
+from bub.core.tape import TapeEntry
+```
+
+常用方法：`query`、`info`、`anchors`、`search`、`handoff`、`read_messages`、`reset`、`record_chat`、`scoped`、`with_context`、`fork_tape`。
+
+`TapeContext`：`anchor`、`select`、`state`。完整对话重放用 `default_tape_context()`；直接 `TapeContext()` 只重放普通 `message`。
+
+公开 store：`InMemoryTapeStore`、`FileTapeStore`；同步 `TapeStore` 会通过 `AsyncTapeStoreAdapter` 接入 Agent。概念见 [Tape](/zh-cn/docs/concepts/tape/)。
+
+自定义后端只需实现四个操作；`AsyncTapeStore` 使用相同签名的异步版本：
+
+| 方法 | 契约 |
+| --- | --- |
+| `list_tapes()` | 返回已存在的 Tape 名称 |
+| `append(tape, entry)` | 追加条目，并为该 Tape 分配单调递增的 `entry_id` |
+| `fetch_all(query)` | 按记录顺序返回满足 `TapeQuery` 的条目 |
+| `reset(tape)` | 删除该 Tape 的记录及其 ID 进度 |
+
+同步实现的这些方法会通过 `asyncio.to_thread()` 调用，避免阻塞事件循环；数据库连接和事务仍由实现者管理。`InMemoryQueryMixin` 可以为只实现 `read()` 的简单后端提供内存查询，数据库后端通常应把过滤条件下推。找不到指定 anchor 时，查询以 `BubError(kind=NOT_FOUND)` 失败。
+
+`TapeQuery` 使用链式过滤，调用 `all()` 执行：
+
+| 方法 | 过滤条件 |
+| --- | --- |
+| `query(value)` | 条目 kind、date、payload、meta 的 JSON 文本包含指定值，不区分大小写 |
+| `after_anchor(name)` / `last_anchor()` | 指定或最近 anchor 之后 |
+| `between_anchors(start, end)` | 两个 anchor 之间，不包含边界 |
+| `between_dates(start, end)` | ISO 日期或时间范围，包含边界 |
+| `kinds(*kinds)` | 指定条目类型 |
+| `limit(value)` | 最多返回的条目数 |
+
+```python
+query = tape.query().query("error").kinds("event", "error").limit(20)
+entries = list(await query.all())
+```
+
+### Events {#events}
+
+```python
+from bub.core import EventBus, ToolCallStarted, ToolCallFinished
+```
+
+`EventBus`：`on` / `off` / `emit`。公开事件类型包括 `RunStarted` / `RunFinished`、`StepStarted` / `StepFinished`、`LLMCallStarted` / `LLMCallFinished`、`ToolCallStarted` / `ToolCallFinished`、`MessagesPending`、`ChatFinished`、`CommandFinished` 等。
+
+拦截载荷（`LLMCallRequest`、`LLMCallDecision`、`ToolCall`、`ToolCallDecision` 等）也从 `bub.core` 导出。字段与控制约定见[事件](/zh-cn/docs/concepts/events/)。
+
+### Streams {#streams}
 
 ```python
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
-`StreamEvent` 包含 `kind` 和数据字典。种类为 `text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error`、`final`。文本事件使用 `data["delta"]`。`tool_result` 事件包含 `data["tool_results"]`，与本步骤的工具调用一一对应；失败调用对应的项是它的 `BubError`，tape 和模型收到的是它的字典形式。内置 agent 的 `final` 标记一个模型步骤结束；继续消费，直到流结束。
+`StreamEvent.kind`：`text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error`、`final`。`AsyncStreamEvents` 是带 `aclose()` / `error` / `usage` 的异步迭代器。消费约定见 [SDK 输出流](/zh-cn/docs/sdk/#stream-lifecycle)。
 
-`AsyncStreamEvents` 是异步迭代器，提供 `aclose()`、`error` 和 `usage`。消费到结束，或者在调用方停止时关闭它：
-
-```python
-from contextlib import aclosing
-
-
-async def consume(stream: AsyncStreamEvents) -> None:
-    async with aclosing(stream):
-        async for event in stream:
-            if event.kind == "text":
-                print(event.data.get("delta", ""), end="")
-```
-
-插件创建 `AsyncStreamEvents` 时传入迭代器，也可以提供 `StreamState` 和异步 `on_close` 回调。对于开始迭代前就已获取的资源，使用这个回调释放。如果包装其他流，包装层也必须关闭上游，并保留相关的错误与用量信息。
-
-流事件向消费方交付输出。Agent 事件有独立的[分发与控制契约](/zh-cn/docs/concepts/events/)。
-
-### 错误与拦截载荷
+### Errors {#errors}
 
 ```python
 from bub.errors import BubError, ErrorKind
-from bub.hooks.interception import (
-    LLMCallDecision,
-    LLMCallRequest,
-    LLMCallResult,
-    ToolCall,
-    ToolCallDecision,
-    ToolCallResult,
-)
 ```
 
-`BubError.kind` 表示错误类别，`as_dict()` 返回适合传输的载荷。拦截载荷与 `bub.core.events` 共用类型。插件如何使用它们，以及异常如何处理，见 [Hooks](/zh-cn/docs/reference/hooks/#interception-through-pluginagenthooks)。
+`ErrorKind`：`invalid_input`、`config`、`provider`、`tool`、`temporary`、`not_found`、`unknown`。`BubError(kind, message, details=None)`；`as_dict()` 适合传输。
 
-## 应用
-
-应用、插件与渠道使用的接口。
-
-### 消息与 turn 结果
-
-从 `bub.envelope` 导入消息辅助函数：
+### Code mode {#code-mode}
 
 ```python
-from bub.envelope import Envelope, content_of, field_of, normalize_envelope, unpack_batch
-from bub.turn import TurnResult, TurnState
+from bub.core.codemode import CodeMode
 ```
 
-`Envelope` 接受映射、dataclass、Pydantic model 和具有属性的对象。`field_of` 与 `content_of` 可以读取映射的键和对象的属性。`normalize_envelope` 生成可变字典，`unpack_batch` 规范化 hook 返回的出站消息批次。
+`CodeMode(tools, *, environment=None, models=None, ...)` 提供模型侧的 `run_code` 工具，以及描述可调用工具的 `prompt` section。用法见[自定义工具与 code mode](/zh-cn/docs/sdk/tools/)。
 
-`TurnState` 是 `dict[str, Any]`。Framework 为每轮入站消息创建新字典，再合并 `load_state` 返回值。插件自行决定持久化哪些值。
-
-`process_inbound` 返回的 `TurnResult` 包含这些字段：
-
-| 字段 | 类型 | 内容 |
-| --- | --- | --- |
-| `session_id` | `str` | 解析后的会话标识 |
-| `prompt` | `list[UserContent]` | 交给模型阶段的规范化输入 |
-| `model_output` | `str` | 收集后的文本结果 |
-| `outbounds` | `list[Envelope]` | 生成的出站消息 |
-| `state` | `TurnState` | 本轮使用的状态 |
-
-`UserContent` 来自 `bub.prompt`。[提示词契约](/zh-cn/docs/reference/hooks/#prompt-content)说明媒体类型，以及到旧式 hook 输入的转换。
-
-### 模型选项
+### 执行环境 {#environment}
 
 ```python
-from bub.model_selection import ModelChoice, ModelOptions
+from bub.environment import Environment, LocalEnvironment, Process
 ```
 
-`ModelChoice` 必须提供 `id`，可选字段为 `name`、`description` 和 `meta`。`ModelOptions` 包含 `models: list[ModelChoice]` 和可选的 `current_model`。
+`Environment` 定义 `spawn`、`read_text`、`read_bytes`、`write_text`、`resolve_path`、`run_code` 和 `close()`。`LocalEnvironment` 直接在宿主执行，不提供安全沙箱；远程或隔离环境需要自行实现。完整契约见[执行环境](/zh-cn/docs/sdk/tools/#choose-an-execution-environment)。
 
-`BubFramework.get_model_options` 合并 `provide_model_options` 返回的结果。渠道或宿主程序负责展示选项和保存选择。
+## 应用层 {#application}
 
-### 渠道与路由
-
-```python
-from bub.channels import Channel, Interface, Lifecycle
-from bub.channels.contracts import ChannelRouter, MessageHandler
-from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
-```
-
-`MessageHandler` 是接收一条消息并返回 `None` 的异步可调用对象。`Channel` 实现 `start(stop_event)` 和 `stop()`，还可以实现发送、流处理和消息准入。`Interface` 标记面向用户的渠道，`Lifecycle` 标记后台服务。
-
-`ChannelRouter` 把 framework 接到渠道发送能力上：
-
-| 方法 | 职责 |
-| --- | --- |
-| `dispatch_output(message)` | 发送出站消息，返回是否处理 |
-| `wrap_stream(message, stream)` | 返回渠道的异步流包装 |
-| `quit(session_id)` | 通过渠道结束会话 |
-| `admit_channel_message(session_id, message, turn)` | 返回渠道准入决定或 `None` |
-
-`ChannelManager` 实现这个接口，并通过 `BubFramework.bind_channel_router` 绑定。
-
-#### 消息准入与 steering
-
-`TurnSnapshot` 提供 `session_id`、`is_running`、`running_count`、`pending_count` 和 `steering_count`。准入 hook 返回 `AdmitDecision(action, reason=None)`：
-
-| Action | 效果 |
-| --- | --- |
-| `process` | 处理消息 |
-| `drop` | 丢弃消息 |
-| `follow_up` | 排队等待当前工作结束 |
-| `steer` | 排队供正在运行的 agent 消费 |
-
-`SteeringInbox` 提供异步的 `enqueue_message(message, state)`、`drain_messages(state)`，以及同步的 `message_count(state)`。应用通过 `provide_steering_inbox` 取得它。
-
-### Framework 与 Agent 入口
+### Framework 与 BubAgent {#framework}
 
 ```python
 from bub import BubFramework
 from bub.builtin.agent import BubAgent
 ```
 
-| 入口 | 职责 |
+| 入口 | 说明 |
 | --- | --- |
-| `BubFramework()` | 加载应用配置，确定工作区 |
-| `framework.load_hooks()` | 注册内置和已安装插件的 hooks |
-| `framework.running()` | 获取并释放应用资源 |
-| `framework.process_inbound(inbound, stream_output=False)` | 完成应用的 turn，返回 `TurnResult` |
-| `BubAgent(framework, tools=None, tape_store=None, skill_dirs=None)` | 为核心 agent 接入应用行为 |
-| `agent.run_stream(session_id=..., prompt=..., state=None, ...)` | 返回应用 agent 的输出流 |
+| `BubFramework(config_file=...)` | 加载应用配置；工作区初始为 cwd |
+| `framework.load_hooks()` | 注册内置与已安装插件 hook |
+| `framework.load_builtin_hooks()` | 只注册内置实现 |
+| `framework.running()` | 异步作用域，管理 store、执行环境和引导收件箱（`SteeringInbox`） |
+| `framework.process_inbound(inbound, stream_output=False)` | 执行完整 Turn，返回 `TurnResult` |
+| `framework.get_tools()` / `get_channels(handler)` / `get_tape_store()` | 插件宿主收集入口 |
+| `framework.get_model_options(...)` / `get_agent_hooks()` / `bind_channel_router(...)` | 模型选项、事件桥、渠道路由 |
+| `BubAgent(framework, *, tools=None, tape_store=None, skill_dirs=None, command_prefix=None)` | 带设置、技能、code mode 的应用 Agent |
+| `await agent.run_stream(session_id=..., prompt=..., state=None, ...)` | 准备模型阶段并返回流 |
 
-应用配置是进程级共享的。需要使用 framework 当前存储时，在 `framework.running()` 内创建 `BubAgent`。显式提供的 store 优先，生命周期仍由调用方管理。两种 store 都没有时，agent 使用内存存储。
+配置是进程级缓存。要用 framework 的活动 store，在 `async with framework.running():` 内构造 `BubAgent`。显式 `tape_store` 优先，生命周期由调用方负责。嵌入见[嵌入与分发](/zh-cn/docs/app/distribution/)。
 
-省略 `state` 时，`run_stream` 加载初始状态；传入 `state` 时，则直接使用调用方提供的状态。状态保存 hooks、出站消息处理和并发 turn 调度由宿主管理。完整用法见[嵌入应用](/zh-cn/docs/app/distribution/#嵌入应用)。
+`run_stream` 参数：`session_id`（`temp/` 前缀使分支不合并）、`prompt`、`state`（`None` 时经 hook 加载）、`model`、`allowed_skills`、`allowed_tools`、`reasoning_effort`。须先 `await` 再迭代；不负责出站渲染、`save_state` 或同会话并发串行化。与完整 Turn 的差异见 [Turn 入口](/zh-cn/docs/concepts/turn/#entry-points)。
 
-## 导入路径
+### Messages 与 TurnResult {#messages}
 
-顶层 `bub` 包导出 `BubFramework`、`Settings`、`config`、`ensure_config`、`home`、`hookimpl` 和 `tool`。其他类型从上面列出的定义模块导入。
+```python
+from bub.envelope import Envelope, content_of, field_of, normalize_envelope, unpack_batch
+from bub.turn import TurnResult, TurnState
+```
+
+`Envelope` 接受映射、dataclass、Pydantic 模型或带属性的对象。`field_of` / `content_of` 读键或属性；`normalize_envelope` 产出可变字典；`unpack_batch` 展开 hook 出站批次。
+
+`TurnState` 是 `dict[str, Any]`。`TurnResult` 字段：`session_id`、`prompt`、`model_output`、`outbounds`、`state`。
+
+### Model options {#model-options}
+
+```python
+from bub.model_selection import ModelChoice, ModelOptions
+```
+
+`ModelChoice`：必填 `id`，可选 `name` / `description` / `meta`。`ModelOptions`：`models`、`current_model`。`BubFramework.get_model_options` 合并各 `provide_model_options` 结果。
+
+### Channels {#channels}
+
+```python
+from bub.channels import Channel, ChannelManager, ChannelMessage, Interface, Lifecycle
+from bub.channels.contracts import ChannelRouter, MessageHandler
+from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
+```
+
+`ChannelMessage` 包含 `session_id`、`channel`、`chat_id`、`content`、`kind`、`context`、`media`、`is_active`、`output_channel` 和可选的消息级 `lifespan`。`MediaItem` 提供 `type`、`mime_type`，以及 `url` 或异步 `data_fetcher`；内置提示词构建支持 `image`、`audio`、`video`。自定义渠道见[网关](/zh-cn/docs/app/gateway/#custom-channels)。
+
+`Channel` 至少实现 `start` / `stop`；可选 `send`、`stream_events`、`admit_message`。`Interface` 是用户入口，`Lifecycle` 是后台服务。
+
+`ChannelRouter`：`dispatch_output`、`wrap_stream`、`quit`、`admit_channel_message`。`ChannelManager` 实现该协议，经 `bind_channel_router` 绑定。
+
+准入类型：`AdmitDecision(action, reason=None)`（`process` / `drop` / `follow_up` / `steer`）、`TurnSnapshot`、`SteeringInbox`。`follow_up` 表示排队（Queue up），`steer` 表示引导（Steering）；完整行为见 [Hooks 参考](/zh-cn/docs/reference/hooks/#application-hook-details)与 [Turn](/zh-cn/docs/concepts/turn/)。
+
+### Hooks {#hooks}
+
+```python
+from bub.hooks import hookimpl, hookspec, BubHookSpecs
+```
+
+签名与优先级见 [Hooks 参考](/zh-cn/docs/reference/hooks/)。
+
+### 应用事件 {#application-events}
+
+```python
+from bub.application import CommandChanged, PromptChanged, WorkChanged
+```
+
+这些事件发布到 `framework.events`，与 `agent.events` 相互独立：
+
+| 类型 | 字段 | 触发时机 |
+| --- | --- | --- |
+| `CommandChanged` | `outcome` | CLI 调用开始为 `None`，结束时为 `succeeded` / `failed` / `cancelled` |
+| `WorkChanged` | `busy`、`completed` | 渠道忙碌状态变化；可携带刚完成消息的结果 |
+| `PromptChanged` | `kind` | 模态提示打开为 `question` / `permission` / `auth`，关闭为 `None` |
+
+它们适合驱动状态栏和外部 UI，不携带模型调用的详细载荷。
+
+`bub.program_status.ProgramStatus` 是内置的应用事件处理器。CLI 自动把它注册到 `framework.events`，在 TTY 上输出 OSC 7501 状态：`idle`、`working`、`blocked`、`done` 和 `error`；提示状态还带有 `kind`。非 TTY 输出不会产生这些控制序列。
+
+### 交互式输入 {#inquirer}
+
+```python
+from bub.inquirer import ask_checkbox, ask_confirm, ask_fuzzy, ask_secret, ask_select, ask_text
+```
+
+这些同步函数用于插件 CLI 和 `onboard_config`：分别收集多选、确认、模糊单选、隐藏密钥、普通单选和文本。它们通过 Bub CLI 运行时会发布 `PromptChanged`；用户取消时抛出 `typer.Abort`。用法见[收集交互式输入](/zh-cn/docs/app/hooks/#prompt-for-input)。
+
+## 相关参考 {#related}
+
+- [Tape 与上下文](/zh-cn/docs/concepts/tape/)
+- [事件](/zh-cn/docs/concepts/events/)
+- [扩展点](/zh-cn/docs/concepts/extension-points/)
+- [Hooks](/zh-cn/docs/reference/hooks/)
+- [工具](/zh-cn/docs/sdk/tools/)

@@ -1,99 +1,222 @@
 ---
 title: Hooks
-description: Bub 插件的 hook 签名、调用规则和资源生命周期。
+description: 27 个 hook 的签名、返回类型、分发规则和生命周期。
 ---
 
-Hooks 把插件接到 Bub 应用上。本页列出 `BubHookSpecs` 声明的 26 个 hooks。用法示例见[Hooks](/zh-cn/docs/app/hooks/)，应用阶段顺序见[Turn](/zh-cn/docs/concepts/turn/)。
+本页是 hook 接口的完整参考。用法示例见[应用 Hooks](/zh-cn/docs/app/hooks/)，各阶段顺序见 [Turn](/zh-cn/docs/concepts/turn/#stages)。
 
-下文的“首个”指按 hook 优先级取得第一个非 `None` 的结果，“全部”指调用每个实现。普通 hook 抛出异常时，本次分发停止，异常向上传播；[agent 拦截 hooks](#通过-pluginagenthooks-拦截调用) 和 `on_error` 有各自的异常处理规则。
+## 阅读约定 {#notation}
 
-## Turn Hooks {#turn-hooks}
+| 标记 | 含义 |
+| --- | --- |
+| **首个** | 按优先级调用，返回第一个非 `None` 的结果；`False`、`""`、`[]` 也是结果 |
+| **全部** | 调用所有实现并收集返回值；单项失败是否影响整体取决于 hook |
+| **同步** | 只能同步实现；返回 awaitable 时跳过该实现并记录 `hook.async_not_supported` |
+| `Envelope` | `Any`。映射、dataclass、Pydantic model 或带属性的对象均可 |
+| `TurnState` | `dict[str, Any]`，本轮 hooks、工具和事件共享 |
 
-| Hook | 签名 | 行为 |
-| --- | --- | --- |
-| `resolve_session` | `(message: Envelope) -> str` | 取首个结果；falsy 结果回退到 framework 按渠道和聊天标识构造的会话 ID。 |
-| `load_state` | `(message: Envelope, session_id: str) -> TurnState` | 收集全部状态片段；先合并低优先级片段，让高优先级值覆盖。 |
-| `build_prompt` | `(message: Envelope, session_id: str, state: TurnState) -> list[UserContent] \| LegacyPrompt` | 取首个结果；选中 falsy 值时回退到入站内容，不再尝试其他实现。 |
-| `run_model` | `(prompt, session_id, state) -> str` | 提供模型阶段的文本结果；与 `run_model_stream` 二选一实现。 |
-| `run_model_stream` | `(prompt, session_id, state) -> AsyncStreamEvents` | 提供模型阶段的流；与 `run_model` 二选一实现。 |
-| `continue_prompt` | `(prompt: LegacyPrompt \| None, tape: Tape, state: StreamState) -> str \| None` | 取首个结果；由 `AgentPlugins` 在 status 为 `continue` 的 `StepFinished` 上调用，返回字符串时添加用户消息。 |
-| `save_state` | `(session_id, state, message, model_output) -> None` | 在模型阶段的 `finally` 中调用全部实现；此前会话、状态或提示词准备失败时不会调用。 |
-| `render_outbound` | `(message, session_id, state, model_output) -> list[Envelope]` | 收集并拼接消息批次；合并结果为空时使用 framework 的默认出站消息。 |
-| `dispatch_outbound` | `(message: Envelope) -> bool` | 针对每条出站消息调用全部实现。 |
-
-这些 hooks 可以同步或异步实现。`continue_prompt` 接收 `StreamState`；表中其他 `state` 参数是可变的 `TurnState` 字典。
-
-模型适配器先按插件注册顺序的逆序选择文本或流式 hook，再按 hook 优先级分发选中的名称。它可以把流收集为文本，也可以把文本回复包装成流。每个插件选择一种模型 hook 实现。
-
-## 应用资源与配置 {#application-resources-and-configuration}
-
-| Hook | 签名 | 行为 |
-| --- | --- | --- |
-| `register_cli_commands` | `(app: typer.Typer) -> None` | 创建 CLI 时同步调用全部实现。 |
-| `onboard_config` | `(current_config: dict) -> dict \| None` | 同步调用，将每个返回片段合入累计配置；非 dict 返回值抛出 `TypeError`。 |
-| `provide_model_options` | `(session_id: str, workspace: Path \| None) -> ModelOptions \| None` | 按优先级收集模型选项，可异步实现；调用方负责选择和持久化。 |
-| `provide_environment` | `(session_id: str, workspace: Path) -> Environment \| None` | 取首个结果，可异步实现；每个会话缓存一个环境，在退出 `running()` 时关闭。 |
-| `system_prompt` | `(prompt, state: TurnState) -> str` | 同步调用，按 hook 优先级的逆序用空行拼接 truthy 片段。 |
-| `provide_tape_store` | `() -> TapeStore \| AsyncTapeStore \| None` | 进入 `running()` 时同步取得首个结果；可以用生成器 yield 当前 store。 |
-| `provide_lifespan` | `() -> Iterator[None] \| AsyncIterator[None] \| None` | 收集资源生命周期，在每个 `running()` 作用域中分别进入一次。 |
-| `provide_tape_sidecar` | `() -> TapeSidecar` | 同步收集 sidecars，同名时保留优先级顺序中的首个结果。 |
-| `provide_channels` | `(message_handler: MessageHandler) -> list[Channel]` | 同步收集渠道，按 `Channel.name` 去重，保留优先级顺序中的首个结果。 |
-| `build_tape_context` | `() -> TapeContext` | 取首个同步结果，选择应用 agent 的上下文策略。 |
-| `admit_message` | `(session_id, message, turn: TurnSnapshot) -> AdmitDecision \| None` | 渠道调度前取首个结果，可异步实现；`None` 保留渠道默认的并发调度。 |
-| `provide_tools` | `() -> list[Tool]` | 同步收集工具，同名时保留优先级顺序中的首个结果。 |
-| `provide_steering_inbox` | `() -> SteeringInbox \| None` | 进入 `running()` 时同步取得首个结果；可以用生成器 yield inbox。 |
-| `on_error` | `(stage: str, error: Exception, message: Envelope \| None) -> None` | 通知全部观察者；观察者异常被记录并跳过。异步实现只在异步通知路径上生效。 |
-
-同步分发跳过 awaitable 返回值，并记录 `hook.async_not_supported` 告警。资源 provider 可以返回同步或异步生成器，Bub 会把它们作为上下文管理器进入。
-
-## Agent 拦截 Hooks {#agent-interception-hooks}
-
-| Hook | 签名 | 行为 |
-| --- | --- | --- |
-| `before_llm_call` | `(request: LLMCallRequest, state: TurnState) -> LLMCallRequest \| LLMCallDecision \| None` | 链式更新请求；finish decision 跳过供应商调用并终止调用链。 |
-| `after_llm_call` | `(request: LLMCallRequest, result: LLMCallResult, state: TurnState) -> None` | 观察完成的供应商调用或普通异常失败。 |
-| `before_tool_call` | `(call: ToolCall, state: TurnState) -> ToolCallDecision \| None` | 链式更新参数；replace 或 deny 终止调用链。 |
-| `after_tool_call` | `(call: ToolCall, result: ToolCallResult, state: TurnState) -> None` | 处理工具成功、失败、替换或拒绝；给 `result.result` 赋值可以改变结果。 |
-
-<span id="how-hooks-are-invoked"></span>
+未标记“同步”的 hook 可以同步或异步实现。
 
 ## 优先级与分发 {#priority-and-dispatch}
 
-Bub 先注册内置 hooks，再注册已安装插件的入口点。普通实现优先级相同时，后注册的先运行。`@hookimpl(tryfirst=True)` 和 `@hookimpl(trylast=True)` 会改变优先级。这些标记与注册顺序共同决定哪个实现先运行。
+Bub 用 pluggy 注册实现，再用 `HookRuntime` 统一调用。
 
-`HookRuntime` 按 pluggy 的 `get_hookimpls()` 列表逆序，直接调用普通 hook 实现。这条分发路径不支持 pluggy 的 wrapper 标记（`wrapper=True` 和 `hookwrapper=True`）。
+| 规则 | 说明 |
+| --- | --- |
+| 注册顺序 | 内置实现（`builtin`）→ `bub` 入口点插件 |
+| 优先级 | `@hookimpl(tryfirst=True)` 最先，`trylast=True` 最后 |
+| 同优先级 | 后注册的实现先运行 |
+| 实际遍历 | `get_hookimpls()` 反转后调用 |
+| 参数注入 | 按实现的 `argnames` 挑选；只声明用到的参数 |
+| 不支持 | `wrapper=True`、`hookwrapper=True` |
 
-`call_first` 遇到第一个非 `None` 值就停止，`call_many` 收集所有实现的值。它们的同步版本会跳过 awaitables。每个实现只收到自己声明的参数。
+| 收集器 | 行为 |
+| --- | --- |
+| `call_first` / `call_first_sync` | 第一个非 `None` 即返回；空容器和 `False` 也算结果 |
+| `call_many` / `call_many_sync` | 收集所有非跳过结果；失败是否传播取决于调用路径 |
 
-`bub hooks` 按 pluggy 内部保存的顺序显示绑定，用于确认注册结果。执行时遵循上面的优先级规则。
+插件报告 `bub hooks` 显示 pluggy 注册顺序，不显示运行顺序。诊断 hook 顺序时应以优先级规则和日志为准。
 
-## 提示词内容 {#prompt-content}
+## Turn hooks {#turn-hooks}
 
-`build_prompt` 可以返回包含字符串和 Republic 媒体的列表，媒体类型包括 `republic.Image`、`Audio` 和 `Video`。使用 `republic.image(...)`、`republic.audio(...)`、`republic.video(...)` 构造媒体。
+以下 9 个 hook 由 `BubFramework.process_inbound()` 驱动。
 
-旧格式的字符串和内容块字典仍可使用。接收提示词的 hooks（`run_model`、`run_model_stream`、`continue_prompt`、`system_prompt`）收到的是旧格式：没有媒体时是字符串，否则是带媒体 URL 的内容块。内联媒体使用 data URL。`bub.prompt.to_content(prompt)` 可以转换为用户内容。
+| Hook | 签名 | 分发 |
+| --- | --- | --- |
+| `resolve_session` | `(message: Envelope) -> str` | 首个；结果为空时回退到 `channel:chat_id` |
+| `load_state` | `(message: Envelope, session_id: str) -> TurnState` | 全部；按低到高优先级合并 |
+| `build_prompt` | `(message, session_id, state) -> list[UserContent] \| LegacyPrompt` | 首个；结果为空时使用入站正文 |
+| `run_model` | `(prompt, session_id, state) -> str` | 首个 |
+| `run_model_stream` | `(prompt, session_id, state) -> AsyncStreamEvents` | 首个 |
+| `continue_prompt` | `(prompt, tape: Tape, state: StreamState) -> str \| None` | 首个；`StepFinished.status == "continue"` 时调用 |
+| `save_state` | `(session_id, state, message, model_output) -> None` | 全部；在模型阶段的 `finally` 中调用 |
+| `render_outbound` | `(message, session_id, state, model_output) -> list[Envelope]` | 全部；展开并拼接返回值 |
+| `dispatch_outbound` | `(message: Envelope) -> bool` | 全部，每条出站调用一次；返回值忽略 |
 
-## 运行时资源 {#runtime-resources}
+### 行为细节 {#turn-hook-details}
 
-`framework.running()` 先进入 lifespan providers，再获取会话存储和 steering inbox。退出时按相反顺序关闭已经进入的资源，发生错误时也是如此。执行环境缓存也会在作用域退出时关闭。
+- `build_prompt` 返回的**第一个非 `None` 结果**会被采用；如果它是 `""` 或 `[]`，框架不再尝试后续实现，而是回退到入站正文。
+- `load_state` 返回非字典的值会被忽略。`save_state` 无论模型成功、失败还是取消都会调用，前提是已经进入模型阶段。
+- `run_model` 与 `run_model_stream` 实现其中一个。文本结果可转换为流，流也可收束为文本；替换模型阶段后，内置 Agent 的拦截 hooks 不会自动运行。
+- 模型 hook 按插件优先级选择；同一个 hook 内仍遵循 `tryfirst` / `trylast`。
+- `continue_prompt` 返回 `None` 表示直接延续对话，不添加新的用户消息。它接收 `StreamState`，不是 `TurnState`。
+- `render_outbound` 全部为空或只返回空批次时，Framework 用 `model_output` 生成一条回复，沿用入站的 `channel` 和 `chat_id`。
+- `dispatch_outbound` 的实现无法通过返回值阻止其他实现；需要过滤时，在 `render_outbound` 阶段处理。
 
-需要清理的 provider 可以 yield 一次，在 `finally` 中释放资源。资源生命周期应由这种方式管理；`save_state` 只覆盖准备完成后的模型阶段。
+所有 Turn hooks 的错误最终由 `process_inbound()` 捕获，调用 `on_error(stage="turn", ...)` 后重新抛出。模型阶段自身找不到实现或流内错误使用 `stage="run_model"`。
 
-`bub run` 为一条消息打开作用域，`bub chat` 和 `bub gateway` 在应用运行期间保持作用域开启。嵌入应用的宿主也应这样做。作用域外的 `get_tape_store()` 返回 `None`。
+### 提示词内容 {#prompt-content}
 
-内置 lifespan 管理在作用域中启动的后台 shell 进程。POSIX 上关闭进程组，Windows 当前关闭直接 shell 进程。脱离进程组的进程，以及应用被强制终止的情况，需要宿主层面的进程管理。
+`build_prompt` 返回 `list[UserContent]`：
 
-Tape sidecar providers 提供具名的关联 tape。Bub 把它们挂载到应用的根 Tape 上，fork、merge、archive 和 reset 都会处理已挂载的 sidecars。移除 provider 后，已保存的数据仍然保留。公共存储语义见 [Tape 与上下文](/zh-cn/docs/concepts/tape/)。
+| 元素 | 构造 |
+| --- | --- |
+| 文本 | `str` |
+| 图片 | `republic.image(url, media_type=...)` |
+| 音频 | `republic.audio(url, media_type=...)` |
+| 视频 | `republic.video(url, media_type=...)` |
 
-## 通过 PluginAgentHooks 拦截调用 {#interception-through-pluginagenthooks}
-<span id="agent-loop-hooks-agenthooks"></span>
+接收旧格式提示词的 hooks（`run_model`、`run_model_stream`、`continue_prompt`、`system_prompt`）会收到：
 
-`AgentPlugins.attach()` 把 `PluginAgentHooks` 订阅到核心 agent 的 LLM 和工具开始、完成事件上；`BubAgent` 将它接到自身。应用插件通过这个适配器介入调用。
+| 情况 | 形态 |
+| --- | --- |
+| 没有媒体 | `str` |
+| 包含媒体 | `[{"type", "media_type", "url"}]` 内容块列表 |
 
-Before hooks 按 hook 优先级运行，每个实现都能看到前序实现的更新。`LLMCallDecision.finish(text)`、`ToolCallDecision.replace(result)` 和 `ToolCallDecision.deny(message)` 会停止后续 before 实现。LLM finish decision 不调用供应商，也没有对应的 `after_llm_call`。
+旧格式字符串和内容块列表仍可传入，`to_content()` 会转换；需要转回旧格式时使用 `bub.prompt.to_legacy_prompt()`。
 
-适配器捕获每个拦截 hook 的普通异常，记录 `hook.agent_hook_failed` 后继续。需要拒绝调用时，返回 decision。直接注册到[核心 EventBus](/zh-cn/docs/concepts/events/#handlers) 的 handler 会向上传播异常。
+## 应用 hooks {#application-hooks}
 
-After hooks 观察成功调用和普通异常失败，取消与消费方关闭不会触发。`after_tool_call` 也会处理拒绝或替换的调用，各个实现共享同一个结果对象。修改 `result.result` 会改变向后传递的值，`result.error` 则保留原始失败信息。
+以下 14 个 hook 管理配置、资源、渠道和工具，不直接属于某条消息的 Turn。
 
-载荷类型定义在 `bub.core.events` 中，并由 `bub.hooks.interception` 重新导出。`run_id` 将调用与记录条目关联起来。
+| Hook | 签名 | 分发 |
+| --- | --- | --- |
+| `register_cli_commands` | `(app: typer.Typer) -> None` | 全部，同步 |
+| `onboard_config` | `(current_config: dict) -> dict \| None` | 全部，同步；非字典结果抛 `TypeError` |
+| `provide_model_options` | `(session_id, workspace: Path \| None) -> ModelOptions \| None` | 全部；合并模型列表，保留首个 `current_model` |
+| `provide_environment` | `(session_id, workspace: Path) -> Environment \| None` | 首个；每会话缓存，`running()` 退出时关闭 |
+| `on_error` | `(stage: str, error: Exception, message: Envelope \| None) -> None` | 全部；观察者异常记录后跳过 |
+| `system_prompt` | `(prompt, state) -> str` | 全部，同步；按低到高优先级用空行拼接非空结果 |
+| `provide_tape_store` | `() -> TapeStore \| AsyncTapeStore \| None` | 首个，同步；可返回生成器 |
+| `provide_lifespan` | `() -> Iterator[None] \| AsyncIterator[None] \| None` | 全部，同步；每个生成器按上下文管理器进入 |
+| `provide_tape_sidecar` | `() -> TapeSidecar` | 全部，同步；按 `name` 去重，保留高优先级 |
+| `provide_channels` | `(message_handler) -> list[Channel]` | 全部，同步；按 `name` 去重，保留高优先级 |
+| `build_tape_context` | `() -> TapeContext` | 首个，同步；返回值不是 `TapeContext` 时抛 `TypeError` |
+| `admit_message` | `(session_id, message, turn: TurnSnapshot) -> AdmitDecision \| None` | 首个；`None` 使用渠道默认调度 |
+| `provide_tools` | `() -> list[Tool]` | 全部，同步；按 `name` 去重，保留高优先级 |
+| `provide_steering_inbox` | `() -> SteeringInbox \| None` | 首个，同步；可返回生成器 |
+
+### 返回类型与调用时机 {#application-hook-details}
+
+- `onboard_config` 接收“已加载配置 + 前序实现修改”，返回的字典会合并回去。插件名过滤由 `collect_onboard_config()` 执行。
+- `provide_model_options` 只提供候选。是否展示、如何保存当前模型由调用方决定。
+- `provide_environment` 用于 `bash`、文件工具和代码执行。未提供时，内置实现返回 `LocalEnvironment`。
+- `system_prompt` 的多个结果不会互相覆盖；高优先级实现只能追加自己的块。
+- `provide_tape_store` 只在 `framework.running()` 中解析一次。作用域外 `get_tape_store()` 返回 `None`。
+- `provide_lifespan` 必须返回同步或异步生成器（`yield` 一次）；进入失败会阻止整个作用域启动。
+- 三个资源 provider 都不接受 `@contextmanager` / `@asynccontextmanager` 装饰后的对象；运行时会把它当成普通值。
+- `provide_channels` 的 `message_handler` 是异步 `(message) -> None`。实现必须返回渠道列表，而不是单个渠道。
+- `admit_message` 只决定新消息如何处理，不负责创建任务；`process`、`drop`、`follow_up`、`steer` 的效果由 `ChannelManager` 执行。
+- `provide_tools` 可以重复提供同名工具；优先级最高的实现胜出，其余同名工具被忽略。
+- `on_error` 是观察接口。它不能阻止原异常传播；实现自身失败只记录 `hook.on_error_failed`。
+
+`on_error` 的 `stage` 常见值：
+
+| `stage` | 来源 |
+| --- | --- |
+| `turn` | Turn 内未分类的异常，包括提示词、模型阶段和回复处理 |
+| `run_model` | 没有模型实现，或流中报告错误 |
+| `resolve_session` | 渠道准入前解析会话失败 |
+| `admit_message` | 渠道准入判断失败 |
+
+`admit_message` 返回 `AdmitDecision` 时，`ChannelManager` 按 `action` 处理新消息：
+
+| `action` | 当前会话已有运行中的 Turn | 当前会话空闲 |
+| --- | --- | --- |
+| `process` | 立即安排新的 Turn，允许并发 | 立即安排 Turn |
+| `drop` | 丢弃消息 | 丢弃消息 |
+| `follow_up` | 排队（Queue up），当前 Turn 结束后按 FIFO 处理 | 立即安排 Turn |
+| `steer` | 引导（Steering）当前 Turn；无法注入或未及时消费时转入待处理队列 | 立即安排 Turn |
+
+引导用于调整当前任务，排队用于追加后续任务。`provide_steering_inbox` 提供引导消息的暂存边界，`MessagesPending` 负责把它们交给 Agent。
+
+### 运行时资源 {#runtime-resources}
+
+`framework.running()` 按以下顺序获取资源：
+
+1. 进入所有 `provide_lifespan` 返回的生成器。
+2. 获取 `provide_tape_store` 的结果。
+3. 获取 `provide_steering_inbox` 的结果。
+
+退出时关闭会话执行环境，并按相反顺序释放上述资源；异常路径同样执行清理。
+
+| 场景 | 作用域 |
+| --- | --- |
+| `bub run` | 一条消息 |
+| `bub chat` / `bub gateway` | 整个应用运行期 |
+| 嵌入宿主 | 由宿主决定，应覆盖服务生命周期 |
+
+- 需要清理的 provider 应返回生成器，在 `finally` 中释放连接。
+- `save_state` 只负责应用状态，不负责资源清理。
+- 同一 Framework 不应重叠进入多个 `running()` 作用域。
+- 后台 shell 的进程树终止规则：POSIX 先 `SIGTERM` 再 `SIGKILL`；Windows 只终止直接 shell。宿主强杀进程时仍需自行清理。
+- Sidecar 的物理 Tape 名为 `<主 tape>__sidecar__<sidecar>`，随主 Tape 分支、合并、归档和重置。移除 provider 不会删除已有数据。
+
+#### 应用错误 {#runtime-errors}
+
+`on_error` 在该作用域内观察框架错误。它不是恢复机制，也不会改变异常的传播。嵌入宿主应自行捕获 `process_inbound()` 抛出的异常。CLI 的未处理异常通常以非零状态退出，但 `bub run` 对某些模型阶段错误只记录日志并返回回退文本，此时仍可能以 `0` 退出。
+## Agent 拦截 hooks {#interception-through-pluginagenthooks}
+
+这四个 hook 由 `AgentPlugins` 订阅 Agent 事件后调用，也可以直接由 [`PluginAgentHooks`](#pluginagenthooks) 接入。
+
+| Hook | 签名 | 分发 |
+| --- | --- | --- |
+| `before_llm_call` | `(request: LLMCallRequest, state) -> LLMCallRequest \| LLMCallDecision \| None` | 链式；替换请求继续，`finish(text)` 终止 |
+| `after_llm_call` | `(request, result: LLMCallResult, state) -> None` | 全部 |
+| `before_tool_call` | `(call: ToolCall, state) -> ToolCallDecision \| None` | 链式；`replace` 或 `deny` 终止 |
+| `after_tool_call` | `(call, result: ToolCallResult, state) -> None` | 全部；共享同一个可变结果 |
+
+### 控制语义 {#interception-semantics}
+
+- `before_llm_call` 返回修改后的 `LLMCallRequest` 后，后面的实现会看到新值。使用 frozen dataclass 的 `dataclasses.replace()` 创建副本。
+- `LLMCallDecision.finish(text)` 跳过模型提供商，直接把 `text` 作为模型输出。它不会触发 `after_llm_call`。
+- `ToolCallDecision.proceed(arguments)` 修改参数并继续；`replace(result)` 和 `deny(message)` 跳过工具并停止后续拦截实现。
+- 拦截实现抛异常时会被记录为 `hook.agent_hook_failed` 并跳过。工具调用不会被异常阻止；必须返回 decision。
+- 返回类型不符会记录 `hook.agent_hook_bad_return` 并跳过该实现。
+- `after_llm_call` 与 `after_tool_call` 覆盖成功和普通异常失败。取消、消费方关闭流不触发。
+- `after_tool_call` 也接收被拒绝和替换的调用。给 `result.result` 赋值会改变模型看到的结果；`result.error` 保留原始错误。
+
+### 载荷字段 {#interception-payloads}
+
+| 类型 | 字段 |
+| --- | --- |
+| `LLMCallRequest` | `run_id`, `model`, `messages`, `tool_names`, `max_tokens` |
+| `LLMCallResult` | `run_id`, `text`, `tool_calls`, `usage`, `error`, `duration_ms` |
+| `LLMCallDecision` | `action="finish"`, `text` |
+| `ToolCall` | `run_id`, `tool`, `arguments`, `context` |
+| `ToolCallResult` | `run_id`, `tool`, `arguments`, `result`, `error`, `duration_ms` |
+| `ToolCallDecision` | `action`（`proceed` / `replace` / `deny`）、`arguments`、`result`、`message` |
+
+`LLMCallRequest` 只暴露工具名称，不能通过它增删工具。修改工具集应在 `Agent.prepare_tools()` 或应用工具策略中完成。
+
+### PluginAgentHooks {#pluginagenthooks}
+
+`PluginAgentHooks` 把 Agent 事件转换为上述 hooks：
+
+| Agent 事件 | Hook |
+| --- | --- |
+| `LLMCallStarted` | `before_llm_call` |
+| `LLMCallFinished` | `after_llm_call` |
+| `ToolCallStarted` | `before_tool_call` |
+| `ToolCallFinished` | `after_tool_call` |
+
+直接 EventBus 处理器和拦截 hooks 的异常策略不同：
+
+| 项 | 拦截 hook | EventBus 处理器 |
+| --- | --- | --- |
+| 异常 | 记录后跳过 | 向 `emit()` 调用方传播 |
+| 控制方式 | 返回 decision | 修改事件字段 |
+| 执行顺序 | 由 pluggy 优先级决定 | 按处理器注册顺序 |
+
+`PluginAgentHooks.subscribe(events)` 会把适配器接到现有总线或新总线。`AgentPlugins.attach(agent)` 会自动订阅，并把 `continue_prompt`、引导收件箱（`SteeringInbox`）和系统提示词接入 Agent。
+

@@ -1,17 +1,30 @@
 ---
 title: Hooks
-description: 通过 hooks 调整提示词、控制调用、保存应用状态并提供资源。
+description: 用 hooks 调整提示词、拦截模型与工具调用、保存状态并提供应用资源。
 ---
 
-在你想改变的位置选一个 hook（钩子），其余部分继续用 Bub 应用的实现。提示词 hook 改变输入，工具 decision 控制一次调用，存储 provider 决定会话历史保存在哪里。
+Hook 是 Bub 应用的扩展接口。你只替换需要改变的部分，其余阶段继续使用内置实现。
 
-把这些例子放进[插件](/zh-cn/docs/app/plugins/)。模块级函数可以使用模块入口点；类需要注册实例，或使用接收 framework 的工厂。
+先按任务选择 hook：
 
-[Hooks 参考](/zh-cn/docs/reference/hooks/)定义了签名、优先级和生命周期规则。
+| 目标 | Hook |
+| --- | --- |
+| 改写模型输入 | `build_prompt`、`system_prompt` |
+| 在调用前修改或阻止模型、工具 | `before_llm_call`、`before_tool_call` |
+| 统计已完成的调用 | `after_llm_call`、`after_tool_call` |
+| 跨 Turn 保存应用状态 | `load_state`、`save_state` |
+| 更换 Tape 存储或上下文 | `provide_tape_store`、`build_tape_context` |
+| 提供数据库连接等长期资源 | `provide_lifespan` |
+| 接入新渠道或后台服务 | `provide_channels` |
+| 添加 CLI 命令 | `register_cli_commands` |
 
-## 调整提示词 {#change-the-prompt}
+签名、返回值和分发规则见 [Hooks 参考](/zh-cn/docs/reference/hooks/)，Turn 中的调用顺序见 [Turn](/zh-cn/docs/concepts/turn/#stages)。
 
-用 `build_prompt` 替换收到的内容：
+下面的代码都放在[插件](/zh-cn/docs/app/plugins/)中。模块级函数使用模块入口点；类需要注册实例，或使用接收 `BubFramework` 的工厂。
+
+## 改写提示词 {#change-the-prompt}
+
+`build_prompt` 接收入站消息、会话 ID 和本轮状态，返回模型输入。使用 `content_of()` 读取纯文本：
 
 ```python
 from bub import hookimpl
@@ -20,12 +33,13 @@ from bub.envelope import content_of
 
 @hookimpl
 def build_prompt(message, session_id, state):
-    return f"Answer using the project's terminology.\n\n{content_of(message)}"
+    text = content_of(message)
+    return [f"使用项目中的术语回答。\n\n{text}"]
 ```
 
-这个纯文本例子通过 `content_of` 读取消息。包含媒体时，返回[参考文档](/zh-cn/docs/reference/hooks/#prompt-content)中说明的用户内容类型。
+返回值是 `list[UserContent]`，元素可以是字符串或 `republic.image()` 等媒体对象。字符串等旧格式仍会转换，但新代码应返回列表。
 
-如果想保留收到的提示词，只添加系统指令，可以提供 `system_prompt` 片段：
+如果只想追加系统指令，保留入站内容，使用 `system_prompt`：
 
 ```python
 from bub import hookimpl
@@ -36,9 +50,13 @@ def system_prompt(prompt, state):
     return "Explain which files support your answer."
 ```
 
-## 控制一次模型或工具调用 {#control-a-model-or-tool-call}
+`system_prompt` 是追加型 hook，多个插件的结果按优先级用空行拼接，不会互相替换。每轮系统指令应保持稳定，以利于模型提供商缓存。
 
-保留内置 agent，并调整某次调用时，使用 agent 拦截 hooks。例如，限制一次请求的输出 token 数：
+## 控制模型和工具调用 {#control-a-model-or-tool-call}
+
+拦截 hooks 只在调用发生前运行一次。它们抛出的异常会被记录并跳过，因此要阻止执行必须返回 decision。
+
+限制输出 token：
 
 ```python
 from dataclasses import replace
@@ -49,10 +67,11 @@ from bub.hooks.interception import LLMCallRequest
 
 @hookimpl
 def before_llm_call(request: LLMCallRequest, state):
-    return replace(request, max_tokens=min(request.max_tokens or 512, 512))
+    max_tokens = min(request.max_tokens or 512, 512)
+    return replace(request, max_tokens=max_tokens)
 ```
 
-需要阻止工具执行时，返回 decision：
+拒绝一次工具调用：
 
 ```python
 from bub import hookimpl
@@ -66,13 +85,19 @@ def before_tool_call(call: ToolCall, state):
     return None
 ```
 
-由你的授权逻辑设置 `can_cancel_orders`，hook 根据这个值允许或拒绝调用。
+`ToolCallDecision` 的三种结果：
 
-这些拦截 hooks 抛出的异常会被记录并跳过。要控制执行，使用 `deny`、`replace` 或 `LLMCallDecision.finish`。[拦截契约](/zh-cn/docs/reference/hooks/#interception-through-pluginagenthooks)说明了 decision 何时终止调用链。
+| 返回值 | 效果 |
+| --- | --- |
+| `None` / `proceed()` | 继续执行，可同时替换参数 |
+| `replace(result)` | 跳过工具，使用指定结果 |
+| `deny(message)` | 跳过工具，并作为工具错误返回 |
 
-## 观察已经完成的调用 {#observe-completed-calls}
+`replace` 和 `deny` 会停止更后面的拦截实现。`LLMCallDecision.finish(text)` 则跳过模型提供商，直接把文本作为结果。完整契约见[拦截规则](/zh-cn/docs/reference/hooks/#interception-through-pluginagenthooks)。
 
-统计调用情况时，使用完成 hooks：
+## 观察调用结果 {#observe-completed-calls}
+
+完成 hooks 在调用结束后执行，适合日志、指标和审计：
 
 ```python
 from bub import hookimpl
@@ -80,50 +105,56 @@ from bub import hookimpl
 
 @hookimpl
 def after_llm_call(request, result, state):
-    print(f"model={request.model} duration_ms={result.duration_ms} error={result.error!r}")
+    print(f"model={request.model} error={result.error!r} elapsed={result.duration_ms}ms")
 
 
 @hookimpl
 def after_tool_call(call, result, state):
-    print(f"tool={call.tool} duration_ms={result.duration_ms} error={result.error!r}")
+    print(f"tool={call.tool} error={result.error!r} elapsed={result.duration_ms}ms")
 ```
 
-这些 hooks 观察已经完成的调用，包括普通异常导致的失败，但不报告取消。需要逐块处理输出时，在宿主程序或渠道中使用流接口，并遵守[关闭规则](/zh-cn/docs/reference/python-api/#流)。
+它们覆盖成功和普通异常，不覆盖取消或消费方提前关闭流。需要逐块处理文本时，应消费 `agent.run()` 返回的流；拦截 hooks 不提供流式增量。
 
-如果要替换整个模型阶段，实现 `run_model` 或 `run_model_stream` 中的一个。[第一个插件](/zh-cn/docs/app/plugins/)演示了文本替换。替换实现负责自己的执行和记录行为；只有使用内置 agent 时，才会运行它的拦截 hooks。
+如果要替换整个模型阶段，实现 `run_model` 或 `run_model_stream` 中的一个。替换实现负责自己的调用、事件和记录行为；只有使用内置 Agent 时，才会触发上述拦截 hooks。
 
-## 跨 turn 保留应用状态 {#keep-application-state-across-turns}
+## 跨 Turn 保存状态 {#keep-application-state-across-turns}
 
-Framework 为每轮入站消息构建新的状态字典。使用 `load_state` 和 `save_state`，保留应用自己的值：
+Framework 为每条入站消息创建新的 `TurnState`。`load_state` 返回初始字段，`save_state` 在模型阶段结束时写回：
 
 ```python
+import asyncio
+
 from bub import hookimpl
 
 
 class TurnCounter:
     def __init__(self) -> None:
         self.counts: dict[str, int] = {}
+        self.lock = asyncio.Lock()
 
     @hookimpl
-    def load_state(self, message, session_id):
-        return {"completed_turns": self.counts.get(session_id, 0)}
+    async def load_state(self, message, session_id):
+        async with self.lock:
+            return {"completed_turns": self.counts.get(session_id, 0)}
 
     @hookimpl
-    def save_state(self, session_id, state, message, model_output):
-        self.counts[session_id] = state["completed_turns"] + 1
+    async def save_state(self, session_id, state, message, model_output):
+        async with self.lock:
+            self.counts[session_id] = state.get("completed_turns", 0) + 1
 
 
 turn_counter = TurnCounter()
 ```
 
-这个内存示例统计模型阶段退出的次数，包括失败。进程退出后计数会丢失，并且它假定同一会话一次只处理一个 turn。生产环境应使用持久化存储，并选择合适的并发策略。
+这个示例只保存在进程内。重启后计数丢失，多进程也不会共享；生产环境应写入数据库或其他持久化存储。
 
-`save_state` 位于模型阶段的 `finally` 块中，前提是会话解析、状态加载和提示词准备已经成功。这些准备阶段发生错误时，会跳过保存 hook。会话历史另有 [Tape 生命周期](/zh-cn/docs/concepts/tape/#state)。
+`save_state` 位于模型阶段的 `finally` 中，所以模型失败或取消时仍会调用。会话解析、状态加载或提示词构建失败时不会进入模型阶段，也不会保存。需要区分成功与失败时，检查 `state` 或模型输出，不要假设保存一定代表成功。
 
-## 提供会话存储 {#provide-a-tape-store}
-<span id="5-provide-a-tape-store"></span>
+多个 `load_state` 实现会按优先级合并，高优先级字段覆盖低优先级同名字段；所有 `save_state` 实现都会执行。Turn 并发由宿主或渠道策略决定，`load_state` 与 `save_state` 之间并没有自动会话锁。
 
-返回希望应用使用的 store：
+## 提供 Tape 存储与上下文 {#provide-a-tape-store}
+
+`provide_tape_store` 选择会话历史的后端：
 
 ```python
 from pathlib import Path
@@ -137,11 +168,35 @@ def provide_tape_store():
     return FileTapeStore(Path("./application-tapes"))
 ```
 
-这个例子选择当前目录下的普通 JSONL 文件存储。Bub 应用的内置存储还提供应用所需的搜索行为；按任务选择存储实现。需要数据库存储时，参见 [SQLAlchemy 集成](/zh-cn/docs/integrations/storage/)。
+Framework 在进入 `framework.running()` 时调用一次 provider。需要清理连接的后端可以返回同步或异步生成器，在作用域退出时关闭资源。只保留一个 store 提供者；高优先级实现会覆盖低优先级实现。数据库后端示例见 [SQLAlchemy 集成](/zh-cn/docs/integrations/storage/)。
 
-Framework 在进入 `framework.running()` 时解析一次 provider。Provider 也可以 yield 一个 store，并在 `finally` 中释放资源。[参考文档](/zh-cn/docs/reference/hooks/#runtime-resources)说明了这个生命周期，以及对应的 `provide_lifespan` hook。
+```python
+@hookimpl
+def provide_tape_store():
+    store = open_tape_store()
+    try:
+        yield store
+    finally:
+        store.close()
+```
 
-插件还可以提供一个具名的关联 tape：
+`build_tape_context` 决定哪些 Tape 条目变成模型消息：
+
+```python
+from dataclasses import replace
+
+from bub import hookimpl
+from bub.core import default_tape_context
+
+
+@hookimpl
+def build_tape_context():
+    return replace(default_tape_context(), anchor="reviewed")
+```
+
+替换上下文时保留工具往返的处理逻辑，除非确实需要自定义消息类型。直接构造裸 `TapeContext()` 只会重建普通 `message` 条目。示例中的 `reviewed` 必须是 Tape 上已经存在的 anchor；找不到时读取会抛出 `NOT_FOUND`。
+
+Sidecar 将关联数据存入配套 Tape，不进入主上下文：
 
 ```python
 from bub import hookimpl
@@ -156,11 +211,34 @@ def provide_tape_sidecar():
     return ArtifactSidecar()
 ```
 
-[公共 Tape 说明](/zh-cn/docs/concepts/tape/)介绍了 sidecar 的命名和合并行为。
+同名 sidecar 保留高优先级实现。合并、重置和失败行为见 [Tape sidecar](/zh-cn/docs/concepts/tape/#sidecars)。
 
-## 添加应用命令 {#add-an-application-command}
+## 管理应用资源 {#runtime-resources}
 
-`register_cli_commands` 接收根 Typer app：
+`provide_lifespan` 用于在应用运行期间持有资源。返回同步或异步生成器：
+
+```python
+from bub import hookimpl
+
+
+@hookimpl
+async def provide_lifespan():
+    client = await connect_database()  # 由你的模块提供
+    try:
+        yield
+    finally:
+        await client.close()
+```
+
+不要返回 `@contextmanager` / `@asynccontextmanager` 装饰器生成的对象；当前运行时会把它当作普通值，而不会进入上下文。生成器本身会在作用域退出时关闭。
+
+Framework 按 `provide_lifespan` → `provide_tape_store` → `provide_steering_inbox` 的顺序进入，退出时逆序关闭。任何阶段抛出异常时同样执行清理。资源和生命周期细节见[运行时资源](/zh-cn/docs/reference/hooks/#runtime-resources)。
+
+`bub run` 的作用域只覆盖一条消息；`bub chat` 和 `bub gateway` 覆盖整个应用运行期；嵌入服务应让 `framework.running()` 包住服务生命周期。同一个 Framework 不应同时进入两个重叠作用域。
+
+## 添加 CLI 命令 {#add-an-application-command}
+
+`register_cli_commands` 接收根 Typer 应用，必须同步实现：
 
 ```python
 import typer
@@ -175,6 +253,45 @@ def register_cli_commands(app: typer.Typer):
         typer.echo(f"hello, {name}")
 ```
 
-安装插件后运行 `bub hello --name bub`。这个 hook 必须同步实现。
+安装插件后可以运行：
 
-其他应用任务可以使用 `onboard_config` 提供配置、`provide_channels` 接入渠道，或 `provide_environment` 选择内置工具的执行环境。输入和返回值见 [Hooks 参考](/zh-cn/docs/reference/hooks/)。
+```bash
+bub hello --name bub
+```
+
+插件还可以通过 `provide_channels` 接入渠道、通过 `provide_environment` 替换执行环境、通过 `onboard_config` 添加配置流程。参数和生命周期见 [Hooks 参考](/zh-cn/docs/reference/hooks/)。
+
+## 收集交互式输入 {#prompt-for-input}
+
+`register_cli_commands` 和 `onboard_config` 都是同步入口。需要向终端用户提问时，使用 `bub.inquirer`，不要在这些 hooks 中创建事件循环：
+
+```python
+import typer
+
+from bub import hookimpl
+from bub.inquirer import ask_confirm, ask_secret, ask_select, ask_text
+
+
+@hookimpl
+def register_cli_commands(app: typer.Typer):
+    @app.command()
+    def configure_orders() -> None:
+        endpoint = ask_text("Orders API URL")
+        environment = ask_select("Environment", ["development", "production"])
+        token = ask_secret("API token")
+        if ask_confirm("Save this configuration?", kind="permission"):
+            save_orders_config(endpoint, environment, token)
+```
+
+| 函数 | 返回值与用途 |
+| --- | --- |
+| `ask_text(message, default="")` | 文本 |
+| `ask_secret(message)` | 隐藏输入的密钥 |
+| `ask_confirm(message, default=False, kind="question")` | 布尔确认；权限提示可传 `kind="permission"` |
+| `ask_select(message, choices, default="")` | 从列表中选择一项 |
+| `ask_fuzzy(message, choices, default=None)` | 模糊搜索并选择一项 |
+| `ask_checkbox(message, choices, enabled=None, validate=None)` | 选择多项；验证函数返回 `True` 或错误消息 |
+
+用户按 <kbd>Ctrl+C</kbd>、退出输入或返回空结果时，这些函数抛出 `typer.Abort`。通过 Bub CLI 调用时，它们会在提示打开和关闭时发布 `PromptChanged`，终端状态或外部 UI 可以据此显示 `question`、`permission` 或 `auth` 状态。
+
+这些输入助手面向交互式 CLI。网关和 HTTP 请求没有终端用户，应通过配置、渠道消息或宿主自己的 UI 获取输入。

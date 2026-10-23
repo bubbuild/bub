@@ -1,73 +1,47 @@
 ---
 title: 通过 ACP 接入 IDE
-description: 安装 bub-acp-server，并把 Bub 接入 Zed 等支持 ACP 的编辑器。
+description: 安装 bub-acp-server，在 Zed 或兼容 ACP 的客户端中运行 Bub。
 sidebar:
   badge: { text: '应用', variant: 'note' }
 ---
 
-在支持 [Agent Client Protocol](https://agentclientprotocol.com/) 的编辑器中使用 Bub 应用。`bub-acp-server` 插件让编辑器接入应用已有的模型配置、工具和会话历史。
+[Agent Client Protocol](https://agentclientprotocol.com/)（ACP）让编辑器启动一个 Agent 进程，并通过 JSON-RPC 交换会话、提示词、工具调用和流式更新。`bub-acp-server` 把 Bub 应用接到这个协议上。
 
-本指南使用 Zed，通过 stdio 启动 Agent 进程。先在终端验证连接，再配置编辑器。
+本指南先用 stdio 接入 Zed，再说明 HTTP/WebSocket 和排障。ACP 只负责编辑器界面；模型、工具、技能和 Tape 仍由 Bub 配置。
 
-## 开始前
+## 开始之前 {#before-you-start}
 
-你需要：
+- 已[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并确认 `bub --help` 可用。
+- `bub run "Reply with one short sentence."` 能正常使用模型。
+- Zed 已安装。其他 ACP 客户端也可以使用，只是启动配置字段不同。
 
-- 已安装 Bub，并且可以运行 `bub --help`。
-- Bub 的模型配置已经可用。先在编辑器之外用 `bub run` 确认。
-- 一个可以启动自定义 ACP Agent 的编辑器或客户端。本教程使用 Zed。
+ACP 进程读取当前环境的 Bub 配置。Zed 启动进程时的工作目录和环境可能与终端不同，因此先确认 `bub` 指向你安装插件的那个可执行文件：
 
-ACP 进程启动时会读取 Bub 的配置和环境变量，与 `bub run` 和 `bub chat` 相同。
+```bash
+command -v bub
+bub --version
+```
 
-## 1. 安装 ACP server 插件
-
-`bub-acp-server` 位于 [`bubbuild/bub-contrib`](https://github.com/bubbuild/bub-contrib)。把它安装到提供 `bub` 命令的同一个环境中：
+## 1. 安装并验证插件 {#install}
 
 ```bash
 bub install bub-acp-server@main
-```
-
-确认命令可用：
-
-```bash
 bub acp --help
 ```
 
-输出中应包含：
+输出应包含：
 
 ```text
 Usage: bub acp [OPTIONS]
 ```
 
-如果找不到 `bub acp`，请检查插件是否安装在当前 `bub` 命令所在的 Python 环境中。
+`bub-acp-server` 位于 [`bubbuild/bub-contrib`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-acp-server)。插件依赖最新版 `bub-mcp`，用于 ACP 会话中的 MCP 服务器。找不到命令时，检查插件是否装进了 `command -v bub` 所在的环境。
 
-## 2. 先确认 Bub 本身可用
+`bub acp` 默认通过 stdio 通信。旧命令 `bub acp serve` 仍暂时可用，但会打印弃用警告；新配置直接使用 `bub acp`。
 
-在编辑器将要使用的同一个 shell 或环境中运行一个 turn：
+## 2. 配置 Zed {#zed}
 
-```bash
-bub run "Reply with one short sentence: hello from Bub."
-```
-
-先解决这一步遇到的配置或网络问题，再接入编辑器。
-
-如果你的 Bub 配置放在项目 `.env` 中，需要确保 ACP 进程启动前已经加载这份环境。一个可移植的做法是写一个小启动脚本：
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-cd /path/to/your/project
-set -a
-. ./.env
-set +a
-exec bub acp
-```
-
-只有需要时才使用启动脚本。如果编辑器环境里直接运行 `bub run` 已经可用，就可以直接启动 `bub acp`。
-
-## 3. 配置 Zed
-
-用 `zed: open settings` 打开 Zed 设置，并添加一个自定义 Agent 服务：
+用命令面板执行 `zed: open settings`，在 `settings.json` 中加入：
 
 ```json
 {
@@ -75,14 +49,24 @@ exec bub acp
     "Bub": {
       "type": "custom",
       "command": "bub",
-      "args": ["acp", "serve"],
+      "args": ["acp"],
       "env": {}
     }
   }
 }
 ```
 
-如果 Zed 找不到 `bub`，可以改用绝对路径，或使用上一步的启动脚本：
+Zed 找不到 `bub` 时，把 `command` 换成 `command -v bub` 输出的绝对路径。项目配置放在项目 `.env` 时，使用一个会先加载它的包装脚本：
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd /path/to/project
+set -a
+. ./.env
+set +a
+exec /absolute/path/to/bub acp
+```
 
 ```json
 {
@@ -97,31 +81,76 @@ exec bub acp
 }
 ```
 
-保持编辑器配置和 Bub 配置分离。Zed 负责启动 ACP 进程，并传入 `agent_servers.Bub.env` 里的环境变量；模型设置、工具、技能、Tape 和插件配置仍然由 Bub 自己读取和管理。
+包装脚本中的 `cd` 也决定了 ACP 的默认工作区。需要让编辑器打开的项目成为 workspace 时，在客户端传入 ACP 的 `cwd`，或让包装脚本进入对应目录。
 
-## 4. 启动 Bub 会话
+`env` 只用于补充 Bub 自己无法读取的变量。模型凭据、工具和插件仍由 Bub 的配置文件与环境变量管理；不要在两个地方维护同一份 token。
 
-保存设置后重新加载 Zed。用 `cmd-?`（macOS）或 `ctrl-?`（Linux/Windows）打开 Agent 面板，然后点击 `+` 新建线程并选择 `Bub`。
+## 3. 启动会话 {#start}
 
-发送一条简单消息，例如：
+保存设置并重新加载 Zed。用 `cmd-?`（macOS）或 `ctrl-?`（Linux/Windows）打开 Agent 面板，新建线程并选择 **Bub**。发送一条简单消息：
 
 ```text
-HELLO
+hello
 ```
 
-你应该会在 Agent 面板中看到 Bub 的回复。工具调用和流式模型文本会通过 ACP 会话更新转发给编辑器，因此 turn 运行时可以显示活动状态。
+回复应显示在 Agent 面板中。ACP 会把文本增量、工具调用和状态更新转成编辑器可显示的事件。
 
-![Zed Agent 面板中连接为 ACP 外部 Agent 的 Bub](/docs/acp-server/zed-session-content.png)
+图片和文件由 ACP 客户端按自身能力处理。Zed 支持时，Bub 的 `bash`、`fs.read`、`fs.write` 和 `fs.edit` 可以使用编辑器提供的终端与文件系统；客户端未声明对应能力时，继续使用本地工具。
 
-当编辑器重新打开已有线程时，`bub-acp-server` 会加载匹配的 Bub Tape，并通过和实时 turn 相同的 ACP 流式输出路径重放历史。这样恢复出来的用户消息、助手文本和工具事件会与 Bub 记录会话的方式保持一致。
+## 4. 会话与恢复 {#sessions}
 
-## 排障
+`bub-acp-server` 支持新建、加载、恢复、列出和删除 ACP 会话。会话元数据保存在 Bub home 下的 `acp-sessions.json`；历史从 Bub 当前的 Tape 存储读取。
+
+- **加载**：恢复已有会话，并重放用户消息、助手文本和工具事件。
+- **恢复**：重新附着到同一会话，但不重放历史。
+- **删除**：清理 ACP 元数据、活动 turn，以及该会话的 Tape 和 sidecar Tape。
+- **关闭**：结束连接，保留历史。
+
+因此要保留编辑器中的线程列表，需要保持 `BUB_HOME` 和 Tape 存储配置稳定。ACP 只隔离协议会话 ID；Bub 会在内部加上渠道前缀，避免与同一 ID 的其他渠道共用 Tape。
+
+ACP 客户端可以为每个会话选择模型和 reasoning effort。实际可选值取决于当前提供商；选择结果会随 ACP 会话保存，并进入后续 Bub turn 的模型调用。
+
+## 5. HTTP 与 WebSocket（可选） {#http}
+
+默认 stdio 足够本地编辑器使用。需要远程客户端或长期运行的 ACP 服务时，从 `bub-contrib` 检出目录安装 HTTP 依赖，再启动网关渠道：
+
+```bash
+git clone https://github.com/bubbuild/bub-contrib
+cd bub-contrib
+uv pip install -e 'packages/bub-acp-server[http]'   # 应作用于 bub 所在虚拟环境
+bub gateway --enable-channel acp-server
+```
+
+默认端点为 `http://127.0.0.1:28200/acp`。配置项：
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `BUB_ACP_SERVER_HOST` | `127.0.0.1` | 监听地址 |
+| `BUB_ACP_SERVER_PORT` | `28200` | 监听端口 |
+| `BUB_ACP_SERVER_CERTFILE` | — | TLS 证书，需与 key 同时设置 |
+| `BUB_ACP_SERVER_KEYFILE` | — | TLS 私钥 |
+
+`acp-server` 是 `Interface` 渠道，不会由 `all` 自动启动，必须显式启用。HTTP 端点默认没有认证，只适合本机或受信任网络；远程暴露时应在前面加认证代理并启用 TLS。
+
+也可以不经过网关，直接运行：
+
+```bash
+bub acp --transport http
+bub acp --transport websocket
+```
+
+WebSocket 默认端点为 `ws://127.0.0.1:28200/acp`。HTTP 和 WebSocket 由同一个 SDK Web 传输提供，TLS 使用 `https://` 或 `wss://`。网关渠道会复用活动会话资源；断线重连和未发送事件仍由客户端负责。
+
+## 排障 {#troubleshooting}
 
 | 现象 | 检查 |
-|---|---|
-| 没有 `bub acp` | 把 `bub-acp-server` 重新安装到编辑器实际使用的 `bub` 可执行文件所在环境。 |
-| 编辑器提示无法启动 Bub | 使用绝对路径作为 `command`，或让 `command` 指向能激活正确环境的启动脚本。 |
-| Bub 已启动但提示配置错误 | 在同一个环境中确认 `bub run` 可用。如果必要设置放在 `.env`，在 `bub acp` 之前加载这份文件。 |
-| 编辑器无法加载或恢复会话 | 确认编辑器启动的是同一个 `bub` 环境，且其中 `bub acp --help` 可用；同时保持每次启动使用稳定的 `BUB_HOME`。 |
-| 重启编辑器后旧线程消失 | 保持每次启动使用同一个 Bub 环境和 `BUB_HOME`。`bub-acp-server` 会把 ACP 会话元数据保存在 Bub 数据目录下，并从 Bub Tape 加载历史。 |
-| turn 已开始但界面没有活动显示 | 在 Zed 中运行 `dev: open acp logs`，检查 Zed 与 Bub 之间的 JSON-RPC 消息。 |
+| --- | --- |
+| `bub acp` 不存在 | 把插件装进 Zed 实际使用的 `bub` 环境，并用绝对路径启动。 |
+| 编辑器无法启动进程 | 先在同一工作目录手动运行 `bub acp`，查看 stderr；stdio 进程不能向 stdout 打印普通日志。 |
+| 启动后模型配置错误 | 在同一环境运行 `bub run "hello"`。项目 `.env` 未加载时使用包装脚本。 |
+| 工具调用没有显示 | 打开 Zed 的 `dev: open acp logs`，检查 JSON-RPC 与 ACP 能力协商。 |
+| 重启后线程消失 | 保持 `BUB_HOME`、工作区和 Tape 存储不变。 |
+| HTTP 客户端连不上 | 确认启动的是 `acp-server` 渠道或 `bub acp --transport http`，并检查监听地址、端口和 TLS。 |
+| 长会话被压缩 | `bub-acp-server` 会把 `tape.handoff` 报告为上下文压缩事件；这是 Tape 上下文策略，不是编辑器缓存。 |
+
+协议与高级能力以[插件 README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-acp-server) 为准。启用客户端文件或终端能力后，对应工具会在编辑器中执行；模型选择、花费和 Tape 存储仍由 Bub 管理。

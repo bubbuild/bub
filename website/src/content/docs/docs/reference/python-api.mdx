@@ -1,148 +1,300 @@
 ---
 title: Python API
-description: Core agent and Bub application interfaces, grouped by what they belong to.
+description: Public types and entry-point signatures for bub.core and the application layer.
 ---
 
-Look up an interface by what it belongs to. Core interfaces work in a Python program that supplies a model and tools. Application interfaces apply when you run the Bub application, write a plugin, or add a channel. The guides cover [Tools](/docs/sdk/tools/), [Tape and context](/docs/concepts/tape/), and [Events](/docs/concepts/events/).
+Look up public interfaces by package. For usage, see the [SDK](/docs/sdk/), [Tape](/docs/concepts/tape/), [Events](/docs/concepts/events/), and [Turn](/docs/concepts/turn/).
 
-## Core
+- **`bub.core`**: Agent loop, model adaptation, tools, Tape, and events. Does not read YAML / `BUB_*`.
+- **Application layer**: `BubFramework`, `BubAgent`, channels, and configuration. Requires [installing](/docs/getting-started/install/) the `app` optional dependencies.
 
-Interfaces for the core loop. They do not load application configuration.
+`republic.…` names in signatures come from the external Republic dependency, not the Bub package; this page does not expand those types.
 
-### Streams
+```python
+import bub.core as core
+from bub import BubFramework
+```
+
+Importing only `bub.core` does not load the CLI, settings, or plugins.
+
+## Core {#core}
+
+### Agent {#agent}
+
+```python
+from bub.core import Agent
+
+Agent(
+    *,
+    model=None,
+    store=None,
+    tools=(),
+    system_prompt=(),
+    context=None,
+    sidecars=(),
+    max_steps=sys.maxsize,
+    max_tool_concurrency=None,
+    name="agent",
+    command_prefix=None,
+)
+```
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `model` | `None` | Default model: a Republic chat model (`republic.ChatModel`) or `ModelClient`; can also be supplied for each `run` |
+| `store` | New `InMemoryTapeStore` | Synchronous `TapeStore` or `AsyncTapeStore` |
+| `tools` | `()` | Initial `Tool` objects and provider-executed tools such as `republic.tools.WebSearch()`; later entries override earlier entries with the same name |
+| `system_prompt` | `()` | Text, `PromptSection`, or `SystemPrompt`; rendered again for every Step |
+| `context` | `default_tape_context()` | Strategy for selecting Tape entries as model messages |
+| `sidecars` | `()` | Sidecars mounted with the Tape |
+| `max_steps` | `sys.maxsize` | Maximum model Steps per Run |
+| `max_tool_concurrency` | `None` | Tool concurrency limit within one model response; `1` executes tools sequentially |
+| `name` | `"agent"` | Name of the Agent trace span |
+| `command_prefix` | `None` | `None` disables commands; otherwise must be non-empty with no whitespace, and enables direct tool commands |
+
+`agent.tools` stores `Tool` objects by name, while `agent.builtin_tools` stores provider tools. `max_tool_concurrency` does not coordinate concurrency between different Runs; the host must do that. Construction attaches `TapeRecorder` to `events`. See [Run an agent in Python](/docs/sdk/) for a complete example.
+
+Main entry points:
+
+| Method | Description |
+| --- | --- |
+| `run(...)` / `start(...)` | Executes one Run on a named Tape; `run` closes the stream on exit, while `start` requires the caller to call `aclose()` |
+| `tape(name, *, state=None)` | Reads and writes a Tape in storage directly |
+| `session(name, *, state=None, merge_back=True)` | Opens a branch and merges it on exit |
+| `run_on(tape, prompt, ...)` | Runs on an already opened Tape |
+| `run_once(...)` | Executes only one model Step and its tool calls |
+| `run_command(tape, line)` | Executes a command directly without calling the model |
+| `prepare_tools(tape, prompt)` | Subclasses can override this to choose tools for the current Step |
+
+`run` / `start` share these parameters: `prompt`, `model`, `options` (external `republic.ChatOptions`), required `tape` name, `state`, `merge_back`, and `metadata`. See [Tape](/docs/concepts/tape/#forks) for forks and merges.
+
+### Model {#model}
+
+```python
+from bub.core import Model, ModelClient, ChatModelClient
+```
+
+| Name | Description |
+| --- | --- |
+| `Model` | `republic.ChatModel \| ModelClient` |
+| `ModelClient` | Bub protocol: `spec`, `max_tokens`, `open_stream(...)` |
+| `ChatModelClient` | Adapts `republic.ChatModel` to `ModelClient`; the caller owns the model lifecycle |
+
+### Tools {#tools}
+
+```python
+from bub.core import Tool, ToolContext, tool
+```
+
+`Tool` fields: `name`, `handler`, `description`, `parameters`, `context`, `exposure` (`auto` / `direct` / `code` / `command`), `renderer`, `output_schema`, and `deferred`.
+
+`@tool` / `tool(...)` constructs a `Tool` from a callable; `@tool(model=...)` uses a Pydantic parameter model. The decorator does not register globally; provide tools through `Agent(tools=[...])` or `provide_tools`. `ToolContext` contains `tape`, `run_id`, `state`, `code_mode`, `command`, and `events`.
+
+```python
+from bub.core.tools import content_result, result_content
+```
+
+`content_result(content)` constructs a tool result containing text and media, and `result_content(result)` converts it back into model content. Ordinary results are converted to text by `Tool.render()`. See [Custom tools and code mode](/docs/sdk/tools/) for usage.
+
+### System prompt {#system-prompt}
+
+```python
+from bub.core import SystemPrompt, PromptSection, PromptContext
+```
+
+- `PromptSection`: Fixed text, or `(PromptContext) -> str | None` (may be async)
+- `SystemPrompt`: Ordered sections; `add` / `remove` / `render`
+- `PromptContext`: Current Step's `agent`, `tape`, `prompt`, `tools`, and `model`
+
+### Prompt content {#prompt}
+
+```python
+from bub.prompt import UserContent
+```
+
+`UserContent` is a Bub-defined alias for text or media. See the [prompt contract](/docs/reference/hooks/#prompt-content) for media forms and conversion to legacy hook inputs.
+
+### Tape and store {#tape}
+
+```python
+from bub.core import Tape, TapeContext, default_tape_context, session_tape_name
+from bub.core.store import FileTapeStore, InMemoryTapeStore, TapeQuery
+from bub.core.tape import TapeEntry
+```
+
+Common methods: `query`, `info`, `anchors`, `search`, `handoff`, `read_messages`, `reset`, `record_chat`, `scoped`, `with_context`, and `fork_tape`.
+
+`TapeContext`: `anchor`, `select`, and `state`. Use `default_tape_context()` to replay the complete conversation; a direct `TapeContext()` replays only ordinary `message` entries.
+
+Public stores: `InMemoryTapeStore` and `FileTapeStore`. A synchronous `TapeStore` is connected to the Agent through `AsyncTapeStoreAdapter`. See [Tape](/docs/concepts/tape/) for concepts.
+
+A custom backend needs only four operations; `AsyncTapeStore` uses asynchronous versions with the same signatures:
+
+| Method | Contract |
+| --- | --- |
+| `list_tapes()` | Returns existing Tape names |
+| `append(tape, entry)` | Appends an entry and assigns a monotonically increasing `entry_id` within that Tape |
+| `fetch_all(query)` | Returns entries matching `TapeQuery` in recording order |
+| `reset(tape)` | Deletes the Tape's records and ID progression |
+
+Synchronous implementations are called through `asyncio.to_thread()` to avoid blocking the event loop; database connections and transactions remain the implementation's responsibility. `InMemoryQueryMixin` can provide in-memory queries for simple backends that implement only `read()`; database backends should usually push filtering down. A query for a missing anchor fails with `BubError(kind=NOT_FOUND)`.
+
+`TapeQuery` uses chained filters and executes with `all()`:
+
+| Method | Filter |
+| --- | --- |
+| `query(value)` | Case-insensitive containment in the JSON text of entry kind, date, payload, and meta |
+| `after_anchor(name)` / `last_anchor()` | After the named or latest anchor |
+| `between_anchors(start, end)` | Between two anchors, excluding the boundaries |
+| `between_dates(start, end)` | ISO date or time range, including the boundaries |
+| `kinds(*kinds)` | Specified entry kinds |
+| `limit(value)` | Maximum number of entries |
+
+```python
+query = tape.query().query("error").kinds("event", "error").limit(20)
+entries = list(await query.all())
+```
+
+### Events {#events}
+
+```python
+from bub.core import EventBus, ToolCallStarted, ToolCallFinished
+```
+
+`EventBus`: `on` / `off` / `emit`. Public event types include `RunStarted` / `RunFinished`, `StepStarted` / `StepFinished`, `LLMCallStarted` / `LLMCallFinished`, `ToolCallStarted` / `ToolCallFinished`, `MessagesPending`, `ChatFinished`, `CommandFinished`, and others.
+
+Interception payloads (`LLMCallRequest`, `LLMCallDecision`, `ToolCall`, `ToolCallDecision`, and others) are also exported from `bub.core`. See [Events](/docs/concepts/events/) for fields and control conventions.
+
+### Streams {#streams}
 
 ```python
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
-`StreamEvent` contains `kind` and a data dictionary. Kinds are `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, and `final`. Text events carry `data["delta"]`. A `tool_result` event carries `data["tool_results"]`, one entry per tool call of the step; a failed call's entry is its `BubError`, which the tape and the model receive as a dictionary. A builtin agent's `final` marks a model step; continue consuming until the stream ends.
+`StreamEvent.kind`: `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, and `final`. `AsyncStreamEvents` is an async iterator with `aclose()` / `error` / `usage`. See [SDK output streams](/docs/sdk/#stream-lifecycle) for consumption conventions.
 
-`AsyncStreamEvents` is an async iterator with `aclose()`, `error`, and `usage`. Exhaust it or close it when your consumer stops:
-
-```python
-from contextlib import aclosing
-
-
-async def consume(stream: AsyncStreamEvents) -> None:
-    async with aclosing(stream):
-        async for event in stream:
-            if event.kind == "text":
-                print(event.data.get("delta", ""), end="")
-```
-
-When a plugin creates an `AsyncStreamEvents`, it supplies the iterator and may supply a `StreamState` and async `on_close` callback. Use that callback for resources acquired before iteration begins. If you wrap another stream, the wrapper must also close its upstream and preserve the relevant error and usage information.
-
-Stream events are output for consumers. Agent events have a separate [delivery and control contract](/docs/concepts/events/).
-
-### Errors and interception payloads
+### Errors {#errors}
 
 ```python
 from bub.errors import BubError, ErrorKind
-from bub.hooks.interception import (
-    LLMCallDecision,
-    LLMCallRequest,
-    LLMCallResult,
-    ToolCall,
-    ToolCallDecision,
-    ToolCallResult,
-)
 ```
 
-`BubError.kind` identifies the error category; `as_dict()` returns a payload suitable for transport. Interception payloads are shared with `bub.core.events`. Their use by plugins, including exception handling, is defined in [Hooks](/docs/reference/hooks/#interception-through-pluginagenthooks).
+`ErrorKind`: `invalid_input`, `config`, `provider`, `tool`, `temporary`, `not_found`, and `unknown`. `BubError(kind, message, details=None)`; `as_dict()` is suitable for transport.
 
-## Application
-
-Interfaces for the application, its plugins, and its channels.
-
-### Messages and turn results
-
-Import message helpers from `bub.envelope`:
+### Code mode {#code-mode}
 
 ```python
-from bub.envelope import Envelope, content_of, field_of, normalize_envelope, unpack_batch
-from bub.turn import TurnResult, TurnState
+from bub.core.codemode import CodeMode
 ```
 
-`Envelope` accepts mappings, dataclasses, Pydantic models, and objects with attributes. `field_of` and `content_of` read both mapping keys and object attributes. `normalize_envelope` produces a mutable dictionary; `unpack_batch` normalizes a hook's outbound batch.
+`CodeMode(tools, *, environment=None, models=None, ...)` provides the model-facing `run_code` tool and a `prompt` section describing callable tools. See [Custom tools and code mode](/docs/sdk/tools/) for usage.
 
-`TurnState` is `dict[str, Any]`. The framework creates a fresh dictionary for each inbound turn, then merges `load_state` results into it. Plugins choose which values to persist.
-
-`process_inbound` returns a `TurnResult` with these fields:
-
-| Field | Type | Contents |
-| --- | --- | --- |
-| `session_id` | `str` | Resolved session identity |
-| `prompt` | `list[UserContent]` | Normalized input sent to the model stage |
-| `model_output` | `str` | Collected text result |
-| `outbounds` | `list[Envelope]` | Rendered outbound messages |
-| `state` | `TurnState` | State used during this turn |
-
-`UserContent` comes from `bub.prompt`. The [prompt contract](/docs/reference/hooks/#prompt-content) explains its media types and conversion to legacy hook inputs.
-
-### Model choices
+### Execution environment {#environment}
 
 ```python
-from bub.model_selection import ModelChoice, ModelOptions
+from bub.environment import Environment, LocalEnvironment, Process
 ```
 
-`ModelChoice` has a required `id` and optional `name`, `description`, and `meta`. `ModelOptions` contains `models: list[ModelChoice]` and an optional `current_model`.
+`Environment` defines `spawn`, `read_text`, `read_bytes`, `write_text`, `resolve_path`, `run_code`, and `close()`. `LocalEnvironment` executes directly on the host and is not a security sandbox; implement your own remote or isolated environment when needed. See [Execution environment](/docs/sdk/tools/#choose-an-execution-environment) for the complete contract.
 
-`BubFramework.get_model_options` combines `provide_model_options` results. A channel or host presents the choices and stores the selection.
+## Application {#application}
 
-### Channels and routing
-
-```python
-from bub.channels import Channel, Interface, Lifecycle
-from bub.channels.contracts import ChannelRouter, MessageHandler
-from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
-```
-
-`MessageHandler` is an async callable that accepts an envelope and returns `None`. A `Channel` implements `start(stop_event)` and `stop()`; it can also implement sending, stream handling, and message admission. `Interface` marks user-facing channels; `Lifecycle` marks background services.
-
-`ChannelRouter` connects the framework to channel delivery:
-
-| Method | Role |
-| --- | --- |
-| `dispatch_output(message)` | Send an outbound envelope; return whether it was handled |
-| `wrap_stream(message, stream)` | Return the channel's async stream wrapper |
-| `quit(session_id)` | End the session through its channel |
-| `admit_channel_message(session_id, message, turn)` | Return a channel admission decision or `None` |
-
-`ChannelManager` implements this interface and binds it with `BubFramework.bind_channel_router`.
-
-#### Admission and steering
-
-`TurnSnapshot` exposes `session_id`, `is_running`, `running_count`, `pending_count`, and `steering_count`. An admission hook returns `AdmitDecision(action, reason=None)`:
-
-| Action | Effect |
-| --- | --- |
-| `process` | Process the message |
-| `drop` | Discard the message |
-| `follow_up` | Queue it after active work |
-| `steer` | Queue it for the running agent to consume |
-
-A `SteeringInbox` provides async `enqueue_message(message, state)` and `drain_messages(state)`, plus synchronous `message_count(state)`. The application obtains it through `provide_steering_inbox`.
-
-### Framework and agent entry points
+### Framework and BubAgent {#framework}
 
 ```python
 from bub import BubFramework
 from bub.builtin.agent import BubAgent
 ```
 
-| Entry point | Responsibility |
+| Entry point | Description |
 | --- | --- |
-| `BubFramework()` | Load application configuration and establish the workspace |
-| `framework.load_hooks()` | Register builtin and installed plugin hooks |
-| `framework.running()` | Acquire and release application resources |
-| `framework.process_inbound(inbound, stream_output=False)` | Complete the application turn and return `TurnResult` |
-| `BubAgent(framework, tools=None, tape_store=None, skill_dirs=None)` | Combine the core agent with application behavior |
-| `agent.run_stream(session_id=..., prompt=..., state=None, ...)` | Return the application agent's output stream |
+| `BubFramework(config_file=...)` | Loads application configuration; the initial workspace is the cwd |
+| `framework.load_hooks()` | Registers builtin and installed plugin hooks |
+| `framework.load_builtin_hooks()` | Registers only builtin implementations |
+| `framework.running()` | Async scope managing the store, execution environments, and steering inbox (`SteeringInbox`) |
+| `framework.process_inbound(inbound, stream_output=False)` | Executes a complete Turn and returns `TurnResult` |
+| `framework.get_tools()` / `get_channels(handler)` / `get_tape_store()` | Plugin-host collection entry points |
+| `framework.get_model_options(...)` / `get_agent_hooks()` / `bind_channel_router(...)` | Model options, event bridge, and channel routing |
+| `BubAgent(framework, *, tools=None, tape_store=None, skill_dirs=None, command_prefix=None)` | Application Agent with settings, skills, and code mode |
+| `await agent.run_stream(session_id=..., prompt=..., state=None, ...)` | Prepares the model stage and returns a stream |
 
-Application configuration is process-wide. Construct a `BubAgent` inside `framework.running()` when it should use the framework's active store. An explicitly supplied store takes precedence and remains the caller's lifecycle responsibility. Without either store, the agent uses memory.
+Configuration is cached process-wide. To use the framework's active store, construct `BubAgent` inside `async with framework.running():`. An explicit `tape_store` takes precedence and remains the caller's lifecycle responsibility. See [Embedding and distribution](/docs/app/distribution/) for embedding.
 
-`run_stream` loads initial state when the caller omits `state` and uses caller-supplied state directly otherwise. The host owns save-state hooks, outbound handling, and concurrent turn scheduling. See [Embed the application](/docs/app/distribution/#embed-the-application) for complete usage.
+`run_stream` parameters: `session_id` (a `temp/` prefix prevents the branch from merging), `prompt`, `state` (loaded through hooks when `None`), `model`, `allowed_skills`, `allowed_tools`, and `reasoning_effort`. Await it before iterating; it does not handle outbound rendering, `save_state`, or serialization of concurrent runs in the same session. See [Turn entry points](/docs/concepts/turn/#entry-points) for differences from a complete Turn.
 
-## Imports
+### Messages and TurnResult {#messages}
 
-The top-level `bub` package exports `BubFramework`, `Settings`, `config`, `ensure_config`, `home`, `hookimpl`, and `tool`. Import other types from the defining modules above.
+```python
+from bub.envelope import Envelope, content_of, field_of, normalize_envelope, unpack_batch
+from bub.turn import TurnResult, TurnState
+```
+
+`Envelope` accepts mappings, dataclasses, Pydantic models, and objects with attributes. `field_of` / `content_of` read keys or attributes; `normalize_envelope` produces a mutable dictionary; `unpack_batch` expands a hook's outbound batch.
+
+`TurnState` is `dict[str, Any]`. `TurnResult` fields: `session_id`, `prompt`, `model_output`, `outbounds`, and `state`.
+
+### Model options {#model-options}
+
+```python
+from bub.model_selection import ModelChoice, ModelOptions
+```
+
+`ModelChoice`: required `id`, optional `name` / `description` / `meta`. `ModelOptions`: `models` and `current_model`. `BubFramework.get_model_options` combines results from each `provide_model_options` implementation.
+
+### Channels {#channels}
+
+```python
+from bub.channels import Channel, ChannelManager, ChannelMessage, Interface, Lifecycle
+from bub.channels.contracts import ChannelRouter, MessageHandler
+from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
+```
+
+`ChannelMessage` contains `session_id`, `channel`, `chat_id`, `content`, `kind`, `context`, `media`, `is_active`, `output_channel`, and optional message-level `lifespan`. `MediaItem` provides `type`, `mime_type`, and either `url` or an async `data_fetcher`; builtin prompt construction supports `image`, `audio`, and `video`. See [Gateway](/docs/app/gateway/#custom-channels) for custom channels.
+
+`Channel` implements at least `start` / `stop`; `send`, `stream_events`, and `admit_message` are optional. `Interface` is a user entry point, and `Lifecycle` is a background service.
+
+`ChannelRouter`: `dispatch_output`, `wrap_stream`, `quit`, and `admit_channel_message`. `ChannelManager` implements this protocol and is bound through `bind_channel_router`.
+
+Admission types: `AdmitDecision(action, reason=None)` (`process` / `drop` / `follow_up` / `steer`), `TurnSnapshot`, and `SteeringInbox`. `follow_up` means queueing, and `steer` means steering; see the [Hooks reference](/docs/reference/hooks/#application-hook-details) and [Turn](/docs/concepts/turn/) for complete behavior.
+
+### Hooks {#hooks}
+
+```python
+from bub.hooks import hookimpl, hookspec, BubHookSpecs
+```
+
+See the [Hooks reference](/docs/reference/hooks/) for signatures and priority.
+
+### Application events {#application-events}
+
+```python
+from bub.application import CommandChanged, PromptChanged, WorkChanged
+```
+
+These events are published on `framework.events`, independently of `agent.events`:
+
+| Type | Fields | Trigger |
+| --- | --- | --- |
+| `CommandChanged` | `outcome` | `None` when CLI invocation starts; `succeeded` / `failed` / `cancelled` when it ends |
+| `WorkChanged` | `busy`, `completed` | Channel busy-state changes; may carry the result of a newly completed message |
+| `PromptChanged` | `kind` | `question` / `permission` / `auth` when a modal prompt opens; `None` when it closes |
+
+They are suitable for status bars and external UIs and do not carry detailed model-call payloads.
+
+`bub.program_status.ProgramStatus` is the builtin application event handler. The CLI automatically registers it on `framework.events` to emit OSC 7501 states on a TTY: `idle`, `working`, `blocked`, `done`, and `error`; prompt states also carry `kind`. Non-TTY output does not produce these control sequences.
+
+### Interactive input {#inquirer}
+
+```python
+from bub.inquirer import ask_checkbox, ask_confirm, ask_fuzzy, ask_secret, ask_select, ask_text
+```
+
+These synchronous functions collect multi-select, confirmation, fuzzy single-select, secret, ordinary single-select, and text input for plugin CLIs and `onboard_config`. When called through the Bub CLI, they publish `PromptChanged`; user cancellation raises `typer.Abort`. See [Collect interactive input](/docs/app/hooks/#prompt-for-input) for usage.
+
+## Related references {#related}
+
+- [Tape and context](/docs/concepts/tape/)
+- [Events](/docs/concepts/events/)
+- [Extension points](/docs/concepts/extension-points/)
+- [Hooks](/docs/reference/hooks/)
+- [Tools](/docs/sdk/tools/)

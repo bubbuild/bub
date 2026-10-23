@@ -1,21 +1,27 @@
 ---
 title: 技能
-description: 编写可复用的流程，确认应用能加载它，并打包给其他用户使用。
+description: 编写、验证和分发 Bub 技能，并理解技能发现与加载规则。
 ---
 
-技能是一份写好的流程，让 Bub 应用按步骤完成任务。本页先带你写一个项目技能，再说明文件字段、发现顺序和打包方式。项目专用的技能可以留在工作区，也可以随 Python 包分发，让别人装上就能用。
+技能将一套操作说明保存在 `SKILL.md` 中，供模型按需使用。项目专用技能可以放在工作区，通用技能可以随 Python 包分发。
 
-自动发现技能是应用提供的行为。普通的 `core.Agent` 只用你显式传进去的指令。
+技能发现和加载属于 Bub 应用行为。普通 `core.Agent` 只使用显式提供的提示词。
 
-## 编写指令
+## 自带技能 {#builtin-skills}
 
-创建技能目录：
+Bub 安装包自带三个技能，项目或用户目录中的同名技能可以覆盖它们：
 
-```bash
-mkdir -p .agents/skills/repo-map
-```
+| 技能 | 用途 | 外部依赖 |
+| --- | --- | --- |
+| `telegram` | 发送、回复和编辑 Telegram 消息 | Telegram Bot token |
+| `gh` | 通过 GitHub CLI 管理仓库、Issue、PR 和 Actions | 安装并认证 `gh` |
+| `skill-creator` | 指导创建或更新技能 | 无 |
 
-创建 `.agents/skills/repo-map/SKILL.md`：
+运行 `bub run ",skill"` 可以查看当前工作区实际发现的完整列表。自带技能也会被列出，不代表相应外部服务已经配置。
+
+## 创建项目技能 {#write-a-skill}
+
+在工作区创建 `.agents/skills/repo-map/SKILL.md`：
 
 ```markdown
 ---
@@ -28,65 +34,61 @@ description: 修改代码前，先阅读本地仓库结构。
 3. 编辑代码前，说明会涉及哪些模块。
 ```
 
-`name` 必须与目录名一致，使用连字符分隔的小写单词。description 帮助模型判断何时使用这个技能。
+`name` 必须与目录名一致。`description` 用于帮助模型判断何时使用该技能，应写明任务和适用场景。
 
-## 检查能否加载
+## 验证技能 {#verify-a-skill}
+
+在工作区运行：
 
 ```bash
 bub run ",skill name=repo-map"
 ```
 
-命令会打印技能的指令，不调用模型。如果返回 `(no such skill)`，检查文件路径和 YAML frontmatter。
+命令直接打印技能正文，不调用模型。返回 `(no such skill)` 时，检查文件路径、目录名和 YAML frontmatter。
 
-## 在对话中使用
-
-配置好模型后，运行：
+在模型会话中显式引用：
 
 ```bash
 bub run '使用 $repo-map 技能，然后列出你找到的顶层模块。'
 ```
 
-`$repo-map` 会把该技能的指令加入该 turn 的系统提示词。模型随后使用应用中可用的工具执行这些步骤。这个例子需要在执行环境中安装 `rg`。
+`$repo-map` 将技能正文展开到本次 Turn 的系统提示词。模型随后调用应用提供的工具执行步骤；本例要求执行环境中已安装 `rg`。
 
-## 技能文件字段
-
-每个技能目录包含带 YAML frontmatter 的 `SKILL.md`：
-
-```markdown
----
-name: my-skill
-description: 说明这个技能帮助 agent 完成什么任务。
----
-
-在这里编写流程。
-```
-
-Bub 发现技能时会检查这些字段：
+## SKILL.md 字段 {#skill-fields}
 
 | 字段 | 要求 |
 | --- | --- |
-| `name` | 与目录名一致；使用连字符分隔的小写单词；最多 64 个字符 |
-| `description` | 非空字符串，最多 1,024 个字符 |
-| `metadata` | 可选映射，键和值都必须是字符串 |
+| `name` | 必填；与目录名一致；连字符分隔的小写字母或数字；最多 64 个字符 |
+| `description` | 必填；非空字符串；最多 1,024 个字符 |
+| `metadata` | 可选映射；键和值都必须是字符串 |
 
-流程需要配套文件时，可以在 `SKILL.md` 旁添加 `scripts/`、`references/` 或 `assets/`。正文中的 `$SKILL_DIR` 会展开为技能所在目录，`$PYTHON` 会展开为运行 Bub 的解释器路径。应用配置可以用 `${config.path.to.value}` 引用。
+配套文件可放在 `scripts/`、`references/`、`assets/` 等目录。技能正文支持：
 
-## 确认应用会选择哪个技能
+| 变量 | 展开结果 |
+| --- | --- |
+| `$SKILL_DIR` | 技能目录的绝对路径 |
+| `$PYTHON` | 运行 Bub 的 Python 解释器路径 |
+| `${config.path.to.value}` | Bub 配置中对应字段的值 |
 
-应用默认依次搜索以下位置，同名时使用最先找到的技能：
+技能中的脚本不会因文件存在而自动执行。模型仍需通过工具调用它，因此应同时提供脚本使用方法和所需工具。
+
+## 发现顺序与加载方式 {#discovery}
+
+应用默认按以下顺序搜索，同名时使用最先找到的技能：
 
 1. `<workspace>/.agents/skills/`
 2. `~/.agents/skills/`
-3. 已安装的 `skills` 命名空间包，包括 Bub 自带的技能
+3. 已安装的 `skills` 命名空间包，包括 Bub 自带技能
 
-因此，项目中的技能可以覆盖包内同名的技能。`BubAgent(skill_dirs=...)` 会用指定目录替代默认搜索位置。
+项目技能可以覆盖包内同名技能。旧项目目录 `.agent/skills/` 仍会被读取并产生迁移警告，新技能使用 `.agents/skills/`。
 
-系统提示词会列出可用技能。`$skill-name` 在当前轮展开该技能；`,skill name=skill-name` 则通过命令路径打印正文。
+`BubAgent(skill_dirs=...)` 用指定目录集合替代默认搜索位置，顺序即优先级；传入空集合可禁用技能发现。
 
-## 把技能放进 wheel
-<span id="3-ship-skills-with-your-package"></span>
+每个模型 Step 的系统提示词都会列出可用技能的名称和描述。只有提示词含 `$skill-name` 时，才把对应正文展开到当前 Turn。`,skill name=skill-name` 是独立的命令调用，只打印正文。
 
-在 Python 代码旁放置 `skills` 命名空间包：
+## 随 Python 包分发 {#include-skills-in-a-wheel}
+
+在 `src/` 下增加 `skills` 命名空间包：
 
 ```text
 src/
@@ -100,25 +102,25 @@ src/
             └── examples.md
 ```
 
-使用 Hatch 时，把两个目录都加入 wheel：
+使用 Hatch 时，将两个目录都加入 wheel：
 
 ```toml
 [tool.hatch.build.targets.wheel]
 packages = ["src/bub_myplugin", "src/skills"]
 ```
 
-`skills/` 保持为不含 `__init__.py` 的命名空间包，让多个已安装的包都能提供技能。其他构建工具也应生成相同的安装目录结构。
+`skills/` 中不要添加 `__init__.py`。命名空间包允许多个发行包共同提供技能；其他构建工具也应生成相同的安装目录结构。
 
-技能可以随插件或应用发行包分发。Bub 通过安装后的 `skills` 命名空间包发现它们。
+技能可以随插件一起分发，也可以独立打包，不要求同时实现 hook。
 
-## 检查安装结果
+## 检查安装结果 {#verify-installation}
 
-把构建好的 wheel 安装到运行 Bub 的环境，再让应用加载技能：
+将构建好的 wheel 安装到运行 Bub 的同一环境，然后运行：
 
 ```bash
 bub run ",skill name=my-skill"
 ```
 
-如果返回 `(no such skill)`，检查目录名、frontmatter 和 wheel 内容。如果打印了意外的版本，检查项目或用户目录下是否有同名技能。
+找不到技能时，检查 wheel 是否包含 `skills/my-skill/SKILL.md`。打印了其他版本时，检查项目或用户目录是否有同名技能，它们的优先级更高。
 
-要一起分发 CLI 和插件，参见[分发](/zh-cn/docs/app/distribution/)。
+通用 wheel 构建、CLI 打包和完整发布验证见[嵌入与分发](/zh-cn/docs/app/distribution/)。

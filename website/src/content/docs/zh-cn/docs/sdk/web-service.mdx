@@ -5,7 +5,7 @@ description: 为 Agent 提供 HTTP 接口，并为每个会话保留独立历史
 
 为 Agent 提供 HTTP 接口，让其他程序可以向它提交任务。每个请求指定会话名称；使用相同名称的请求会继续磁盘上保存的会话。
 
-本指南接续[构建自己的 Agent](/zh-cn/docs/sdk/)，直接使用 `core.Agent`。FastAPI 管理模型的生命周期，每个请求负责管理自己的 Agent 输出流。
+本指南接续[在 Python 中运行 Agent](/zh-cn/docs/sdk/)，直接使用 `core.Agent`。FastAPI 管理模型的生命周期，每个请求负责管理自己的 Agent 输出流。
 
 ## 安装
 
@@ -17,7 +17,7 @@ cd bub-api
 uv add bub fastapi uvicorn
 ```
 
-如果要接入已有的 Bub 插件，见[复用插件](/zh-cn/docs/sdk/reuse-plugins/)。加入插件工具或指定 hooks 后，仍可沿用下面的接口与请求生命周期。
+如果要接入已有的 Bub 插件，见[复用应用插件](/zh-cn/docs/sdk/reuse-plugins/)。加入插件工具或指定 hooks 后，仍可沿用下面的接口与请求生命周期。
 
 ## 编写服务
 
@@ -31,7 +31,7 @@ from pathlib import Path
 
 import republic
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from bub.core import Agent
 from bub.core.store import FileTapeStore
@@ -68,12 +68,12 @@ app = FastAPI(lifespan=lifespan)
 
 
 class Task(BaseModel):
-    session_id: str
-    prompt: str
+    session_id: str = Field(min_length=1, max_length=200)
+    prompt: str = Field(min_length=1)
 
 
 @app.post("/tasks")
-async def run_task(task: Task, request: Request):
+async def run_task(task: Task, request: Request) -> dict[str, str]:
     state = request.app.state
     # Runs on one session's tape must not overlap; different sessions run concurrently.
     async with state.session_locks[task.session_id]:
@@ -92,7 +92,7 @@ async def run_task(task: Task, request: Request):
 
 FastAPI lifespan 在启动时打开 Republic 模型，并在关闭时释放。每个请求都用 `async with` 打开 Agent 流，退出时关闭流并合并 Tape 分支，Agent 运行失败时也会执行这些操作。
 
-会话锁避免两个请求同时基于同一份尚未完成的历史开始执行。不同会话可以并发运行。
+会话锁避免两个请求同时基于同一份尚未完成的历史开始执行。不同会话可以并发运行。示例面向受信任的内部调用方；公开服务还应增加身份认证、请求体大小限制和超时。
 
 ## 运行
 
@@ -122,4 +122,4 @@ curl -s localhost:8000/tasks -H 'content-type: application/json' \
 
 ## 扩展服务
 
-通过[工具或 CodeMode](/zh-cn/docs/sdk/tools/)增加动作，用[事件处理器](/zh-cn/docs/concepts/events/)观察调用或在执行前作出决定，通过 [TapeContext](/zh-cn/docs/concepts/tape/#context)选择交给模型的内容。
+通过[工具或 code mode](/zh-cn/docs/sdk/tools/)增加动作，用[事件处理器](/zh-cn/docs/concepts/events/)观察调用或在执行前作出决定，通过 [TapeContext](/zh-cn/docs/concepts/tape/#context)选择交给模型的内容。

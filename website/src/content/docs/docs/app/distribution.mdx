@@ -1,15 +1,23 @@
 ---
-title: Distribution
-description: Embed the application framework or ship a CLI with your own plugins and skills.
+title: Embedding and distribution
+description: Run a complete Turn inside an existing service, or publish a Bub distribution that includes plugins, skills, and your own command.
 ---
 
-Build on the Bub app when you want its configuration, plugins, and message routing in your product. You can host `BubFramework` in an existing process or ship a command that starts it.
+When you need Bub's configuration, plugins, sessions, and message routing, reuse the full application instead of reassembling `core.Agent`. Choose your entry point by goal first:
 
-This path uses the application dependencies in [Install Bub](/docs/getting-started/install/). For a program that directly composes an Agent and its components, follow [Build your own agent](/docs/sdk/).
+| You need | Entry point |
+| --- | --- |
+| Only reuse tool implementations | Import the public components and pass them to `core.Agent`; see [Reuse application plugins](/docs/sdk/reuse-plugins/) |
+| Reuse interception, system prompts, or steering | `AgentPlugins.attach()`; see [Reuse application plugins](/docs/sdk/reuse-plugins/) |
+| Use the application's default configuration, skills, and tool policies | `framework.running()` + `BubAgent`; see [Reuse application plugins](/docs/sdk/reuse-plugins/) |
+| Run a full message Turn | `process_inbound()`; continue on this page |
+| Publish your own CLI or wheel | See [Publish your own command](#publish-a-command) |
 
-## Embed the application
+This path requires the [application dependencies](/docs/getting-started/install/#app-install). If you only need the model loop and tools, start from [Run an agent in Python](/docs/sdk/).
 
-Use `BubFramework.process_inbound` to run the application's full turn: resolve the session, load state, prepare the prompt, execute, save state, render, and dispatch.
+## Embed the full Turn {#embed-the-application}
+
+`process_inbound()` runs the complete Turn, from resolving the session to sending the reply:
 
 ```python
 import asyncio
@@ -21,6 +29,7 @@ from bub.envelope import content_of
 async def main() -> None:
     framework = BubFramework()
     framework.load_hooks()
+
     async with framework.running():
         result = await framework.process_inbound({
             "session_id": "embedded:demo",
@@ -28,28 +37,51 @@ async def main() -> None:
             "chat_id": "demo",
             "content": "Describe what you can help with.",
         })
-        for outbound in result.outbounds:
-            print(content_of(outbound))
+
+    print(result.session_id)
+    for outbound in result.outbounds:
+        print(content_of(outbound))
 
 
 asyncio.run(main())
 ```
 
-Configure a model before running this example. `load_hooks()` loads builtin hooks and installed plugin entry points. The sample prints returned envelopes; a connected channel or plugin can also dispatch them.
+Configure a model before running this. `load_hooks()` loads the builtin implementations and installed plugins. The example does not bind a channel router, so replies stay in `result.outbounds` and the host sends them itself.
 
-Keep `framework.running()` open for the service's lifetime. It acquires hook-provided resources and runs the cleanup supplied by their context managers on exit. Enter it before creating an agent that needs the framework's store, and avoid overlapping scopes on one framework instance.
+`process_inbound()` returns a `TurnResult`, not an event stream. With `stream_output=True`, it consumes the event stream through the bound router and still returns the complete result when it finishes.
 
-`process_inbound` returns a completed `TurnResult`. With `stream_output=True`, it consumes the stream through the bound channel router before returning that result. The host owns concurrent message scheduling and any per-session locking it requires.
+`framework.running()` should cover the service's entire lifetime, not be entered once per request. It holds `provide_lifespan`, Tape storage, and the steering inbox (`SteeringInbox`); create objects that need these resources after entering the scope. Do not enter multiple overlapping scopes on the same Framework.
 
-## Reuse plugins in your own service
+The framework has no default session lock. When concurrent requests share a session, serialize them by `session_id`, or explicitly allow concurrency through the channel admission policy. A Turn is not a transaction either: tool side effects are not rolled back if a later step fails.
 
-A host can use plugin-provided tools, stores, or hooks while keeping its own API and stream handling. Follow [Reusing plugins](/docs/sdk/reuse-plugins/) to connect those capabilities to `core.Agent`.
+### Bind a sending channel {#bind-a-router}
 
-`BubAgent` also carries the application's prompts and channel delivery conventions. Choose it when you want those application behaviors, and provide the corresponding output handling in your host.
+If the host already has sending logic, just read `outbounds`. To let a channel handle outbound messages and streaming output, implement `ChannelRouter` and bind it:
 
-## Ship your own command
+```python
+class HostRouter:
+    async def dispatch_output(self, message) -> bool:
+        await send_to_host(message)
+        return True
 
-A package can expose Bub's command entry point under its own name:
+    def wrap_stream(self, message, stream):
+        return stream
+
+    async def quit(self, session_id) -> None:
+        ...
+
+    async def admit_channel_message(self, session_id, message, turn):
+        return None
+
+
+framework.bind_channel_router(HostRouter())
+```
+
+`dispatch_output` returns whether it handled the message; `wrap_stream` can wrap the model stream; `admit_channel_message` returns an admission decision, and `None` means use the default scheduling. Pass `None` to unbind.
+
+## Publish your own command {#publish-a-command}
+
+A distribution package can provide its own command name and call the Bub entry point internally:
 
 ```python
 # src/my_bub/cli.py
@@ -64,13 +96,13 @@ def main() -> None:
 my-bub = "my_bub.cli:main"
 ```
 
-Users can then run `my-bub chat` or `my-bub gateway`. Set a product-specific working directory before calling Bub if your application requires one; the framework takes its initial workspace from the current directory.
+After installation, users can run `my-bub chat` or `my-bub gateway`. Declare `dependencies = ["bub[app]"]`, and follow the package restructuring described in the [0.6 migration notes](/docs/migration/v0-6/).
 
-Declare `bub[app]>=0.6.0` as the application dependency. When upgrading an existing distribution, follow [Upgrade to 0.6.0](/docs/migration/v0-6/).
+To pin a workspace, change the current directory before calling Bub, or let users pass `--workspace`.
 
-## Bundle plugins and skills
+## Bundle plugins and skills {#bundle-plugins-and-skills}
 
-One wheel can provide several entry points:
+One wheel can provide multiple entry points and skill directories:
 
 ```toml
 [project.entry-points."bub"]
@@ -81,6 +113,18 @@ channels = "my_bub.channels:ChannelPlugin"
 packages = ["src/my_bub", "src/skills"]
 ```
 
-Each target follows the [plugin registration rules](/docs/app/plugins/). Include task instructions using the [skills package layout](/docs/app/skills/#include-skills-in-a-wheel).
+Entry points follow the [plugin registration rules](/docs/app/plugins/#entry-point-forms). For the skill directory layout, see [Distribute skills with a Python package](/docs/app/skills/#include-skills-in-a-wheel).
 
-Before release, install the built wheel into a separate environment. Run the command, confirm the plugin report, load a packaged skill, and exercise a representative conversation. For a hosted application, also check shutdown while a stream or background tool is active.
+Plugin dependencies should be declared in the distribution package. To install a plugin into the separate project that Bub manages, use [`bub install`](/docs/reference/cli/#bub-install).
+
+## Verify before release {#verify-a-release}
+
+Run the following checks in a separate virtual environment:
+
+1. Install from the wheel instead of running from the source directory.
+2. Run `bub hooks` and confirm that the entry points load without deprecation warnings.
+3. Run `bub run` to verify the model, tools, and state.
+4. Run `bub chat` to verify skills, commands, and lifecycle channels.
+5. For a host service, verify concurrency, stream closure, and shutdown cleanup.
+
+A clean environment exposes undeclared dependencies, entry points that cannot be imported, and configuration that only works in the development directory.

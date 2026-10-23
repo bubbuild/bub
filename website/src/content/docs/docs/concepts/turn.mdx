@@ -1,92 +1,99 @@
 ---
-title: Turn
-description: One inbound message, from the session lookup to the reply that leaves the app, and where each stage leaves room for a plugin.
+title: Turn (message processing flow)
+description: Understand Turn, Run, and Step, and how a message travels through the Bub app to get a reply.
+sidebar:
+  label: Turn
+  badge: { text: 'App', variant: 'note' }
 ---
 
-import { Aside, Steps } from '@astrojs/starlight/components';
+A **Turn** is the complete process of handling one inbound message in the app: find the session, prepare the input, run the model, save state, and send the reply. It keeps that common work outside the Agent loop, so tool and model code only have to focus on the current task.
 
-A turn is one inbound message, and all the work that it causes. `BubFramework` handles a turn: it finds the session, loads the state, builds the prompt, runs the model, and delivers the reply. Each stage has a hook, so a plugin can add to one stage or replace it.
+## Turn, Run, and Step {#definition}
 
-A turn belongs to `bub[app]`. A direct `core.Agent.run()` call has no turn — the loop starts with the prompt, state, and tape that you give it. This page covers the layer between a channel and that loop.
-
-## Turn, run, and step {#turn-run-step}
-
-There are three granularities of "one" here. Separate them first:
+A Turn usually starts one **Run**. A Run is the loop between model and tools, and each loop iteration is a **Step**:
 
 ```mermaid
 flowchart LR
-  T["Turn<br/>all the work one message causes"] --> R["Run<br/>one agent.run() call"] --> S["Step<br/>one model call + the tools it requires"]
+  T["Turn<br/>handle one message"] --> R["Run<br/>model and tool loop"]
+  R --> S1["Step 1<br/>model call + tool calls"]
+  R --> S2["Step N<br/>model answers directly"]
 ```
 
-turn ⊃ run ⊃ step: a turn usually contains one run, and a run contains multiple steps. The reverse does not hold — when using the SDK directly, an `agent.run()` call can exist independently, with no turn; a step always belongs to a run.
+A Step contains one model call plus every tool call that response requests. The Run ends when the model stops requesting tools and no messages are pending. `BUB_MAX_STEPS` limits the number of Steps, not the number of tool calls.
 
-## Why a turn exists {#why-a-turn}
+Not every run has all three layers: a direct command does not start a Run, `Agent.run_once()` executes a single Step, and a plugin can replace the whole model stage. When you use `core.Agent` directly, the caller is responsible for sessions, state, and reply routing.
 
-With just a model loop, every call site has to answer the same questions again: which session is this message from? Should last round's state come along? Where does the reply go?
+## The seven processing stages {#stages}
 
-A turn lifts those out of tool and model code and fixes them into named stages. The payoff is concrete:
+`BubFramework.process_inbound()` processes a message in the following order:
 
-- **Every piece can be replaced**, but the replacement points have names, so you do not fork the whole flow.
-- **The failing stage is explicit**: `on_error(stage=...)` receives its name.
-- **One message is one transaction.** State loads at the start and saves at the end, and a failure in between has a defined cleanup.
+| Stage | What it handles | Default behavior |
+| --- | --- | --- |
+| 1. `resolve_session` | Determine the session | Use the message's `session_id`; otherwise generate `channel:chat_id` |
+| 2. `load_state` | Restore this round's state | Restore session settings and bind the Agent |
+| 3. `build_prompt` | Build the model input | Recognize commands, and add context, time, and media for ordinary messages |
+| 4. `run_model` / `run_model_stream` | Produce the model output | Call `BubAgent.run_stream()` |
+| 5. `save_state` | Save this round's state | Exit the message lifecycle |
+| 6. `render_outbound` | Generate the reply | Convert model text into outbound messages |
+| 7. `dispatch_outbound` | Send the reply | Hand it to the corresponding channel |
 
-## Stages {#stages}
+Each stage has a corresponding hook. A plugin can add to the default behavior or replace the result according to the hook's contract; for parameters, return values, and priority, see the [Hooks reference](/docs/reference/hooks/#turn-hooks).
 
-`framework.process_inbound(message)` runs these seven stages in order.
+### Passing data between stages {#state}
 
-<Steps>
+`TurnState` is an ordinary `dict[str, Any]`. Hooks, tools, and event handlers that receive `state` in their signature share the same dictionary.
 
-1. **`resolve_session`**: select the session ID for the inbound message. The first non-empty result wins; when none is returned, a default is built from the channel and chat identifiers.
+It exists only for the current Turn. Data that must survive across Turns should be written to storage in `save_state` and restored in `load_state`; the conversation and tool round-trips are stored by the Tape.
 
-2. **`load_state`**: collect state fragments from the hook implementations and merge them into one `TurnState` dictionary. Lower priority merges first, and higher priority overrides.
+When processing finishes, `process_inbound()` returns a `TurnResult`:
 
-3. **`build_prompt`**: turn the inbound content into a prompt. The first result wins; when no hook provides one, the inbound content is used as is.
+| Field | Content |
+| --- | --- |
+| `session_id` | The session ID for this turn |
+| `prompt` | The input received by the model stage |
+| `model_output` | The aggregated model text |
+| `outbounds` | The replies that were generated and attempted |
+| `state` | This turn's state dictionary |
 
-4. **`run_model` / `run_model_stream`**: produce the model output, as a final result or as a stream. The built-in implementation calls `BubAgent.run_stream()`, which enters the loop described below.
+Even when no sending channel is bound, the replies remain in `TurnResult.outbounds` so the host can handle them itself.
 
-5. **`save_state`**: finish the work of the model stage. This stage runs in its own `finally` block, so an exception in the previous stage still reaches it.
+## Choosing an entry point {#entry-points}
 
-6. **`render_outbound`**: turn the result into outbound envelopes. Results from several hooks are concatenated; when all are empty, one default reply is used.
+Choose the entry point according to how much of the process you need to handle:
 
-7. **`dispatch_outbound`**: actually deliver each outbound envelope, through its channel.
+| Entry point | Scope | The caller is responsible for |
+| --- | --- | --- |
+| `core.Agent.run()` | A model Run or a direct command | Session, state, and message routing |
+| `BubAgent.run_stream()` | Optional initial state loading and a model Run | Saving state, generating and sending replies, and concurrency within the same session |
+| `framework.process_inbound()` | The complete Turn | The application resource scope, concurrency within the same session, and channel dispatch |
 
-</Steps>
+`process_inbound(stream_output=True)` delivers streaming output to the channel, and still returns a complete `TurnResult` when it finishes.
 
-The first three stages prepare input, one stage produces output, and the last three send it out. Only stage 4 runs for long — the others wrap it on both sides.
+## Run boundaries {#outside}
 
-The built-in plugin supplies the default implementation of these seven stages. Other plugins can add behavior or replace it, as each hook's contract allows. The [hooks reference](/docs/reference/hooks/#turn-hooks) defines the first-result hooks, the combined results, and the priority rules.
+A Turn does not own everything related to a message:
 
-## What crosses the stages {#what-crosses-stages}
+| Need | Owner |
+| --- | --- |
+| Decide whether to accept a new message, or hand it to the current Run | The `admit_message` hook and the channel admission policy |
+| Merge consecutive messages that arrive close together | `BufferedMessageHandler` |
+| Intercept a single model or tool call | Agent events or application interception hooks |
+| Add a message for the next Step | `continue_prompt` or `MessagesPending` |
+| Save the conversation and tool round-trips | `TapeRecorder` |
 
-Exactly three things pass from stage to stage. Together they are the turn's complete internal state:
+`process_inbound()` provides no session lock, and it is not a database transaction. Channels allow concurrency by default; side effects a tool has already produced, such as file changes or network requests, are not rolled back because a later step fails.
 
-| Value | Type | Written by | Read by |
-| --- | --- | --- | --- |
-| `session_id` | `str` | `resolve_session` | every later stage, and `TurnResult` |
-| `state` | `TurnState` | the `load_state` fragments; tools and handlers also mutate it during the run | prompt building, the model call, tools, `save_state` |
-| `prompt` | `list[UserContent]` | `build_prompt` | the model stage |
+## Errors and resources {#failures}
 
-`state` is the one most easily overlooked. It is a plain dictionary that lives from loading to saving, and tools and event handlers receive that same object. To keep anything across turns you must write it out in `save_state` and read it back in `load_state` — the built-in app persists only selected settings. The [tape state section](/docs/concepts/tape/#state) covers where durable data belongs.
+Once execution enters the model stage, `save_state` runs in a `finally` block, so state is still saved when the model stage fails. Session resolution, state loading, and input building happen before that `finally` is entered, so a failure in those stages does not call `save_state`.
 
-## Agent call {#agent-call}
+Unhandled exceptions go to `on_error` and are then re-raised. `on_error` is for observing and reporting errors; it does not restore the original Turn.
 
-The built-in `run_model_stream` hook calls `BubAgent.run_stream()`. `BubAgent` uses the core model and tool loop, plus the app defaults: settings, skills, commands, steering, and the app tool policies.
-
-The framework converts between streaming and non-streaming hook results, so a plugin that implements only one of them still works. `process_inbound(..., stream_output=True)` lets the channel router read the output as it arrives, and still returns a complete `TurnResult` when the stream ends.
+When hooks provide resources such as storage, process messages inside the `framework.running()` scope:
 
 ```python
-result = await framework.process_inbound(message, stream_output=True)
-print(result.session_id, len(result.outbounds))
+async with framework.running():
+    result = await framework.process_inbound(message)
 ```
 
-Replacing `run_model` changes this step. An echo plugin, for example, can return text without creating an agent run — in which case no core events fire and no tape records are written. **Core events and tape records occur only when the chosen implementation actually uses the core agent**, which makes it the most direct way to tell how far a turn travelled.
-
-## Resources and failures {#resources-and-failures}
-
-<Aside type="caution" title="Where save_state starts">
-  `save_state` runs only once execution reaches the model stage; it also runs when that stage raises. A failure in session resolution, state loading, or prompt construction happens before the `finally` block, so it does **not** run `save_state`. If your plugin acquires resources in those three stages, release them yourself.
-</Aside>
-
-If the model stage raises an unhandled exception, the framework runs `save_state`, then skips rendering and dispatch. The outer error path calls `on_error(stage="turn", ...)` and raises the exception again. The built-in error observer can send an error reply through outbound dispatch. A failure in one `on_error` observer does not stop the other observers.
-
-Use `async with framework.running():` when your hooks provide stores or other app resources. It opens those resources and releases them on exit. The built-in per-message lifespan opens during state loading and closes in `save_state`.
+`bub run` opens the scope for one message; `bub chat` and `bub gateway` keep it open for as long as the app runs. When you need the storage that scope provides, create the `BubAgent` inside it as well.

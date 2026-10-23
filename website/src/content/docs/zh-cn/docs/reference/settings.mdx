@@ -1,96 +1,188 @@
 ---
 title: 配置项
-description: 应用内置环境变量、配置字段和默认值。
+description: 应用层环境变量、YAML 字段、默认值和解析顺序。
 ---
 
-这些配置项控制 Bub 应用的行为。表格列出内置的 `BUB_*` 变量及其 YAML 字段，插件的配置项由各插件文档说明。操作步骤见[配置](/zh-cn/docs/app/configure/)。直接构造的 `core.Agent` 通过 Python 参数接收组件，不加载这些配置。
+这些设置属于 **Bub 应用**。`bub.core.Agent` 不读取 YAML 或 `BUB_*`；它只接收构造参数。插件可以注册自己的 section，字段以对应插件文档为准。上手步骤见[配置](/zh-cn/docs/app/configure/)。
 
-## 优先级
+## 读取顺序 {#precedence}
 
-Bub 按以下顺序解析配置值，优先级从高到低：
+设置类字段按以下顺序取值，从高到低：
 
-1. **CLI 参数**(例如 `--workspace`、`--project`、`--enable-channel`)。
-2. **环境变量**(`BUB_*`)。
-3. **`.env`** 值，来自 CLI 启动阶段的加载，或声明了 `env_file=".env"` 的配置类。
-4. **`~/.bub/config.yml`** 中的字段，由 `bub.configure.load` 加载。
-5. **字段默认值**，在 `Settings` 子类中声明。
+| 顺序 | 来源 | 说明 |
+| --- | --- | --- |
+| 1 | 环境变量 | `BUB_*`；设置类实例化时读取 |
+| 2 | 当前目录 `.env` | `find_dotenv(usecwd=True)`；不覆盖已经存在的环境变量 |
+| 3 | YAML 文件 | 默认 `~/.bub/config.yml`，由 `configure.load` 载入 |
+| 4 | 字段默认值 | 代码中的默认值 |
 
+`--workspace`、`--project`、`--enable-channel` 是**命令参数**，不是这张表里的统一设置层。它们分别改变 framework 工作区、插件项目路径和本次渠道选择。
 
-## 配置文件位置
+设置实例在进程内缓存。第一次 `ensure_config()` 之后，再修改 `os.environ` 通常不会影响已创建的实例；需要改变配置时启动新进程。
+
+## 配置文件 {#config-file}
 
 | 路径 | 来源 |
 | --- | --- |
-| `~/.bub/config.yml` | `src/bub/framework.py` 中的 `DEFAULT_CONFIG_FILE`。 |
-| 通过 `BubFramework(config_file=...)` 覆盖 | 构造函数参数。 |
+| `~/.bub/config.yml` | `src/bub/framework.py` 的 `DEFAULT_CONFIG_FILE` |
+| `BubFramework(config_file=Path(...))` | 构造参数，解析为绝对路径 |
 
-`~/.bub/` 同时是 `bub.home` 的默认取值，由 `BUB_HOME` 环境变量控制（`src/bub/__init__.py`）。`BUB_HOME` 影响命令历史、Tape 与托管插件项目等 `bub.home` 使用方；默认配置文件路径仍是 `~/.bub/config.yml`，除非嵌入方显式传入 `BubFramework(config_file=...)`。
+`BUB_HOME` 只改变 `bub.home`（历史、Tape、插件项目、code mode 文件等），**不会移动**默认的 `~/.bub/config.yml`。要使用另一份配置文件，显式传入 `config_file`。
 
-## Framework：运行时路径
+## 运行时路径 {#runtime-paths}
 
-| 环境变量 | 默认值 | YAML 字段 | 读取方 | 描述 |
-| --- | --- | --- | --- | --- |
-| `BUB_HOME` | `~/.bub` | 不适用 | `bub.home` (`bub/__init__.py`) | 命令历史、Tape 存储与托管插件项目的根目录；不会移动默认配置文件。 |
-| `BUB_PROJECT` | `BUB_HOME/bub-project`；未设置 `BUB_HOME` 时为 `~/.bub/bub-project` | 不适用 | `bub install` / `uninstall` / `update` 的 `--project` 选项 | 插件项目目录；首次 `install` 时通过 `uv init` 创建。 |
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `BUB_HOME` | `~/.bub` | `bub.home`；在 `.env` 中设置也会生效 |
+| `BUB_PROJECT` | `<BUB_HOME>/bub-project` | `bub install` / `uninstall` / `update` 的项目目录 |
 
-## Agent：`AgentSettings`
+`BUB_PROJECT` 由 Typer 读取。默认项目目录不存在时会自动创建；显式指向其他路径时，该目录应已存在。
 
-定义于 `src/bub/builtin/settings.py`:
+## 环境变量索引 {#env-index}
+
+每个 YAML 键都有对应的环境变量，环境变量优先。下表按前缀排列，`BUB_` 开头的名字都能直接设进 `.env`。
+
+| 变量 | 默认值 | YAML 路径 | 详情 |
+| --- | --- | --- | --- |
+| `BUB_HOME` | `~/.bub` | — | [运行时路径](#runtime-paths) |
+| `BUB_PROJECT` | `<BUB_HOME>/bub-project` | — | [运行时路径](#runtime-paths) |
+| `BUB_MODEL` | `openrouter:openrouter/free` | `model` | [AgentSettings](#agent-settings) |
+| `BUB_COMMAND_PREFIX` | `,` | `command_prefix` | [命令前缀](#command-prefix) |
+| `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | [模型与 fallback](#model-routing) |
+| `BUB_API_KEY` | 未设置 | `api_key` | [凭据解析](#credentials) |
+| `BUB_API_BASE` | 未设置 | `api_base` | [凭据解析](#credentials) |
+| `BUB_<PROVIDER>_API_KEY` | 未设置 | — | [凭据解析](#credentials) |
+| `BUB_<PROVIDER>_API_BASE` | 未设置 | — | [凭据解析](#credentials) |
+| `BUB_PROVIDERS` | `{}` | `providers` | [自定义提供商](#custom-providers) |
+| `BUB_MAX_STEPS` | `sys.maxsize` | `max_steps` | [AgentSettings](#agent-settings) |
+| `BUB_MAX_TOKENS` | `16384` | `max_tokens` | [AgentSettings](#agent-settings) |
+| `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | [AgentSettings](#agent-settings) |
+| `BUB_CLIENT_ARGS` | `{}` | `client_args` | [`client_args`](#client-args) |
+| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | [`completion_args`](#completion-args) |
+| `BUB_VERBOSE` | `0` | `verbose` | [AgentSettings](#agent-settings) |
+| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | [渠道选择](#channel-selection) |
+| `BUB_DEBOUNCE_SECONDS` | `1.0` | `debounce_seconds` | [ChannelSettings](#channel-settings) |
+| `BUB_MAX_WAIT_SECONDS` | `10.0` | `max_wait_seconds` | [ChannelSettings](#channel-settings) |
+| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | `active_time_window` | [ChannelSettings](#channel-settings) |
+| `BUB_STREAM_OUTPUT` | `false` | `stream_output` | [ChannelSettings](#channel-settings) |
+| `BUB_SPILL_THRESHOLD` | `4096` | `spill.threshold` | [SpillSettings](#spill-settings) |
+| `BUB_TELEGRAM_TOKEN` | `""` | `telegram.token` | [TelegramSettings](#telegram-settings) |
+| `BUB_TELEGRAM_ALLOW_USERS` | 未设置 | `telegram.allow_users` | [TelegramSettings](#telegram-settings) |
+| `BUB_TELEGRAM_ALLOW_CHATS` | 未设置 | `telegram.allow_chats` | [TelegramSettings](#telegram-settings) |
+| `BUB_TELEGRAM_PROXY` | 未设置 | `telegram.proxy` | [TelegramSettings](#telegram-settings) |
+| `CODEX_HOME` | `~/.codex` | — | [第三方登录](#login-env) |
+
+`BUB_MODEL`、`BUB_COMMAND_PREFIX`、`BUB_ENABLED_CHANNELS` 等平铺键写在 YAML 顶层；`spill:` 和 `telegram:` 里的键写成嵌套 section。`BUB_TELEGRAM_*` 对应 `telegram:` 下的同名字段，`BUB_SPILL_*` 对应 `spill:` 下的同名字段。
+
+## AgentSettings {#agent-settings}
+
+`src/bub/builtin/settings.py`
 
 ```python
+@config()
 class AgentSettings(Settings):
-    model_config = SettingsConfigDict(env_prefix="BUB_", env_parse_none_str="null", extra="ignore")
-    model: str = DEFAULT_MODEL  # "openrouter:openrouter/free"
+    model_config = SettingsConfigDict(
+        env_prefix="BUB_",
+        env_parse_none_str="null",
+        extra="ignore",
+    )
+    model: str = "openrouter:openrouter/free"
     command_prefix: str = ","
     fallback_models: list[str] | None = None
     api_key: str | dict[str, str] | None = None
     api_base: str | dict[str, str] | None = None
-    providers: dict[str, CustomProvider] = Field(default_factory=dict)
-    max_steps: int = Field(default=sys.maxsize, gt=0)
-    max_tokens: int = DEFAULT_MAX_TOKENS  # 16384
+    providers: dict[str, CustomProvider] = {}
+    max_steps: int = sys.maxsize
+    max_tokens: int = 16384
     model_timeout_seconds: int | None = None
-    client_args: dict[str, Any] = Field(default_factory=dict)
-    completion_args: dict[str, Any] = Field(default_factory=dict)
-    verbose: int = Field(default=0, ge=0, le=2)
+    client_args: dict[str, Any] = {}
+    completion_args: dict[str, Any] = {}
+    verbose: int = 0
 ```
 
-加载到 YAML 根节点。
-
-| 环境变量 | 默认值 | YAML 字段 | 描述 |
+| 环境变量 | 默认值 | YAML | 说明 |
 | --- | --- | --- | --- |
-| `BUB_MODEL` | `openrouter:openrouter/free` | `model` | 默认模型标识 (`provider:model_name`)。 |
-| `BUB_COMMAND_PREFIX` | `,` | `command_prefix` | 内置 Agent 与渠道的命令前缀。不能为空或包含空白字符，支持多字符前缀。 |
-| `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | 可选的回退模型标识列表。 |
-| `BUB_API_KEY` | 未设置 | `api_key` | 默认 API 密钥；也可以是按提供商索引的 JSON 对象。 |
-| `BUB_API_BASE` | 未设置 | `api_base` | 默认 API 基础 URL，或按提供商索引的映射。 |
-| `BUB_<PROVIDER>_API_KEY` | 未设置 | 不适用 | 按提供商划分的 API 密钥，例如 `BUB_OPENAI_API_KEY`。 |
-| `BUB_<PROVIDER>_API_BASE` | 未设置 | 不适用 | 按提供商划分的 API 基础 URL，例如 `BUB_OPENROUTER_API_BASE`。 |
-| `BUB_PROVIDERS` | `{}` | `providers` | 自定义命名的端点，每个用 `type` 指定走哪个 Republic 提供商的协议，并有自己的 `api_base` 和 `api_key`。见[自定义提供商](#自定义-provider)。 |
-| `BUB_MAX_STEPS` | 不限制 | `max_steps` | 单次 turn 内 Agent 循环的最大步数；配置时必须为正整数。 |
-| `BUB_MAX_TOKENS` | `16384` | `max_tokens` | 单次模型调用的最大 token 数；Codex 端点不传此参数。 |
-| `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | 单次调用的超时秒数。 |
-| `BUB_CLIENT_ARGS` | `{}` | `client_args` | 传递给底层模型客户端的额外关键字参数(JSON / 字典)。 |
-| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | 传递给每次模型调用的额外关键字参数，例如 `{"reasoning_effort":"high"}`；工具和 token 上限由 Bub 提供，优先级见下文。 |
-| `BUB_VERBOSE` | `0` | `verbose` | 日志详细级别(`0` 到 `2`)。 |
+| `BUB_MODEL` | `openrouter:openrouter/free` | `model` | 必须为 `provider:model` |
+| `BUB_COMMAND_PREFIX` | `,` | `command_prefix` | 非空、无空白；可以多字符 |
+| `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | JSON 数组；只用于配置的默认模型 |
+| `BUB_API_KEY` | 未设置 | `api_key` | 字符串，或提供商到密钥的映射 |
+| `BUB_API_BASE` | 未设置 | `api_base` | 字符串，或提供商到地址的映射 |
+| `BUB_<PROVIDER>_API_KEY` | 未设置 | — | 例如 `BUB_OPENAI_API_KEY` |
+| `BUB_<PROVIDER>_API_BASE` | 未设置 | — | 例如 `BUB_OPENROUTER_API_BASE` |
+| `BUB_PROVIDERS` | `{}` | `providers` | JSON 对象，定义自定义提供商 |
+| `BUB_MAX_STEPS` | `sys.maxsize` | `max_steps` | 单次 Run 的模型 Step 上限；须为正整数 |
+| `BUB_MAX_TOKENS` | `16384` | `max_tokens` | 默认输出上限；Codex 调用不传 |
+| `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | 一次模型调用（含流式）的秒数 |
+| `BUB_CLIENT_ARGS` | `{}` | `client_args` | JSON 对象，传给模型客户端 |
+| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | JSON 对象，传给每次生成 |
+| `BUB_VERBOSE` | `0` | `verbose` | `0` 为 INFO，`1` 为 DEBUG，`2` 为 TRACE |
 
-例如，配置 `command_prefix: "!"` 后，内置渠道使用 `!help`，`,help` 按普通文本处理。
-CLI 控制命令（`quit`、`exit`、`thinking`）、补全和 shell 模式使用同一前缀。
-Telegram 保留现有的原生斜杠命令过滤；前缀设为 `/` 时，使用 `/bub /help`。
+`client_args` 或 `completion_args` 为 `null` 时按 `{}` 处理。
 
-启动时 `ProviderSpecificEnvSource` 会扫描 `os.environ` 中匹配 `^BUB_(.+)_(API_KEY|API_BASE)$` 的变量，并将环境变量前缀解析为 Republic 提供商名称，例如 `AZURE_OPENAI` → `azure-openai`。
+### 命令前缀 {#command-prefix}
 
-Bub 使用 Republic 发起模型请求。ChatGPT 套餐访问使用 `codex:<model>`，OpenAI API 访问使用 `openai:<model>`。本地 Codex 登录不会改变 `openai:` 路由。提供商标识使用 Republic 的名称，例如 `google:` 和 `azure-openai:`。
+| 配置 | 效果 |
+| --- | --- |
+| `,` | `,help`、`,tape.info` 是命令 |
+| `!` | `!help` 是命令，`,help` 是普通文本 |
+| `/` | Telegram 中使用 `/bub /help` 进入命令 |
 
-`client_args` 接受 Republic 提供商参数，例如 `headers`、`api_format`、`timeout` 和 `max_retries`。Bub 提供解析后的连接设置（`api_key`、`api_base`），其他参数原样传递。协议默认值遵循 Republic。Chat Completions 端点需显式设置 `api_format: chat`。注入的 HTTP 客户端必须是 `httpx2.AsyncClient`，生命周期由调用方管理。
+CLI 的 `quit`、`exit`、`thinking`、补全和 shell 模式共用这个前缀。Telegram 还会处理自己的斜杠命令；两者不是同一个解析器。
 
-`completion_args` 接受 Republic 对话参数。Bub 提供 `tools` 和运行时 token 上限；会话中的 `reasoning_effort` 覆盖配置中的同名对话参数。Codex 端点不支持 token 上限，因此不附加运行时的该参数。Republic 负责协议转换，Anthropic 请求开启提示词缓存。
+### 凭据解析 {#credentials}
 
-提供商专用字段放入 `extra_body`，`client_args` 和 `completion_args` 都支持它。Republic 将提供商默认值与请求级附加字段深合并，请求级值优先，再覆盖编码后的请求体。这些显式协议字段可覆盖推理、token 上限等对话参数；Bub 原样传递。
+调用模型时按顺序取第一个非空值：
 
-提供商名称和协议能力以 [Republic 提供商目录](https://getrepublic.org/providers/)为准。自定义提供商实现需注册到 Republic。
+| 顺序 | 来源 |
+| --- | --- |
+| 1 | `providers.<name>.api_key` / `.api_base` |
+| 2 | 设置字段 `api_key` / `api_base`：映射中对应提供商的键，或字段本身是字符串时的值 |
+| 3 | `<PROVIDER>_API_KEY` / `_API_BASE`（无 `BUB_` 前缀），例如 `OPENAI_API_KEY` |
 
-### 自定义 provider
+`BUB_<PROVIDER>_API_KEY` / `_API_BASE` 不在上表第 3 步直接读取。启动时扫描 `^BUB_(.+)_(API_KEY|API_BASE)$`，写入设置字段的映射（优先级低于环境变量里的 `BUB_API_KEY` / `BUB_API_BASE` 和 YAML）。匹配 Republic 已注册提供商名的使用规范名，其他保留为小写名称。客户端还会带上 `env_prefix=BUB_<PROVIDER>`，供 Republic 在 Bub 传入的值为空时再读一次。
 
-模型前缀通常是 Republic 的提供商名，`api_key` / `api_base` 每个提供商只能放一个值。如果某个端点说的是 Republic 已支持的协议，但需要单独起名，就用 `providers`：比如公司代理、中转站或本地网关、自建服务，或同一厂商的第二个账号。每个名字都可以当模型前缀用，`type` 指定它走哪个 Republic 提供商的协议：
+若 YAML 或 `BUB_API_KEY` / `BUB_API_BASE` 是单个字符串，它会作为所有提供商的值，并挡住映射与第 3 步回退；需要按提供商分设时使用映射或 `BUB_<PROVIDER>_…`。
+
+### 模型与 fallback {#model-routing}
+
+`BUB_MODEL` 的主要前缀：
+
+| 前缀 | 用途 |
+| --- | --- |
+| `openai:` | OpenAI 或 OpenAI 兼容端点 |
+| `codex:` | ChatGPT 套餐登录 |
+| `openrouter:` | OpenRouter |
+| `anthropic:` / `google:` / `azure-openai:` | 各提供商原生协议 |
+| `ollama:` / `magpie:` | 本地服务 |
+
+完整列表以 [Republic providers](https://getrepublic.org/providers/) 为准。
+
+`fallback_models` 只在当前模型标识与配置的 `model` 相同时生效；显式传入 `model=` 或会话切换到其他模型时不会套用这组 fallback。fallback 会依次尝试**打开**请求，一旦流开始消费就不再重试。
+
+### `client_args` {#client-args}
+
+| 键 | 行为 |
+| --- | --- |
+| `headers` | 与默认 `User-Agent: bub/<version>` 合并；显式值优先 |
+| `api_format` | OpenAI 兼容的 Chat Completions 端点通常设为 `chat` |
+| `env_prefix` | 默认 `BUB_<PROVIDER>`，供客户端读取提供商专用环境变量 |
+| `timeout` / `max_retries` | 传给底层客户端；总调用超时仍看 `model_timeout_seconds` |
+| `api_key` / `api_base` | 由 Bub 覆盖，不从 `client_args` 读取 |
+
+注入的 HTTP 客户端必须是 `httpx2.AsyncClient`，且仍由调用方持有。
+
+### `completion_args` {#completion-args}
+
+| 键 | 规则 |
+| --- | --- |
+| `max_tokens` | 单次调用未指定时使用 `BUB_MAX_TOKENS`；Codex 会移除 |
+| `reasoning_effort` | 会话或单次 Turn 的值覆盖这里 |
+| `tools` | 由 Agent 根据当前 Step 填入 |
+| `extra_body` | 原样交给提供商；Anthropic 默认加入临时 cache control |
+
+调用级 `options` 会覆盖 `completion_args` 中的同名生成项，再交给提供商编码。`completion_args.max_tokens` 会被 `BUB_MAX_TOKENS` 或调用级 `max_tokens` 取代，不要把它当作独立上限。不同提供商会改写部分字段；如果某个参数必须稳定生效，优先使用 Bub 的显式设置，而不是依赖 `extra_body`。
+
+### 自定义提供商 {#custom-providers}
 
 ```yaml
 model: proxy:gpt-5.5
@@ -108,35 +200,26 @@ providers:
     api_key: sk-relay-...
 ```
 
-这里 `proxy:gpt-5.5` 和 `openai:gpt-5.5` 都走 OpenAI 协议，但发往不同的地址、用不同的密钥；`openai:` 仍使用它自己的 `api_key` / `api_base`。条目里没写的字段会回退到 `api_key` / `api_base` 以及 `BUB_<NAME>_API_KEY` / `BUB_<NAME>_API_BASE`。`type` 不是已知提供商时，加载配置会直接报错。
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `type` | 是 | 模仿的 Republic 提供商；未注册时配置校验失败 |
+| `api_base` | 否 | 缺省时回退到通用 `api_base` 或 `BUB_<NAME>_API_BASE` |
+| `api_key` | 否 | 缺省时回退到通用 `api_key` 或 `BUB_<NAME>_API_KEY` |
 
+`proxy:gpt-5.5` 与 `openai:gpt-5.5` 使用相同的协议，但地址和密钥可以不同。
 
-## Spill sidecar：`SpillSettings`
+## ChannelSettings {#channel-settings}
 
-定义于 `src/bub/builtin/spill.py`，由 builtin sidecar 插件注册：
-
-```python
-@config(name="spill")
-class SpillSettings(Settings):
-    model_config = SettingsConfigDict(env_prefix="BUB_SPILL_", extra="ignore", env_file=".env")
-    threshold: int = Field(default=4096, ge=0)
-```
-
-从 YAML 的 `spill:` section 加载。
-
-仅当本次模型调用的工具集合包含 `spill.read` 时，才会对新结果启用 spill；否则返回完整结果。
-
-| 环境变量 | 默认值 | YAML 字段（`spill.*`） | 描述 |
-| --- | --- | --- | --- |
-| `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | 成功工具调用的渲染结果超过该估算 token 数（每 token 按 4 字符估算）时写入 spill sidecar。设为 `0` 会停止产生新 spill，但 sidecar 仍保持挂载，已有 handle 和生命周期操作不受影响。 |
-
-## Channels：`ChannelSettings`
-
-定义于 `src/bub/channels/manager.py`:
+`src/bub/channels/manager.py`
 
 ```python
+@config()
 class ChannelSettings(Settings):
-    model_config = SettingsConfigDict(env_prefix="BUB_", extra="ignore", env_file=".env")
+    model_config = SettingsConfigDict(
+        env_prefix="BUB_",
+        extra="ignore",
+        env_file=".env",
+    )
     enabled_channels: str = "all"
     debounce_seconds: float = 1.0
     max_wait_seconds: float = 10.0
@@ -144,49 +227,194 @@ class ChannelSettings(Settings):
     stream_output: bool = False
 ```
 
-加载到 YAML 根节点。
-
-| 环境变量 | 默认值 | YAML 字段 | 描述 |
+| 环境变量 | 默认值 | YAML | 说明 |
 | --- | --- | --- | --- |
-| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | 逗号分隔的渠道名、`all`，或前缀为 `!` 的排除项。默认运行时集合包含所有已启用且不是 `Interface` 的渠道；显式列出且包含非 `Lifecycle` 渠道时，也会附着已启用的 `Lifecycle` 服务，除非被排除。可被 `bub gateway --enable-channel` 单次覆盖。 |
-| `BUB_DEBOUNCE_SECONDS` | `1.0` | `debounce_seconds` | 渠道设置 `needs_debounce=True` 时，同一渠道两次消息之间的最小间隔。 |
-| `BUB_MAX_WAIT_SECONDS` | `10.0` | `max_wait_seconds` | 防抖等待的硬上限。 |
-| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | `active_time_window` | 会话保持"活跃"以接受缓冲处理的窗口秒数。 |
-| `BUB_STREAM_OUTPUT` | `false` | `stream_output` | 是否实时把模型输出流式推送给渠道。`bub chat` 强制为 `True`;`bub gateway` 遵循该配置。 |
+| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | 逗号分隔、`all` 或 `!name` |
+| `BUB_DEBOUNCE_SECONDS` | `1.0` | `debounce_seconds` | 每条活跃消息后重置的批次等待 |
+| `BUB_MAX_WAIT_SECONDS` | `10.0` | `max_wait_seconds` | 只用于等待非活跃的跟进消息；不是批次总上限 |
+| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | `active_time_window` | 最后一条活跃消息后，非活跃消息可加入的秒数 |
+| `BUB_STREAM_OUTPUT` | `false` | `stream_output` | 网关是否向渠道推送流式事件；`bub chat` 强制为 `true` |
 
-## Telegram：`TelegramSettings`
+`BUB_MAX_WAIT_SECONDS` 的命名容易误解：它只在非活跃的跟进消息启动等待批次时使用。活跃消息批次仍由 `BUB_DEBOUNCE_SECONDS` 计时；持续收到活跃消息时，不会在 10 秒后强制结束批次。只有 `needs_debounce=True` 的渠道会走这套缓冲（例如 Telegram）。
 
-定义于 `src/bub/channels/telegram.py`:
+### 渠道选择 {#channel-selection}
+
+| `enabled_channels` | 结果 |
+| --- | --- |
+| 含 `all` | 所有 `enabled` 且非 `Interface` 的渠道，减去 `!name` |
+| 显式普通渠道 | 列表中 `enabled` 且未排除的渠道 |
+| 列表含非 Lifecycle | 再附加所有已启用的 `Lifecycle` |
+| 只有 Lifecycle | 只启动这些 Lifecycle |
+| 只有 `!name` | 没有包含项，启动失败 |
+
+`bub gateway --enable-channel` 会覆盖环境变量中的选择，可以重复传。`Interface` 需要显式选择，例如 `cli`、`acp-server`。更多示例见 [CLI › 渠道选择](/zh-cn/docs/reference/cli/#channel-selection)。
+
+## TelegramSettings {#telegram-settings}
+
+`src/bub/channels/telegram.py`
 
 ```python
 @config(name="telegram")
 class TelegramSettings(Settings):
-    model_config = SettingsConfigDict(env_prefix="BUB_TELEGRAM_", extra="ignore", env_file=".env")
+    model_config = SettingsConfigDict(
+        env_prefix="BUB_TELEGRAM_",
+        extra="ignore",
+        env_file=".env",
+    )
     token: str = ""
     allow_users: str | None = None
     allow_chats: str | None = None
     proxy: str | None = None
 ```
 
-加载到 YAML 的 `telegram:` 段。
-
-| 环境变量 | 默认值 | YAML 字段 (`telegram.*`) | 描述 |
+| 环境变量 | 默认值 | YAML | 说明 |
 | --- | --- | --- | --- |
-| `BUB_TELEGRAM_TOKEN` | `""` | `token` | Telegram bot token。启用该渠道必填。 |
-| `BUB_TELEGRAM_ALLOW_USERS` | 未设置 | `allow_users` | 逗号分隔的允许 Telegram 用户 ID 或用户名列表。留空表示不限制。 |
-| `BUB_TELEGRAM_ALLOW_CHATS` | 未设置 | `allow_chats` | 逗号分隔的允许 Telegram 聊天 ID 列表。留空表示不限制。 |
-| `BUB_TELEGRAM_PROXY` | 未设置 | `proxy` | 访问 Telegram API 的代理 URL，例如 `http://user:pass@host:port` 或 `socks5://host:port`。 |
+| `BUB_TELEGRAM_TOKEN` | `""` | `token` | 非空时才启用渠道 |
+| `BUB_TELEGRAM_ALLOW_USERS` | 未设置 | `allow_users` | 用户 ID 或用户名，逗号分隔；空表示不限 |
+| `BUB_TELEGRAM_ALLOW_CHATS` | 未设置 | `allow_chats` | 聊天 ID，逗号分隔；空表示不限 |
+| `BUB_TELEGRAM_PROXY` | 未设置 | `proxy` | `http://user:<口令>@host:port` 或 `socks5://host:port` |
 
-部署细节见 [渠道 › Telegram](/zh-cn/docs/app/channels/#telegram)。
+| 命中 | 普通消息 | `/start` |
+| --- | --- | --- |
+| 聊天 ID 不在 `allow_chats` | 静默忽略 | 回复固定拒绝文本 |
+| 用户 ID 和用户名都不在 `allow_users` | 回复 `Access denied.` | 不检查用户 |
+| 两者同时配置 | 必须同时满足 | 只检查聊天 |
 
-## Login：第三方环境变量
+部署和群聊行为见[网关 › Telegram](/zh-cn/docs/app/gateway/#telegram)。
 
-`bub login codex` 读取一个非 `BUB_*` 环境变量：
+## SpillSettings {#spill-settings}
 
-| 环境变量 | 默认值 | 读取方 | 描述 |
+`src/bub/builtin/spill.py`
+
+```python
+@config(name="spill")
+class SpillSettings(Settings):
+    model_config = SettingsConfigDict(
+        env_prefix="BUB_SPILL_",
+        extra="ignore",
+        env_file=".env",
+    )
+    threshold: int = 4096
+```
+
+| 环境变量 | 默认值 | YAML | 说明 |
 | --- | --- | --- | --- |
-| `CODEX_HOME` | `~/.codex` | `bub login codex`(`src/bub/builtin/auth.py`) | Codex OAuth `auth.json` 的存放目录。可被 `--codex-home` 覆盖。 |
+| `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | 估算 token 上限，按 4 字符/token 计算；`0` 关闭新 spill |
 
-## 插件自定义配置
+超过阈值的工具结果（包括失败结果）写入 `spill` sidecar，模型收到预览和读取句柄。负数不符合 `ge=0`，配置校验会失败。预览长度、分段大小等是实现常量，不是本配置项。
 
-插件可以通过 `@config(name="...")` 装饰器注册自己的 `Settings` 子类（参见 [构建 › 插件](/zh-cn/docs/app/plugins/)）。装饰器把类记录进 `CONFIG_MAP[name]`，然后由 `configure.validate` 验证、`ensure_config` 读取。YAML key 与注册名一致；环境变量遵循子类声明的 `env_prefix`。
+| 情形 | 行为 |
+| --- | --- |
+| 本次工具集没有 `spill.read` | 不创建新 spill，原样返回结果 |
+| 结果已经是 `spill.read` 输出 | 不再 spill |
+| 阈值为 `0` | 停止创建新 spill，已挂载的 sidecar 仍可读 |
+
+## 登录：第三方变量 {#login-env}
+
+| 变量 | 默认值 | 读取方 | 说明 |
+| --- | --- | --- | --- |
+| `CODEX_HOME` | `~/.codex` | `bub login codex` | `auth.json` 所在目录；`--codex-home` 可覆盖 |
+
+这些变量属于第三方 CLI，不是 `AgentSettings` 的字段。
+
+## 会话级设置 {#session-settings}
+
+下列项不是环境变量或 YAML 字段。它们由命令写入当前会话 Tape，下一次 Turn 和重启后仍会恢复：
+
+| 键 | 切换方式（默认前缀 `,`） | 作用 |
+| --- | --- | --- |
+| `model` | `,model openai:gpt-5.5` | 覆盖本会话默认模型；切换到其他模型时不套用配置的 `fallback_models` |
+| `reasoning_effort` | `,reasoning_effort high` | 覆盖 `completion_args.reasoning_effort` |
+| `code_mode` | `,code_mode enable=true` | 为本会话打开 / 关闭 code mode |
+
+实际前缀跟随 `command_prefix`。这些值从下一次 Turn 起生效，并持久化在会话 Tape 中。
+
+## 插件配置 {#plugin-settings}
+
+```python
+from pydantic_settings import SettingsConfigDict
+
+from bub import Settings, config
+
+
+@config(name="orders")
+class OrderSettings(Settings):
+    model_config = SettingsConfigDict(
+        env_prefix="BUB_ORDERS_",
+        extra="ignore",
+    )
+    timeout: int = 30
+```
+
+| 项 | 说明 |
+| --- | --- |
+| `@config(name="x")` | 注册到 `CONFIG_MAP["x"]`；同一 section 可以有多个类 |
+| YAML | 从顶层 `x:` 读取 |
+| `@config()` | 注册到根节点，读取顶层字段 |
+| 环境变量 | 由子类的 `env_prefix` 决定 |
+| 校验 | `configure.validate()` 用 YAML section 数据实例化每个已注册类 |
+| 读取 | `ensure_config(cls)` 返回进程内缓存实例 |
+
+| 函数 | 用途 |
+| --- | --- |
+| `configure.load(path)` | 读取 YAML，替换当前配置数据 |
+| `configure.get_config_data()` | 返回深拷贝；不含默认值和环境覆盖 |
+| `configure.merge(base, *updates)` | 递归合并，后者优先 |
+| `configure.save(path, data)` | 校验后写盘，自动创建父目录 |
+| `configure.get_value(path, default)` | 按点号路径读取已注册设置，再回退根节点 |
+
+插件设置通常同时支持 YAML、环境变量和 `.env`。如果插件文档只列出一个变量，不要假定它还有一个同义的 `BUB_` 名称。常见插件变量见[存储](/zh-cn/docs/integrations/storage/)与[可观测性](/zh-cn/docs/integrations/observability/)；追踪相关的 `OTEL_*` / `LOGFIRE_TOKEN` 也在可观测性页说明，不属于本页的 `Settings` 类。
+## 完整示例 {#example}
+
+下面是一份 `~/.bub/config.yml`，列出了当前所有可写的配置项。除 `model` 外的键都可以删掉，删掉即使用默认值。
+
+```yaml
+# ~/.bub/config.yml
+model: openrouter:openrouter/free
+command_prefix: ","
+fallback_models:
+  - openai:gpt-5.5
+api_key:
+  openrouter: sk-or-...
+api_base:
+  openrouter: https://openrouter.ai/api/v1
+providers:
+  proxy:
+    type: openai
+    api_base: https://llm-proxy.example.com/v1
+    api_key: sk-proxy-...
+max_steps: 100
+max_tokens: 16384
+model_timeout_seconds: 120
+client_args:
+  timeout: 60
+  max_retries: 2
+completion_args:
+  reasoning_effort: medium
+verbose: 0
+
+enabled_channels: all
+debounce_seconds: 1.0
+max_wait_seconds: 10.0
+active_time_window: 60.0
+stream_output: false
+
+spill:
+  threshold: 4096
+
+telegram:
+  token: "123456:abcdef..."
+  allow_users: "123456789,your_username"
+  allow_chats: "-1001234567890"
+  proxy: socks5://127.0.0.1:7890
+```
+
+不在这个文件里的设置：
+
+| 设置 | 位置 | 环境变量 |
+| --- | --- | --- |
+| `bub.home` | 运行时路径，不写 YAML | `BUB_HOME` |
+| 插件项目目录 | 命令参数 `--project` | `BUB_PROJECT` |
+| Codex 登录目录 | 第三方 CLI | `CODEX_HOME` |
+| 会话级 `model` / `reasoning_effort` / `code_mode` | 写入会话 Tape，用命令切换 | — |
+

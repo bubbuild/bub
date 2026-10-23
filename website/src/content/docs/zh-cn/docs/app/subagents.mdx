@@ -1,0 +1,101 @@
+---
+title: 子 Agent
+description: 使用内置 subagent 工具委派任务，选择会话，并限制子 Agent 的模型、工具和技能。
+---
+
+Bub 应用内置 `subagent` 工具，让当前 Agent 把一项任务交给另一个运行中的 Agent。子 Agent 使用同一个 `BubAgent` 的模型配置、工具和执行环境，但可以有自己的会话、模型和可用能力。
+
+它适合把研究、审查等相对独立的子任务与主对话分开。它不是安全沙箱，也不是一套独立的多 Agent 工作流系统。
+
+## 委派一个任务 {#delegate}
+
+启动 `bub chat`，明确要求使用子 Agent：
+
+```text
+Use the subagent tool to review the authentication flow.
+Give it a temporary session and allow only fs.read and bash.
+Do not modify files. Return findings with file paths.
+```
+
+父 Agent 会调用 `subagent`，子 Agent 完成自己的模型与工具循环，再把文本结果交回父 Agent。终端和 trace 中可以看到这次工具调用及其内部运行。
+
+让模型自行决定是否委派时，也可以在系统提示词或技能中说明适用条件，例如「代码审查先交给只读子 Agent，主 Agent 再根据审查结果修改代码」。
+
+## 选择会话 {#sessions}
+
+`session` 决定子 Agent 使用哪个会话：
+
+| 值 | 行为 | 适用场景 |
+| --- | --- | --- |
+| `temp`（默认） | 创建 `temp/<id>` 会话；新产生的 Tape 条目不合并回父会话 | 一次性研究、隔离上下文 |
+| `inherit` | 使用当前 `session_id` | 子任务记录需要进入同一会话历史 |
+| 其他字符串 | 使用指定的会话 ID | 需要之后继续或检查该子会话 |
+
+默认的临时会话只把最终 `output` 和 `errors` 返回给父 Agent，不保留子 Agent 的中间对话。使用 `inherit` 时，父、子运行可能向同一会话写入记录；需要清晰历史时，避免让它们并发运行，或改用独立的命名会话。
+
+会话 ID 还会与工作区一起生成 Tape 名称。命名会话与 `temp/` 的合并规则，和直接调用 `BubAgent.run_stream()` 时相同。
+
+## 限制模型、工具和技能 {#parameters}
+
+在 `prompt` 中写清子任务、预期结果和约束；需要隔离上下文、切换模型或缩小工具与技能范围时，再设置对应参数。完整参数、类型和默认值见[内置工具参考](/zh-cn/docs/reference/tools/#subagent)。
+
+工具名可以使用运行时名称或模型别名，例如 `fs.read` 和 `fs_read` 都可以。未知名称会报错。技能名不区分大小写。
+
+只读审查可以限制为：
+
+```json
+{
+  "prompt": "Review the authentication flow. Do not modify files.",
+  "session": "temp",
+  "allowed_tools": ["fs.read", "bash"],
+  "allowed_skills": []
+}
+```
+
+这段 JSON 展示 `subagent` 的工具参数，不是需要手动发送的命令格式。`allowed_skills: []` 会禁用技能发现；工具权限需要最小化时，应显式给出非空 `allowed_tools` 名单。
+
+`allowed_tools` 是本次子运行的真实工具筛选条件，但在聊天中，**参数仍由模型生成**。如果权限是安全边界，还应在 `BubAgent.run_stream()` 或 `before_tool_call` 中实施约束，不能只依赖自然语言要求。
+
+## 理解共享与隔离边界 {#boundaries}
+
+子 Agent 与父 Agent 的关系如下：
+
+| 内容 | 是否共享 |
+| --- | --- |
+| `BubAgent`、插件 hooks、模型凭据 | 共享 |
+| 工作区、`Environment`、文件和外部系统 | 共享 |
+| Turn state | 浅拷贝；嵌套的可变对象仍可能共享 |
+| 工具和技能 | 可通过参数限制 |
+| Tape | 由 `session` 决定 |
+| 最终文本与错误 | 返回给父 Agent |
+
+因此，临时会话隔离的是**对话记录和模型上下文**，不是文件、网络或进程副作用。子 Agent 修改的文件、发送的请求不会因为它使用 `temp` 而回滚。需要隔离执行时，应提供独立的[执行环境](/zh-cn/docs/app/tools/#environment)；需要审批时，使用[工具拦截 hooks](/zh-cn/docs/app/hooks/#control-a-model-or-tool-call)。
+
+工具结果为：
+
+```python
+{
+    "session_id": "temp/1a2b3c4d",
+    "output": "...",
+    "errors": [],
+}
+```
+
+`output` 只汇总文本增量，其他流事件仍可通过事件和 tracing 观察。子 Agent 的 trace 位于调用它的工具 span 下，见[可观测性](/zh-cn/docs/integrations/observability/)。
+
+## 什么时候使用 {#when-to-use}
+
+适合：
+
+- 把大量检索或阅读放在临时上下文中，只带回结论；
+- 让只读审查与后续修改分开；
+- 为某个子任务选择不同模型；
+- 给子任务更小的工具和技能范围。
+
+不适合直接替代：
+
+- 权限审批或安全沙箱；
+- 跨进程任务队列与分布式锁；
+- 自动角色编排、循环 planner 或长期记忆系统。
+
+这些需求可以在现有工具、事件、Tape 和渠道接口上构建，但需要宿主明确其生命周期和一致性规则。

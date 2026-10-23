@@ -14,7 +14,7 @@ Agent 的本质是一个循环：模型读取上下文并决定调用哪个工�
   <Card title="核心层" icon="puzzle">
     提供可自由组合的 Agent 能力：循环、工具、上下文、事件总线、模型客户端。
 
-    通过 [republic](https://getrepublic.org) 调用模型，仅依赖 [pydantic](https://pydantic.dev) 与 [loguru](https://github.com/delgan/loguru)。
+    通过 [republic](https://getrepublic.org) 调用模型；其余核心依赖为 [pydantic](https://pydantic.dev)、[loguru](https://github.com/delgan/loguru) 和 typing-extensions。
   </Card>
   <Card title="应用层" icon="rocket">
     在核心层之上给出开箱即用的 Harness：配置、插件、hooks、技能、消息渠道、网关。

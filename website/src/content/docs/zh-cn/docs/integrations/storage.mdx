@@ -1,60 +1,77 @@
 ---
 title: 用 SQLite 存储会话历史
-description: 通过存储插件，把 Bub 应用的会话历史从文件改存到 SQLite。
+description: 通过 SQLAlchemy 存储插件，把 Bub 的 Tape 从文件改存到 SQLite。
 ---
 
-通过 [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy)，把 Bub 应用的会话历史存入本地 SQLite 数据库。插件替换应用默认的文件存储，你仍可用 `,tape.info` 和 `,tape.search` 检查记录。
+Bub 默认把 Tape 存成 JSONL 文件。通过 [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy)，可以让应用改用 SQLite 或其他 SQLAlchemy 数据库；`,tape.info`、`,tape.search`、Tape 分支和 sidecar 的行为保持不变。
 
-本指南通过 `BUB_*` 设置为 Bub CLI 配置插件。在自己的 Python 程序中，可以构造 `SQLAlchemyTapeStore` 并直接传给 `core.Agent`，具体用法见[复用插件](/zh-cn/docs/sdk/reuse-plugins/)。[Tape 与上下文](/zh-cn/docs/concepts/tape/)说明两种用法共用的存储行为。
+本指南配置 CLI 使用的全局存储。也可以在自己的 Python 程序中构造 `SQLAlchemyTapeStore` 并传给 `core.Agent`，见[复用应用插件](/zh-cn/docs/sdk/reuse-plugins/)。
 
-## 前置条件
+:::caution
+更换存储不会迁移现有 JSONL Tape。切换到新数据库后，旧会话不会出现在 `tape.search` 或会话列表中，但原文件仍保留在 Bub home 的 `tapes/` 目录。需要旧历史时，先备份并在切换前完成迁移。
+:::
 
-你需要：
+## 开始之前 {#before-you-start}
 
-- Bub 已安装，且 `bub --help` 可以运行（参考 [安装](/zh-cn/docs/getting-started/install/)）。
-- 一个工作区，其中 `bub run "What tools do you have?"` 能调用已配置的模型。
-- `sqlite3` CLI，用于可选的数据库检查。
-
-## 1. 安装插件
-
-如果还没有配置过 `BUB_HOME`，先把它设成绝对路径：
+- [安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，且 `bub --help` 可用。
+- 一个工作区，其中 `bub run "What tools do you have?"` 能正常调用模型。
+- 可选：`sqlite3` 命令行，用于检查数据库。
+- 确认当前 `BUB_HOME` 指向你希望保存数据库的目录：
 
 ```bash
-export BUB_HOME="${BUB_HOME:-$HOME/.bub}"
+printf '%s\n' "${BUB_HOME:-$HOME/.bub}"
 ```
+
+## 1. 安装插件 {#install}
 
 ```bash
 bub install bub-tapestore-sqlalchemy@main
-```
-
-确认 Bub 加载了入口点：
-
-```bash
 bub hooks
 ```
 
+在输出中确认插件已加载：
+
 ```text
-provide_tape_store: builtin, tapestore-sqlalchemy
+provide_tape_store: tapestore-sqlalchemy, builtin
 ```
 
-## 2. 把 Bub 指向本地 SQLite 数据库
+高优先级实现在前。看到 `tapestore-sqlalchemy` 表示插件会覆盖内置文件存储；如果只有 `builtin`，检查插件是否装进了运行 `bub` 的同一个环境。
 
-插件默认使用 `<BUB_HOME>/tapes.db`。教程里换一个方便找到和清理的位置：
+## 2. 配置数据库 {#configure}
+
+插件默认使用：
+
+```text
+<BUB_HOME>/tapes.db
+```
+
+教程改用当前目录下的文件，便于检查和清理：
 
 ```bash
 export BUB_TAPESTORE_SQLALCHEMY_URL="sqlite+pysqlite:///$PWD/bub-tapes.db"
 ```
 
-这个 URL 会传给 SQLAlchemy。`sqlite+pysqlite` 方言使用 Python 标准库里的 SQLite 驱动，因此不需要额外安装数据库驱动。
+`sqlite+pysqlite` 使用 Python 标准库中的 SQLite 驱动，不需要额外安装驱动。URL 必须采用 SQLAlchemy 的格式；相对路径会相对于进程当前目录解析，因此这里使用 `$PWD` 构造绝对路径。
 
-## 3. 跑一个 turn
+可选配置：
 
-跑一个小的自然语言任务，然后让 Bub 检查刚刚写入的 Tape：
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `BUB_TAPESTORE_SQLALCHEMY_ECHO` | `false` | 打印 SQL，用于调试 |
+| `BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS` | `{}` | JSON 对象，传给 `create_engine(connect_args=...)` |
+
+把变量放进工作区 `.env` 可以让 `bub` 每次启动都读到。插件首次打开数据库时会创建表；已有数据库如果表结构不兼容，会明确报错，而不是尝试迁移。
+
+## 3. 写入并检查 Tape {#verify}
+
+运行一个 turn，再检查当前 Tape：
 
 ```bash
-bub run "Reply with one short sentence: hello from local SQLite."
+bub run "Reply with one short sentence: hello from SQLite."
 bub run ",tape.info"
 ```
+
+输出应包含 Tape 名称、条目数、锚点和 token 使用情况：
 
 ```text
 name: 86774b31b96845a4__0b871d5e50e7c192
@@ -62,46 +79,46 @@ entries: 9
 anchors: 1
 last_anchor: session/start
 entries_since_last_anchor: 8
-last_token_usage: 4106
-last_token_cache_hit_rate: 72.50%
 ```
 
-具体 Tape 名称和数量取决于你的工作区与模型调用，但命令应当输出 Tape 名称、至少一个锚点，以及 `session/start` 之后写入的条目。
+名称和数量取决于工作区与模型。关键是 `,tape.info` 能读到刚才的会话，说明写入和读取都经过新存储。
 
-## 4. 检查数据库
-
-用标准 CLI 打开 SQLite 文件：
+查看数据库中的 Tape：
 
 ```bash
-sqlite3 "$PWD/bub-tapes.db" "SELECT name, last_entry_id FROM tapes;"
+sqlite3 "$PWD/bub-tapes.db" \
+  "SELECT name, last_entry_id FROM tapes ORDER BY name;"
 ```
 
-```text
-86774b31b96845a4__0b871d5e50e7c192|9
-```
-
-`last_entry_id` 记录每条 Tape 当前写到的最高条目 ID。也可以检查锚点行：
+查看锚点：
 
 ```bash
 sqlite3 "$PWD/bub-tapes.db" \
   "SELECT entry_id, anchor_name, entry_date FROM tape_entries WHERE kind = 'anchor';"
 ```
 
-```text
-1|session/start|2026-05-15T01:27:57Z
-```
+`last_entry_id` 是每条 Tape 已分配的最高条目 ID。`tape_entries.payload` 与 `meta` 存 JSON；直接修改这些列会绕过 Bub 的 Tape 不变量，不建议手工编辑。
 
-Bub 现在将同样的 Tape 条目写入 SQLite，替代应用默认的文件存储。
+## 4. 使用其他数据库 {#other-databases}
 
-## 5. 扩展后端
+同一个插件接受任何 SQLAlchemy URL，但运行 `bub` 的环境必须安装对应方言和驱动。例如 PostgreSQL 需要额外安装驱动，远程数据库还需要连接参数和网络安全配置。
 
-`bub-tapestore-sqlalchemy` 通过 `BUB_TAPESTORE_SQLALCHEMY_URL` 配置，因此同一个插件也可以指向其他 SQLAlchemy 支持的数据库 URL，前提是运行 `bub` 的环境中安装了对应方言与驱动。不同驱动可能需要兼容性设置或特定处理；用于长期 Tape 之前，请先用本教程里的 `,tape.info` 流程验证后端行为。
+非 SQLite 后端应先用 `,tape.info`、`,tape.search` 和一个多步工具任务验证：
 
-如果你需要更专门的 SQLite 存储，可以参考 [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite)。它基于 `sqlite-vec`，并支持利用向量嵌入做 Tape 检索。
+- 条目 ID 是否单调递增；
+- 锚点查询是否正确；
+- 并发写入是否冲突；
+- 断线重连后 Tape 是否仍可读。
 
-## 清理
+默认 SQLite 连接会启用外键约束和 30 秒 busy timeout。其他驱动的行为取决于驱动本身。
+
+需要专门的 SQLite 向量检索时，可以参考 [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite)。
+
+## 清理 {#cleanup}
 
 ```bash
-unset BUB_TAPESTORE_SQLALCHEMY_URL BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS
+unset BUB_TAPESTORE_SQLALCHEMY_URL BUB_TAPESTORE_SQLALCHEMY_ECHO BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS
 rm -f "$PWD/bub-tapes.db"
 ```
+
+删除数据库会永久丢失其中的会话历史。删除插件或清除 `BUB_TAPESTORE_SQLALCHEMY_URL` 后，Bub 会回到默认文件存储，但不会自动导入 SQLite 中的数据。

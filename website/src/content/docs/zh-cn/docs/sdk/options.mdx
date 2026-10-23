@@ -1,15 +1,15 @@
 ---
 title: 配置 Agent
-description: 选择模型、指令，以及影响一次运行的其他选项。
+description: 配置模型、系统提示词、Tape、工具并发和模型步骤。
 ---
 
-这些选项决定 Agent 怎么跑。先在[基础 Agent](/zh-cn/docs/sdk/)的示例上跑通，再按需修改。
+本页说明 `core.Agent` 的常用构造参数和运行选项。完整示例见[在 Python 中运行 Agent](/zh-cn/docs/sdk/)。
 
-## 选择模型
+## 选择模型 {#choose-a-model}
 
-将 Republic chat model 传给 `Agent(model=...)`，可以设置默认模型；传给 `agent.run(model=...)`，则只用于当前运行。如果运行需要模型，而两处都没有提供，就会抛出 `ValueError`。模型的生命周期由你管理，请用 `async with` 包住使用它的运行过程。
+`Agent(model=...)` 设置默认模型，`agent.run(model=...)` 只覆盖当前运行。运行需要模型而两处都没有提供时，会抛出 `ValueError`。
 
-Republic 可以直接接收凭据和服务地址：
+Republic 模型由调用方管理生命周期：
 
 ```python
 async with republic.get_model(
@@ -21,21 +21,47 @@ async with republic.get_model(
             print(event.kind, event.data)
 ```
 
-`options` 是每次模型调用使用的 Republic chat options，Agent 会补入当前步骤的工具。模型通过 Republic 的参数或环境变量配置；`BUB_*` 设置用于 Bub 应用。
+`options` 是传递给每次模型调用的 Republic chat options，例如 `max_tokens`。Agent 会补入当前 Step 的工具。核心 SDK 不读取 `BUB_*` 配置；模型凭据通过 Republic 参数或其环境变量提供。
 
-如果需要自己的模型回退、凭据选择或超时策略，可以实现 `bub.core.ModelClient`：
+需要自定义回退、凭据选择或超时策略时，实现 `bub.core.ModelClient`：
 
-| 成员 | 要求 |
+| 成员 | 契约 |
 | --- | --- |
-| `spec` | 默认的 `provider:model` 字符串。 |
-| `max_tokens` | 默认输出 token 上限，或 `None`。 |
-| `open_stream(messages, *, spec, options)` | 异步上下文管理器，产出 `(provider_name, republic_stream)`。messages 是 `republic.Message` 对象，options 包含本步骤的工具。 |
+| `spec` | 默认 `provider:model` 字符串，只读属性 |
+| `max_tokens` | 默认输出 token 上限，或 `None` |
+| `open_stream(messages, *, spec, options)` | 异步上下文管理器，产出 `(provider_name, republic_stream)` |
 
-`LLMCallStarted` 处理器可以更改请求的模型。使用 Republic chat model 时，同一供应商内的切换复用当前客户端；切换到其他供应商会读取 Republic 环境配置创建客户端。需要不同策略时，提供自己的 `ModelClient`。
+`messages` 是 `republic.Message` 列表，`options` 包含本 Step 的工具。`LLMCallStarted` 可以改写 `request.model`：使用 Republic chat model 时，同一提供商内复用客户端；跨提供商时根据 Republic 环境配置创建客户端。其他策略由自定义 `ModelClient` 实现。
 
-## 设置指令
+## 传入文本与媒体 {#multimodal-input}
 
-`system_prompt` 接收文本、函数，或按顺序排列的两者。函数接收 `PromptContext`，支持同步和异步。Agent 在每轮运行的第一个模型步骤前渲染一次这些片段，忽略空结果，再用空行拼接；同一轮运行的后续步骤复用这段文本。
+`prompt` 是内容列表，可以混合字符串和 Republic 的图片、音频、视频对象：
+
+```python
+async with agent.run(
+    [
+        "Describe the main problem shown in this screenshot.",
+        republic.image("https://example.com/error.png", media_type="image/png"),
+    ],
+    model=model,
+    tape="ui-review",
+) as stream:
+    ...
+```
+
+本地文件可以读取为 bytes，并显式指定 MIME 类型：
+
+```python
+from pathlib import Path
+
+image = republic.image("image/png", data=Path("error.png").read_bytes())
+```
+
+音频和视频分别使用 `republic.audio()`、`republic.video()`。Bub 负责把媒体交给模型并保存可序列化的消息结构，不会替你转码或压缩；实际支持的格式、大小和模态取决于模型提供商。Tape 对媒体的记录边界见[Tape 与媒体](/zh-cn/docs/concepts/tape/#media)。
+
+## 组合系统提示词 {#system-prompt}
+
+`system_prompt` 接收文本、函数或两者的有序集合。函数接收 `PromptContext`，可以同步或异步返回字符串；Agent 在每个模型 Step 前渲染片段，忽略空结果并用空行拼接。
 
 ```python
 from bub.core import PromptContext
@@ -48,37 +74,66 @@ def customer(context: PromptContext) -> str | None:
     return None
 ```
 
-`PromptContext` 包含当前运行的 prompt、提供给模型的工具、模型标识、Tape、turn 状态和 Agent。`available_tools` 列出 Agent 注册的工具。使用 `agent.system_prompt.remove(section)` 可以移除片段。
+`PromptContext` 提供：
 
-传给运行的 `state` 是可变字典，由工具、提示词片段和事件处理器共用。哪些值需要保存、下次运行时如何恢复，由你决定，详见[本轮状态](/zh-cn/docs/concepts/tape/#state)。
-
-## 设置其他参数
-
-| 参数 | 默认值与用途 |
+| 字段 | 内容 |
 | --- | --- |
-| `model` | `None`。默认 Republic chat model 或 `ModelClient`。 |
-| `store` | 新建的 `InMemoryTapeStore`。也可以传入同步或异步存储。 |
-| `tools` | 空。接收 `Tool` 对象，以及 `republic.tools.WebSearch()` 等供应商执行的工具。 |
-| `system_prompt` | 空。每轮运行渲染一次的文本或函数片段。 |
-| `context` | `default_tape_context()`。选择哪些 Tape 记录进入模型消息。 |
-| `sidecars` | 空。与 Tape 一起挂载的附加存储能力。 |
-| `max_steps` | `sys.maxsize`。一次运行的模型步骤上限。 |
-| `max_tool_concurrency` | `None`，同一次模型响应中的工具调用可以全部并发。设为 `1` 时依次执行。不同运行之间的并发由应用协调。 |
-| `name` | `"agent"`。Agent trace span 使用的名称。 |
-| `command_prefix` | `None`。设置前缀后，可以通过文本命令直接调用工具。 |
+| `prompt` | 当前 Step 的新用户内容；延续对话时为空列表 |
+| `tools` | 当前 Step 提供给模型的工具 |
+| `available_tools` | Agent 注册的全部工具，未按 Step 筛选 |
+| `model` | 当前模型标识 |
+| `tape` | 当前运行的 Tape |
+| `state` | 本轮共享状态，即 `tape.context.state` |
+| `agent` | 当前 Agent |
 
-传入的 `Tool` 按名称保存在 `agent.tools` 中，供应商工具保存在 `agent.builtin_tools` 中。构造或更新 Agent 时，由你显式选择这些工具。
+`agent.system_prompt.remove(section)` 移除片段。传入的 `state` 不会自动持久化，跨运行恢复方式见[Tape 与状态](/zh-cn/docs/concepts/tape/#state)。
 
-## 定制步骤准备方式
+## 区分 Bub 工具与提供商工具 {#provider-tools}
 
-当工具选择需要自己的业务逻辑时，可以继承 `Agent` 并重写 `prepare_tools(tape, prompt)`。默认提供传入的工具，排除 `exposure="command"`。Agent 在每轮运行的第一个模型步骤前准备一次工具，之后每一步都提供同一组工具；调用不在其中的工具时，会重新执行 `prepare_tools(tape, None)` 来解析，因此运行中新变为可用的工具仍可调用。`tape.context.state` 就是本轮状态。
+传给 `Agent(tools=[...])` 的对象有两类：
 
-运行过程中到达的新消息和继续运行时的下一步提示，由两个循环事件控制：
+```python
+from republic.tools import WebSearch
 
-| 事件 | 发生时机 | 支持的操作 |
+agent = Agent(tools=[add_tool, WebSearch()])
+```
+
+- `add_tool` 是 Bub `Tool`，由 Bub 在宿主进程执行，经过事件、渲染和并发控制，保存在 `agent.tools`。
+- `WebSearch()` 是 Republic 提供商工具，随请求交给模型提供商执行，保存在 `agent.builtin_tools`。
+
+提供商工具不经过 Bub 的 `ToolExecutor`，因此不适用 Bub 的工具拦截、延迟加载或 code mode 分组。可用工具和行为以 Republic 及提供商支持为准。
+
+## 构造参数 {#agent-options}
+
+下表列出常用参数；完整参数、默认值和类型契约见 [Python API](/zh-cn/docs/reference/python-api/#agent)。
+
+| 参数 | 默认值 | 用途 |
 | --- | --- | --- |
-| `MessagesPending` | 每个步骤构建模型请求时，以及步骤结束且没有调用工具时。 | 向 `event.messages` 追加内容；它们在下一个提示词之前发送，并一起记录。步骤结束时提供的消息会让运行继续。 |
-| `StepFinished` | 步骤结束。`status == "continue"` 时运行会再走一步。 | 设置 `next_prompt` 为下一步添加用户消息；为 `None` 时直接继续对话。`event.prompt` 是本步骤的提示词，`event.stream` 保存本次运行的用量。 |
+| `model` | `None` | Republic chat model 或 `ModelClient` |
+| `store` | 新的 `InMemoryTapeStore` | 同步或异步 Tape 存储 |
+| `tools` | `()` | Bub 工具与提供商执行的工具 |
+| `system_prompt` | `()` | 每个 Step 渲染的文本或函数片段 |
+| `context` | `default_tape_context()` | Tape 条目到模型消息的选择策略 |
+| `command_prefix` | `None` | 文本命令前缀；设置后可直接调用工具 |
+
+`agent.tools` 按名称保存 `Tool`，`agent.builtin_tools` 保存提供商工具。不同 Run 之间的并发不受 `max_tool_concurrency` 控制，需要宿主协调。
+
+## 高级运行控制 {#advanced-run-control}
+
+以下入口用于需要自行控制 Agent 循环的场景；常规运行只需使用前面的构造参数和 `agent.run()`。
+
+### 按步骤选择工具 {#customize-how-a-step-is-prepared}
+
+需要按业务规则筛选工具时，继承 `Agent` 并覆写 `prepare_tools(tape, prompt)`。默认实现提供传入的工具，只排除 `exposure="command"`；`tape.context.state` 是本轮状态。
+
+### 添加运行中的消息 {#pending-messages}
+
+引导（Steering）把新消息加入当前 Run，排队（Queue up）则把消息留给后续 Turn。`MessagesPending` 和 `StepFinished` 提供前一种入口；应用的 `follow_up` 准入决策负责后一种。CLI 的操作方式见[在运行时引导 Agent](/zh-cn/docs/app/terminal/#steering)。
+
+| 事件 | 触发时机 | 用法 |
+| --- | --- | --- |
+| `MessagesPending` | Step 构建请求时；尚未到达最后一个允许 Step 且无工具调用时 | 向 `event.messages` 追加用户内容；步骤结束时有新消息会继续 Run |
+| `StepFinished` | Step 结束 | `status == "continue"` 时设置 `next_prompt`；`None` 表示直接延续对话 |
 
 ```python
 from bub.core.events import MessagesPending, StepFinished
@@ -97,4 +152,13 @@ def check_results(event: StepFinished) -> None:
         event.next_prompt = ["Check the tool results before answering."]
 ```
 
-`agent.session(name, state=...)` 打开一个由你管理生命周期的 Tape。把它返回的 `Tape` 对象（不是名称）传给 `agent.run_on(tape, prompt, model=...)` 或 `agent.run_once(prompt, model=..., tape=<Tape>)`。`run_on()` 返回的流需要由你关闭；`run_once()` 只产出一个模型步骤，适合自己驱动循环的场景。
+最后一个允许的 Step 后不会再次发出 `MessagesPending`；仍需继续时，运行以 `max_steps_reached` 错误结束。
+
+### 自行管理 Tape 和步骤 {#manual-runs}
+
+`agent.session(name, state=...)` 打开由调用方管理生命周期的 Tape 分支。将返回的 `Tape` 对象传给 `run_on()` 或 `run_once()`：
+
+- `await agent.run_on(tape, prompt, model=...)` 启动完整模型循环并返回流，调用方必须关闭。
+- `agent.run_once(prompt, model=..., tape=tape)` 只产出一个模型 Step，适合自行实现循环。
+
+两者接收的是 `Tape` 对象，不是 Tape 名称。

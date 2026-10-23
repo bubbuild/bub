@@ -1,120 +1,133 @@
 ---
 title: 接入本地 llama.cpp 模型
-description: 启动本地 llama.cpp 服务，并把 Bub 配置为使用这个 OpenAI 兼容模型后端。
+description: 启动本地 llama.cpp 服务，并让 Bub 通过 OpenAI 兼容端点调用 GGUF 模型。
 ---
 
-让 Bub 应用调用本机的 `llama.cpp` 服务。本指南启动一个 GGUF Gemma 模型，检查其 OpenAI 兼容端点，再设置应用的模型地址。
+本指南用 `llama.cpp` 在本机提供 OpenAI 兼容 API，再让 Bub 应用把模型请求发到这个端点。模型本身、推理速度和显存占用仍由 `llama.cpp` 决定；Bub 的 turn、工具和 Tape 行为不变。
 
-示例使用 [`ggml-org/gemma-4-E2B-it-GGUF`](https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF)，这是 Google Gemma 4 E2B 经过指令微调的模型的 GGUF 版本。Google 的 [Gemma 4 overview](https://deepmind.google/models/gemma/gemma-4/) 把 E2B 和 E4B 描述为适合移动和边缘设备的高效模型；[Gemma 4 model card](https://ai.google.dev/gemma/docs/core/model_card_4) 记录了能力、限制和负责任使用相关注意事项。
+示例模型是 [`ggml-org/gemma-4-E2B-it-GGUF`](https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF) 的 Q8 量化版本。也可以换成任何 `llama.cpp` 能加载的 GGUF 模型，只需同步修改文件名和模型别名。
 
-## 开始前
+## 开始之前 {#before-you-start}
 
-你需要：
-
-- Bub 已安装，且 `bub --help` 可以运行。
-- 已安装 Docker。
-- `~/.cache/llama.cpp/` 下有 GGUF 模型文件。
-- 系统内存足够运行所选量化版本。Gemma 4 E2B 的 Q8 GGUF 文件约 5 GB；实际运行内存还会受上下文长度、批处理、GPU 卸载等设置影响。
-
-本教程使用下面两个文件名：
+- 已[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，且 `bub --help` 可用。
+- 已安装 Docker，并确认 `docker version` 能连接守护进程。
+- 至少有 8 GB 可用内存；Q8 模型文件约 5 GB，运行时还要留出上下文和批处理空间。
+- 已从 Hugging Face 模型页的 **Files** 下载量化文件到 `~/.cache/llama.cpp/`。本指南使用：
 
 ```text
 ~/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_gemma-4-E2B-it-Q8_0.gguf
 ~/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_mmproj-gemma-4-E2B-it-Q8_0.gguf
 ```
 
-如果你的文件名不同，需要相应修改 Docker 命令里的 `-m` 和 `--mmproj` 路径。
+文件名以仓库实际内容为准。`mmproj` 是图片输入所需的多模态投影；只处理文本时可以省略。
 
-## 1. 启动本地 server
+## 1. 启动 llama-server {#start-server}
 
-先为本地服务设置一个 API 密钥：
+先设置一个仅用于本机连接的 API key：
 
 ```bash
-export LLAMA_API_KEY="${LLAMA_API_KEY:-test}"
+export LLAMA_API_KEY="local-$(openssl rand -hex 8)"
+echo "$LLAMA_API_KEY"
 ```
 
-启动 `llama-server`：
+启动容器：
 
 ```bash
-sudo docker run --rm -it \
-  --security-opt label=disable \
+docker run --rm -it \
   -p 127.0.0.1:8080:8080 \
-  -v "$HOME/.cache/llama.cpp:/root/.cache/llama.cpp:ro" \
-  ghcr.m.daocloud.io/ggml-org/llama.cpp:full \
-  --server \
+  -v "$HOME/.cache/llama.cpp:/models:ro" \
+  ghcr.io/ggml-org/llama.cpp:server \
   --host 0.0.0.0 \
   --port 8080 \
   --api-key "$LLAMA_API_KEY" \
-  -m /root/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_gemma-4-E2B-it-Q8_0.gguf \
-  --mmproj /root/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_mmproj-gemma-4-E2B-it-Q8_0.gguf
+  --alias gemma-4-E2B-it \
+  -m /models/ggml-org_gemma-4-E2B-it-GGUF_gemma-4-E2B-it-Q8_0.gguf \
+  --mmproj /models/ggml-org_gemma-4-E2B-it-GGUF_mmproj-gemma-4-E2B-it-Q8_0.gguf
 ```
 
-Docker 端口绑定到 `127.0.0.1`，因此这个服务只在本机可访问。只有在明确需要其他机器访问时，才调整端口绑定。
+说明：
 
-在 SELinux 系统上，`--security-opt label=disable` 可以避免容器读取 `~/.cache/llama.cpp` 下模型文件时遇到 bind mount 权限问题。如果只需要文本输入，可以删除 `--mmproj` 那一行。
+- `-p 127.0.0.1:8080:8080` 只监听宿主机回环地址，其他机器无法直接访问。
+- `--alias` 是 `/v1/chat/completions` 中使用的模型名。
+- 容器内的 `/models` 映射到宿主机只读的模型缓存。
+- 在 SELinux 强制模式下，若容器无法读取挂载文件，可给 `docker run` 加 `--security-opt label=disable`。
+- 没有可用 GPU 时，`llama.cpp` 会回退到 CPU；日志中可能出现设备或后端警告，但服务仍可用于验证接入。
+- 日志出现 `server is listening on` 后再继续。首次加载大模型可能需要几十秒。
 
-如果 Docker 输出 `no ROCm-capable device is detected`，容器仍然可能回退到 CPU 推理。这足够验证接入路径，但响应速度会更慢。
+显式暴露到 `0.0.0.0` 会改变安全边界。不要在没有认证和防火墙的情况下把推理端点开放到公网。
 
-## 2. 测试 OpenAI-compatible API
+## 2. 验证 OpenAI 兼容端点 {#verify-endpoint}
 
-在另一个终端发送一个小 chat 请求：
+在同一个 shell 中请求模型列表：
 
 ```bash
-curl http://localhost:8080/v1/chat/completions \
+curl -sS http://127.0.0.1:8080/v1/models \
+  -H "Authorization: Bearer $LLAMA_API_KEY"
+```
+
+再发送一个 chat 请求：
+
+```bash
+curl -sS http://127.0.0.1:8080/v1/chat/completions \
   -H "Authorization: Bearer $LLAMA_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemma-4-E2B-it",
-    "messages": [
-      {"role": "user", "content": "hello"}
-    ]
+    "messages": [{"role": "user", "content": "Reply with one word: hello"}],
+    "max_tokens": 16
   }'
 ```
 
-正常工作的服务会返回一个 `chat.completion` JSON 对象，其中包含助手消息。
+成功时返回 `chat.completion` JSON，包含 `choices[0].message.content`。如果返回 `401`，检查 curl 和容器是否使用同一个 `LLAMA_API_KEY`；如果返回模型不存在，检查 `--alias`。
 
-## 3. 配置 Bub
+`LLAMA_API_KEY` 只存在于启动它的 shell。新终端需要重新 `export` 相同的值，或在命令中直接写测试值。
 
-把 Bub 指向本地服务：
+## 3. 配置 Bub {#configure-bub}
+
+在同一 shell 中设置模型端点和凭据：
 
 ```bash
-export BUB_API_BASE="http://localhost:8080/v1"
-export BUB_API_KEY="$LLAMA_API_KEY"
+export BUB_OPENAI_API_BASE="http://127.0.0.1:8080/v1"
+export BUB_OPENAI_API_KEY="$LLAMA_API_KEY"
 export BUB_MODEL="openai:gemma-4-E2B-it"
 ```
 
-运行一个 Bub turn：
+`BUB_OPENAI_*` 只影响 `openai` 提供商。若所有提供商都使用同一个兼容端点，也可以使用通用的 `BUB_API_BASE` 和 `BUB_API_KEY`；提供商专用变量优先。
+
+运行一个 turn：
 
 ```bash
 bub run "Reply with one short sentence: hello from a local model."
 ```
 
-现在 Bub 会通过本地 OpenAI 兼容端点进行模型调用。应用 turn 流程、渠道、工具和 Tape 都不需要改变。
+输出应以 `[cli:local]` 开头并包含模型回复。请求路径为：
 
-```bash
-~/bubbuild/bub$ bub run "Reply with one short sentence: hello from a local model."
-2026-05-19 01:32:40.601 | INFO     | bub.builtin.agent:_run_tools_with_auto_handoff:271 - loop.step step=1 tape=becda04eb9f7369c__0b871d5e50e7c192 model=openai:gemma-4-E2B-it
-2026-05-19 01:32:46.747 | INFO     | bub.builtin.store:fork:122 - Merged 7 entries into tape "becda04eb9f7369c__0b871d5e50e7c192"
-[cli:local]
-hello from a local model.
+```text
+Bub turn -> openai provider -> http://127.0.0.1:8080/v1 -> llama.cpp
 ```
 
-## 4. 更换工作负载前检查模型文档
+工具调用能否正常工作取决于模型的指令遵循能力，而不是端点类型。先用简单问题验证连接，再测试工具和较长上下文。
 
-当你切换模型或量化版本时，先检查上游模型文档：
+## 4. 调整性能与上下文 {#tune}
 
-- Hugging Face GGUF card 会列出支持的本地运行方式和可用量化文件。
-- Gemma 4 model card 会说明输入模态、上下文窗口、预期用途、许可和风险。
-- 用有代表性的任务评估模型，检查回答中的错误、偏见和安全问题。
+根据硬件调整启动参数：
 
-如果任务更看重延迟、隐私、成本或离线能力，可以先尝试小型本地模型。面向用户上线前，用实际任务确认回答质量。
+| 目标 | 参数或做法 |
+| --- | --- |
+| 减少内存 | 换更小的量化文件，例如 Q4_K_M |
+| 增加上下文 | 设置 `--ctx-size`；这会增加 KV cache 内存 |
+| 使用 GPU | 按 `llama.cpp` 镜像文档增加 GPU 设备与卸载层数 |
+| 限制并发 | 设置 `--parallel`，并评估每个槽位的上下文预算 |
+| 只做文本 | 删除 `--mmproj` 和对应模型文件 |
 
-## 清理
+修改参数后重启容器，并用 `/v1/models` 和一次 `bub run` 重新验证。不要把模型的上下文窗口设置得超过 Bub 实际需要的长度；工具定义和 Tape 也会占用 token。
 
-用 `Ctrl-C` 停止 Docker 容器。
+## 清理 {#cleanup}
 
-如果要恢复到之前的提供商，清理 Bub 覆盖配置：
+在运行容器的终端按 `Ctrl-C`。然后清除 Bub 的本地覆盖：
 
 ```bash
-unset BUB_API_BASE BUB_API_KEY BUB_MODEL LLAMA_API_KEY
+unset BUB_API_BASE BUB_API_KEY BUB_OPENAI_API_BASE BUB_OPENAI_API_KEY BUB_MODEL LLAMA_API_KEY
 ```
+
+Tape 和会话历史仍保留在 Bub 数据目录中。切换到其他模型不会删除它们。

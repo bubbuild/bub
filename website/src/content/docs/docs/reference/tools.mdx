@@ -1,0 +1,238 @@
+---
+title: Built-in tools
+description: Parameters, defaults, and results for Bub application's built-in tools and text commands.
+---
+
+This page lists the tools and commands included with the Bub application. Model-facing names use underscores, so `fs.read` becomes `fs_read`; text commands keep the original name, as in `,fs.read path=README.md`. Plugins can add or replace tools, so use `,help`, `,tool.describe`, and `bub hooks` to inspect the actual collection.
+
+Arguments can be positional or use `key=value`. Write booleans as `true` / `false` and lists as JSON strings. Quote values containing spaces:
+
+```text
+,bash command='printf "hello world"' timeout_seconds=10
+,tool.describe names='["web.fetch", "tape.search"]'
+```
+
+File, Shell, and code mode operations use the session's `Environment`. By default, they run on the host, not in a security sandbox.
+
+## Processes {#processes}
+
+### `bash` {#bash}
+
+```text
+bash(command, cwd=None, timeout_seconds=30, background=False)
+```
+
+| Parameter | Description |
+| --- | --- |
+| `command` | Shell command to execute |
+| `cwd` | Working directory; relative paths are resolved by the current environment |
+| `timeout_seconds` | Time to wait in the foreground; on timeout, the command continues in the background and returns a `shell_id` |
+| `background` | Start in the background immediately; this mode ignores `timeout_seconds` |
+
+A non-zero exit status produces a tool error and preserves the output. An empty foreground result returns `(no output)`.
+
+### `bash.output` {#bash-output}
+
+```text
+bash.output(shell_id, offset=0, limit=None)
+```
+
+Read the output buffer by character position. `offset` is clamped between `0` and the current output length; `limit` bounds the characters returned. The result includes `status`, `exit_code`, `output`, and `next_offset` for the following read. `exit_code` is `null` while the process is running.
+
+```text
+,bash.output shell_id=bsh-12345678 offset=0 limit=4000
+```
+
+### `bash.kill` {#bash-kill}
+
+```text
+bash.kill(shell_id)
+```
+
+Terminate a background process and return its final status and exit code. You can also call it after the process has finished to read its status.
+
+## Files {#files}
+
+### `fs.read` {#fs-read}
+
+```text
+fs.read(path, offset=0, limit=None)
+```
+
+Read UTF-8 text. `offset` is a zero-based line number and `limit` is the maximum number of lines, not characters. Omit both to return the whole file.
+
+### `fs.write` {#fs-write}
+
+```text
+fs.write(path, content)
+```
+
+Write the complete text and create missing parent directories. Existing files are overwritten; this operation does not append or apply patches.
+
+### `fs.edit` {#fs-edit}
+
+```text
+fs.edit(path, old, new, start=0)
+```
+
+Search from the zero-based `start` line and replace every `old` occurrence in that range with `new`. A missing match produces an error. This is literal text replacement, not syntax-aware code editing.
+
+## Web {#web}
+
+### `web.fetch` {#web-fetch}
+
+```text
+web.fetch(url, headers=None, timeout=10)
+```
+
+Make an HTTP GET request. The default `Accept: text/markdown` header can be overridden through `headers`. `timeout` is the total request time in seconds. The result contains the final `url`, HTTP `status`, `content_type`, and response body; unsuccessful statuses raise tool errors. It fetches one URL and does not provide web search, crawling, or browser interaction.
+
+## Skill and tool discovery {#discovery}
+
+### `skill` {#skill}
+
+```text
+skill(name=None)
+```
+
+Without `name`, list skills available in the current context. With a name, return its location and body. A missing skill returns `(no such skill)` without calling a model.
+
+### `tool.describe` {#tool-describe}
+
+```text
+tool.describe(names)
+```
+
+`names` is a list of runtime names or model aliases. The result contains each tool's name, description, and parameter schema, with unrecognized names under `unknown`. Deferred definitions become callable from the next Step; their loading is recorded in the current Tape.
+
+## Tape {#tape}
+
+### `tape.info` {#tape-info}
+
+No parameters. Return the Tape name, entry and anchor counts, latest anchor, entries after it, and the latest recorded token usage and cache hit rate. The last two values are `None` when the provider does not return those details.
+
+### `tape.search` {#tape-search}
+
+```text
+tape.search(query, limit=20, start=None, end=None, kinds=["message", "tool_result"])
+```
+
+| Parameter | Description |
+| --- | --- |
+| `query` | Case-insensitive substring match against the JSON text of entry kind, date, payload, and meta |
+| `limit` | Maximum number of matching entries to read |
+| `start` / `end` | Optional inclusive ISO date or time bounds |
+| `kinds` | Entry kinds: `message`, `tool_call`, `tool_result`, `event`, `anchor`, `system`, or `error` |
+
+The result contains `matches` and a `filtered` count. Output produced by the search command itself is filtered so repeated searches do not recursively include earlier results.
+
+The builtin application uses `FuzzyFileTapeStore`: text searches walk backward from the newest entry, deduplicate identical content, and try fuzzy matches in addition to direct substrings. Queries shorter than three characters use substring matching only. `kinds` and dates are filtered first, then `limit` applies to the deduplicated results. Other Tape backends define their own fuzzy matching and ordering.
+
+### `tape.anchors` {#tape-anchors}
+
+No parameters. List anchor names in recording order, or return `(no anchors)`.
+
+### `tape.handoff` {#tape-handoff}
+
+```text
+tape.handoff(name="handoff", summary="")
+```
+
+Write an anchor that moves the default context start to this point. `summary` is stored only in the anchor's `state.summary`; Bub does not generate a summary or inject it into later prompts. Earlier entries remain in storage.
+
+### `tape.reset` {#tape-reset}
+
+```text
+tape.reset(archive=false)
+```
+
+Clear the current Tape. With `archive=true`, first archive the main Tape and sidecars into the backup directory under Bub home's `tapes/`; the default does not archive. Reset creates a new `session/start` anchor and does not automatically restore backups.
+
+## Subagents {#subagent}
+
+### `subagent` {#subagent-tool}
+
+```text
+subagent(prompt, model=None, session="temp", allowed_tools=None, allowed_skills=None)
+```
+
+| Parameter | Type and default | Description |
+| --- | --- | --- |
+| `prompt` | String or content-block list, required | Initial input for the subagent |
+| `model` | `str \| None`, default `None` | `provider:model` for this child run; by default, uses the current configuration |
+| `session` | `str`, default `"temp"` | Session strategy for the subagent |
+| `allowed_tools` | `list[str] \| None`, default `None` | Tools available to the subagent; by default, allows the parent Agent's tools except `subagent` |
+| `allowed_skills` | `list[str] \| None`, default `None` | Skills discoverable by the subagent; unrestricted by default |
+
+Tool names can be runtime names or model aliases, so both `fs.read` and `fs_read` work; unknown names produce an error. Skill names are case-insensitive, and `allowed_skills=[]` disables skill discovery. To minimize tool access, explicitly provide a non-empty `allowed_tools` list.
+
+`session` determines which session the subagent uses:
+
+| Value | Behavior |
+| --- | --- |
+| `temp` | Creates a `temp/<id>` session; new Tape entries are not merged back into the parent session |
+| `inherit` | Uses the current `session_id`, recording the child task in the same session history |
+| Any other string | Uses the specified session ID, allowing the child session to be resumed or inspected later |
+
+The default temporary session returns only final `output` and `errors` to the parent Agent and does not retain the subagent's intermediate conversation. With `inherit`, parent and child runs may write to the same session; avoid running them concurrently when a clear history matters, or use a separate named session. The session ID and workspace together generate the Tape name, with the same merge rules as calling `BubAgent.run_stream()` directly.
+
+A read-only review can be restricted as follows:
+
+```json
+{
+  "prompt": "Review the authentication flow. Do not modify files.",
+  "session": "temp",
+  "allowed_tools": ["fs.read", "bash"],
+  "allowed_skills": []
+}
+```
+
+This JSON shows the `subagent` tool arguments, not a command format to send manually. `allowed_tools` is the actual tool filter for the child run, but in chat, **the model still generates the arguments**. If permissions are a security boundary, also enforce constraints in `BubAgent.run_stream()` or `before_tool_call`; do not rely only on natural-language instructions.
+
+The tool returns `session_id`, collected text `output`, and `errors`:
+
+```python
+{
+    "session_id": "temp/1a2b3c4d",
+    "output": "...",
+    "errors": [],
+}
+```
+
+`output` collects only text deltas; other stream events remain observable through events and tracing. The subagent shares its `BubAgent`, plugin hooks, model credentials, workspace, `Environment`, files, and external systems with the parent Agent. Turn state is a shallow copy, so nested mutable objects may still be shared. A temporary session isolates **conversation records and model context**, not file, network, or process side effects; using `temp` does not roll back those effects. To isolate execution, provide a separate [execution environment](/docs/app/tools/#environment); for approval, use [tool interception hooks](/docs/app/hooks/#control-a-model-or-tool-call).
+
+See [Subagents](/docs/app/subagents/) for complete usage examples.
+
+## Code mode and large results {#code-and-spill}
+
+### `run_code` {#run-code}
+
+```text
+run_code(code, timeout_seconds=120)
+```
+
+Execute Python in code mode. Call tools with `await tools.<name>(key=value)` using keyword arguments. Only printed output and explicitly attached media enter the result. See [Custom tools and code mode](/docs/sdk/tools/) for complete usage.
+
+### `spill.read` {#spill-read}
+
+```text
+spill.read(handle, cursor=0, count=1, from_end=false)
+```
+
+Read a large tool result moved into the spill sidecar. `handle` comes from the original tool output, `cursor` is the chunk position, and `count` can read at most four chunks per call. With `from_end=true`, read backward from the end. Use `next_cursor` for the following page; `complete=true` marks the boundary in that direction.
+
+New spills are created only when the current model tools include `spill.read`. Configure the threshold with [`BUB_SPILL_THRESHOLD`](/docs/reference/settings/#spill-settings). Setting it to `0` stops new spills but leaves existing results readable.
+
+## Session commands {#session-commands}
+
+These tools have `exposure="command"`: they are available as text commands and are not exposed directly to the model.
+
+| Command | Parameters | Purpose |
+| --- | --- | --- |
+| `,help` | None | List internal commands and the command prefix |
+| `,model` | `model_id` | Switch the session model from the next Turn and record it in the Tape |
+| `,reasoning_effort` | `reasoning_effort` | Set session reasoning effort; supported values depend on the provider |
+| `,code_mode` | `enable=true` / `false` | Toggle session code mode from the next Turn |
+| `,quit` | None | Clear pending messages, running tasks, and background Shell processes for the session |
+
+Session settings are recorded in the Tape and restored after a restart. They are not `BUB_*` environment variables; see [Settings](/docs/reference/settings/#session-settings) for configuration precedence.

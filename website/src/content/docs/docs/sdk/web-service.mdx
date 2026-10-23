@@ -5,7 +5,7 @@ description: Give your Agent an HTTP endpoint and keep a separate conversation f
 
 Give your Agent an HTTP endpoint so another program can send it work. Each request names a session; requests with the same name continue a conversation stored on disk.
 
-This guide follows [Build your own agent](/docs/sdk/). It uses `core.Agent` directly, with FastAPI managing the model's lifetime and each request managing its agent stream.
+This guide follows [Run an agent in Python](/docs/sdk/). It uses `core.Agent` directly, with FastAPI managing the model's lifetime and each request managing its agent stream.
 
 ## Install
 
@@ -17,7 +17,7 @@ cd bub-api
 uv add bub fastapi uvicorn
 ```
 
-To add an existing Bub plugin, follow [Reusing plugins](/docs/sdk/reuse-plugins/). You can add its tools or selected hooks while keeping the endpoint and request lifecycle below.
+To add an existing Bub plugin, follow [Reuse application plugins](/docs/sdk/reuse-plugins/). You can add its tools or selected hooks while keeping the endpoint and request lifecycle below.
 
 ## Write the service
 
@@ -31,7 +31,7 @@ from pathlib import Path
 
 import republic
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from bub.core import Agent
 from bub.core.store import FileTapeStore
@@ -68,12 +68,12 @@ app = FastAPI(lifespan=lifespan)
 
 
 class Task(BaseModel):
-    session_id: str
-    prompt: str
+    session_id: str = Field(min_length=1, max_length=200)
+    prompt: str = Field(min_length=1)
 
 
 @app.post("/tasks")
-async def run_task(task: Task, request: Request):
+async def run_task(task: Task, request: Request) -> dict[str, str]:
     state = request.app.state
     # Runs on one session's tape must not overlap; different sessions run concurrently.
     async with state.session_locks[task.session_id]:
@@ -92,7 +92,7 @@ async def run_task(task: Task, request: Request):
 
 The FastAPI lifespan opens the Republic model once and closes it on shutdown. Each request opens an agent stream with `async with`, which closes the stream and merges the tape fork even when the request's agent run fails.
 
-The per-session lock keeps two requests from starting with the same incomplete history. Different sessions can run concurrently.
+The per-session lock keeps two requests from starting with the same incomplete history. Different sessions can run concurrently. The example targets trusted internal callers; a public service should also add authentication, request body size limits, and timeouts.
 
 ## Run it
 
@@ -116,10 +116,10 @@ The second answer can refer to the first because both runs read the `customer-42
 
 ## Prepare for more sessions
 
-The example keeps a lock for each session in memory. A service that creates many sessions should remove idle locks. These locks work within one process; multiple workers sharing a tape store need coordination across processes. That coordination must cover the whole run, including model calls and tape writes.
+The example keeps one in-memory lock per session. A service that creates many sessions over time should clean up idle locks. These locks work only within one process; multiple workers sharing a tape store need coordination across processes. That coordination must cover the whole run, including model calls and tape writes.
 
 `FileTapeStore` keeps history on one host. To use another backend, implement `TapeStore` or `AsyncTapeStore` and pass it to `Agent(store=...)`; see [Choose where history lives](/docs/concepts/tape/#storage). Give that store's connections an application lifespan when they need opening and closing.
 
 ## Extend the service
 
-Add [tools or CodeMode](/docs/sdk/tools/) to give the agent new actions. Use [event handlers](/docs/concepts/events/) to observe calls or enforce a decision before execution. Choose what the model sees through [TapeContext](/docs/concepts/tape/#context).
+Add [tools or code mode](/docs/sdk/tools/) to give the agent new actions. Use [event handlers](/docs/concepts/events/) to observe calls or make a decision before execution. Choose what the model sees through [TapeContext](/docs/concepts/tape/#context).

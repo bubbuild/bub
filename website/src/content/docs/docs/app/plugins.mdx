@@ -1,17 +1,15 @@
 ---
 title: Plugins
-description: Write a plugin, choose its entry point, and install it into the app.
+description: Write, install, and distribute Bub plugins, and choose entry point, tool, and lifecycle forms.
 ---
 
-A plugin changes how the Bub app handles a task. This page builds a small echo plugin so you can check discovery and turn processing without model credentials, then covers the entry-point choices, tool registration, sharing, and the WebAssembly route for other languages.
+Plugins change Bub app behavior through hooks. A Python package declares a plugin object in the `bub` entry point group; Bub imports it and wires its hook implementations into the app.
 
-A Python package declares an entry point in the `bub` group; Bub imports that target and registers its hook implementations. You can also reuse an existing plugin in your own service while keeping your host's entry point; see [Reusing plugins](/docs/sdk/reuse-plugins/).
+The following first builds an echo plugin that needs no model credentials, so you can verify the complete create, install, and run flow. To reuse existing plugins, see [Reuse application plugins](/docs/sdk/reuse-plugins/).
 
-## Create the package
+## Create a plugin {#create-a-plugin}
 
-Install Python 3.12+ and uv as described in [Install Bub](/docs/getting-started/install/). This tutorial creates a project environment containing Bub 0.6.0 and your plugin.
-
-Create this package layout:
+Prepare Python 3.12+ and [uv](/docs/getting-started/install/), then create this project:
 
 ```text
 bub-echo-plugin/
@@ -22,7 +20,7 @@ bub-echo-plugin/
         └── plugin.py
 ```
 
-Leave `__init__.py` empty. Put this in `pyproject.toml`:
+`src/bub_echo_plugin/__init__.py` can stay empty. Declare the package and entry point in `pyproject.toml`:
 
 ```toml
 [build-system]
@@ -33,7 +31,7 @@ build-backend = "hatchling.build"
 name = "bub-echo-plugin"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["bub[app]>=0.6.0"]
+dependencies = ["bub[app]"]
 
 [project.entry-points."bub"]
 echo = "bub_echo_plugin.plugin:echo_plugin"
@@ -42,11 +40,7 @@ echo = "bub_echo_plugin.plugin:echo_plugin"
 packages = ["src/bub_echo_plugin"]
 ```
 
-The `bub` entry-point group tells the application where to find the plugin.
-
-## Implement the response
-
-Put this in `src/bub_echo_plugin/plugin.py`:
+The entry point key `echo` is the plugin name; the value points to the object to load. Implement the model stage in `src/bub_echo_plugin/plugin.py`:
 
 ```python
 from bub import hookimpl
@@ -61,72 +55,48 @@ class EchoPlugin:
 echo_plugin = EchoPlugin()
 ```
 
-The application still builds the incoming prompt. Your `run_model` implementation supplies the response instead of calling the builtin agent.
+`run_model` replaces the built-in model stage and returns plain text; message preparation, state saving, and reply delivery are still handled by other hooks.
 
-## Install and try it
+## Install and run {#install-and-run}
 
-From the plugin directory, install the project and its dependencies:
+Sync the environment in the plugin project, then check the hook report:
 
 ```bash
 uv sync
 uv run bub hooks
 ```
 
-`uv sync` installs this package in editable mode. Run Bub through `uv run` in the same project so it can discover the plugin. To install into an existing activated application environment instead, use `uv pip install -e .` and run `bub hooks` there.
-
-The report should include `echo` under `run_model`. The builtin agent appears under `run_model_stream`.
+`uv sync` installs the current project in editable mode. `bub hooks` should list `echo` under `run_model`, while the built-in Agent appears under `run_model_stream`.
 
 ```bash
 uv run bub run "hello from my plugin"
 ```
 
-With no other plugin overriding the model stage, the response contains:
+When no other higher-priority model implementation exists, the output contains:
 
 ```text
 [echo:cli:local] hello from my plugin
 ```
 
-If `echo` is missing, check that the package was installed in the environment running `bub`, its entry-point group, and startup logs for an import failure. Changes to package metadata require reinstalling the package. If it is listed but another response wins, inspect the other model hooks and their priority.
+If `echo` does not appear, check in order:
 
-Bub registers builtin hooks before entry-point plugins. Hooks at equal priority generally run in reverse registration order; `tryfirst` and `trylast` affect that order. The [dispatch rules](/docs/reference/hooks/#priority-and-dispatch) explain which implementation runs first.
+1. Whether the environment the plugin is installed into is the same one running `bub`;
+2. Whether the group name and module path in `[project.entry-points."bub"]` are correct;
+3. Whether startup logs recorded a plugin import failure.
 
-## Choose an entry-point target
+Reinstall after changing entry point metadata. If `echo` appears but replies come from elsewhere, check other model hooks and their [priority](/docs/reference/hooks/#priority-and-dispatch).
 
-The key `myplugin` identifies the plugin in diagnostics. The value names the Python object to import. Choose one target form:
+Bub registers built-in implementations first, then entry point plugins. At equal priority, implementations registered later run first; `tryfirst` and `trylast` can adjust the order.
 
-| Target | Registration | Use it when |
+## Choose an entry point form {#entry-point-forms}
+
+| Entry point target | Behavior | Use it when |
 | --- | --- | --- |
-| `bub_myplugin.plugin` | Register the module | Hooks are module-level functions |
-| `bub_myplugin.plugin:plugin` | Register the instance | Hooks share state on an object |
-| `bub_myplugin.plugin:MyPlugin` | Call the class or factory with `BubFramework`, then register its result | Hooks need the framework |
+| `bub_myplugin.plugin` | Registers the module | Hooks are module-level functions |
+| `bub_myplugin.plugin:plugin` | Registers an existing instance | Hooks share object state |
+| `bub_myplugin.plugin:MyPlugin` | Calls the class or factory and registers the return value | Hooks need access to `BubFramework` |
 
-For the module form, define hooks at module level:
-
-```python
-from bub import hookimpl
-
-
-@hookimpl
-def build_prompt(message, session_id, state):
-    return "Describe this workspace."
-```
-
-For the instance form, create the object in the target module:
-
-```python
-from bub import hookimpl
-
-
-class MyPlugin:
-    @hookimpl
-    def build_prompt(self, message, session_id, state):
-        return "Describe this workspace."
-
-
-plugin = MyPlugin()
-```
-
-Every callable target receives the framework, including classes. Accept it in the constructor or factory:
+When the entry point value is callable, Bub passes the current `BubFramework` to it:
 
 ```python
 from bub import BubFramework, hookimpl
@@ -141,36 +111,84 @@ class MyPlugin:
         return f"Describe the workspace at {self.framework.workspace}."
 ```
 
-These examples replace the prompt. Choose the hook for your actual task from [Hooks](/docs/app/hooks/).
+`build_prompt` replaces the model input. A real extension should choose the hook that matches its responsibility; see [Application hooks](/docs/app/hooks/).
 
-## Register tools during import
+## Provide tools {#provide-tools}
 
-If the package defines `@tool` functions, import their module from the entry-point module before an agent is created:
+New plugins should explicitly provide `@tool` objects through `provide_tools`:
 
 ```python
-from . import tools  # noqa: F401
+from bub import hookimpl, tool
+from bub.core.tools import Tool
+
+
+@tool(name="orders.get")
+def get_order(order_id: str) -> dict[str, str]:
+    """Look up an order by id."""
+    return {"id": order_id, "status": "shipped"}
+
+
+class OrdersPlugin:
+    @hookimpl
+    def provide_tools(self) -> list[Tool]:
+        return [get_order]
 ```
 
-The application takes a snapshot of registered tools when it creates a `BubAgent`. See [Tools](/docs/app/tools/) for registration, deferred loading, and code mode.
+`BubAgent` takes a snapshot of the current tools when constructed. To add tools during a run, update that instance's `tools` dictionary; new Agents collect the tools again.
 
-## Share the plugin
+Legacy plugins that rely on automatic `@tool` collection when their entry point loads, and do not implement `provide_tools`, still register their tools and produce a deprecation warning. New plugins should not use this fallback. See [Tools](/docs/app/tools/) for tool parameters, deferred loading, and code mode.
 
-Build and install a wheel into a separate environment before publishing it. Confirm that the entry point loads and that a representative task uses your hook. If you bundle skills or several plugins, follow [Distribution](/docs/app/distribution/).
+## Provide long-running services {#lifecycle}
 
-Portable Agent Plugins use a different format: `plugin.json`, skills, and MCP servers. The [Agent Plugins integration](/docs/integrations/agent-plugins/) loads those packages through a Python plugin.
+Components such as MCP clients and schedulers need to start with the process rather than in response to a message. Implement `Lifecycle` and provide it through `provide_channels` like any other channel:
 
-## WASM plugins (experimental)
+```python
+from bub.channels.base import Lifecycle
 
-A plugin does not have to be Python. The [`bub-extism`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) plugin runs WebAssembly modules and maps their exports to hooks. Bub still dispatches the hooks and decides precedence; Extism only calls your module.
 
-Install it into the environment where Bub runs:
+class MyRuntime(Lifecycle):
+    name = "myapp.lifecycle"
+
+    async def start(self, stop_event) -> None:
+        await self._connect(stop_event)
+
+    async def stop(self) -> None:
+        await self._close()
+```
+
+Lifecycle channels start and stop with the channel runtime and do not receive messages:
+
+- They appear among the channel names accepted by `--enable-channel`;
+- When ordinary channels are listed explicitly, enabled `Lifecycle` channels are still attached automatically;
+- Exclude one with `!name`, for example `--enable-channel '!mcp.lifecycle'`;
+- `bub run` does not start channels, so it also does not start long-running services.
+
+For complete examples, see [`bub-mcp`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp) and [`bub-schedule`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-schedule).
+
+## Share a plugin {#share-a-plugin}
+
+A single distribution can provide a plugin, channels, and [skills](/docs/app/skills/#include-skills-in-a-wheel) at the same time:
+
+```toml
+[project.entry-points."bub"]
+orders = "bub_orders.plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bub_orders", "src/skills"]
+```
+
+For general wheel building, CLI packaging, and pre-release verification, see [Embedding and distribution](/docs/app/distribution/). Agent Plugins instead use `plugin.json`, skills, and MCP server definitions; see [Load Agent Plugins](/docs/integrations/agent-plugins/).
+
+## WASM plugins (experimental) {#wasm-plugins}
+
+[`bub-extism`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) exposes WebAssembly module export functions as hooks through Extism, so plugins can also be written in other languages:
 
 ```bash
 bub install bub-extism@main
 bub hooks
 ```
 
-`extism.json` names each module and the hook it implements. `manifest` uses the Extism format, and `hooks` maps a Bub hook to a wasm export:
+`extism.json` specifies the module files and hook mapping:
 
 ```json
 {
@@ -189,6 +207,4 @@ export BUB_EXTISM_CONFIG_PATH=./extism.json
 bub run "Say hello from a prompt built outside Python."
 ```
 
-The [README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) lists the hooks this route supports and how arguments convert. Check both before you depend on it: not every hook is available, and every value crosses a Python-to-wasm boundary. The [examples](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples) build one module in Go and one in Rust.
-
-Keep the builtin implementation for model calls and tape recording. A module suits hooks that do small work on their own.
+Not every hook supports WASM, and arguments must cross the Python-to-WASM boundary. Before using it, check the [plugin README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) for the supported list and examples.

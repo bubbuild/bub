@@ -1,17 +1,15 @@
 ---
 title: 插件
-description: 编写插件、选择入口点形式，并安装到应用里。
+description: 编写、安装和分发 Bub 插件，并选择入口点、工具与生命周期形式。
 ---
 
-插件可以改变 Bub 应用处理任务的方式。本页先带你写一个回声插件，无需模型凭据就能检查插件发现和 turn 处理，再说明入口点的几种形式、工具注册、分享方式，以及用其他语言实现的办法。
+插件通过 hooks 改变 Bub 应用的行为。Python 包在 `bub` 入口点组中声明插件对象，Bub 导入它，并把其中的 hook 实现接入应用。
 
-Python 包在 `bub` 入口点组中声明目标，Bub 导入这个目标，并注册其中的 hook 实现。你也可以在自己的服务中复用现有插件，继续使用宿主自己的调用入口；参见[复用插件](/zh-cn/docs/sdk/reuse-plugins/)。
+下面先写一个不需要模型凭据的回声插件，验证完整的创建、安装和运行流程。复用现有插件见[复用应用插件](/zh-cn/docs/sdk/reuse-plugins/)。
 
-## 创建包
+## 创建一个插件 {#create-a-plugin}
 
-按[安装 Bub](/zh-cn/docs/getting-started/install/)中的说明准备 Python 3.12+ 和 uv。这篇教程会创建一个同时包含 Bub 0.6.0 和插件的项目环境。
-
-创建以下包目录：
+准备 Python 3.12+ 与 [uv](/zh-cn/docs/getting-started/install/)，创建以下项目：
 
 ```text
 bub-echo-plugin/
@@ -22,7 +20,7 @@ bub-echo-plugin/
         └── plugin.py
 ```
 
-将 `__init__.py` 留空。在 `pyproject.toml` 中写入：
+`src/bub_echo_plugin/__init__.py` 可以留空。在 `pyproject.toml` 中声明包和入口点：
 
 ```toml
 [build-system]
@@ -33,7 +31,7 @@ build-backend = "hatchling.build"
 name = "bub-echo-plugin"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["bub[app]>=0.6.0"]
+dependencies = ["bub[app]"]
 
 [project.entry-points."bub"]
 echo = "bub_echo_plugin.plugin:echo_plugin"
@@ -42,11 +40,7 @@ echo = "bub_echo_plugin.plugin:echo_plugin"
 packages = ["src/bub_echo_plugin"]
 ```
 
-`bub` 入口点组告诉应用到哪里寻找插件。
-
-## 实现回复
-
-在 `src/bub_echo_plugin/plugin.py` 中写入：
+入口点的键 `echo` 是插件名，值指向要加载的对象。在 `src/bub_echo_plugin/plugin.py` 中实现模型阶段：
 
 ```python
 from bub import hookimpl
@@ -61,72 +55,48 @@ class EchoPlugin:
 echo_plugin = EchoPlugin()
 ```
 
-应用仍会构建收到的提示词。你的 `run_model` 实现提供回复，替代内置 agent 的执行。
+`run_model` 替换内置模型阶段并返回纯文本，消息准备、状态保存和回复发送仍由其他 hooks 完成。
 
-## 安装并试运行
+## 安装并运行 {#install-and-run}
 
-在插件目录安装项目和依赖：
+在插件项目中同步环境，然后检查 hook 报告：
 
 ```bash
 uv sync
 uv run bub hooks
 ```
 
-`uv sync` 会以可编辑模式安装这个包。在同一个项目中通过 `uv run` 运行 Bub，它就能发现插件。如果安装到已有且已激活的应用环境，改用 `uv pip install -e .`，然后在该环境中运行 `bub hooks`。
-
-报告应在 `run_model` 下列出 `echo`。内置 agent 则出现在 `run_model_stream` 下。
+`uv sync` 会以可编辑模式安装当前项目。`bub hooks` 应在 `run_model` 下列出 `echo`，内置 Agent 则出现在 `run_model_stream` 下。
 
 ```bash
 uv run bub run "hello from my plugin"
 ```
 
-没有其他插件覆盖模型阶段时，回复包含：
+没有其他更高优先级的模型实现时，输出包含：
 
 ```text
 [echo:cli:local] hello from my plugin
 ```
 
-如果没有看到 `echo`，检查安装插件的环境是否就是运行 `bub` 的环境、入口点组名，以及启动日志中的导入错误。修改包元数据后，需要重新安装包。如果已经列出却返回其他回复，检查其他模型 hooks 及其优先级。
+没有看到 `echo` 时，依次检查：
 
-Bub 先注册内置 hooks，再注册入口点插件。同等优先级通常按注册顺序的逆序调用；`tryfirst` 和 `trylast` 会影响顺序。[调用规则](/zh-cn/docs/reference/hooks/#priority-and-dispatch)说明了哪个实现先运行。
+1. 安装插件的环境是否就是运行 `bub` 的环境；
+2. `[project.entry-points."bub"]` 的组名和模块路径是否正确；
+3. 启动日志是否记录了插件导入失败。
 
-## 选择入口点形式
+修改入口点元数据后要重新安装。`echo` 已出现但回复来自别处时，检查其他模型 hook 及其[优先级](/zh-cn/docs/reference/hooks/#priority-and-dispatch)。
 
-键 `myplugin` 是诊断信息中的插件名称，值是要导入的 Python 对象。选择一种目标形式：
+Bub 先注册内置实现，再注册入口点插件。相同优先级下，后注册的实现先执行；`tryfirst` 和 `trylast` 可以调整顺序。
 
-| 目标 | 注册方式 | 适用情况 |
+## 选择入口点形式 {#entry-point-forms}
+
+| 入口点目标 | 行为 | 适用情况 |
 | --- | --- | --- |
 | `bub_myplugin.plugin` | 注册模块 | hooks 是模块级函数 |
-| `bub_myplugin.plugin:plugin` | 注册实例 | hooks 需要共享对象状态 |
-| `bub_myplugin.plugin:MyPlugin` | 将 `BubFramework` 传给类或工厂，注册返回值 | hooks 需要访问 framework |
+| `bub_myplugin.plugin:plugin` | 注册已有实例 | hooks 共享对象状态 |
+| `bub_myplugin.plugin:MyPlugin` | 调用类或工厂并注册返回值 | hooks 需要访问 `BubFramework` |
 
-模块形式在模块顶层定义 hooks：
-
-```python
-from bub import hookimpl
-
-
-@hookimpl
-def build_prompt(message, session_id, state):
-    return "Describe this workspace."
-```
-
-实例形式在目标模块中创建对象：
-
-```python
-from bub import hookimpl
-
-
-class MyPlugin:
-    @hookimpl
-    def build_prompt(self, message, session_id, state):
-        return "Describe this workspace."
-
-
-plugin = MyPlugin()
-```
-
-所有可调用目标都会收到 framework，类也一样。构造函数或工厂需要接收这个参数：
+入口点的值可调用时，Bub 会把当前 `BubFramework` 传给它：
 
 ```python
 from bub import BubFramework, hookimpl
@@ -141,36 +111,84 @@ class MyPlugin:
         return f"Describe the workspace at {self.framework.workspace}."
 ```
 
-这些例子会替换提示词。请在[Hooks](/zh-cn/docs/app/hooks/)中选择真正适合任务的 hook。
+`build_prompt` 会替换模型输入。实际扩展应选择职责匹配的 hook，见[应用 Hooks](/zh-cn/docs/app/hooks/)。
 
-## 导入时注册工具
+## 提供工具 {#provide-tools}
 
-如果包内定义了 `@tool` 函数，在入口点模块中导入工具模块，确保 agent 创建前已完成注册：
+新插件应通过 `provide_tools` 显式提供 `@tool` 对象：
 
 ```python
-from . import tools  # noqa: F401
+from bub import hookimpl, tool
+from bub.core.tools import Tool
+
+
+@tool(name="orders.get")
+def get_order(order_id: str) -> dict[str, str]:
+    """Look up an order by id."""
+    return {"id": order_id, "status": "shipped"}
+
+
+class OrdersPlugin:
+    @hookimpl
+    def provide_tools(self) -> list[Tool]:
+        return [get_order]
 ```
 
-应用创建 `BubAgent` 时会获取已注册工具的快照。[工具](/zh-cn/docs/app/tools/)会说明注册、延迟加载和 code mode。
+`BubAgent` 在构造时取得当前工具快照。运行期间新增工具，需要更新该实例的 `tools` 字典；新 Agent 会重新收集。
 
-## 分享插件
+旧插件依赖入口点加载时的 `@tool` 自动收集，且未实现 `provide_tools` 时，工具仍会注册并产生弃用警告。新插件不要使用这条回退路径。工具参数、延迟加载和 code mode 见[应用工具](/zh-cn/docs/app/tools/)。
 
-发布前，构建 wheel 并安装到独立环境，确认入口点能加载，并用一个实际任务检查 hook。如果要同时发布技能或多个插件，参见[分发](/zh-cn/docs/app/distribution/)。
+## 提供常驻服务 {#lifecycle}
 
-可移植的 Agent Plugins 使用另一种格式，包括 `plugin.json`、技能和 MCP servers。[Agent Plugins 集成](/zh-cn/docs/integrations/agent-plugins/)通过一个 Python 插件加载这些包。
+MCP 客户端、调度器等组件需要随进程启动，而不是响应某条消息。实现 `Lifecycle`，并和其他渠道一样通过 `provide_channels` 提供：
 
-## WASM 插件（实验性）
+```python
+from bub.channels.base import Lifecycle
 
-插件不一定要用 Python 写。[`bub-extism`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) 插件运行 WebAssembly 模块，把模块导出的函数当作 hook。hook 的分发和优先级仍由 Bub 决定，Extism 只负责调用你的模块。
 
-把它装到 Bub 所在的环境：
+class MyRuntime(Lifecycle):
+    name = "myapp.lifecycle"
+
+    async def start(self, stop_event) -> None:
+        await self._connect(stop_event)
+
+    async def stop(self) -> None:
+        await self._close()
+```
+
+生命周期渠道随渠道运行时启动和退出，不接收消息：
+
+- 出现在 `--enable-channel` 可选的渠道名中；
+- 显式列出普通渠道时，已启用的 `Lifecycle` 仍会自动附加；
+- 可以用 `!name` 排除，例如 `--enable-channel '!mcp.lifecycle'`；
+- `bub run` 不启动渠道，因此也不会启动常驻服务。
+
+完整示例见 [`bub-mcp`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp) 和 [`bub-schedule`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-schedule)。
+
+## 分享插件 {#share-a-plugin}
+
+一个发行包可以同时提供插件、渠道和[技能](/zh-cn/docs/app/skills/#include-skills-in-a-wheel)：
+
+```toml
+[project.entry-points."bub"]
+orders = "bub_orders.plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bub_orders", "src/skills"]
+```
+
+通用 wheel 构建、CLI 打包和发布前验证见[嵌入与分发](/zh-cn/docs/app/distribution/)。Agent Plugins 则使用 `plugin.json`、技能和 MCP 服务器定义，见[加载 Agent Plugins](/zh-cn/docs/integrations/agent-plugins/)。
+
+## WASM 插件（实验性） {#wasm-plugins}
+
+[`bub-extism`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) 通过 Extism 把 WebAssembly 模块导出函数暴露为 hook，因此插件也可以用其他语言编写：
 
 ```bash
 bub install bub-extism@main
 bub hooks
 ```
 
-`extism.json` 为每个模块指定文件和它实现的 hook。`manifest` 用 Extism 的格式，`hooks` 把 Bub 的 hook 名映射到 wasm 导出：
+`extism.json` 指定模块文件和 hook 映射：
 
 ```json
 {
@@ -189,6 +207,4 @@ export BUB_EXTISM_CONFIG_PATH=./extism.json
 bub run "Say hello from a prompt built outside Python."
 ```
 
-[README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism)写明了这条路径支持哪些 hook，以及参数怎么转换。用之前先核对这两点：不是每个 hook 都能用，而且所有值都要跨过 Python 和 wasm 的边界。[示例](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples)分别用 Go 和 Rust 各写了一个模块。
-
-模型调用和 tape 记录继续用内置实现。这种模块适合只做少量独立工作的 hook。
+并非所有 hook 都支持 WASM，参数也必须跨过 Python 与 WASM 的边界。使用前核对[插件 README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) 的支持列表与示例。

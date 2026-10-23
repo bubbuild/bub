@@ -32,9 +32,9 @@ uv tool update-shell
 </TabItem>
 </Tabs>
 
-运行上述脚本会帮你安装 uv 和 Python 3.12，并把 `bub[app]` 到当前环境中。
+使用安装脚本时，脚本会安装 uv 和 Python 3.12，并把 `bub[app]` 安装到当前环境中。`app` 是 Bub 的可选依赖组，包含 CLI、渠道和插件等应用层能力；只使用 SDK 时不需要它。
 
-完成后在命令中执行 `bub --help` 并用 `bub onboard` 开始配置以确认命令行是否能正常工作。
+完成后执行 `bub --help`，再运行 `bub onboard` 开始配置。
 
 <Aside type="tip">
     如果当前环境提示找不到命令，请检查环境变量是否包含了可执行文件所在路径，或者手动把 `~/.local/bin` 加入 PATH。
@@ -42,7 +42,7 @@ uv tool update-shell
 
 ## 安装 SDK {#agent-install}
 
-自 0.6.0 起，Bub 默认只包含核心，可以根据使用对应包管理工具将 Bub 作为依赖安装到项目中。这里以 uv 为例：
+自 0.6.0 起，Bub 默认只包含核心。可以用包管理工具把 Bub 安装到项目中，这里以 uv 为例：
 
 ```bash
 uv add bub
@@ -63,4 +63,4 @@ uv sync
 
 ---
 
-一切就绪之后就可以开始上手试试怎么使用 Bub 吧！
+安装完成后，继续[快速上手](/zh-cn/docs/getting-started/quickstart/)。

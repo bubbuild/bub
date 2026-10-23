@@ -353,6 +353,71 @@
     }
 }
 
+/* ═══ 文档正文宽度 ═══
+ *
+ * Starlight 把正文容器固定在 --sl-content-width（45rem），剩下空间分给右侧栏。
+ * 窄屏上没有问题；宽屏时右栏被推到最右，正文左侧留下大块空白，
+ * 看起来像「内容偏右」。这里提高正文宽度上限，让正文和右侧栏分掉剩余空间。
+ */
+.sl-container:where(.astro-3u2j7pwv) {
+    --sl-content-width: 52rem;
+}
+
+/* 宽屏下让正文容器真正居中，不靠右栏吸收剩余宽度。 */
+@media (min-width: 72rem) {
+    .content-panel > .sl-container {
+        margin-inline: auto;
+    }
+    .right-sidebar-container {
+        width: var(--sl-sidebar-width);
+    }
+}
+
+/* ═══ 文档表格 ═══
+ *
+ * 溢出的根因不是「表格太宽」，而是宽屏下把 display 改成了 table。
+ *
+ * display:table 的宽度由内容决定（table-layout:auto 时尤其如此）。
+ * 单元格里的 code 设为 nowrap 后不能折行，表格就被撑到内容宽度，
+ * 例如 935px，而父容器只有 632px。此时表格已经不再是一个可滚动盒子，
+ * 超出的部分以 overflow:visible 直接画到容器外，页面整体横向溢出。
+ *
+ * 因此这里不放弃 Starlight 的 display:block + overflow-x:auto：
+ * 表格始终是独立滚动盒子，宽屏时收缩到容器宽度，放不下就在盒子内部滚动。
+ * 需要的是让单元格内容在触顶前就能折行，而不是让表格无限变宽。
+ */
+.sl-markdown-content table:not(:where(.not-content *)) {
+    /* Starlight 的 display:block + overflow:auto 保持不动 */
+    width: 100%;
+    /* 让表格在窄屏下最大不超过容器，滚动条只出现在表格内部 */
+    max-width: 100%;
+}
+
+.sl-markdown-content :is(th, td):not(:where(.not-content *)) {
+    min-width: 4.5rem;
+    word-break: normal;
+}
+
+/* 单元格里的长代码（hook 名、签名、路径）允许在任意处折行。
+ *
+ * nowrap 会让列宽随最长 token 无限增长，正是表格撑破容器的直接原因。
+ * 改用 break-word 后，长 token 在单元格边界内断开，列宽由容器分配，
+ * 中文也不再因为列被挤压而逐字竖排。
+ */
+.sl-markdown-content :is(th, td) code:not(:where(.not-content *)) {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+/* 纯 ASCII 的短代码（true / None / cli）不值得为它折行，
+   但只在足够宽的行内才允许不折。这里交给浏览器判断：
+   宽度够就整词显示，不够才断。 */
+@media (min-width: 72rem) {
+    .sl-markdown-content :is(th, td) code:not(:where(.not-content *)) {
+        overflow-wrap: break-word;
+    }
+}
+
 /* Pele diagrams inherit the same monochrome palette as the surrounding docs. */
 .pele-diagram {
     --pele-bg: var(--background);

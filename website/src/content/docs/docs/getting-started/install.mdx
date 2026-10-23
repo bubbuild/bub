@@ -32,9 +32,9 @@ uv tool update-shell
 </TabItem>
 </Tabs>
 
-The script installs uv and Python 3.12, and puts `bub[app]` into your current environment.
+The install script installs uv and Python 3.12, and puts `bub[app]` into your current environment. `app` is an optional dependency group that bundles the application-layer capabilities such as the CLI, channels, and plugins; you do not need it if you only use the SDK.
 
-When it finishes, run `bub --help`, then run `bub onboard` to start configuring, and confirm the command line works.
+When it finishes, run `bub --help`, then run `bub onboard` to start configuring.
 
 <Aside type="tip">
     If the command is not found, check whether the environment variables include the directory that holds the executable, or add `~/.local/bin` to PATH yourself.
@@ -63,4 +63,4 @@ Then run it with `uv run bub`.
 
 ---
 
-With that in place, go and give Bub a try.
+With the installation done, continue to [Quick start](/docs/getting-started/quickstart/).

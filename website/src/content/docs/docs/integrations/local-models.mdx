@@ -1,120 +1,133 @@
 ---
-title: Use a local llama.cpp model
-description: Start a local llama.cpp server and configure Bub to use it as an OpenAI-compatible model provider.
+title: Connect a local llama.cpp model
+description: Start a local llama.cpp server and have Bub call GGUF models through an OpenAI-compatible endpoint.
 ---
 
-Connect the Bub application to a local `llama.cpp` server. This guide starts a GGUF Gemma model, checks its OpenAI-compatible endpoint, and sets the app's model connection.
+This guide uses `llama.cpp` to serve an OpenAI-compatible API on your machine, then points the Bub application's model requests at that endpoint. The model itself, inference speed, and memory usage are still determined by `llama.cpp`; Bub's turn, tool, and Tape behavior is unchanged.
 
-The example uses [`ggml-org/gemma-4-E2B-it-GGUF`](https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF), a GGUF build of Google's Gemma 4 E2B instruction-tuned model. Google's [Gemma 4 overview](https://deepmind.google/models/gemma/gemma-4/) describes E2B and E4B as efficient models for mobile and edge devices, and the [Gemma 4 model card](https://ai.google.dev/gemma/docs/core/model_card_4) documents capabilities, limits, and responsible-use considerations.
+The example model is the Q8 quantized version of [`ggml-org/gemma-4-E2B-it-GGUF`](https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF). You can substitute any GGUF model that `llama.cpp` can load, as long as you update the file names and model alias accordingly.
 
-## Before you begin
+## Before you begin {#before-you-start}
 
-You need:
-
-- Bub installed and runnable with `bub --help`.
-- Docker installed.
-- A GGUF model file under `~/.cache/llama.cpp/`.
-- Enough system memory for the quantization you choose. The Q8 Gemma 4 E2B GGUF file is about 5 GB on disk; runtime memory also depends on context size, batching, and GPU offload.
-
-This tutorial uses these file names:
+- You have [installed the Bub application](/docs/getting-started/install/#app-install) and `bub --help` works.
+- Docker is installed and `docker version` can connect to the daemon.
+- You have at least 8 GB of available memory; the Q8 model file is about 5 GB, and you still need room for context and batching at runtime.
+- You have downloaded the quantized files from the **Files** tab of the Hugging Face model page to `~/.cache/llama.cpp/`. This guide uses:
 
 ```text
 ~/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_gemma-4-E2B-it-Q8_0.gguf
 ~/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_mmproj-gemma-4-E2B-it-Q8_0.gguf
 ```
 
-If your files use different names, update the `-m` and `--mmproj` paths in the Docker command.
+Use whatever file names the repository actually contains. `mmproj` is the multimodal projection needed for image input; you can omit it when only handling text.
 
-## 1. Start the local server
+## 1. Start llama-server {#start-server}
 
-Set an API key for the local server:
+First set an API key used only for local connections:
 
 ```bash
-export LLAMA_API_KEY="${LLAMA_API_KEY:-test}"
+export LLAMA_API_KEY="local-$(openssl rand -hex 8)"
+echo "$LLAMA_API_KEY"
 ```
 
-Start `llama-server`:
+Start the container:
 
 ```bash
-sudo docker run --rm -it \
-  --security-opt label=disable \
+docker run --rm -it \
   -p 127.0.0.1:8080:8080 \
-  -v "$HOME/.cache/llama.cpp:/root/.cache/llama.cpp:ro" \
-  ghcr.io/ggml-org/llama.cpp:full \
-  --server \
+  -v "$HOME/.cache/llama.cpp:/models:ro" \
+  ghcr.io/ggml-org/llama.cpp:server \
   --host 0.0.0.0 \
   --port 8080 \
   --api-key "$LLAMA_API_KEY" \
-  -m /root/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_gemma-4-E2B-it-Q8_0.gguf \
-  --mmproj /root/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_mmproj-gemma-4-E2B-it-Q8_0.gguf
+  --alias gemma-4-E2B-it \
+  -m /models/ggml-org_gemma-4-E2B-it-GGUF_gemma-4-E2B-it-Q8_0.gguf \
+  --mmproj /models/ggml-org_gemma-4-E2B-it-GGUF_mmproj-gemma-4-E2B-it-Q8_0.gguf
 ```
 
-The Docker port is bound to `127.0.0.1` so the server is available only from the local machine. Change the port binding only if you intentionally want another machine to reach it.
+Notes:
 
-On SELinux systems, `--security-opt label=disable` avoids bind-mount permission failures when the container reads model files from `~/.cache/llama.cpp`. If you only need text input, remove the `--mmproj` line.
+- `-p 127.0.0.1:8080:8080` listens only on the host loopback address, so other machines cannot reach it directly.
+- `--alias` is the model name used in `/v1/chat/completions`.
+- `/models` inside the container maps to the read-only model cache on the host.
+- Under SELinux enforcing mode, if the container cannot read the mounted files, add `--security-opt label=disable` to `docker run`.
+- Without an available GPU, `llama.cpp` falls back to CPU; device or backend warnings may appear in the logs, but the service is still usable for verifying the integration.
+- Wait for `server is listening on` in the logs before continuing. The first load of a large model can take tens of seconds.
 
-If Docker prints `no ROCm-capable device is detected`, the container can still fall back to CPU inference. That is enough to test the integration, but responses will be slower.
+Explicitly exposing the server on `0.0.0.0` changes the security boundary. Do not expose an inference endpoint to the public internet without authentication and a firewall.
 
-## 2. Test the OpenAI-compatible API
+## 2. Verify the OpenAI-compatible endpoint {#verify-endpoint}
 
-In another terminal, send a small chat request:
+In the same shell, request the model list:
 
 ```bash
-curl http://localhost:8080/v1/chat/completions \
+curl -sS http://127.0.0.1:8080/v1/models \
+  -H "Authorization: Bearer $LLAMA_API_KEY"
+```
+
+Then send a chat request:
+
+```bash
+curl -sS http://127.0.0.1:8080/v1/chat/completions \
   -H "Authorization: Bearer $LLAMA_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemma-4-E2B-it",
-    "messages": [
-      {"role": "user", "content": "hello"}
-    ]
+    "messages": [{"role": "user", "content": "Reply with one word: hello"}],
+    "max_tokens": 16
   }'
 ```
 
-A working server returns a `chat.completion` JSON object with an assistant message.
+A successful request returns `chat.completion` JSON containing `choices[0].message.content`. If you get `401`, check that curl and the container use the same `LLAMA_API_KEY`; if you get a model-not-found error, check `--alias`.
 
-## 3. Configure Bub
+`LLAMA_API_KEY` exists only in the shell that started it. A new terminal must export the same value again, or you can write a test value directly in the command.
 
-Point Bub at the local server:
+## 3. Configure Bub {#configure-bub}
+
+In the same shell, set the model endpoint and credentials:
 
 ```bash
-export BUB_API_BASE="http://localhost:8080/v1"
-export BUB_API_KEY="$LLAMA_API_KEY"
+export BUB_OPENAI_API_BASE="http://127.0.0.1:8080/v1"
+export BUB_OPENAI_API_KEY="$LLAMA_API_KEY"
 export BUB_MODEL="openai:gemma-4-E2B-it"
 ```
 
-Run one Bub turn:
+`BUB_OPENAI_*` only affects the `openai` provider. If every provider should use the same compatible endpoint, you can also use the generic `BUB_API_BASE` and `BUB_API_KEY`; provider-specific variables take precedence.
+
+Run a turn:
 
 ```bash
 bub run "Reply with one short sentence: hello from a local model."
 ```
 
-Bub now uses the local OpenAI-compatible endpoint for model calls. The turn pipeline, channels, tools, and tapes are unchanged.
+The output should start with `[cli:local]` and contain the model's reply. The request path is:
 
-```bash
-~/bubbuild/bub$ bub run "Reply with one short sentence: hello from a local model."
-2026-05-19 01:32:40.601 | INFO     | bub.builtin.agent:_run_tools_with_auto_handoff:271 - loop.step step=1 tape=becda04eb9f7369c__0b871d5e50e7c192 model=openai:gemma-4-E2B-it
-2026-05-19 01:32:46.747 | INFO     | bub.builtin.store:fork:122 - Merged 7 entries into tape "becda04eb9f7369c__0b871d5e50e7c192"
-[cli:local]
-hello from a local model.
+```text
+Bub turn -> openai provider -> http://127.0.0.1:8080/v1 -> llama.cpp
 ```
 
-## 4. Check the model documentation before changing workloads
+Whether tool calls work depends on the model's instruction-following ability, not on the endpoint type. Verify the connection with a simple question first, then test tools and longer contexts.
 
-When you switch the model or quantization, check the upstream model documentation first:
+## 4. Tune performance and context {#tune}
 
-- The Hugging Face GGUF card lists supported local runtimes and the available quantized files.
-- The Gemma 4 model card documents input modalities, context windows, intended use, license, and risks.
-- Evaluate the model on representative tasks, checking for incorrect, biased, or unsafe output.
+Adjust the startup parameters to your hardware:
 
-Try a small local model when latency, privacy, cost, or offline access matter to your task. Check its answer quality on actual tasks before making it available to users.
+| Goal | Parameter or approach |
+| --- | --- |
+| Reduce memory | Use a smaller quantization file, such as Q4_K_M |
+| Increase context | Set `--ctx-size`; this increases KV cache memory |
+| Use a GPU | Add GPU devices and offload layers according to the `llama.cpp` image documentation |
+| Limit concurrency | Set `--parallel` and account for the context budget of each slot |
+| Text only | Remove `--mmproj` and the corresponding model file |
 
-## Clean up
+Restart the container after changing parameters, then re-verify with `/v1/models` and one `bub run`. Do not set the model's context window larger than Bub actually needs; tool definitions and the Tape also consume tokens.
 
-Stop the Docker container with `Ctrl-C`.
+## Cleanup {#cleanup}
 
-Unset the Bub overrides when you want to return to your previous provider:
+Press `Ctrl-C` in the terminal running the container. Then clear Bub's local overrides:
 
 ```bash
-unset BUB_API_BASE BUB_API_KEY BUB_MODEL LLAMA_API_KEY
+unset BUB_API_BASE BUB_API_KEY BUB_OPENAI_API_BASE BUB_OPENAI_API_KEY BUB_MODEL LLAMA_API_KEY
 ```
+
+Tapes and session history remain in Bub's data directory. Switching to another model does not delete them.
