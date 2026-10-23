@@ -4,6 +4,7 @@ import { defineConfig, envField } from 'astro/config';
 import tailwindcss from '@tailwindcss/vite';
 import starlight from '@astrojs/starlight';
 import cloudflare from '@astrojs/cloudflare';
+import headingAnchors from './src/integrations/heading-anchors.mjs';
 import peleDiagrams from './src/integrations/pele.mjs';
 
 const astro_image_mode =
@@ -39,6 +40,13 @@ export default defineConfig({
     },
   },
   vite: {
+    // Keep the dependency cache of `astro build` away from the one `astro dev`
+    // uses. When both share `node_modules/.vite`, every build rewrites the
+    // optimized deps and a running dev server answers with "There is a new
+    // version of the pre-bundle" instead of hot-reloading.
+    cacheDir:
+      process.env.VITE_CACHE_DIR ??
+      (astro_image_mode === 'dev' ? 'node_modules/.vite' : 'node_modules/.vite-build'),
     plugins: [tailwindcss()],
     resolve: {
       alias: {
@@ -47,6 +55,8 @@ export default defineConfig({
     },
   },
   integrations: [
+    // Let headings carry an explicit id so every locale shares the same anchor.
+    headingAnchors(),
     // Transform Mermaid fences before Starlight highlights code blocks.
     peleDiagrams(),
     starlight({
@@ -111,103 +121,96 @@ export default defineConfig({
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/bubbuild/bub' }],
       sidebar: [
         {
-          label: 'Start here',
-          translations: { 'zh-CN': '从这里开始' },
-          items: ['docs/getting-started', 'docs/getting-started/install'],
+          label: 'Get started',
+          translations: { 'zh-CN': '开始' },
+          items: ['docs/getting-started', 'docs/getting-started/install', 'docs/getting-started/quickstart'],
         },
         {
-          label: 'Build your own agent',
-          translations: { 'zh-CN': '构建自己的 Agent' },
-          items: ['docs/build/sdk', 'docs/build/reuse-plugins', 'docs/tutorials/fastapi'],
-        },
-        {
-          label: 'Customize the Bub app',
-          translations: { 'zh-CN': '定制 Bub 应用' },
+          label: 'Concepts',
+          translations: { 'zh-CN': '核心概念' },
           items: [
-            'docs/build',
-            'docs/getting-started/first-turn',
-            'docs/concepts/turn-pipeline',
+            'docs/concepts',
+            'docs/concepts/turn',
+            'docs/concepts/tape',
+            'docs/concepts/events',
+            'docs/concepts/extension-points',
+          ],
+        },
+        {
+          label: 'Use Bub App',
+          translations: { 'zh-CN': '使用 Bub 应用' },
+          items: [
             {
-              label: 'Extend the app',
-              translations: { 'zh-CN': '扩展应用' },
-              collapsed: true,
+              label: 'Run',
+              translations: { 'zh-CN': '运行' },
+              collapsed: false,
               items: [
-                'docs/build/app-tools',
-                'docs/getting-started/first-skill',
-                'docs/build/skills',
-                'docs/getting-started/first-plugin',
-                'docs/build/plugins',
-                'docs/build/hooks',
-                'docs/build/distribution',
+                'docs/app/workspace',
+                'docs/app/configure',
+                'docs/app/terminal',
+                'docs/app/channels',
               ],
             },
             {
-              label: 'Configure and run',
-              translations: { 'zh-CN': '配置与运行' },
-              collapsed: true,
+              label: 'Extend',
+              translations: { 'zh-CN': '扩展' },
+              collapsed: false,
               items: [
-                'docs/operate',
-                'docs/operate/configure',
-                'docs/operate/channels',
-                'docs/operate/channels/cli',
-                'docs/operate/channels/telegram',
-                'docs/operate/deploy',
+                'docs/app/tools',
+                'docs/app/skills',
+                'docs/app/plugins',
+                'docs/app/hooks',
               ],
             },
             {
-              label: 'Integrations',
-              translations: { 'zh-CN': '接入集成' },
-              collapsed: true,
+              label: 'Ship',
+              translations: { 'zh-CN': '上线' },
+              collapsed: false,
               items: [
-                {
-                  slug: 'docs/tutorials',
-                  label: 'Integration index',
-                  translations: { 'zh-CN': '集成索引' },
-                },
-                'docs/tutorials/mcp',
-                'docs/tutorials/agent-plugins',
-                'docs/tutorials/language-extensions',
-                'docs/tutorials/acp-server',
-                'docs/tutorials/tapestore-sqlalchemy',
-                'docs/tutorials/observability',
-                'docs/tutorials/local-llama-cpp',
+                'docs/app/deploy',
+                'docs/app/distribution',
               ],
             },
           ],
         },
         {
-          label: 'Shared concepts and capabilities',
-          translations: { 'zh-CN': '公共概念与能力' },
+          label: 'Build your own Bub Agent',
+          translations: { 'zh-CN': '构建你的 Bub Agent' },
           items: [
-            'docs/concepts',
-            'docs/build/tools',
-            'docs/concepts/tape-and-context',
-            'docs/concepts/events',
-            'docs/concepts/surfaces',
-            'docs/concepts/philosophy',
+            'docs/sdk',
+            'docs/sdk/options',
+            'docs/sdk/tools',
+            'docs/sdk/reuse-plugins',
+            'docs/sdk/web-service',
+          ],
+        },
+        {
+          label: 'Integrations',
+          translations: { 'zh-CN': '集成' },
+          items: [
+            'docs/integrations',
+            'docs/integrations/mcp',
+            'docs/integrations/agent-plugins',
+            'docs/integrations/acp',
+            'docs/integrations/local-models',
+            'docs/integrations/storage',
+            'docs/integrations/observability',
           ],
         },
         {
           label: 'Reference',
           translations: { 'zh-CN': '参考' },
           items: [
-            {
-              slug: 'docs/reference',
-              label: 'Agent and app APIs',
-              translations: { 'zh-CN': 'Agent 与应用接口' },
-            },
-            {
-              label: 'Application reference',
-              translations: { 'zh-CN': '应用参考' },
-              items: [
-                'docs/reference/hooks',
-                'docs/reference/cli',
-                'docs/reference/settings',
-                'docs/reference/types',
-              ],
-            },
-            'docs/reference/versions',
+            'docs/reference/cli',
+            'docs/reference/python-api',
+            'docs/reference/settings',
+            'docs/reference/hooks',
           ],
+        },
+        {
+          label: 'Migration',
+          translations: { 'zh-CN': '迁移' },
+          items: ['docs/migration/v0-6'],
         },
       ],
     }),

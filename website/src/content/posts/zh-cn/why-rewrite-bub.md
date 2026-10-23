@@ -48,7 +48,7 @@ tags:
 4. `provide_tape_store()`，这个接口允许插件自定义 tape 的存储方式，可以保存在 DB 里，或者保存在一个外挂的服务中，非常适合用来改造记忆系统。例子：[bub-tapestore-sqlite](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite)
 5. `provide_channels()`，这个接口允许插件提供一个或多个渠道，这个渠道在整个应用周期的开始时启动，结束时销毁，所以不仅可以用来做消息收发的通道，也适合任何需要长时间运行的服务，比如 HTTP server，[bub 的定时任务系统](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-schedule)就是基于这个来实现的，尽管它听上去和「渠道」没什么联系。
 
-完整的插件接口参考 [bub 的文档](https://bub.build/docs/build/hooks/)。
+完整的插件接口参考 [bub 的文档](https://bub.build/docs/app/hooks/)。
 
 [^4]: 一个 turn 指的是 Agent 处理一次 user prompt 的完整过程，包括一整个 ReAct loop 的执行。
 

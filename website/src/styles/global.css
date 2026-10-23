@@ -353,6 +353,54 @@
     }
 }
 
+/* ═══ 文档正文宽度 ═══
+ *
+ * Starlight 把正文容器固定在 --sl-content-width（45rem），剩下空间分给右侧栏。
+ * 窄屏上没有问题；宽屏时右栏被推到最右，正文左侧留下大块空白，
+ * 看起来像「内容偏右」。这里提高正文宽度上限，让正文和右侧栏分掉剩余空间。
+ */
+.sl-container:where(.astro-3u2j7pwv) {
+    --sl-content-width: 52rem;
+}
+
+/* 宽屏下让正文容器真正居中，不靠右栏吸收剩余宽度。 */
+@media (min-width: 72rem) {
+    .content-panel > .sl-container {
+        margin-inline: auto;
+    }
+    .right-sidebar-container {
+        width: var(--sl-sidebar-width);
+    }
+}
+
+/* ═══ 文档表格 ═══
+ *
+ * Starlight 默认用 display:block + overflow:auto 让表格可横向滚动。
+ * 行内 code 不能断行，列宽被挤压后中文会逐字竖排。这里在宽屏下改为表格布局，
+ * 窄屏仍保留横向滚动，避免表格比屏幕宽。
+ */
+.sl-markdown-content table:not(:where(.not-content *)) {
+    width: 100%;
+}
+
+@media (min-width: 50rem) {
+    .sl-markdown-content table:not(:where(.not-content *)) {
+        display: table;
+        table-layout: auto;
+    }
+}
+
+.sl-markdown-content :is(th, td):not(:where(.not-content *)) {
+    min-width: 4.5rem;
+    word-break: normal;
+}
+
+/* 单元格里的长代码（如阶段名）不在单词中间断开，让单元格自己加宽。 */
+.sl-markdown-content :is(th, td) code:not(:where(.not-content *)) {
+    white-space: nowrap;
+    overflow-wrap: normal;
+}
+
 /* Pele diagrams inherit the same monochrome palette as the surrounding docs. */
 .pele-diagram {
     --pele-bg: var(--background);

@@ -1,0 +1,104 @@
+---
+title: 快速上手
+description: 学会如何快速开始在终端或在自己的 Python 项目中使用 Bub。
+---
+
+import { CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
+
+自 0.6.0 版本起，Bub 本体拆分成了两部分，因此你可以根据需要选择使用哪部分来玩转 Bub。
+
+这一页假设你已经[安装 Bub](/zh-cn/docs/getting-started/install/)。
+
+## 从 CLI 启动
+
+打开你系统的终端，然后按如下步骤在命令行中进行操作：
+
+<Steps>
+
+1. （可选）如果你从未配置过 Bub，可以先执行如下命令来完成初始配置：
+
+   ```bash
+   bub onboard
+   ```
+
+2. 在任意目录中创建一个工作区（目录）并切换到当中，然后使用 `bub chat` 启动一个交互式会话：
+
+   ```bash
+   mkdir hello-bub && cd hello-bub
+   bub chat
+   ```
+
+3. 现在，可以尝试复制粘贴如下文本并与 Bub 进行对话：
+
+   ```shell
+   Summarize the files in this directory
+   ```
+
+</Steps>
+
+一切都很简单对吧？现在你可以使用 <kbd>Ctrl+C</kbd> 退出 Bub 交互式会话，然后可以输入 `bub --help` 查看更多命令和选项，或是[查阅文档](/zh-cn/docs/reference/cli)以了解更多信息。
+
+## 用 SDK 运行
+
+作为 Python 工匠，也许你想写点代码，那么可以按以下方式来尝试在 Python 项目中使用 Bub SDK。
+
+<Steps>
+
+1. 创建新项目并安装 Bub：
+
+   ```bash
+   uv init --python 3.12 my-agent && cd my-agent
+   uv add bub
+   ```
+
+2. 把下面这段代码保存为 `main.py`
+
+   ```python
+   import asyncio
+
+   import republic
+
+   from bub.core import Agent
+
+
+   async def main() -> None:
+       agent = Agent(system_prompt="Be concise.")
+       async with republic.get_model("openai:gpt-5-mini") as model:
+           async with agent.run("What can you do?", model=model, tape="demo") as stream:
+               async for event in stream:
+                   if event.kind == "text":
+                       print(event.data.get("delta", ""), end="")
+
+
+   asyncio.run(main())
+   ```
+
+3. 用你的 API Key 跑起来
+
+   ```bash
+   export REPUBLIC_OPENAI_API_KEY=sk-...
+   uv run python main.py
+   ```
+
+</Steps>
+
+不知道代码里面有哪些 API？没关系，你可以在[API 文档](/zh-cn/docs/reference/python-api/)中找到更多 API 参考。
+
+## 下一步
+
+恭喜你，已经掌握 Bub 的基本使用方式了，接下来你可以继续深入探索这两种方式以解锁更多使用场景。
+
+<CardGrid>
+  <LinkCard
+    title="CLI App"
+    href="/zh-cn/docs/app/workspace/"
+    description="带你更完整地使用 Bub 的应用层能力"
+  />
+  <LinkCard
+    title="SDK"
+    href="/zh-cn/docs/sdk/"
+    description="一步步教你如何构建自己的 Bub Agent"
+  />
+</CardGrid>
+
+当然，如果你愿意的话，也可以继续了解一下 Bub 有哪些设计巧思。

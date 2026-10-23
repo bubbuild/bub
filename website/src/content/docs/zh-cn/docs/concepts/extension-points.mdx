@@ -1,0 +1,94 @@
+---
+title: 扩展点
+description: 判断你的任务需要工具、事件处理器、技能、插件，还是渠道。
+---
+
+import { Aside, Card, CardGrid, Steps } from '@astrojs/starlight/components';
+
+前面的三页讲 Bub 自己怎么运转。这一页讲你想加东西时，它该放进哪。
+
+先想清楚你要加的是什么行为。加一个新动作，用工具。加一个新的收消息的地方，用渠道。这些能力可以叠着用，但别让它们干同一件事。
+
+## 先问三个问题 {#three-questions}
+
+遇到“我要让 Bub 做 X”时，按顺序问：
+
+<Steps>
+1. **X 需要执行代码或访问外部系统吗？** 需要 → 工具。不需要 → 下一题。
+2. **X 是一套做法、约定或检查清单吗？** 是 → 技能。不是 → 下一题。
+3. **X 要改变 Bub 自己的行为（消息怎么进来、怎么处理、发到哪）吗？** 要 → 插件或渠道。
+</Steps>
+
+三步都没命中，那多半是“改内核的模型循环”，属于直接用 SDK 组装 Agent 的范畴。
+
+## 选择表 {#choose}
+
+| 你想 | 用 | 它在哪一层 | 动手看 |
+| --- | --- | --- | --- |
+| 让 agent 读或改某个东西 | [工具](/zh-cn/docs/sdk/tools/) | 内核的通用能力。传给 Agent，或者在应用里注册。 | [应用注册工具](/zh-cn/docs/app/tools/) |
+| 看住或拦下模型、工具调用 | [事件处理器](/zh-cn/docs/concepts/events/#call-control) | 内核的 EventBus。应用插件可以用对应的拦截 hooks。 | [Hooks](/zh-cn/docs/app/hooks/) |
+| 改哪段历史变成模型消息 | [TapeContext](/zh-cn/docs/concepts/tape/#context) | 传给 Agent，或者通过应用 hook 提供。 | [换存储与上下文](/zh-cn/docs/integrations/storage/) |
+| 教 agent 一套可复用的做法 | [技能](/zh-cn/docs/app/skills/) | Bub 应用负责发现和加载。 | [技能](/zh-cn/docs/app/skills/) |
+| 改应用怎么初始化，或者消息怎么处理 | [插件](/zh-cn/docs/app/plugins/) | `BubFramework` 和它的 hooks。 | [插件](/zh-cn/docs/app/plugins/) |
+| 接一个消息服务 | [渠道](/zh-cn/docs/app/channels/) | 应用的入站和出站路由。 | [渠道](/zh-cn/docs/app/channels/) |
+
+## 内核层与应用层 {#kernel-and-app}
+
+同一个能力，往往在两层各有一个入口。这不是重复，而是两种组装方式：
+
+<CardGrid>
+  <Card title="内核层：你传进去" icon="puzzle">
+    `Agent(tools=[...], context=..., store=...)`。
+
+    适合自己管理生命周期、把 Bub 嵌进已有服务。没有配置文件，没有插件发现。
+  </Card>
+  <Card title="应用层：hook 提供" icon="rocket">
+    `provide_tools`、`build_tape_context`、`provide_tape_store`。
+
+    适合分发给别人用，或者希望装上去就生效。插件可以被发现、被配置、被复用。
+  </Card>
+</CardGrid>
+
+选择的标准是**谁来控制生命周期**。代码在你的服务里、启动时由你决定一切，就用内核层的构造函数参数；希望别人 `pip install` 之后自动生效，就写成插件。
+
+## 工具与技能 {#tools-and-skills}
+
+工具跑 Python，返回结果。技能是一个目录，里面有 `SKILL.md`，还可以有别的文件。它的指令可以告诉 agent 怎么用工具。
+
+两者的边界经常被弄混，值得说清楚：**技能不执行代码**。它是写给模型看的做法说明——"改代码前先读哪些文件""提 PR 时按这个模板写"。指令里提到的 Python 函数，你自己写，再另外挂上去。
+
+| 维度 | 工具 | 技能 |
+| --- | --- | --- |
+| 内容 | Python 函数 + 类型标注 | Markdown 指令 + 附属文件 |
+| 谁读 | 模型通过 schema 调用 | 模型读进上下文后遵循 |
+| 效果 | 执行动作、返回数据 | 改变模型的做法 |
+| 何时加载 | 每次运行的可用工具集 | 应用发现后按需拼进提示词 |
+| 分发 | 随插件注册 | 放在工作区或随包分发 |
+
+普通的 Agent 只用你给的工具和提示词片段。Bub 应用会去发现技能，也会读 `AGENTS.md`。见[技能](/zh-cn/docs/app/skills/)和[工具](/zh-cn/docs/app/tools/)。
+
+agent 也可以用一条[文本命令](/zh-cn/docs/sdk/tools/#call-a-tool-without-a-model)调工具，或者用 CodeMode 让模型写 Python 来调。这几条路走的是同一个工具实现——**同一个函数，三种触发方式**，所以工具的行为在哪条路上都一样。
+
+## 消息与状态 {#messages-and-state}
+
+渠道收一个入站 envelope，发出站 envelope。应用用 envelope 带内容、路由和会话标识。各个 hooks 共用当前 turn 的 `TurnState` 字典。
+
+这三个东西分工明确：
+
+- **envelope** 负责"从哪来、到哪去"，跨进程边界。
+- **`TurnState`** 负责"这一轮记得什么"，活在单次 turn 内。
+- **tape** 负责"之前发生过什么"，跨 turn 长期存在。
+
+要加一个新的消息来源，实现渠道，产出 envelope。要加一个在特定阶段生效的行为，实现插件 hook，读 `TurnState`。要留一份长期记录，写进 tape。
+
+[Turn](/zh-cn/docs/concepts/turn/)先把状态和提示词准备好，再调 agent。直接用 SDK 的人，自己把提示词和 state 交给 Agent。
+
+## 别让两个东西干同一件事 {#one-owner}
+
+这是最常见的扩展设计错误，代价是以后没人说得清哪一处是权威。
+
+- 已经在 `before_tool_call` 里拦了退款，就不要再在工具函数里重复判断。
+- 已经用技能写了提交规范，就不要再塞进 `AGENTS.md`。
+- 已经用 `provide_tape_context` 选了上下文，就不要再在 `build_prompt` 里拼一遍历史。
+
+判断标准很简单：**这段逻辑如果被删掉，会不会有别的路径补不上？** 如果两条路径都能补上，就删掉一条。

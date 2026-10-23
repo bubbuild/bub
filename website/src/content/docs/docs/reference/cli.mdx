@@ -1,5 +1,5 @@
 ---
-title: CLI reference
+title: CLI
 description: Built-in application commands, options, and defaults.
 ---
 
@@ -18,7 +18,7 @@ bub [OPTIONS] COMMAND [ARGS]...
 
 The framework is created in `bub/__main__.py`, which calls `BubFramework().load_hooks()` and then `create_cli_app()`. The active framework is stored on `ctx.obj`.
 
-Terminals that support [OSC 7501](https://www.superlogical.com/rex/docs/build/program-status) can show when Bub is working, waiting for input or approval, finished, or failed. Cancelling a command reports `idle`. `chat` and `gateway` report `idle` once listening, and remain busy until all accepted messages finish. Other terminals display normal command output. Redirected output contains no status sequences.
+Terminals that support [OSC 7501](https://www.superlogical.com/rex/docs/app/program-status) can show when Bub is working, waiting for input or approval, finished, or failed. Cancelling a command reports `idle`. `chat` and `gateway` report `idle` once listening, and remain busy until all accepted messages finish. Other terminals display normal command output. Redirected output contains no status sequences.
 
 ## `bub run`
 
@@ -89,7 +89,7 @@ Behavior notes:
 - `--uninstall` stops and removes the corresponding systemd user unit or Windows scheduled task. It succeeds when the service is already absent and does not require an enabled channel.
 - `--install` and `--uninstall` are mutually exclusive.
 
-See [Operate › Channels](/docs/operate/channels/) for per-channel deployment notes.
+See [Operate › Channels](/docs/app/channels/) for per-channel deployment notes.
 
 ## `bub onboard`
 

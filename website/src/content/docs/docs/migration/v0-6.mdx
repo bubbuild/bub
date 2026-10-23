@@ -1,0 +1,46 @@
+---
+title: Upgrade to 0.6.0
+description: Migration notes for the 0.6.0 split of kernel and application dependencies.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Before 0.6.0, `bub` covered both the application and the kernel; from 0.6.0 on, installing `bub` gives you the kernel only, and the application moved into the optional `app` dependencies. If you need the Bub application layer (configuration, plugins, hooks, skills, message channels, the gateway, and so on), add `bub[app]` when you install.
+
+## Upgrade guide
+
+Pick the upgrade step for your current install:
+
+<Tabs>
+<TabItem label="uv">
+
+Installed with `uv tool`:
+
+```bash
+uv tool install --upgrade --force "bub[app]"
+```
+
+</TabItem>
+<TabItem label="Virtual environment">
+
+In an activated virtual environment:
+
+```bash
+uv pip install --upgrade "bub[app]"
+```
+
+</TabItem>
+<TabItem label="pyproject.toml">
+
+For a plugin or a distribution, change the dependency in `pyproject.toml`:
+
+```toml
+dependencies = ["bub[app]>=0.6.0"]
+```
+
+</TabItem>
+</Tabs>
+
+## Verify the upgrade
+
+Once the upgrade finishes, go to the [terminal](/docs/app/terminal/) and enter `bub --help`, start a quick conversation, and run `bub hooks` to see which plugins loaded.

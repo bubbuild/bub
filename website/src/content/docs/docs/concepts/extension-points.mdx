@@ -1,0 +1,94 @@
+---
+title: Extension points
+description: Decide whether your task needs a tool, an event handler, a skill, a plugin, or a channel.
+---
+
+import { Aside, Card, CardGrid, Steps } from '@astrojs/starlight/components';
+
+The previous three pages describe how Bub runs itself. This one describes where your addition belongs.
+
+First decide what behavior you are adding. A new action is a tool. A new place to receive messages is a channel. These capabilities stack, but do not let two of them do the same job.
+
+## Ask three questions {#three-questions}
+
+When you want Bub to do X, ask in order:
+
+<Steps>
+1. **Does X run code or reach an external system?** Yes → tool. No → next question.
+2. **Is X a procedure, convention, or checklist?** Yes → skill. No → next question.
+3. **Does X change how Bub itself behaves — how messages arrive, how they are processed, where they go?** Yes → plugin or channel.
+</Steps>
+
+If none match, you are most likely changing the kernel's model loop, which means assembling an Agent with the SDK directly.
+
+## Choose {#choose}
+
+| You want to | Use | Which layer | Start at |
+| --- | --- | --- | --- |
+| Let the agent read or change something | [Tool](/docs/sdk/tools/) | A general kernel capability. Pass it to the Agent, or register it in the app. | [Registering tools](/docs/app/tools/) |
+| Watch or stop a model or tool call | [Event handler](/docs/concepts/events/#call-control) | The kernel's EventBus. App plugins use the matching interception hooks. | [Hooks](/docs/app/hooks/) |
+| Change which history becomes model messages | [TapeContext](/docs/concepts/tape/#context) | Pass it to the Agent, or provide it through an app hook. | [Replacing storage and context](/docs/integrations/storage/) |
+| Teach the agent a reusable procedure | [Skill](/docs/app/skills/) | The Bub app discovers and loads it. | [Skills](/docs/app/skills/) |
+| Change how the app initializes or how messages are handled | [Plugin](/docs/app/plugins/) | `BubFramework` and its hooks. | [Plugins](/docs/app/plugins/) |
+| Connect a messaging service | [Channel](/docs/app/channels/) | The app's inbound and outbound routing. | [Channels](/docs/app/channels/) |
+
+## Kernel and app {#kernel-and-app}
+
+The same capability usually has one entry in each layer. That is not duplication; it is two ways of assembling the same thing:
+
+<CardGrid>
+  <Card title="Kernel: you pass it in" icon="puzzle">
+    `Agent(tools=[...], context=..., store=...)`.
+
+    For services that manage their own lifecycle and embed Bub. No settings file, no plugin discovery.
+  </Card>
+  <Card title="App: a hook provides it" icon="rocket">
+    `provide_tools`, `build_tape_context`, `provide_tape_store`.
+
+    For distributing to others, or when it should work as soon as it is installed. Plugins can be discovered, configured, and reused.
+  </Card>
+</CardGrid>
+
+The deciding question is **who owns the lifecycle**. If the code lives in your service and you decide everything at startup, use the kernel constructor arguments. If it should take effect after someone runs `pip install`, write a plugin.
+
+## Tools and skills {#tools-and-skills}
+
+A tool runs Python and returns a result. A skill is a directory with a `SKILL.md` and optionally other files. Its instructions can tell the agent how to use a tool.
+
+The boundary between them gets confused often, so it is worth stating plainly: **a skill runs no code**. It is procedure written for the model — "read these files before changing code", "write the PR description with this template". Python functions mentioned in the instructions are yours to write and attach separately.
+
+| Dimension | Tool | Skill |
+| --- | --- | --- |
+| Content | A Python function with type hints | Markdown instructions plus supporting files |
+| Who reads it | the model, calling it through a schema | the model, once in context, then following it |
+| Effect | Performs an action, returns data | Changes how the model works |
+| When loaded | The available toolset for each run | Discovered by the app and added to the prompt as needed |
+| Distribution | Registered through a plugin | Lives in the workspace or ships with a package |
+
+A plain Agent uses only the tools and prompt sections you give it. The Bub app discovers skills and also reads `AGENTS.md`. See [Skills](/docs/app/skills/) and [Tools](/docs/app/tools/).
+
+The agent can also call a tool through a [text command](/docs/sdk/tools/#call-a-tool-without-a-model), or have CodeMode write Python that calls it. Every path runs the same tool implementation — **one function, three triggers** — so a tool behaves the same whichever path invokes it.
+
+## Messages and state {#messages-and-state}
+
+A channel receives an inbound envelope and sends outbound ones. The app uses envelopes to carry content, routing, and session identity. All the hooks share the current turn's `TurnState` dictionary.
+
+The three have clearly separate jobs:
+
+- An **envelope** carries "where from, where to", across a process boundary.
+- **`TurnState`** carries "what this turn remembers", living for a single turn.
+- A **tape** carries "what already happened", across turns.
+
+To add a new message source, implement a channel that produces envelopes. To add behavior at a specific stage, implement a plugin hook that reads `TurnState`. To leave a long-lived record, write to the tape.
+
+[Turn](/docs/concepts/turn/) prepares the state and prompt before calling the agent. If you use the SDK directly, you hand the prompt and state to the Agent yourself.
+
+## Keep one owner per job {#one-owner}
+
+This is the most common extension-design mistake, and the cost is that nobody can later say which place is authoritative.
+
+- If you already block refunds in `before_tool_call`, do not repeat the check inside the tool function.
+- If a skill already documents the commit convention, do not duplicate it in `AGENTS.md`.
+- If `provide_tape_context` already selects the context, do not rebuild history again in `build_prompt`.
+
+A simple test: **if you deleted this logic, would another path fail to cover it?** If two paths both cover it, delete one.

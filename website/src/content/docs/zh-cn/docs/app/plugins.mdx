@@ -1,0 +1,194 @@
+---
+title: 插件
+description: 编写插件、选择入口点形式，并安装到应用里。
+---
+
+插件可以改变 Bub 应用处理任务的方式。本页先带你写一个回声插件，无需模型凭据就能检查插件发现和 turn 处理，再说明入口点的几种形式、工具注册、分享方式，以及用其他语言实现的办法。
+
+Python 包在 `bub` 入口点组中声明目标，Bub 导入这个目标，并注册其中的 hook 实现。你也可以在自己的服务中复用现有插件，继续使用宿主自己的调用入口；参见[复用插件](/zh-cn/docs/sdk/reuse-plugins/)。
+
+## 创建包
+
+按[安装 Bub](/zh-cn/docs/getting-started/install/)中的说明准备 Python 3.12+ 和 uv。这篇教程会创建一个同时包含 Bub 0.6.0 和插件的项目环境。
+
+创建以下包目录：
+
+```text
+bub-echo-plugin/
+├── pyproject.toml
+└── src/
+    └── bub_echo_plugin/
+        ├── __init__.py
+        └── plugin.py
+```
+
+将 `__init__.py` 留空。在 `pyproject.toml` 中写入：
+
+```toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bub-echo-plugin"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["bub[app]>=0.6.0"]
+
+[project.entry-points."bub"]
+echo = "bub_echo_plugin.plugin:echo_plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bub_echo_plugin"]
+```
+
+`bub` 入口点组告诉应用到哪里寻找插件。
+
+## 实现回复
+
+在 `src/bub_echo_plugin/plugin.py` 中写入：
+
+```python
+from bub import hookimpl
+
+
+class EchoPlugin:
+    @hookimpl
+    def run_model(self, prompt, session_id, state):
+        return f"[echo:{session_id}] {prompt}"
+
+
+echo_plugin = EchoPlugin()
+```
+
+应用仍会构建收到的提示词。你的 `run_model` 实现提供回复，替代内置 agent 的执行。
+
+## 安装并试运行
+
+在插件目录安装项目和依赖：
+
+```bash
+uv sync
+uv run bub hooks
+```
+
+`uv sync` 会以可编辑模式安装这个包。在同一个项目中通过 `uv run` 运行 Bub，它就能发现插件。如果安装到已有且已激活的应用环境，改用 `uv pip install -e .`，然后在该环境中运行 `bub hooks`。
+
+报告应在 `run_model` 下列出 `echo`。内置 agent 则出现在 `run_model_stream` 下。
+
+```bash
+uv run bub run "hello from my plugin"
+```
+
+没有其他插件覆盖模型阶段时，回复包含：
+
+```text
+[echo:cli:local] hello from my plugin
+```
+
+如果没有看到 `echo`，检查安装插件的环境是否就是运行 `bub` 的环境、入口点组名，以及启动日志中的导入错误。修改包元数据后，需要重新安装包。如果已经列出却返回其他回复，检查其他模型 hooks 及其优先级。
+
+Bub 先注册内置 hooks，再注册入口点插件。同等优先级通常按注册顺序的逆序调用；`tryfirst` 和 `trylast` 会影响顺序。[调用规则](/zh-cn/docs/reference/hooks/#priority-and-dispatch)说明了哪个实现先运行。
+
+## 选择入口点形式
+
+键 `myplugin` 是诊断信息中的插件名称，值是要导入的 Python 对象。选择一种目标形式：
+
+| 目标 | 注册方式 | 适用情况 |
+| --- | --- | --- |
+| `bub_myplugin.plugin` | 注册模块 | hooks 是模块级函数 |
+| `bub_myplugin.plugin:plugin` | 注册实例 | hooks 需要共享对象状态 |
+| `bub_myplugin.plugin:MyPlugin` | 将 `BubFramework` 传给类或工厂，注册返回值 | hooks 需要访问 framework |
+
+模块形式在模块顶层定义 hooks：
+
+```python
+from bub import hookimpl
+
+
+@hookimpl
+def build_prompt(message, session_id, state):
+    return "Describe this workspace."
+```
+
+实例形式在目标模块中创建对象：
+
+```python
+from bub import hookimpl
+
+
+class MyPlugin:
+    @hookimpl
+    def build_prompt(self, message, session_id, state):
+        return "Describe this workspace."
+
+
+plugin = MyPlugin()
+```
+
+所有可调用目标都会收到 framework，类也一样。构造函数或工厂需要接收这个参数：
+
+```python
+from bub import BubFramework, hookimpl
+
+
+class MyPlugin:
+    def __init__(self, framework: BubFramework) -> None:
+        self.framework = framework
+
+    @hookimpl
+    def build_prompt(self, message, session_id, state):
+        return f"Describe the workspace at {self.framework.workspace}."
+```
+
+这些例子会替换提示词。请在[Hooks](/zh-cn/docs/app/hooks/)中选择真正适合任务的 hook。
+
+## 导入时注册工具
+
+如果包内定义了 `@tool` 函数，在入口点模块中导入工具模块，确保 agent 创建前已完成注册：
+
+```python
+from . import tools  # noqa: F401
+```
+
+应用创建 `BubAgent` 时会获取已注册工具的快照。[工具](/zh-cn/docs/app/tools/)会说明注册、延迟加载和 code mode。
+
+## 分享插件
+
+发布前，构建 wheel 并安装到独立环境，确认入口点能加载，并用一个实际任务检查 hook。如果要同时发布技能或多个插件，参见[分发](/zh-cn/docs/app/distribution/)。
+
+可移植的 Agent Plugins 使用另一种格式，包括 `plugin.json`、技能和 MCP servers。[Agent Plugins 集成](/zh-cn/docs/integrations/agent-plugins/)通过一个 Python 插件加载这些包。
+
+## WASM 插件（实验性）
+
+插件不一定要用 Python 写。[`bub-extism`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) 插件运行 WebAssembly 模块，把模块导出的函数当作 hook。hook 的分发和优先级仍由 Bub 决定，Extism 只负责调用你的模块。
+
+把它装到 Bub 所在的环境：
+
+```bash
+bub install bub-extism@main
+bub hooks
+```
+
+`extism.json` 为每个模块指定文件和它实现的 hook。`manifest` 用 Extism 的格式，`hooks` 把 Bub 的 hook 名映射到 wasm 导出：
+
+```json
+{
+  "plugins": {
+    "prompt": {
+      "manifest": { "wasm": [{ "path": "go-build-prompt.wasm" }] },
+      "wasi": true,
+      "hooks": { "build_prompt": "build_prompt" }
+    }
+  }
+}
+```
+
+```bash
+export BUB_EXTISM_CONFIG_PATH=./extism.json
+bub run "Say hello from a prompt built outside Python."
+```
+
+[README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism)写明了这条路径支持哪些 hook，以及参数怎么转换。用之前先核对这两点：不是每个 hook 都能用，而且所有值都要跨过 Python 和 wasm 的边界。[示例](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism/examples)分别用 Go 和 Rust 各写了一个模块。
+
+模型调用和 tape 记录继续用内置实现。这种模块适合只做少量独立工作的 hook。

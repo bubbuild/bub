@@ -1,24 +1,63 @@
 ---
-title: Shared concepts and capabilities
-description: Understand the components shared by your own Agent and the Bub application.
-sidebar:
-  order: 0
+title: Overview
+description: Why Bub was redesigned and which responsibility boundaries it defines
+prev: false
+next: false
 ---
 
-Tools, conversation history, and events work through the same core interfaces in both routes. Use these pages when you need to understand a component or choose how to connect it. You can start with [your own Agent](/docs/build/sdk/) or [the Bub application](/docs/build/) and return here as needed.
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-| You want to understand | Read |
-| --- | --- |
-| How the core and application fit together | [Design choices](/docs/concepts/philosophy/) |
-| Which extension point fits a task | [Choose an extension point](/docs/concepts/surfaces/) |
-| How to define an action or use generated Python | [Tools and CodeMode](/docs/build/tools/) |
-| What gets saved and what the model reads | [Conversation history and context](/docs/concepts/tape-and-context/) |
-| How to observe, change, or stop a call | [Events and call control](/docs/concepts/events/) |
+## Background {#background}
 
-## A few terms
+Bub took its inspiration from self-evolving agents like OpenClaw and nanobot, so at first it piled every feature into the main package:
 
-An **Agent** runs the model and tool loop. A **run** handles one prompt and may contain several model steps. A **tool** is a typed action the agent can execute.
+- Every new message channel required adding a class under `bub.channels`, plus a batch of tools or skills;
+- Every new capability required one more switch.
+- …
 
-A **Tape** holds conversation records. Its **entries** include messages, tool calls, results, and events. An **anchor** marks a starting point for building context; a **handoff** writes a new anchor. The run's mutable **state** is a separate dictionary shared with tools and handlers.
+As a result, even if a user only used one or two channels and one or two capabilities, they still faced dozens of switches and configuration options, and were simply drowned in a sea of options without knowing where to start.
 
-The Bub application adds **plugins**, which provide Python hooks, **skills**, which provide reusable instructions, and **channels**, which carry messages in and out. Its [turn pipeline](/docs/concepts/turn-pipeline/) connects those components around the agent.
+So Bub was rewritten — stripping out extra functionality and leaving only a carefully designed lightweight kernel and a freely composable plugin architecture.
+
+As large models have developed and evolved, agents today are no longer the early chatbots that only did question-and-answer. They have fully become operators and executors on equal footing with people. So, like other agent tools, Bub has faced social questions since its birth: how to collaborate with people, how to hand off work, and how to stay visible during execution.
+
+On the basis of a carefully designed architecture, it should have clear contractual boundaries like Isaac Asimov's Three Laws of Robotics: clear command boundaries, traceable history, and neutral operation, ultimately evolving from "assistant behavior" to "collaboration infrastructure."
+
+## The journey of one interaction {#journey}
+
+Looking across all agent designs, the core interaction flow is as follows, and Bub is no exception:
+
+```mermaid
+flowchart LR
+  A["Receive input"] --> B["Pre-processing"] --> C["Loop"] --> D["Post-processing"] --> E["Produce output"]
+  C -.-> T[("Conversation history")]
+```
+
+The whole flow still falls within software engineering. This means that apart from the two ends of receiving messages and producing output, every other process is an intermediate process, and most designs in the industry do their engineering in the intermediate process.
+
+## Responsibility boundaries {#concepts}
+
+Along this chain, Bub can be divided into the following responsibility boundaries. The boundaries have no dependency order; you can browse them as needed.
+
+<CardGrid>
+  <LinkCard
+    title="Turn"
+    description="Defines the complete flow. The process from receiving to responding can be divided into multiple stages."
+    href="/docs/concepts/turn/"
+  />
+  <LinkCard
+    title="Tape"
+    description="Adds history and context. The conversation history is append-only, and the model can retrieve the complete record from a starting point as needed."
+    href="/docs/concepts/tape/"
+  />
+  <LinkCard
+    title="Events"
+    description="Makes the run open to intervention. Every model call and tool execution has a beginning, an end, and a result."
+    href="/docs/concepts/events/"
+  />
+  <LinkCard
+    title="Extension points"
+    description="Decides how new logic plugs in. Tools, skills, channels, and plugins all have a place to plug in."
+    href="/docs/concepts/extension-points/"
+  />
+</CardGrid>

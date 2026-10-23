@@ -233,7 +233,7 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
           icon: 'webhook',
           title: '按需组合',
           description:
-            '内核精简，内置实现均可替换。每个轮次阶段都是一个 pluggy hook，可通过 Python 插件覆盖，无需 fork 运行时。',
+            '内核精简，内置实现均可替换。每个 turn 阶段都是一个 pluggy hook，可通过 Python 插件覆盖，无需 fork 运行时。',
         },
         {
           icon: 'layers',

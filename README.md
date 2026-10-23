@@ -9,7 +9,7 @@
 
 <p><strong>Build your Bub.</strong></p>
 
-[Website](https://bub.build) · [Docs](https://bub.build/docs/getting-started/) · [Hub](https://hub.bub.build)
+[Website](https://bub.build) · [Docs](https://bub.build/docs/) · [Hub](https://hub.bub.build)
 
 </div>
 
@@ -25,9 +25,9 @@ In a Python 3.12+ project:
 uv add bub
 ```
 
-Run your first agent with the [SDK guide](https://bub.build/docs/build/sdk/), then [serve it with FastAPI](https://bub.build/docs/tutorials/fastapi/) when you need an HTTP endpoint.
+Run your first agent with the [SDK guide](https://bub.build/docs/sdk/), then [serve it with FastAPI](https://bub.build/docs/sdk/web-service/) when you need an HTTP endpoint.
 
-You can also embed `BubAgent` to reuse the application's settings and plugin hooks in your service. This uses `bub[app]`; [Reuse application plugins](https://bub.build/docs/build/reuse-plugins/) explains the integration choices and their requirements.
+You can also embed `BubAgent` to reuse the application's settings and plugin hooks in your service. This uses `bub[app]`; [Reuse application plugins](https://bub.build/docs/sdk/reuse-plugins/) explains the integration choices and their requirements.
 
 ## Customize the Bub app
 
@@ -51,11 +51,11 @@ Follow the prompts to choose plugins and configure your model, then start a conv
 bub chat
 ```
 
-[Run your first conversation](https://bub.build/docs/getting-started/first-turn/) walks through a task in your workspace. [Customize the Bub app](https://bub.build/docs/build/) covers tools, plugins, and packaging. For `uv tool install` and other setup options, see [Install Bub](https://bub.build/docs/getting-started/install/#app-install).
+[Run your first conversation](https://bub.build/docs/app/workspace/) walks through a task in your workspace. [Customize the Bub app](https://bub.build/docs/app/workspace/) covers tools, plugins, and packaging. For `uv tool install` and other setup options, see [Install Bub](https://bub.build/docs/getting-started/install/#app-install).
 
 ## Documentation
 
-- [Choose a starting point](https://bub.build/docs/getting-started/)
+- [Choose a starting point](https://bub.build/docs/)
 - [Shared concepts and capabilities](https://bub.build/docs/concepts/)
 - [API and application reference](https://bub.build/docs/reference/)
 

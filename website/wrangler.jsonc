@@ -3,7 +3,7 @@
   "name": "bub",
   // Must not be newer than the `workerd` bundled with the pinned `wrangler`, or
   // `pnpm dev` / `pnpm preview` refuse to start.
-  "compatibility_date": "2026-10-13",
+  "compatibility_date": "2026-10-03",
   "observability": {
     "enabled": false,
     "head_sampling_rate": 1,
