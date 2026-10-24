@@ -66,17 +66,19 @@ class SynchronizedVt100Output(Vt100_Output):
             self.flush()
 
 
+def _original_stream(stream: TextIO) -> TextIO:
+    original = getattr(stream, "original_stdout", None)
+    return cast(TextIO, original) if original is not None else stream
+
+
 def create_synchronized_output(stdout: TextIO | None = None) -> Output | None:
-    target = stdout if stdout is not None else sys.stdout
+    # The prompt may be built inside ``patch_stdout``; rendering into its proxy would
+    # make every frame re-enter ``run_in_terminal`` and redraw the prompt forever.
+    target = _original_stream(stdout if stdout is not None else sys.stdout)
     if sys.platform == "win32" or not target.isatty():
         return None
     synchronized_stdout = cast(TextIO, _SynchronizedTextIO(target))
     return cast(SynchronizedVt100Output, SynchronizedVt100Output.from_pty(synchronized_stdout))
-
-
-def _original_stream(stream: TextIO) -> TextIO:
-    original = getattr(stream, "original_stdout", None)
-    return cast(TextIO, original) if original is not None else stream
 
 
 @contextmanager

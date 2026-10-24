@@ -1273,6 +1273,21 @@ async def test_cli_channel_final_write_cancellation_retries_partial_markdown(mon
     assert channel._stream_printer is None
 
 
+def test_synchronized_output_built_under_patch_stdout_writes_to_real_stdout() -> None:
+    from bub.channels.cli.terminal_output import create_synchronized_output
+
+    terminal = io.StringIO()
+    terminal.isatty = lambda: True  # type: ignore[method-assign]
+    proxy = SimpleNamespace(original_stdout=terminal, isatty=lambda: True)
+
+    output = create_synchronized_output(proxy)  # type: ignore[arg-type]
+
+    assert output is not None
+    output.write_raw("frame")
+    output.flush()
+    assert "frame" in terminal.getvalue()
+
+
 @pytest.mark.asyncio
 async def test_terminal_presenter_redraw_wait_stops_when_prompt_finishes(monkeypatch: pytest.MonkeyPatch) -> None:
     from bub.channels.cli.terminal_output import SynchronizedVt100Output, restore_synchronized_prompt
