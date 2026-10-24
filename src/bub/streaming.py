@@ -15,6 +15,8 @@ from bub.tracing import Span
 class StreamState:
     error: BubError | None = None
     usage: dict[str, Any] | None = None
+    system_prompt: str | None = None
+    """The system prompt rendered when the run starts, used by each of its model steps."""
 
 
 @dataclass(frozen=True)

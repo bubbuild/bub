@@ -124,7 +124,7 @@ async with republic.get_model(
 
 ## 设置指令
 
-`system_prompt` 接收文本、函数，或按顺序排列的两者。函数接收 `PromptContext`，支持同步和异步。Agent 在每个模型步骤前渲染这些片段，忽略空结果，再用空行拼接。
+`system_prompt` 接收文本、函数，或按顺序排列的两者。函数接收 `PromptContext`，支持同步和异步。Agent 在每轮运行的第一个模型步骤前渲染一次这些片段，忽略空结果，再用空行拼接；同一轮运行的后续步骤复用这段文本。
 
 ```python
 from bub.core import PromptContext
@@ -137,7 +137,7 @@ def customer(context: PromptContext) -> str | None:
     return None
 ```
 
-`PromptContext` 包含当前步骤的 prompt、提供给模型的工具、模型标识、Tape、本轮状态和 Agent。`available_tools` 列出 Agent 注册的工具。使用 `agent.system_prompt.remove(section)` 可以移除片段。
+`PromptContext` 包含本轮运行的 prompt、提供给模型的工具、模型标识、Tape、本轮状态和 Agent。`available_tools` 列出 Agent 注册的工具。使用 `agent.system_prompt.remove(section)` 可以移除片段。
 
 <a id="tapes-and-state"></a>
 <a id="sessions-and-tapes"></a>

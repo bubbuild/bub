@@ -260,7 +260,7 @@ class Agent:
         client = self._model_client(model)
         started = time.monotonic()
         await self._emit(RunStarted, tape, model=client.spec, prompt=prompt, metadata=dict(metadata or {}))
-        state = StreamState()
+        state = StreamState(system_prompt=await self._render_system_prompt(tape, client, prompt))
         tracker = _RunTracker(span)
 
         async def close() -> None:
@@ -300,16 +300,16 @@ class Agent:
         ``prompt`` is the new user message; ``None`` continues the existing conversation.
         ``pending`` user messages are sent before it, ahead of those ``MessagesPending`` handlers add.
 
-        ``state``, when given, receives the call's usage.
+        ``state``, when given, supplies the run's rendered system prompt and receives the call's
+        usage; without it, the system prompt is rendered for this call.
         """
         client = self._model_client(model)
         options = dict(options or {})
         if state is None:
-            state = StreamState()
+            state = StreamState(system_prompt=await self._render_system_prompt(tape, client, prompt))
+        system_prompt = state.system_prompt
         turn_state = tape.context.state
         tools = await self.prepare_tools(tape, prompt)
-        prompt_context = PromptContext(agent=self, tape=tape, prompt=prompt or [], tools=tools, model=client.spec)
-        system_prompt = await self.system_prompt.render(prompt_context) or None
         if (span := current_span()) and span.recording:
             span.set(**{"gen_ai.tool.definitions": [tool.to_schema() | {"type": "function"} for tool in tools]})
         pending = [*pending, *(await self._emit(MessagesPending, tape, prompt=prompt)).messages]
@@ -456,6 +456,13 @@ class Agent:
     async def prepare_tools(self, tape: Tape, prompt: list[UserContent] | None) -> list[Tool]:
         """Return the model-facing tools for the next model call."""
         return model_tools(self.tools.values())
+
+    async def _render_system_prompt(
+        self, tape: Tape, client: ModelClient, prompt: list[UserContent] | None
+    ) -> str | None:
+        tools = await self.prepare_tools(tape, prompt)
+        context = PromptContext(agent=self, tape=tape, prompt=prompt or [], tools=tools, model=client.spec)
+        return await self.system_prompt.render(context) or None
 
     async def _emit(self, event_type: type[T], tape: Tape, **fields: Any) -> T:
         return await self.events.emit(event_type(state=tape.context.state, tape=tape, **fields))

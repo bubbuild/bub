@@ -19,16 +19,16 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class PromptContext:
-    """What a system prompt section sees when rendered for one model step."""
+    """What a system prompt section sees when rendered for a run, before its first model step."""
 
     agent: Agent
     tape: Tape
     prompt: list[UserContent]
-    """The step's new user message; empty when the step continues the conversation."""
+    """The run's new user message; empty when the run continues the conversation."""
     tools: list[Tool]
-    """Model-facing tools offered in this step."""
+    """Model-facing tools offered in the first step."""
     model: str
-    """The ``provider:model`` spec called in this step."""
+    """The ``provider:model`` spec called in the run."""
 
     @property
     def state(self) -> TurnState:
@@ -42,13 +42,13 @@ class PromptContext:
 
 
 PromptSection = str | Callable[[PromptContext], str | None | Awaitable[str | None]]
-"""Fixed text, or a function of the step's context returning text (empty or None to skip)."""
+"""Fixed text, or a function of the run's context returning text (empty or None to skip)."""
 
 S = TypeVar("S", bound=PromptSection)
 
 
 class SystemPrompt:
-    """Ordered system prompt sections, rendered for each model step and joined by blank lines."""
+    """Ordered system prompt sections, rendered once per run and joined by blank lines."""
 
     def __init__(self, sections: Iterable[PromptSection] = ()) -> None:
         self._sections: list[PromptSection] = list(sections)

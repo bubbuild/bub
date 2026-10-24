@@ -131,7 +131,9 @@ async def test_core_agent_runs_tool_loop_and_emits_events(provider_service: Prov
     assert [tool["function"]["name"] for tool in first["tools"]] == ["fs_read"]
     assert first["max_completion_tokens"] == 64
     assert second["messages"][-1] == {"role": "tool", "tool_call_id": "call-1", "content": "contents of README.md"}
-    assert prompts == [(["What is this file?"], "ada", ["fs_read"]), ([], "ada", ["fs_read"])]
+    # The system prompt is rendered once per run and reused by its later steps.
+    assert second["messages"][0] == first["messages"][0]
+    assert prompts == [(["What is this file?"], "ada", ["fs_read"])]
     assert seen == [
         "RunStarted",
         "StepStarted",
