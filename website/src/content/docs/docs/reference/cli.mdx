@@ -212,6 +212,21 @@ Behavior notes:
 - Authentication failure exits with code `1`. Missing executables produce an installation hint.
 - Credentials are stored in `$CODEX_HOME/auth.json` or `~/.codex/auth.json`. Use `--codex-home` to select a directory and `--device-auth` for headless login.
 
+## `bub plugins`
+
+Print each discovered plugin with the package and version that provide it.
+
+```text
+bub plugins [OPTIONS] [NAMES]...
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `NAMES` (arg) | TEXT | all plugins | Plugin names to show, as registered in the `bub` entry-point group. |
+| `--version-only` | flag | off | Print only the version of each plugin, one per line. |
+
+Output is one line per plugin: `name  distribution version`. The builtin hooks are listed as `builtin`, provided by `bub`. Plugins that failed to load or initialize are listed with `(failed: <error>)`. An unknown name exits with code `1`. With `--version-only`, each line holds only the version (`-` when the plugin has no package metadata), for example `bub plugins my-plugin --version-only`.
+
 ## `bub hooks`
 
 Hidden diagnostic command that prints the `hook → adapters` map.

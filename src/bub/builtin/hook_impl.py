@@ -175,6 +175,7 @@ class BuiltinImpl:
         app.add_typer(cli.login_app)
         app.command("onboard")(cli.onboard)
         app.command("hooks", hidden=True)(cli.list_hooks)
+        app.command("plugins")(cli.list_plugins)
         app.command("gateway")(cli.gateway)
         app.command("install")(cli.install)
         app.command("uninstall")(cli.uninstall)

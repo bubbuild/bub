@@ -212,6 +212,21 @@ bub login codex [OPTIONS]
 - 认证失败时以退出码 `1` 退出；找不到可执行文件时提示安装 CLI。
 - 凭据保存到 `$CODEX_HOME/auth.json` 或 `~/.codex/auth.json`。使用 `--codex-home` 指定目录，无浏览器登录使用 `--device-auth`。
 
+## `bub plugins`
+
+打印每个已发现的插件，以及提供它的包和版本号。
+
+```text
+bub plugins [OPTIONS] [NAMES]...
+```
+
+| 选项 | 类型 | 默认值 | 描述 |
+| --- | --- | --- | --- |
+| `NAMES` (arg) | TEXT | 全部插件 | 要显示的插件名，即在 `bub` entry-point 组中注册的名称。 |
+| `--version-only` | 开关 | 关闭 | 每行只输出一个插件的版本号。 |
+
+输出每行一个插件：`name  distribution version`。内置钩子显示为 `builtin`，由 `bub` 提供。加载或初始化失败的插件会附带 `(failed: <error>)`。名称不存在时以退出码 `1` 结束。使用 `--version-only` 时每行只输出版本号（插件没有包元数据时输出 `-`），例如 `bub plugins my-plugin --version-only`。
+
 ## `bub hooks`
 
 打印 `hook → adapters` 映射的隐藏诊断命令。

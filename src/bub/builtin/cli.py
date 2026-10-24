@@ -77,6 +77,34 @@ def list_hooks(ctx: typer.Context) -> None:
         typer.echo(f"{hook_name}: {', '.join(adapter_names)}")
 
 
+def list_plugins(
+    ctx: typer.Context,
+    names: list[str] = typer.Argument(default_factory=list, help="Plugin names to show; all plugins if omitted."),
+    version_only: bool = typer.Option(False, "--version-only", help="Print only the version of each plugin."),
+) -> None:
+    """Show the loaded plugins and their versions."""
+    framework = ctx.ensure_object(BubFramework)
+    report = framework.plugin_report()
+    if missing := [name for name in names if name not in report]:
+        typer.echo(f"Unknown plugin: {', '.join(missing)}", err=True)
+        raise typer.Exit(1)
+    rows = [(name, report[name]) for name in names or report]
+    if version_only:
+        for _, status in rows:
+            typer.echo(status.version or "-")
+        return
+    if not rows:
+        typer.echo("(no plugins)")
+        return
+    width = max(len(name) for name, _ in rows)
+    for name, status in rows:
+        source = f"{status.distribution} {status.version}" if status.distribution else "-"
+        line = f"{name:<{width}}  {source}"
+        if not status.is_success:
+            line += f"  (failed: {status.detail})"
+        typer.echo(line)
+
+
 def gateway(
     ctx: typer.Context,
     enable_channels: list[str] = typer.Option([], "--enable-channel", help="Channels to enable for CLI (default: all)"),

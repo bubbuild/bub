@@ -71,6 +71,52 @@ def test_version_option_prints_version_and_exits() -> None:
         assert result.output == f"bub {__version__}\n"
 
 
+def _plugin_entry_point(name: str, load: Any, distribution: str, version: str) -> SimpleNamespace:
+    return SimpleNamespace(name=name, load=load, dist=SimpleNamespace(name=distribution, version=version))
+
+
+def _broken_plugin() -> None:
+    raise RuntimeError("boom")
+
+
+def test_plugins_command_shows_plugin_versions(monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib.metadata
+
+    from bub import __version__
+
+    class GoodPlugin:
+        @hookimpl
+        def register_cli_commands(self, app: typer.Typer) -> None:
+            return None
+
+    entry_points = [
+        _plugin_entry_point("good", lambda: GoodPlugin(), "bub-good", "1.2.3"),
+        _plugin_entry_point("broken", _broken_plugin, "bub-broken", "0.1.0"),
+    ]
+    monkeypatch.setattr(importlib.metadata, "entry_points", lambda group: entry_points)
+    app = _create_app()
+
+    result = CliRunner().invoke(app, ["plugins"])
+    selected = CliRunner().invoke(app, ["plugins", "good"])
+    unknown = CliRunner().invoke(app, ["plugins", "missing"])
+    versions = CliRunner().invoke(app, ["plugins", "--version-only"])
+    selected_version = CliRunner().invoke(app, ["plugins", "good", "--version-only"])
+
+    assert result.exit_code == 0
+    assert result.output.splitlines() == [
+        f"builtin  bub {__version__}",
+        "broken   bub-broken 0.1.0  (failed: boom)",
+        "good     bub-good 1.2.3",
+    ]
+    assert selected.exit_code == 0
+    assert selected.output == "good  bub-good 1.2.3\n"
+    assert unknown.exit_code == 1
+    assert "Unknown plugin: missing" in unknown.output
+    assert versions.output.splitlines() == [__version__, "0.1.0", "1.2.3"]
+    assert selected_version.exit_code == 0
+    assert selected_version.output == "1.2.3\n"
+
+
 def _rendered_onboard_banner() -> str:
     return cli.ONBOARD_BANNER.format(version=cli.__version__)
 

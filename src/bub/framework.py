@@ -46,6 +46,10 @@ DEFAULT_CONFIG_FILE = (DEFAULT_HOME / "config.yml").resolve()
 class PluginStatus:
     is_success: bool
     detail: str | None = None
+    distribution: str | None = None
+    """The name of the distribution package providing the plugin."""
+    version: str | None = None
+    """The version of the distribution package providing the plugin."""
 
 
 _ENTRY_POINT_TOOLS: dict[str, dict[str, Tool]] = {}
@@ -61,6 +65,13 @@ class _DecoratedTools:
     @hookimpl
     def provide_tools(self) -> list[Tool]:
         return list(self.tools)
+
+
+def _distribution_of(entry_point: Any) -> dict[str, str | None]:
+    dist = getattr(entry_point, "dist", None)
+    if dist is None:
+        return {"distribution": None, "version": None}
+    return {"distribution": dist.name, "version": dist.version}
 
 
 class BubFramework:
@@ -92,16 +103,18 @@ class BubFramework:
 
     def load_builtin_hooks(self) -> None:
         """Load Bub's builtin hook implementations."""
+        from bub import __version__
         from bub.builtin.hook_impl import BuiltinImpl
 
         impl = BuiltinImpl(self)
+        source = {"distribution": "bub", "version": __version__}
 
         try:
             self._plugin_manager.register(impl, name="builtin")
         except Exception as exc:
-            self._plugin_status["builtin"] = PluginStatus(is_success=False, detail=str(exc))
+            self._plugin_status["builtin"] = PluginStatus(is_success=False, detail=str(exc), **source)
         else:
-            self._plugin_status["builtin"] = PluginStatus(is_success=True)
+            self._plugin_status["builtin"] = PluginStatus(is_success=True, **source)
 
     def load_hooks(self) -> None:
         """Load builtin hooks, then plugins from the ``bub`` entry-point group.
@@ -119,12 +132,13 @@ class BubFramework:
 
         self.load_builtin_hooks()
         for entry_point in importlib.metadata.entry_points(group="bub"):
+            source = _distribution_of(entry_point)
             try:
                 with collect_tools() as tools:
                     plugin = entry_point.load()
             except Exception as exc:
                 logger.warning(f"Failed to load plugin '{entry_point.name}': {exc}")
-                self._plugin_status[entry_point.name] = PluginStatus(is_success=False, detail=str(exc))
+                self._plugin_status[entry_point.name] = PluginStatus(is_success=False, detail=str(exc), **source)
             else:
                 if tools:
                     _ENTRY_POINT_TOOLS[entry_point.name] = tools
@@ -132,6 +146,7 @@ class BubFramework:
 
         for entry_point, plugin, tools in pending_plugins:
             plugin_name = entry_point.name
+            source = _distribution_of(entry_point)
             try:
                 if callable(plugin):  # Support entry points that are classes
                     with collect_tools() as created:
@@ -141,9 +156,9 @@ class BubFramework:
                 self._register_decorated_tools(plugin_name, plugin, tools)
             except Exception as exc:
                 logger.warning(f"Failed to initialize plugin '{plugin_name}': {exc}")
-                self._plugin_status[plugin_name] = PluginStatus(is_success=False, detail=str(exc))
+                self._plugin_status[plugin_name] = PluginStatus(is_success=False, detail=str(exc), **source)
             else:
-                self._plugin_status[plugin_name] = PluginStatus(is_success=True)
+                self._plugin_status[plugin_name] = PluginStatus(is_success=True, **source)
 
     def _register_decorated_tools(self, plugin_name: str, plugin: object, tools: dict[str, Tool]) -> None:
         if not tools:
@@ -337,6 +352,11 @@ class BubFramework:
                             stage="run_model", error=BubError(**data), message=inbound
                         )
             return "".join(parts)
+
+    def plugin_report(self) -> dict[str, PluginStatus]:
+        """Return the load status and source distribution of each discovered plugin."""
+
+        return dict(self._plugin_status)
 
     def hook_report(self) -> dict[str, list[str]]:
         """Return hook implementation summary for diagnostics."""
