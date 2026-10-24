@@ -169,7 +169,7 @@ def customer(context: PromptContext) -> str | None:
 
 ## 定制步骤准备方式
 
-当工具选择需要自己的业务逻辑时，可以继承 `Agent` 并重写 `prepare_tools(tape, prompt)`。默认提供传入的工具，排除 `exposure="command"`。`tape.context.state` 就是本轮状态。
+当工具选择需要自己的业务逻辑时，可以继承 `Agent` 并重写 `prepare_tools(tape, prompt)`。默认提供传入的工具，排除 `exposure="command"`。Agent 在每轮运行的第一个模型步骤前准备一次工具，之后每一步都提供同一组工具；调用不在其中的工具时，会重新执行 `prepare_tools(tape, None)` 来解析，因此运行中新变为可用的工具仍可调用。`tape.context.state` 就是本轮状态。
 
 运行过程中到达的新消息和继续运行时的下一步提示，由两个循环事件控制：
 

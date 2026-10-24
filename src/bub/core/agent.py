@@ -88,7 +88,7 @@ class Agent:
     ``MessagesPending`` handlers add user messages that arrived during the run, which
     also continue a run whose step made no tool calls. ``StepFinished`` handlers give a
     continuing run's next step a user message by setting ``next_prompt``.
-    Subclasses choose the model-facing tools of each step by overriding :meth:`prepare_tools`.
+    Subclasses choose the model-facing tools of each run by overriding :meth:`prepare_tools`.
     """
 
     def __init__(
@@ -260,7 +260,7 @@ class Agent:
         client = self._model_client(model)
         started = time.monotonic()
         await self._emit(RunStarted, tape, model=client.spec, prompt=prompt, metadata=dict(metadata or {}))
-        state = StreamState(system_prompt=await self._render_system_prompt(tape, client, prompt))
+        state = await self._start_state(tape, client, prompt)
         tracker = _RunTracker(span)
 
         async def close() -> None:
@@ -300,16 +300,16 @@ class Agent:
         ``prompt`` is the new user message; ``None`` continues the existing conversation.
         ``pending`` user messages are sent before it, ahead of those ``MessagesPending`` handlers add.
 
-        ``state``, when given, supplies the run's rendered system prompt and receives the call's
-        usage; without it, the system prompt is rendered for this call.
+        ``state``, when given, supplies the run's system prompt and tools and receives the call's
+        usage; without it, they are prepared for this call. A tool call outside those tools is
+        resolved with a fresh :meth:`prepare_tools`, so tools loaded during the run are callable.
         """
         client = self._model_client(model)
         options = dict(options or {})
         if state is None:
-            state = StreamState(system_prompt=await self._render_system_prompt(tape, client, prompt))
-        system_prompt = state.system_prompt
+            state = await self._start_state(tape, client, prompt)
+        system_prompt, tools = state.system_prompt, state.tools
         turn_state = tape.context.state
-        tools = await self.prepare_tools(tape, prompt)
         if (span := current_span()) and span.recording:
             span.set(**{"gen_ai.tool.definitions": [tool.to_schema() | {"type": "function"} for tool in tools]})
         pending = [*pending, *(await self._emit(MessagesPending, tape, prompt=prompt)).messages]
@@ -357,6 +357,8 @@ class Agent:
         tool_calls = response.tool_calls
         if tool_calls:
             tool_map = {tool_item.name: tool_item for tool_item in tools}
+            if any(tool_call.name not in tool_map for tool_call in tool_calls):
+                tool_map = {tool_item.name: tool_item for tool_item in await self.prepare_tools(tape, None)} | tool_map
             serialized_tool_calls = [asdict(tool_call) for tool_call in tool_calls]
             tool_invocations = [_tool_invocation(tool_call, tool_map) for tool_call in tool_calls]
             yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
@@ -454,15 +456,14 @@ class Agent:
             )
 
     async def prepare_tools(self, tape: Tape, prompt: list[UserContent] | None) -> list[Tool]:
-        """Return the model-facing tools for the next model call."""
+        """Return the model-facing tools offered in each model step of a run."""
         return model_tools(self.tools.values())
 
-    async def _render_system_prompt(
-        self, tape: Tape, client: ModelClient, prompt: list[UserContent] | None
-    ) -> str | None:
+    async def _start_state(self, tape: Tape, client: ModelClient, prompt: list[UserContent] | None) -> StreamState:
+        """Prepare the tools and render the system prompt used by every model step of a run."""
         tools = await self.prepare_tools(tape, prompt)
         context = PromptContext(agent=self, tape=tape, prompt=prompt or [], tools=tools, model=client.spec)
-        return await self.system_prompt.render(context) or None
+        return StreamState(system_prompt=await self.system_prompt.render(context) or None, tools=tools)
 
     async def _emit(self, event_type: type[T], tape: Tape, **fields: Any) -> T:
         return await self.events.emit(event_type(state=tape.context.state, tape=tape, **fields))

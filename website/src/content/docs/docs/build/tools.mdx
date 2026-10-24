@@ -31,7 +31,7 @@ agent = Agent(tools=[add_tool])
 
 The runtime keeps the name `math.add`; model-facing names replace dots with underscores, so the model sees `math_add`. Use `description=` to supply a description explicitly.
 
-Plain `Agent` offers all supplied tools except those marked `exposure="command"`. Deferred loading, the `allowed_tools` state value, and the `state["code_mode"]` switch are [BubAgent policies](/docs/build/app-tools/). To choose tools per step in your own agent, override [`prepare_tools()`](/docs/build/sdk/#customize-the-loop).
+Plain `Agent` offers all supplied tools except those marked `exposure="command"`. Deferred loading, the `allowed_tools` state value, and the `state["code_mode"]` switch are [BubAgent policies](/docs/build/app-tools/). To choose tools per run in your own agent, override [`prepare_tools()`](/docs/build/sdk/#customize-the-loop).
 
 <a id="structured-results"></a>
 

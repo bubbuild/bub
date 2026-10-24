@@ -62,7 +62,7 @@ def get_order(order_id: str) -> dict[str, str]:
     return {"id": order_id, "status": "shipped"}
 ```
 
-`BubAgent` lists allowed deferred tools in the system prompt and supplies `tool_describe` when at least one remains. The model calls `tool_describe` to load a definition. The application records `tool.loaded` entries, so loaded tools remain available in later steps and turns until the tape is reset.
+`BubAgent` lists allowed deferred tools in the system prompt and supplies `tool_describe` when at least one remains. The model calls `tool_describe` to load a definition. The application records `tool.loaded` entries, so loaded tools remain available until the tape is reset: the model can call a tool in the steps after loading it, and later turns offer it directly.
 
 The turn's allowlist controls both listing and loading. In code mode, allowed `auto` and `code` tools are available to Python immediately; deferral applies to the tools still offered directly to the model.
 

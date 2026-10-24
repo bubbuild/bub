@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import nullcontext
-from dataclasses import dataclass
-from typing import Any, Literal
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal
 
 from bub.errors import BubError
 from bub.tracing import Span
+
+if TYPE_CHECKING:
+    from bub.core.tools import Tool
 
 
 @dataclass
@@ -17,6 +20,8 @@ class StreamState:
     usage: dict[str, Any] | None = None
     system_prompt: str | None = None
     """The system prompt rendered when the run starts, used by each of its model steps."""
+    tools: list[Tool] = field(default_factory=list)
+    """The model-facing tools prepared when the run starts, offered in each of its model steps."""
 
 
 @dataclass(frozen=True)

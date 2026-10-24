@@ -26,7 +26,7 @@ class PromptContext:
     prompt: list[UserContent]
     """The run's new user message; empty when the run continues the conversation."""
     tools: list[Tool]
-    """Model-facing tools offered in the first step."""
+    """Model-facing tools offered in the run."""
     model: str
     """The ``provider:model`` spec called in the run."""
 

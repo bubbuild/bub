@@ -71,9 +71,11 @@ async def test_deferred_tool_is_loaded_through_tool_describe_and_persists_on_tap
     events = [event async for event in stream]
 
     assert any(event.data.get("text") == "Hello Ada" for event in events if event.kind == "final")
+    # The loaded tool is callable later in the run, but the run keeps offering the tools it started with.
     assert calls == ["Ada"]
     assert _tool_names(requests.body(0)) == ["direct", "tool_describe"]
-    assert _tool_names(requests.body(1)) == ["direct", "tool_describe", "provider_lookup"]
+    assert _tool_names(requests.body(1)) == ["direct", "tool_describe"]
+    assert _tool_names(requests.body(2)) == ["direct", "tool_describe"]
     describe_result = next(message for message in requests.body(1)["messages"] if message["role"] == "tool")
     assert json.loads(describe_result["content"])["tools"][0]["name"] == "provider_lookup"
     prompt = _system_prompt(requests.body(0))
@@ -112,7 +114,7 @@ async def test_allowed_tools_filter_covers_direct_and_deferred_tools(
     _ = [event async for event in stream]
 
     assert _tool_names(requests.body(0)) == ["direct", "tool_describe"]
-    assert _tool_names(requests.body(1)) == ["direct", "tool_describe", "provider_lookup"]
+    assert _tool_names(requests.body(1)) == ["direct", "tool_describe"]
     prompt = _system_prompt(requests.body(0))
     assert "- provider_lookup" in prompt
     assert "secret" not in prompt

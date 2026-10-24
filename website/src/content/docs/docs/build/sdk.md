@@ -169,7 +169,7 @@ The agent keeps supplied `Tool` objects in `agent.tools` by name and provider to
 
 ## Customize how a step is prepared
 
-Subclass `Agent` and override `prepare_tools(tape, prompt)` when selecting tools needs application logic. By default it offers the supplied tools except those marked `exposure="command"`. The tape's `context.state` is the run's state.
+Subclass `Agent` and override `prepare_tools(tape, prompt)` when selecting tools needs application logic. By default it offers the supplied tools except those marked `exposure="command"`. The agent prepares tools once per run, before its first model step, and offers the same tools in every step; a tool call outside them is resolved with a fresh `prepare_tools(tape, None)`, so tools that become available during the run are still callable. The tape's `context.state` is the run's state.
 
 Handle two loop events to send messages that arrive during a run or to steer a continuing run:
 

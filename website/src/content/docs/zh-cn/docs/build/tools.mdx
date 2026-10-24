@@ -31,7 +31,7 @@ agent = Agent(tools=[add_tool])
 
 运行时保留 `math.add` 这个名称；提供给模型时，点会换成下划线，因此模型看到的是 `math_add`。也可以通过 `description=` 显式提供描述。
 
-普通 `Agent` 会把传入的工具提供给模型，仅排除 `exposure="command"`。延迟加载、`allowed_tools` 状态和 `state["code_mode"]` 开关属于 [BubAgent 的应用策略](/zh-cn/docs/build/app-tools/)。在自己的 Agent 中按步骤选择工具，可以覆写 [`prepare_tools()`](/zh-cn/docs/build/sdk/#customize-the-loop)。
+普通 `Agent` 会把传入的工具提供给模型，仅排除 `exposure="command"`。延迟加载、`allowed_tools` 状态和 `state["code_mode"]` 开关属于 [BubAgent 的应用策略](/zh-cn/docs/build/app-tools/)。在自己的 Agent 中按轮次选择工具，可以覆写 [`prepare_tools()`](/zh-cn/docs/build/sdk/#customize-the-loop)。
 
 <a id="structured-results"></a>
 

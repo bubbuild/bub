@@ -62,7 +62,7 @@ def get_order(order_id: str) -> dict[str, str]:
     return {"id": order_id, "status": "shipped"}
 ```
 
-`BubAgent` 在系统提示词中列出允许使用的延迟工具；只要还有这样的工具，就提供 `tool_describe`。模型调用它来加载定义。应用记录 `tool.loaded` 条目，让已加载的工具在后续步骤和轮次中继续可用，直到 tape 被重置。
+`BubAgent` 在系统提示词中列出允许使用的延迟工具；只要还有这样的工具，就提供 `tool_describe`。模型调用它来加载定义。应用记录 `tool.loaded` 条目，让已加载的工具一直可用，直到 tape 被重置：加载后的后续步骤中模型即可调用它，之后的轮次会直接提供它。
 
 本轮允许列表同时约束工具的展示和加载。代码模式中，允许使用的 `auto` 和 `code` 工具立即可供 Python 调用；延迟策略只作用于仍直接提供给模型的工具。
 
