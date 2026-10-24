@@ -14,6 +14,7 @@ bub [OPTIONS] COMMAND [ARGS]...
 | 选项 | 类型 | 默认值 | 描述 |
 | --- | --- | --- | --- |
 | `--workspace`, `-w` | TEXT | 当前工作目录 | 工作区路径，赋值给 `BubFramework.workspace`。 |
+| `--version`, `-V` | 开关 | 不适用 | 显示已安装的 Bub 版本并退出。 |
 | `--help` | 开关 | 不适用 | 显示帮助并退出。 |
 
 框架在 `bub/__main__.py` 中创建：先 `BubFramework().load_hooks()`，再 `create_cli_app()`。当前 framework 实例存放在 `ctx.obj` 上。

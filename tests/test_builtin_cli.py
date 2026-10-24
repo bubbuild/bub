@@ -61,6 +61,16 @@ def _create_app() -> typer.Typer:
     return framework.create_cli_app()
 
 
+def test_version_option_prints_version_and_exits() -> None:
+    from bub import __version__
+
+    for flag in ("--version", "-V"):
+        result = CliRunner().invoke(_create_app(), [flag])
+
+        assert result.exit_code == 0
+        assert result.output == f"bub {__version__}\n"
+
+
 def _rendered_onboard_banner() -> str:
     return cli.ONBOARD_BANNER.format(version=cli.__version__)
 

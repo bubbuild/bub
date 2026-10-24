@@ -184,10 +184,20 @@ class BubFramework:
             finally:
                 asyncio.run(self.events.emit(CommandChanged(outcome)))
 
+        def show_version(value: bool) -> None:
+            if value:
+                from bub import __version__
+
+                typer.echo(f"bub {__version__}")
+                raise typer.Exit()
+
         @app.callback(invoke_without_command=True)
         def _main(
             ctx: typer.Context,
             workspace: str | None = typer.Option(None, "--workspace", "-w", help="Path to the workspace"),
+            version: bool = typer.Option(
+                False, "--version", "-V", callback=show_version, is_eager=True, help="Show the version and exit."
+            ),
         ) -> None:
             if workspace:
                 self.workspace = Path(workspace).resolve()

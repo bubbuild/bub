@@ -14,6 +14,7 @@ bub [OPTIONS] COMMAND [ARGS]...
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--workspace`, `-w` | TEXT | current working directory | Path to the workspace; sets `BubFramework.workspace`. |
+| `--version`, `-V` | flag | N/A | Show the installed Bub version and exit. |
 | `--help` | flag | N/A | Show help and exit. |
 
 The framework is created in `bub/__main__.py`, which calls `BubFramework().load_hooks()` and then `create_cli_app()`. The active framework is stored on `ctx.obj`.
