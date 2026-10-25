@@ -22,6 +22,9 @@ class ModelCandidate:
     provider_name: str | None = None
 
 
+LIST_MODELS_TIMEOUT = 10.0
+"""Seconds allowed for listing one provider's models, pages included."""
+
 ClientOptions = Mapping[str, Any] | Callable[[str], Mapping[str, Any]]
 """Republic client options, or a function returning them for a provider name."""
 
@@ -97,7 +100,10 @@ class BubModel:
             provider_type = custom_type
         else:
             provider = provider_type = provider.lower()
-        async with republic.get_provider(provider_type, **self.client_kwargs(provider)) as client:
+        async with (
+            asyncio.timeout(LIST_MODELS_TIMEOUT),
+            republic.get_provider(provider_type, **self.client_kwargs(provider)) as client,
+        ):
             models = await client.list_models()
         return sorted({f"{provider}:{model.id}" for model in models})
 

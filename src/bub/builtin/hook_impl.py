@@ -87,12 +87,6 @@ class BuiltinImpl:
             return selected
         return available_channels
 
-    @staticmethod
-    def _configured_models() -> list[str]:
-        settings = load_settings()
-        models = [settings.model, *(settings.fallback_models or [])]
-        return list(dict.fromkeys(model for model in models if model))
-
     @hookimpl
     def resolve_session(self, message: ChannelMessage) -> str:
         session_id = field_of(message, "session_id")
@@ -197,20 +191,24 @@ class BuiltinImpl:
         return config
 
     @hookimpl
-    def provide_model_options(
+    async def provide_model_options(
         self,
         session_id: str,
         workspace: Path | None = None,
     ) -> ModelOptions | None:
-        del session_id, workspace
-        models = self._configured_models()
-        if not models:
+        settings = load_settings()
+        tape = self._get_agent().tape(session_tape_name(session_id, workspace or self.framework.workspace))
+        current = (await load_session_settings(tape)).get("model") or settings.model
+        if not current:
             return None
-
-        return ModelOptions(
-            models=[ModelChoice(id=model, name=model) for model in models],
-            current_model=models[0],
-        )
+        try:
+            models = await settings.chat_model().list_models(current.partition(":")[0])
+        except Exception as exc:
+            logger.warning("failed to list models for {}: {}", current, exc)
+            models = []
+        if current not in models:
+            models.insert(0, current)
+        return ModelOptions(models=[ModelChoice(id=model, name=model) for model in models], current_model=current)
 
     def _read_agents_file(self, state: TurnState) -> str:
         workspace = state.get("_runtime_workspace", str(Path.cwd()))

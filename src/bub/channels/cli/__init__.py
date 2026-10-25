@@ -48,7 +48,6 @@ from bub.streaming import StreamEvent
 
 _GENERATION_SPINNER: str = SPINNERS["dots"]["frames"]  # type: ignore[assignment]
 _PROMPT_REFRESH_INTERVAL: float = SPINNERS["dots"]["interval"] / 1000.0  # type: ignore[operator]
-_LIST_MODELS_TIMEOUT = 10.0
 
 
 class _StreamPrinter:
@@ -268,8 +267,7 @@ class _CommandCompleter(Completer):
 
     async def _fetch(self, provider: str) -> list[str]:
         try:
-            async with asyncio.timeout(_LIST_MODELS_TIMEOUT):
-                return await self._list_models(provider)
+            return await self._list_models(provider)
         except Exception:
             return []
 
