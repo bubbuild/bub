@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pluggy
 import pytest
 
 from bub.builtin.steering import InMemorySteeringInbox
@@ -23,10 +24,13 @@ from bub.channels.base import Channel, Interface, Lifecycle
 from bub.channels.cli import CliChannel
 from bub.channels.cli.renderer import CliRenderer
 from bub.channels.handler import BufferedMessageHandler
-from bub.channels.manager import ChannelManager
+from bub.channels.manager import CHANNEL_SYSTEM_PROMPT, ChannelManager
 from bub.channels.message import ChannelMessage
 from bub.channels.telegram import BubMessageFilter, TelegramChannel, TelegramMessageParser
 from bub.core.events import EventBus
+from bub.framework import BubFramework
+from bub.hooks import hookimpl
+from bub.hooks.specs import BUB_HOOK_NAMESPACE
 from bub.streaming import StreamEvent
 from bub.turn import TurnResult
 
@@ -122,6 +126,7 @@ class FakeLifecycleChannel(_FakeChannelMixin, Lifecycle):
 class FakeFramework:
     def __init__(self, channels: dict[str, Channel]) -> None:
         self._channels = channels
+        self.plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
         self.router = None
         self.process_calls: list[tuple[ChannelMessage, bool]] = []
         self.admission_decisions: list[AdmitDecision | None] = []
@@ -703,6 +708,28 @@ async def test_channel_manager_cleans_up_started_channels_when_startup_fails(
 
 
 @pytest.mark.asyncio
+async def test_channel_manager_adds_reply_prompt_only_to_turns_it_runs() -> None:
+    framework = BubFramework()
+    system_prompts: list[str] = []
+
+    class CapturePrompt:
+        @hookimpl
+        async def run_model(self, prompt, session_id, state) -> str:
+            system_prompts.append(framework.get_system_prompt(prompt=prompt, state=state))
+            return ""
+
+    framework.plugin_manager.register(CapturePrompt(), name="capture")
+    manager = ChannelManager(framework, enabled_channels=[])
+    ChannelManager(framework, enabled_channels=[])
+    message = ChannelMessage(session_id="s", channel="cli", chat_id="room", content="hi")
+
+    await manager._run_message(message)
+    await framework.process_inbound(message)
+
+    assert system_prompts == [CHANNEL_SYSTEM_PROMPT, ""]
+
+
+@pytest.mark.asyncio
 async def test_channel_manager_listen_and_run_passes_stream_output_setting(load_config) -> None:
     _load_channel_config(load_config, enabled_channels="telegram", stream_output=True)
     channel = FakeChannel("telegram")
@@ -785,11 +812,15 @@ def test_channel_manager_quit_from_gathered_tool_call_does_not_wedge_the_loop() 
 
         sys.path.insert(0, sys.argv[1])
 
+        import pluggy
+
         from bub.channels.manager import ChannelManager
+        from bub.hooks.specs import BUB_HOOK_NAMESPACE
 
         class FakeFramework:
             def __init__(self):
                 self._channel_router = None
+                self.plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
 
             def get_channels(self, on_receive):
                 return {}

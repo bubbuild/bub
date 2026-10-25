@@ -137,7 +137,7 @@ async with plugins.running():
 
 `components()` leaves out what no hook provides, so the Agent keeps its defaults; arguments you pass yourself take their place. A hook-provided store and steering inbox exist only inside `plugins.running()`, which enters `framework.running()`. Attach before registering your own handlers so they see the hooks' changes.
 
-Message-pipeline hooks, such as `build_prompt`, `run_model`, `save_state`, `render_outbound`, and `dispatch_outbound`, are not part of the agent loop and only run in `process_inbound()`. `plugins=[...]` registers exactly the listed plugins. `AgentPlugins()` without arguments loads Bub's builtin hooks and the installed plugins, as the `bub` command does; the builtin system prompt asks the agent to reply through channels. Pass `framework` to use an existing framework's hooks; `plugins` given with it are registered on it.
+Message-pipeline hooks, such as `build_prompt`, `run_model`, `save_state`, `render_outbound`, and `dispatch_outbound`, are not part of the agent loop and only run in `process_inbound()`. `plugins=[...]` registers exactly the listed plugins. `AgentPlugins()` without arguments loads Bub's builtin hooks and the installed plugins, as the `bub` command does. Pass `framework` to use an existing framework's hooks; `plugins` given with it are registered on it.
 
 ## Choose the connection each plugin needs
 
@@ -160,7 +160,7 @@ For MCP, follow the plugin's [embedding example](https://github.com/bubbuild/bub
 
 `BubAgent` combines the core loop with Bub settings, skills, tool policies, and plugin hooks. A host can load installed plugins with `framework.load_hooks()`, enter `framework.running()`, then construct a `BubAgent`. Its `run_stream()` returns a stream for the host to consume and close.
 
-Choose this when you also want those application defaults. The builtin system prompt asks the agent to send replies through channels. A service that returns model text directly needs its own prompt policy. Replacing `agent.system_prompt` replaces all its sections, including plugin, skills, deferred-tool, and CodeMode instructions.
+Choose this when you also want those application defaults. The builtin system prompt does not ask the agent to reply through channel skills; the channel manager behind `bub gateway` and `bub chat` registers a `system_prompt` hook that adds the instruction only to the turns it runs. A service that calls `process_inbound()` itself can register its own `system_prompt` hook to describe how its replies are delivered. Replacing `agent.system_prompt` replaces all its sections, including plugin, skills, deferred-tool, and CodeMode instructions.
 
 `run_stream()` uses system-prompt and continuation hooks, call interception, and the configured tape components. With `state` omitted, it loads state using a message containing only the Agent reference. For plugins that need request metadata, prepare state with `framework.build_state(message, session_id)` and pass it to `run_stream(state=...)`. Include the Agent in `message["_runtime_agent"]` so state recovery uses its store.
 

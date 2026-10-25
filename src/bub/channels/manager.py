@@ -18,6 +18,7 @@ from bub.channels.message import ChannelMessage
 from bub.configure import Settings, ensure_config
 from bub.envelope import Envelope, content_of, field_of
 from bub.framework import BubFramework
+from bub.hooks import hookimpl
 from bub.streaming import StreamEvent
 from bub.turn import TurnState
 from bub.utils import wait_until_stopped
@@ -45,6 +46,24 @@ class ChannelSettings(Settings):
     stream_output: bool = Field(default=False, description="Whether to stream model output to channels in real-time.")
 
 
+CHANNEL_SYSTEM_PROMPT = """\
+<response_instruct>
+Before ending this run, you MUST determine whether a response needs to be sent via channel, checking the following conditions:
+1. Has the user asked you a question waiting for your answer?
+2. Is there any error or important information that needs to be sent to the user immediately?
+3. If it is a casual chat, does the conversation need to be continued?
+
+**IMPORTANT:** Your plain/direct reply in this chat will be ignored.
+**Therefore, you MUST send messages via channel using the correct skill if a response is needed.**
+
+When responding to a channel message, you MUST:
+1. Identify the channel from the message metadata (e.g., `$telegram`, `$discord`)
+2. Send your message as instructed by the channel skill (e.g., `telegram` skill for `$telegram` channel)
+</response_instruct>"""
+"""How the channel manager tells the model to deliver replies for the turns it runs."""
+
+CHANNEL_SYSTEM_PROMPT_PLUGIN = "channel-manager.system-prompt"
+
 # A tool call runs as a child task of ToolExecutor.execute_many's own asyncio.gather(),
 # so asyncio.current_task() inside one is not the _run_message task quit() needs to
 # spare. This contextvar, set once per turn, survives that gather boundary.
@@ -53,14 +72,30 @@ _owning_task: contextvars.ContextVar[asyncio.Task | None] = contextvars.ContextV
 )
 
 
+class _ChannelSystemPrompt:
+    """Add the channel manager's reply instruction to the turns a channel manager runs."""
+
+    def __init__(self, prompt: str) -> None:
+        self.prompt = prompt
+
+    @hookimpl
+    def system_prompt(self, prompt: str | list[dict], state: TurnState) -> str | None:
+        # Turns driven elsewhere (bub acp, SDK hosts calling process_inbound) deliver the output directly.
+        return self.prompt if _owning_task.get() is not None else None
+
+
 class ChannelManager:
     def __init__(
         self,
         framework: BubFramework,
         enabled_channels: Collection[str] | None = None,
         stream_output: bool | None = None,
+        system_prompt: str | None = CHANNEL_SYSTEM_PROMPT,
     ) -> None:
         self.framework = framework
+        plugin_manager = framework.plugin_manager
+        if system_prompt and not plugin_manager.has_plugin(CHANNEL_SYSTEM_PROMPT_PLUGIN):
+            plugin_manager.register(_ChannelSystemPrompt(system_prompt), name=CHANNEL_SYSTEM_PROMPT_PLUGIN)
         self._channels: dict[str, Channel] = self.framework.get_channels(self.on_receive)
         self._settings = ensure_config(ChannelSettings)
         self._stream_output = stream_output if stream_output is not None else self._settings.stream_output

@@ -137,7 +137,7 @@ async with plugins.running():
 
 没有 hook 提供的组件不会出现在 `components()` 中，Agent 保留默认值；你自己传入的参数会替代它们。hooks 提供的存储和 steering inbox 只在 `plugins.running()`（即 `framework.running()`）内可用。先调用 `attach()`，再注册自己的处理器，这样它们能看到 hooks 的修改。
 
-`build_prompt`、`run_model`、`save_state`、`render_outbound`、`dispatch_outbound` 等消息流程 hooks 不属于 agent 循环，只在 `process_inbound()` 中运行。`plugins=[...]` 只注册列出的插件。不带参数的 `AgentPlugins()` 和 `bub` 命令一样，加载 Bub 内置 hooks 和已安装的插件；内置系统提示词要求 agent 通过 channel 回复。传入 `framework` 则使用已有 framework 的 hooks，同时传入的 `plugins` 会注册到它上面。
+`build_prompt`、`run_model`、`save_state`、`render_outbound`、`dispatch_outbound` 等消息流程 hooks 不属于 agent 循环，只在 `process_inbound()` 中运行。`plugins=[...]` 只注册列出的插件。不带参数的 `AgentPlugins()` 和 `bub` 命令一样，加载 Bub 内置 hooks 和已安装的插件。传入 `framework` 则使用已有 framework 的 hooks，同时传入的 `plugins` 会注册到它上面。
 
 ## 按插件能力选择接法
 
@@ -160,7 +160,7 @@ async with plugins.running():
 
 `BubAgent` 在内核循环上接入 Bub 设置、skills、工具策略和插件 hooks。宿主可以通过 `framework.load_hooks()` 加载已安装插件，进入 `framework.running()` 后构造 `BubAgent`。它的 `run_stream()` 返回由宿主消费和关闭的流。
 
-如果也需要这些应用默认行为，可以选择这种接法。内置系统提示词要求 Agent 通过渠道发送回复；直接返回模型文本的服务需要明确自己的提示词策略。替换 `agent.system_prompt` 会替换所有片段，包括插件、skills、延迟工具和 CodeMode 的指令。
+如果也需要这些应用默认行为，可以选择这种接法。内置系统提示词不要求 Agent 通过 channel skill 回复；`bub gateway` 和 `bub chat` 背后的 channel manager 会注册一个 `system_prompt` hook，只在它运行的轮次中加入这条指令。自己调用 `process_inbound()` 的服务可以注册自己的 `system_prompt` hook，说明回复如何送达。替换 `agent.system_prompt` 会替换所有片段，包括插件、skills、延迟工具和 CodeMode 的指令。
 
 `run_stream()` 会使用系统提示词、继续提示词、调用拦截 hooks，以及配置好的 Tape 组件。省略 `state` 时，它通过一条只包含 Agent 引用的消息加载状态。插件需要请求元数据时，用 `framework.build_state(message, session_id)` 准备状态，再传给 `run_stream(state=...)`。在 `message["_runtime_agent"]` 中放入 Agent，让状态恢复使用它的存储。
 

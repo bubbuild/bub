@@ -119,6 +119,12 @@ def test_get_system_prompt_uses_priority_order_and_skips_empty_results() -> None
     assert prompt == "low\n\nhigh"
 
 
+def test_builtin_system_prompt_leaves_reply_delivery_to_the_caller() -> None:
+    from bub.builtin.hook_impl import DEFAULT_SYSTEM_PROMPT
+
+    assert "response_instruct" not in DEFAULT_SYSTEM_PROMPT
+
+
 def test_get_tape_sidecars_combines_plugins_and_prefers_the_highest_priority_name() -> None:
     framework = BubFramework()
 
