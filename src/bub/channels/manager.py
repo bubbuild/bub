@@ -77,11 +77,16 @@ class _ChannelSystemPrompt:
 
     def __init__(self, prompt: str) -> None:
         self.prompt = prompt
+        self._prompt_injected = False
 
     @hookimpl
     def system_prompt(self, prompt: str | list[dict], state: TurnState) -> str | None:
         # Turns driven elsewhere (bub acp, SDK hosts calling process_inbound) deliver the output directly.
-        return self.prompt if _owning_task.get() is not None else None
+        if _owning_task.get() is None and not self._prompt_injected:
+            return None
+        # Once injected, always return the prompt for the whole run.
+        self._prompt_injected = True
+        return self.prompt
 
 
 class ChannelManager:

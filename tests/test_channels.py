@@ -708,7 +708,7 @@ async def test_channel_manager_cleans_up_started_channels_when_startup_fails(
 
 
 @pytest.mark.asyncio
-async def test_channel_manager_adds_reply_prompt_only_to_turns_it_runs() -> None:
+async def test_channel_manager_adds_reply_prompt_once_it_has_run_a_turn() -> None:
     framework = BubFramework()
     system_prompts: list[str] = []
 
@@ -723,10 +723,11 @@ async def test_channel_manager_adds_reply_prompt_only_to_turns_it_runs() -> None
     ChannelManager(framework, enabled_channels=[])
     message = ChannelMessage(session_id="s", channel="cli", chat_id="room", content="hi")
 
+    await framework.process_inbound(message)
     await manager._run_message(message)
     await framework.process_inbound(message)
 
-    assert system_prompts == [CHANNEL_SYSTEM_PROMPT, ""]
+    assert system_prompts == ["", CHANNEL_SYSTEM_PROMPT, CHANNEL_SYSTEM_PROMPT]
 
 
 @pytest.mark.asyncio
