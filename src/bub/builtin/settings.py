@@ -137,6 +137,20 @@ class AgentSettings(Settings):
     def model_candidates(self, model: str) -> list[ModelCandidate]:
         return self.chat_model().candidates(model)
 
+    def model_providers(self, current_model: str | None = None) -> list[str]:
+        """Providers to offer models from, ``current_model``'s first.
+
+        These are the providers configured explicitly: of the model and fallbacks, custom
+        providers, and per-provider ``api_key`` or ``api_base`` entries.
+        """
+        specs = [current_model, self.model, *(self.fallback_models or [])]
+        providers = [spec.partition(":")[0] for spec in specs if spec]
+        providers.extend(self.providers)
+        for value in (self.api_key, self.api_base):
+            if isinstance(value, dict):
+                providers.extend(name for name, setting in value.items() if setting)
+        return list(dict.fromkeys(name if name in self.providers else name.lower() for name in providers))
+
     def model_client_kwargs(self, provider: str) -> dict[str, Any]:
         custom = self.providers.get(provider)
         provider = provider if custom else provider.lower()

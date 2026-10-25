@@ -214,10 +214,11 @@ class _CliToolCallRenderer:
 
 
 class _CommandCompleter(Completer):
-    """Complete command names, and after the model command, the models of one provider.
+    """Complete command names, and after the model command, model specs.
 
-    The provider is the one typed as ``provider:`` or else the current model's. Each
-    provider's list is fetched once, in the background, and kept for the session.
+    A typed ``provider:`` completes that provider's models; otherwise the models of every
+    available provider, the current model's first. Each list is fetched once, in the
+    background, and kept for the session.
     """
 
     def __init__(
@@ -227,12 +228,14 @@ class _CommandCompleter(Completer):
         prefix: str,
         current_model: Callable[[], str],
         list_models: Callable[[str], Awaitable[list[str]]],
+        list_available_models: Callable[[str], Awaitable[list[str]]],
     ) -> None:
         self._commands = WordCompleter(list(commands), ignore_case=True, sentence=True)
         self._model_command = f"{prefix}model "
         self._current_model = current_model
         self._list_models = list_models
-        self._models: dict[str, asyncio.Task[list[str]]] = {}
+        self._list_available_models = list_available_models
+        self._models: dict[tuple[str, str], asyncio.Task[list[str]]] = {}
 
     def get_completions(self, document: Document, complete_event: CompleteEvent) -> Iterable[Completion]:
         if not document.text_before_cursor.startswith(self._model_command):
@@ -250,24 +253,24 @@ class _CommandCompleter(Completer):
         if " " in query:
             return
         provider, separator, _ = query.partition(":")
-        if not separator:
-            provider = self._current_model().partition(":")[0]
-        for spec in await self._provider_models(provider):
+        key = ("provider", provider) if separator else ("available", self._current_model())
+        for spec in await self._cached_models(key):
             if query.lower() in spec.lower():
                 yield Completion(spec, start_position=-len(query))
 
-    async def _provider_models(self, provider: str) -> list[str]:
-        if not provider:
-            return []
-        task = self._models.get(provider)
+    async def _cached_models(self, key: tuple[str, str]) -> list[str]:
+        task = self._models.get(key)
         if task is None:
-            task = self._models[provider] = asyncio.create_task(self._fetch(provider))
+            task = self._models[key] = asyncio.create_task(self._fetch(key))
         # Shielded so that typing on, which cancels this completion, does not cancel the fetch.
         return await asyncio.shield(task)
 
-    async def _fetch(self, provider: str) -> list[str]:
+    async def _fetch(self, key: tuple[str, str]) -> list[str]:
+        kind, name = key
         try:
-            return await self._list_models(provider)
+            if kind == "provider":
+                return await self._list_models(name)
+            return await self._list_available_models(name)
         except Exception:
             return []
 
@@ -323,6 +326,13 @@ class CliChannel(Interface):
 
     def _current_model(self) -> str:
         return self._session_model or self._agent.settings.model
+
+    async def _list_models(self, provider: str) -> list[str]:
+        return await self._agent.settings.chat_model().list_models(provider)
+
+    async def _list_available_models(self, current_model: str) -> list[str]:
+        settings = self._agent.settings
+        return await settings.chat_model().list_all_models(settings.model_providers(current_model))
 
     def set_metadata(
         self, session_id: str | None = None, chat_id: str | None = None, *, initial_prompt: str | None = None
@@ -526,7 +536,8 @@ class CliChannel(Interface):
             tool_names,
             prefix=prefix,
             current_model=self._current_model,
-            list_models=lambda provider: self._agent.settings.chat_model().list_models(provider),
+            list_models=self._list_models,
+            list_available_models=self._list_available_models,
         )
         prompt: PromptSession[str] = PromptSession(
             completer=completer,

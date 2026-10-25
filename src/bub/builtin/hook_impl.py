@@ -201,11 +201,7 @@ class BuiltinImpl:
         current = (await load_session_settings(tape)).get("model") or settings.model
         if not current:
             return None
-        try:
-            models = await settings.chat_model().list_models(current.partition(":")[0])
-        except Exception as exc:
-            logger.warning("failed to list models for {}: {}", current, exc)
-            models = []
+        models = await settings.chat_model().list_all_models(settings.model_providers(current))
         if current not in models:
             models.insert(0, current)
         return ModelOptions(models=[ModelChoice(id=model, name=model) for model in models], current_model=current)
