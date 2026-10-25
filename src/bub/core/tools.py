@@ -289,11 +289,6 @@ def _replaced_error(failure: _FailedToolResult) -> BubError:
     return BubError(failure.error.kind, message)
 
 
-def tool_result_output(result: Any) -> Any:
-    """Return the model-facing form of a ``ToolExecution`` result."""
-    return result.as_dict() if isinstance(result, BubError) else result
-
-
 class ToolExecutor:
     """Execute already-resolved Bub tool invocations.
 

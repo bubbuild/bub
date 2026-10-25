@@ -120,7 +120,9 @@ class TapeEntry:
 
     @classmethod
     def tool_result(cls, results: list[Any], **meta: Any) -> TapeEntry:
-        return cls(id=0, kind="tool_result", payload={"results": results}, meta=dict(meta))
+        # A failed call's result is its BubError; record what the model sees.
+        payload = {"results": [result.as_dict() if isinstance(result, BubError) else result for result in results]}
+        return cls(id=0, kind="tool_result", payload=payload, meta=dict(meta))
 
     @classmethod
     def error(cls, error: BubError, **meta: Any) -> TapeEntry:
