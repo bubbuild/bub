@@ -379,3 +379,35 @@ def test_bub_model_resolves_custom_providers_and_default_fallbacks() -> None:
     ]
     assert [c.name for c in model.candidates("anthropic:claude")] == ["anthropic:claude"]
     assert model.client_kwargs("relay") == {"n": "relay"}
+
+
+@pytest.mark.asyncio
+async def test_bub_model_lists_provider_models_with_custom_provider_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import republic
+
+    from bub.builtin.model import BubModel
+
+    opened: list[tuple[str, dict[str, object]]] = []
+
+    class FakeProvider:
+        async def __aenter__(self) -> FakeProvider:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def list_models(self) -> list[republic.ModelInfo]:
+            return [republic.ModelInfo("gpt-b"), republic.ModelInfo("gpt-a"), republic.ModelInfo("gpt-a")]
+
+    def get_provider(name: str, **options: object) -> FakeProvider:
+        opened.append((name, options))
+        return FakeProvider()
+
+    monkeypatch.setattr(republic, "get_provider", get_provider)
+    model = BubModel("relay:gpt", providers={"relay": "openai"}, client_options=lambda name: {"n": name})
+
+    assert await model.list_models("relay") == ["relay:gpt-a", "relay:gpt-b"]
+    assert await model.list_models("OpenAI") == ["openai:gpt-a", "openai:gpt-b"]
+    assert opened == [("openai", {"n": "relay"}), ("openai", {"n": "openai"})]

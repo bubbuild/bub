@@ -91,6 +91,16 @@ class BubModel:
             return dict(self.client_options(provider))
         return dict(self.client_options or {})
 
+    async def list_models(self, provider: str) -> list[str]:
+        """List the ``provider:model`` specs ``provider`` (a custom name or a Republic type) offers."""
+        if custom_type := self.providers.get(provider):
+            provider_type = custom_type
+        else:
+            provider = provider_type = provider.lower()
+        async with republic.get_provider(provider_type, **self.client_kwargs(provider)) as client:
+            models = await client.list_models()
+        return sorted({f"{provider}:{model.id}" for model in models})
+
     def chat_options(self, provider: str, options: Mapping[str, Any]) -> dict[str, Any]:
         """Merge this model's generation options with a call's for ``provider``."""
         merged = {**self.options, **options}

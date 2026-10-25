@@ -1,7 +1,7 @@
 import asyncio
 import contextlib
 import math
-from collections.abc import AsyncGenerator, AsyncIterable, Callable
+from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable, Iterable
 from datetime import datetime
 from functools import cached_property
 from hashlib import md5
@@ -11,8 +11,9 @@ from typing import Any
 
 from loguru import logger
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.completion import CompleteEvent, Completer, Completion, WordCompleter
 from prompt_toolkit.data_structures import Point
+from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import ANSI, AnyFormattedText, FormattedText
 from prompt_toolkit.history import FileHistory
@@ -27,6 +28,7 @@ from rich.tree import Tree
 
 import bub
 from bub.builtin.agent import BubAgent
+from bub.builtin.settings import load_session_settings
 from bub.channels.admission import AdmitDecision, TurnSnapshot
 from bub.channels.base import Interface
 from bub.channels.cli.ansi_bridge import render_to_ansi
@@ -46,6 +48,7 @@ from bub.streaming import StreamEvent
 
 _GENERATION_SPINNER: str = SPINNERS["dots"]["frames"]  # type: ignore[assignment]
 _PROMPT_REFRESH_INTERVAL: float = SPINNERS["dots"]["interval"] / 1000.0  # type: ignore[operator]
+_LIST_MODELS_TIMEOUT = 10.0
 
 
 class _StreamPrinter:
@@ -211,12 +214,73 @@ class _CliToolCallRenderer:
         )
 
 
+class _CommandCompleter(Completer):
+    """Complete command names, and after the model command, the models of one provider.
+
+    The provider is the one typed as ``provider:`` or else the current model's. Each
+    provider's list is fetched once, in the background, and kept for the session.
+    """
+
+    def __init__(
+        self,
+        commands: Iterable[str],
+        *,
+        prefix: str,
+        current_model: Callable[[], str],
+        list_models: Callable[[str], Awaitable[list[str]]],
+    ) -> None:
+        self._commands = WordCompleter(list(commands), ignore_case=True, sentence=True)
+        self._model_command = f"{prefix}model "
+        self._current_model = current_model
+        self._list_models = list_models
+        self._models: dict[str, asyncio.Task[list[str]]] = {}
+
+    def get_completions(self, document: Document, complete_event: CompleteEvent) -> Iterable[Completion]:
+        if not document.text_before_cursor.startswith(self._model_command):
+            yield from self._commands.get_completions(document, complete_event)
+
+    async def get_completions_async(
+        self, document: Document, complete_event: CompleteEvent
+    ) -> AsyncGenerator[Completion, None]:
+        text = document.text_before_cursor
+        if not text.startswith(self._model_command):
+            for completion in self._commands.get_completions(document, complete_event):
+                yield completion
+            return
+        query = text.removeprefix(self._model_command).lstrip()
+        if " " in query:
+            return
+        provider, separator, _ = query.partition(":")
+        if not separator:
+            provider = self._current_model().partition(":")[0]
+        for spec in await self._provider_models(provider):
+            if query.lower() in spec.lower():
+                yield Completion(spec, start_position=-len(query))
+
+    async def _provider_models(self, provider: str) -> list[str]:
+        if not provider:
+            return []
+        task = self._models.get(provider)
+        if task is None:
+            task = self._models[provider] = asyncio.create_task(self._fetch(provider))
+        # Shielded so that typing on, which cancels this completion, does not cancel the fetch.
+        return await asyncio.shield(task)
+
+    async def _fetch(self, provider: str) -> list[str]:
+        try:
+            async with asyncio.timeout(_LIST_MODELS_TIMEOUT):
+                return await self._list_models(provider)
+        except Exception:
+            return []
+
+
 class CliChannel(Interface):
     """A simple CLI channel for testing and debugging."""
 
     name = "cli"
     _stop_event: asyncio.Event
     _initial_prompt: str | None = None
+    _session_model: str | None = None
 
     def __init__(self, on_receive: MessageHandler, get_agent: Callable[[], BubAgent], workspace: Path) -> None:
         self._on_receive = on_receive
@@ -257,6 +321,10 @@ class CliChannel(Interface):
         tape = self._agent.tape(session_tape_name(self._message_template["session_id"], self._workspace))
         info = await tape.info()
         self._last_tape_info = info
+        self._session_model = (await load_session_settings(tape)).get("model")
+
+    def _current_model(self) -> str:
+        return self._session_model or self._agent.settings.model
 
     def set_metadata(
         self, session_id: str | None = None, chat_id: str | None = None, *, initial_prompt: str | None = None
@@ -456,7 +524,12 @@ class CliChannel(Interface):
         tool_names = sorted(
             [*(f"{prefix}{name}" for name in self._agent.tools), f"{prefix}thinking"], key=_tool_sort_key
         )
-        completer = WordCompleter(tool_names, ignore_case=True, sentence=True)
+        completer = _CommandCompleter(
+            tool_names,
+            prefix=prefix,
+            current_model=self._current_model,
+            list_models=lambda provider: self._agent.settings.chat_model().list_models(provider),
+        )
         prompt: PromptSession[str] = PromptSession(
             completer=completer,
             complete_while_typing=True,
@@ -503,7 +576,7 @@ class CliChannel(Interface):
         right = (
             f"thinking:{'expand' if self._expand_thinking else 'collapse'}  "
             f"speed:{speed_label}  "
-            f"model:{self._agent.settings.model}  "
+            f"model:{self._current_model()}  "
             f"entries:{field_of(info, 'entries', '-')} "
             f"anchors:{field_of(info, 'anchors', '-')} "
             f"last:{field_of(info, 'last_anchor', None) or '-'}"

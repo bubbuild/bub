@@ -1923,3 +1923,31 @@ def test_run_preserves_output_and_reports_status_only_on_a_terminal(redirected: 
         fields = dict(pair.split(b"=", 1) for pair in frame.group(1).split(b":"))
         positions.setdefault(fields[b"state"], frame.start())
     assert positions[b"working"] < raw.index(b"actual response") < positions[b"done"]
+
+
+@pytest.mark.asyncio
+async def test_cli_model_command_completes_models_of_current_or_typed_provider() -> None:
+    from prompt_toolkit.completion import CompleteEvent
+    from prompt_toolkit.document import Document
+
+    from bub.channels.cli import _CommandCompleter
+
+    fetched: list[str] = []
+
+    async def list_models(provider: str) -> list[str]:
+        fetched.append(provider)
+        return [f"{provider}:{name}" for name in ("gpt-4o", "gpt-4o-mini", "o3")]
+
+    completer = _CommandCompleter(
+        [",model", ",help"], prefix=",", current_model=lambda: "openai:gpt-4o", list_models=list_models
+    )
+
+    async def complete(text: str) -> list[str]:
+        return [c.text async for c in completer.get_completions_async(Document(text), CompleteEvent())]
+
+    assert await complete(",mo") == [",model"]
+    assert await complete(",model ") == ["openai:gpt-4o", "openai:gpt-4o-mini", "openai:o3"]
+    assert await complete(",model mini") == ["openai:gpt-4o-mini"]
+    assert await complete(",model relay:o") == ["relay:o3"]
+    assert await complete(",model openai:gpt-4o extra") == []
+    assert fetched == ["openai", "relay"]
