@@ -215,20 +215,10 @@ async def test_spill_runs_after_other_result_hooks(tmp_path: Path) -> None:
     assert "tool output spilled" in execution.tool_results[0]
 
 
-@pytest.mark.parametrize(
-    ("error_message", "replacement", "should_spill"),
-    [
-        ("original secret " * 1000, "sanitized failure", False),
-        ("small failure", "replacement " * 2000, True),
-    ],
-)
 @pytest.mark.asyncio
-async def test_failure_replacement_is_used_for_spill_check(
-    tmp_path: Path,
-    error_message: str,
-    replacement: str,
-    should_spill: bool,
-) -> None:
+async def test_failure_replaced_by_another_hook_is_not_spilled(tmp_path: Path) -> None:
+    replacement = "replacement " * 2000
+
     class ReplaceFailure:
         @hookimpl
         def after_tool_call(self, result: ToolCallResult) -> None:
@@ -243,26 +233,22 @@ async def test_failure_replacement_is_used_for_spill_check(
     root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
 
     def fail() -> None:
-        raise RuntimeError(error_message)
+        raise RuntimeError("small failure")
 
     async with root.fork_tape() as tape:
         context = _spill_context(tape=tape, run_id="run-1")
         context.state["_runtime_tool_names"] = ("bash", SPILL_READ_MODEL_NAME)
         execution = await executor.execute_many([(Tool(name="bash", handler=fail), {})], context=context)
 
-        assert execution.error is not None
-        result = execution.tool_results[0]
-        assert isinstance(result, BubError)
-        if should_spill:
-            assert "tool output spilled" in result.message
-            page = await _read_page(context, _handle_from_ref(result.message), count=4)
-            assert _page_content(page) == replacement
-        else:
-            assert result.message == replacement
+    assert execution.error is not None
+    result = execution.tool_results[0]
+    assert isinstance(result, BubError)
+    assert result.kind is execution.error.kind
+    assert result.message == replacement
 
 
 @pytest.mark.asyncio
-async def test_oversized_tool_error_is_spilled_and_remains_a_failure(tmp_path: Path) -> None:
+async def test_oversized_tool_error_is_not_spilled(tmp_path: Path) -> None:
     root = _root_tape(tmp_path, InMemoryTapeStore(), threshold=100)
     error_message = "failure detail " * 1000
 
@@ -273,17 +259,10 @@ async def test_oversized_tool_error_is_spilled_and_remains_a_failure(tmp_path: P
         context = _spill_context(tape=tape, run_id="run-1")
         execution = await _spill_executor().execute_many([(Tool(name="failing", handler=fail), {})], context=context)
 
-        assert execution.error is not None
-        failure = execution.tool_results[0]
-        assert isinstance(failure, BubError)
-        assert failure.kind is execution.error.kind
-        ref = failure.message
-        assert "tool output spilled" in ref
-        assert error_message not in ref
-
-        handle = _handle_from_ref(ref)
-        page = await _read_page(context, handle, count=4)
-        assert json.loads(_page_content(page)) == execution.error.as_dict()
+    assert execution.error is not None
+    assert execution.tool_results == [execution.error]
+    assert execution.error.details is not None
+    assert error_message in execution.error.details["error"]
 
 
 @pytest.mark.asyncio
@@ -415,15 +394,14 @@ async def test_result_spill_requires_reader_in_current_model_tools(
             ]
             result = next(event.data["tool_results"][0] for event in events if event.kind == "tool_result")
             if fails:
+                # Failed calls are never spilled.
                 assert isinstance(result, BubError)
-                result = result.message if reader_available else result.as_dict()
-            if reader_available:
+                assert result.details is not None
+                assert output in result.details["error"]
+            elif reader_available:
                 assert "tool output spilled" in result
                 page = await _read_page(_spill_context(tape=tape), _handle_from_ref(result), count=4)
                 assert output in _page_content(page)
-            elif fails:
-                assert result["kind"] == "tool"
-                assert output in result["details"]["error"]
             else:
                 assert result == output
 

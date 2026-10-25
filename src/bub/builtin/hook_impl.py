@@ -27,7 +27,6 @@ from bub.core.tape import TapeContext, session_tape_name
 from bub.core.tools import Tool, is_content_result, render_result
 from bub.envelope import Envelope, content_of, field_of
 from bub.environment import Environment
-from bub.errors import BubError
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
 from bub.model_selection import ModelChoice, ModelOptions
@@ -392,12 +391,10 @@ class BuiltinImpl:
         if not isinstance(spill, SpillStore):
             return
 
-        if result.error is None:
-            tool_result = result.result
-        elif isinstance(result.error, BubError):
-            tool_result = result.error.as_dict() if result.result is None else result.result
-        else:
+        # Failed calls keep their error as is.
+        if result.error is not None:
             return
+        tool_result = result.result
 
         if is_content_result(tool_result):
             # Bound the text; media stays inline.
