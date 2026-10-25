@@ -72,9 +72,42 @@ async def test_unknown_tool_returns_an_error_result(tmp_path: Path, provider_ser
             )
         ]
     result = next(event.data["tool_results"][0] for event in events if event.kind == "tool_result")
-    assert result["kind"] == "tool"
-    assert "missing_tool" in result["message"]
+    assert isinstance(result, BubError)
+    assert result.kind == ErrorKind.TOOL
+    assert "missing_tool" in result.message
     assert events[-1].kind == "final"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_carries_failed_calls_as_bub_errors(provider_service: ProviderService) -> None:
+    def fail() -> str:
+        raise BubError(ErrorKind.TOOL, "command exited with code 1")
+
+    provider_service.reply(
+        sse(
+            tool_events([
+                {"index": 0, "id": "call-ok", "function": {"name": "ok", "arguments": "{}"}},
+                {"index": 1, "id": "call-fail", "function": {"name": "fail", "arguments": "{}"}},
+            ])
+        )
+    )
+    tools = [Tool(name="ok", handler=lambda: "done"), Tool(name="fail", handler=fail)]
+    async with provider_service.client() as client:
+        runner = StepRunner(AgentSettings(client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("errors")
+        events = [
+            event
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=tools, system_prompt=None, prompt=to_content("Run both.")
+            )
+        ]
+
+    ok, failed = next(event.data["tool_results"] for event in events if event.kind == "tool_result")
+    assert ok == "done"
+    assert isinstance(failed, BubError)
+    assert "command exited with code 1" in failed.message
+    [entry] = await tape.store.fetch_all(tape.query().kinds("tool_result"))
+    assert entry.payload["results"] == ["done", failed.as_dict()]
 
 
 @pytest.mark.asyncio

@@ -274,4 +274,4 @@ async def test_executor_reports_renderer_failures_as_tool_errors(tmp_path) -> No
     execution = await ToolExecutor().execute_many([(broken, {})], context=_context(tmp_path))
 
     assert execution.error is not None
-    assert execution.tool_results[0]["message"] == "Tool 'tests.broken_renderer' execution failed."
+    assert execution.tool_results[0].message == "Tool 'tests.broken_renderer' execution failed."

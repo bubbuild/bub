@@ -159,7 +159,7 @@ class TestToolExecutorIntegration:
         execution = await executor.execute_many([(self.tool(), {"cmd": "rm -rf /"})])
         assert execution.error is not None
         assert "blocked by policy" in execution.error.message
-        assert execution.tool_results[0]["message"] == "blocked by policy"
+        assert execution.tool_results[0] == execution.error
 
     @pytest.mark.asyncio
     async def test_replace_skips_handler(self) -> None:

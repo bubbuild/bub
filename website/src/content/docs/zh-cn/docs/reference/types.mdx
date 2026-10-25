@@ -48,7 +48,7 @@ from bub.model_selection import ModelChoice, ModelOptions
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
-`StreamEvent` 包含 `kind` 和数据字典。种类为 `text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error`、`final`。文本事件使用 `data["delta"]`。内置 agent 的 `final` 标记一个模型步骤结束；继续消费，直到流结束。
+`StreamEvent` 包含 `kind` 和数据字典。种类为 `text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error`、`final`。文本事件使用 `data["delta"]`。`tool_result` 事件包含 `data["tool_results"]`，与本步骤的工具调用一一对应；失败调用对应的项是它的 `BubError`，tape 和模型收到的是它的字典形式。内置 agent 的 `final` 标记一个模型步骤结束；继续消费，直到流结束。
 
 `AsyncStreamEvents` 是异步迭代器，提供 `aclose()`、`error` 和 `usage`。消费到结束，或者在调用方停止时关闭它：
 

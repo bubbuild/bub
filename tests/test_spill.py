@@ -25,6 +25,7 @@ from bub.core.events import EventBus, ToolCallFinished
 from bub.core.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore, TapeStore
 from bub.core.tape import Tape
 from bub.core.tools import Tool, ToolContext, ToolExecutor, model_tools
+from bub.errors import BubError
 from bub.hooks import BUB_HOOK_NAMESPACE, BubHookSpecs, hookimpl
 from bub.hooks.interception import PluginAgentHooks, ToolCall, ToolCallResult
 from bub.hooks.runtime import HookRuntime
@@ -160,7 +161,7 @@ async def test_spill_configuration_preserves_results_that_should_not_be_spilled(
 
         small_error = await _spill_executor().execute_many([(Tool(name="failing", handler=fail), {})], context=context)
         assert small_error.error is not None
-        assert small_error.tool_results == [small_error.error.as_dict()]
+        assert small_error.tool_results == [small_error.error]
 
     disabled = _root_tape(tmp_path, parent, threshold=0).scoped("disabled")
     async with disabled.fork_tape() as tape:
@@ -251,13 +252,13 @@ async def test_failure_replacement_is_used_for_spill_check(
 
         assert execution.error is not None
         result = execution.tool_results[0]
+        assert isinstance(result, BubError)
         if should_spill:
-            assert isinstance(result, str)
-            assert "tool output spilled" in result
-            page = await _read_page(context, _handle_from_ref(result), count=4)
+            assert "tool output spilled" in result.message
+            page = await _read_page(context, _handle_from_ref(result.message), count=4)
             assert _page_content(page) == replacement
         else:
-            assert result == replacement
+            assert result.message == replacement
 
 
 @pytest.mark.asyncio
@@ -273,8 +274,10 @@ async def test_oversized_tool_error_is_spilled_and_remains_a_failure(tmp_path: P
         execution = await _spill_executor().execute_many([(Tool(name="failing", handler=fail), {})], context=context)
 
         assert execution.error is not None
-        ref = execution.tool_results[0]
-        assert isinstance(ref, str)
+        failure = execution.tool_results[0]
+        assert isinstance(failure, BubError)
+        assert failure.kind is execution.error.kind
+        ref = failure.message
         assert "tool output spilled" in ref
         assert error_message not in ref
 
@@ -411,6 +414,9 @@ async def test_result_spill_requires_reader_in_current_model_tools(
                 )
             ]
             result = next(event.data["tool_results"][0] for event in events if event.kind == "tool_result")
+            if fails:
+                assert isinstance(result, BubError)
+                result = result.message if reader_available else result.as_dict()
             if reader_available:
                 assert "tool output spilled" in result
                 page = await _read_page(_spill_context(tape=tape), _handle_from_ref(result), count=4)

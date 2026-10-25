@@ -272,6 +272,7 @@ def model_tools(tools: Iterable[Tool]) -> list[Tool]:
 @dataclass(frozen=True)
 class ToolExecution:
     tool_results: list[Any] = field(default_factory=list)
+    """Each call's result in call order; a failed call's is its ``BubError``."""
     error: BubError | None = None
 
 
@@ -279,6 +280,18 @@ class ToolExecution:
 class _FailedToolResult:
     error: BubError
     result: Any = None
+
+
+def _replaced_error(failure: _FailedToolResult) -> BubError:
+    """Keep a failure whose model-facing result a hook replaced (e.g. a spilled error) a ``BubError``."""
+    replacement = failure.result
+    message = replacement if isinstance(replacement, str) else render_result(replacement)
+    return BubError(failure.error.kind, message)
+
+
+def tool_result_output(result: Any) -> Any:
+    """Return the model-facing form of a ``ToolExecution`` result."""
+    return result.as_dict() if isinstance(result, BubError) else result
 
 
 class ToolExecutor:
@@ -338,10 +351,10 @@ class ToolExecutor:
         for result in gathered:
             if isinstance(result, _FailedToolResult):
                 error = result.error
-                results.append(result.error.as_dict() if result.result is None else result.result)
+                results.append(result.error if result.result is None else _replaced_error(result))
             elif isinstance(result, BubError):
                 error = result
-                results.append(result.as_dict())
+                results.append(result)
             elif isinstance(result, BaseException):
                 raise result
             else:

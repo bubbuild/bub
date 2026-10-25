@@ -40,7 +40,7 @@ from bub.core.sidecars import TapeSidecar
 from bub.core.store import AsyncTapeStore, AsyncTapeStoreAdapter, InMemoryTapeStore, TapeStore, is_async_tape_store
 from bub.core.system_prompt import PromptContext, PromptSection, SystemPrompt
 from bub.core.tape import Tape, TapeContext
-from bub.core.tools import Tool, ToolContext, ToolExecutor, model_tools
+from bub.core.tools import Tool, ToolContext, ToolExecutor, model_tools, tool_result_output
 from bub.errors import BubError, ErrorKind
 from bub.prompt import UserContent
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
@@ -369,9 +369,11 @@ class Agent:
                 context=context,
                 call_ids=[call.id for call in tool_calls],
             )
-            tool_results = execution.tool_results
+            # Stream events carry failed calls as BubError; the tape and model get their dicts.
+            outcomes: list[Any] = execution.tool_results
+            tool_results = [tool_result_output(result) for result in outcomes]
         else:
-            serialized_tool_calls, tool_results = [], None
+            serialized_tool_calls, outcomes, tool_results = [], [], None
         assistant_fields = {
             key: value
             for key, value in {
@@ -397,8 +399,8 @@ class Agent:
             assistant_fields=assistant_fields,
         )
         if tool_calls:
-            yield StreamEvent("tool_result", {"tool_results": tool_results})
-            yield StreamEvent("final", {"ok": True, "tool_calls": serialized_tool_calls, "tool_results": tool_results})
+            yield StreamEvent("tool_result", {"tool_results": outcomes})
+            yield StreamEvent("final", {"ok": True, "tool_calls": serialized_tool_calls, "tool_results": outcomes})
         else:
             yield StreamEvent("final", {"ok": True, "text": text})
 
@@ -716,7 +718,11 @@ class _RunTracker:
             self._text.clear()
         elif event.kind == "tool_result":
             for call, result in zip(self._calls, event.data.get("tool_results", []), strict=False):
-                self._messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+                self._messages.append({
+                    "role": "tool",
+                    "tool_call_id": call["id"],
+                    "content": tool_result_output(result),
+                })
         elif event.kind == "error":
             self._span.fail(RuntimeError(str(event.data.get("message", "agent failed"))))
 

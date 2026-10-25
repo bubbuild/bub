@@ -48,7 +48,7 @@ from bub.model_selection import ModelChoice, ModelOptions
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
-`StreamEvent` contains `kind` and a data dictionary. Kinds are `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, and `final`. Text events carry `data["delta"]`. A builtin agent's `final` marks a model step; continue consuming until the stream ends.
+`StreamEvent` contains `kind` and a data dictionary. Kinds are `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, and `final`. Text events carry `data["delta"]`. A `tool_result` event carries `data["tool_results"]`, one entry per tool call of the step; a failed call's entry is its `BubError`, which the tape and the model receive as a dictionary. A builtin agent's `final` marks a model step; continue consuming until the stream ends.
 
 `AsyncStreamEvents` is an async iterator with `aclose()`, `error`, and `usage`. Exhaust it or close it when your consumer stops:
 

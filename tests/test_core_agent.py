@@ -178,7 +178,8 @@ async def test_before_events_short_circuit_remaining_handlers(provider_service: 
             events = [event async for event in agent.run_once(["go"], model=model, tape=tape)]
 
         result = next(event for event in events if event.kind == "tool_result").data["tool_results"][0]
-        assert result["message"] == "no secrets"
+        assert isinstance(result, BubError)
+        assert result.message == "no secrets"
         assert later == ["llm"]
 
         agent.events.on(
