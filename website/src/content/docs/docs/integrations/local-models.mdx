@@ -3,13 +3,15 @@ title: Connect a local llama.cpp model
 description: Start a local llama.cpp server and have Bub call GGUF models through an OpenAI-compatible endpoint.
 ---
 
-This guide uses `llama.cpp` to serve an OpenAI-compatible API on your machine, then points the Bub application's model requests at that endpoint. The model itself, inference speed, and memory usage are still determined by `llama.cpp`; Bub's turn, tool, and Tape behavior is unchanged.
+This guide uses `llama.cpp` to serve an OpenAI-compatible API on your machine, then points the Bub application's model requests at that endpoint.
+
+The model itself, inference speed, and memory usage are still determined by `llama.cpp`; Bub's turn, tool, and Tape behavior is unchanged.
 
 The example model is the Q8 quantized version of [`ggml-org/gemma-4-E2B-it-GGUF`](https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF). You can substitute any GGUF model that `llama.cpp` can load, as long as you update the file names and model alias accordingly.
 
 ## Before you begin {#before-you-start}
 
-- You have [installed the Bub application](/docs/getting-started/install/#app-install) and `bub --help` works.
+- You have [installed the Bub application](/docs/getting-started/install/#app-install).
 - Docker is installed and `docker version` can connect to the daemon.
 - You have at least 8 GB of available memory; the Q8 model file is about 5 GB, and you still need room for context and batching at runtime.
 - You have downloaded the quantized files from the **Files** tab of the Hugging Face model page to `~/.cache/llama.cpp/`. This guide uses:
@@ -120,7 +122,11 @@ Adjust the startup parameters to your hardware:
 | Limit concurrency | Set `--parallel` and account for the context budget of each slot |
 | Text only | Remove `--mmproj` and the corresponding model file |
 
-Restart the container after changing parameters, then re-verify with `/v1/models` and one `bub run`. Do not set the model's context window larger than Bub actually needs; tool definitions and the Tape also consume tokens.
+Restart the container after changing parameters, then re-verify with `/v1/models` and one `bub run`.
+
+:::caution
+Do not increase `--ctx-size` without accounting for memory usage. KV cache memory grows with context length, so leave enough physical memory to avoid OOM. Tool definitions and the Tape also consume tokens, so keep the model's context window within what Bub actually needs.
+:::
 
 ## Cleanup {#cleanup}
 

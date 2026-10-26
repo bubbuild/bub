@@ -11,16 +11,17 @@ This guide starts with stdio in Zed, then covers HTTP/WebSocket and troubleshoot
 
 ## Before you start {#before-you-start}
 
-- You have [installed the Bub application](/docs/getting-started/install/#app-install) and confirmed that `bub --help` works.
-- `bub run "Reply with one short sentence."` can use the model normally.
+- You have [installed the Bub application](/docs/getting-started/install/#app-install) and configured a working model.
 - Zed is installed. Other ACP clients also work, but their launch configuration fields differ.
 
-The ACP process reads the Bub configuration from its current environment. Zed may start the process with a different working directory and environment than your terminal, so first confirm that `bub` points to the executable where you installed the plugin:
+:::note[Environment variables and paths]
+The ACP process reads Bub's configuration from its environment. Desktop applications such as Zed may inherit a different `PATH` and environment from your terminal, so first confirm the absolute path of the `bub` executable where you installed the plugin:
 
 ```bash
 command -v bub
 bub --version
 ```
+:::
 
 ## 1. Install and verify the plugin {#install}
 

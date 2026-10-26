@@ -1,49 +1,55 @@
 ---
-title: Tape (conversation storage and model context)
-description: Tell persistent history apart from model context, and manage storage, anchors, run forks, and sidecars.
+title: "Tape: durable facts and context projection"
+description: Separate append-only history from model context, then use TapeContext, anchors, and handoffs to control what each request sees.
 sidebar:
   label: Tape
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+A long-running Agent faces two different memory problems. The application needs a trustworthy record of what happened; the model needs a small, relevant input for its next inference. Treating both as one `messages` array forces a bad choice: either the request grows without bound, or context trimming destroys the only record.
 
-A Tape stores the Agent's run records, and `TapeContext` selects from those records the input for the next model call. **The stored history is not the context the model sees**: history can keep growing, while each request reads only a slice of it.
+Bub separates those concerns. **Tape is the durable record; `TapeContext` is a projection of that record for the model.** History and context are related, but they are not the same object.
 
-`core.Agent` and `BubAgent` share this mechanism; their default stores and Tape naming schemes differ.
+## One record, two views {#history-and-context}
 
-## History and context {#history-and-context}
+Think of Tape as the write side and `TapeContext` as the read side of the same history:
 
 ```mermaid
 flowchart LR
   E1["anchor<br/>session/start"] --- E2["message"] --- E3["tool_call"] --- E4["tool_result"] --- E5["anchor<br/>order-reviewed"] --- E6["message"]
-  E1 -.-> A["history<br/>query raw entries in order"]
-  E5 ==>|"default context start"| B["context<br/>conversation and tool round-trips after the anchor"]
+  E1 -.-> A["History<br/>query raw entries in write order"]
+  E5 ==>|"default context start"| B["Context<br/>project conversation and tool round-trips"]
 ```
 
-- **History** consists of Tape entries, queried in write order through `query()`.
-- **Context** is built by `TapeContext` filtering entries and converting them to Republic messages, through `read_messages()`.
+- **The write model** appends `TapeEntry` objects: conversation messages, requested tool calls, results, anchors, errors, and explicitly recorded business events. Query them in write order with `query()`.
+- **The read model** uses `TapeContext` to select entries and convert them into Republic messages. `read_messages()` returns the model-facing projection, not the raw record.
 
-Normal recording only appends and does not modify old entries; explicit operations such as `reset()` clear the records, so a Tape is not an immutable event log.
+This is an event-sourcing perspective: preserve facts first, then derive the view each consumer needs. It keeps debugging and audit questions—“which arguments were sent?” or “which result came back?”—separate from prompt-budget questions.
 
-## Default context rules {#context}
+Normal recording appends entries and does not rewrite old ones, but Tape is not an unconditionally immutable log. Explicit operations such as `reset()` can clear records, and `TapeRecorder` is not a complete compliance auditor by itself.
 
-The Agent uses `default_tape_context()` by default, selecting conversation and tool round-trips after the most recent anchor:
+`core.Agent` and `BubAgent` share this mechanism; their default stores and Tape naming schemes differ.
 
-| Entry type | Content | Handling in the default context |
+## Context is a projection, not a truncation {#context}
+
+By default, the Agent uses `default_tape_context()`. It reads entries after the most recent anchor and reconstructs the conversation and tool round-trips needed by the next request:
+
+| Entry type | Stored fact | Default projection |
 | --- | --- | --- |
-| `message` | Conversation messages from the user, assistant, system, and so on | Converted to the corresponding message |
-| `tool_call` | A tool call requested by the model | Converted to an assistant message carrying the tool calls |
-| `tool_result` | A tool execution result | Paired with the earlier call and converted to a tool message |
-| `anchor` | The context starting point and optional state | Used as a query boundary; not included in the result |
-| `event`, `system`, `error` | Business events, system prompt changes, or record errors | Skipped |
+| `message` | User, assistant, system, and other conversation messages | Converted to the corresponding message |
+| `tool_call` | Calls requested by the model | Converted to an assistant message carrying those calls |
+| `tool_result` | Values returned by tool execution | Paired with earlier calls and converted to tool messages |
+| `anchor` | A context boundary and optional state | Defines the default query boundary; the boundary itself is outside the selected range |
+| `event`, `system`, `error` | Business events, system changes, or recorded errors | Not selected |
 
-Entries with `context=False` are filtered out before selection. Ordinary business `event` entries also do not enter model requests by default; to let the model read them, you must customize the selection logic.
+Entries marked `context=False` are filtered before selection. Ordinary business events therefore remain available in history without automatically consuming context tokens. If the model needs them, include them in a custom projection.
 
-`default_tape_context()` rebuilds tool round-trips. A directly constructed `TapeContext()` with no selector only converts `message` entries; do not mix the two.
+The projection can change without rewriting history. A debugging view can query every entry, while a model view selects only the current phase. This is why moving an anchor is not equivalent to deleting earlier messages.
 
-## Dividing phases with anchors {#anchors}
+`default_tape_context()` also reconstructs tool round-trips. A directly constructed `TapeContext()` with no selector converts only `message` entries; do not assume the two defaults are interchangeable.
 
-`handoff()` writes an anchor and moves the default context's starting point there; the earlier records remain:
+## Anchors mark cognitive transitions {#anchors}
+
+An **anchor** is more than a truncation offset. It marks a phase boundary: information gathering has finished, an order has been reviewed, or a new task is beginning. A **handoff** records that transition and moves the default context starting point forward without erasing what came before.
 
 ```python
 async def start_next_phase() -> None:
@@ -53,56 +59,57 @@ async def start_next_phase() -> None:
     )
 ```
 
-`handoff()` does not generate a summary automatically, nor does it inject `state` into the next request automatically. When you need to keep a summary, generate it before the handoff and then provide it explicitly through the next prompt or a custom context selector.
+This explicit handoff is a cognitive boundary, not an automatic summarizer. `handoff()` does not generate a summary, and it does not inject `state` into the next request automatically. Generate any summary before the handoff, then supply it deliberately through the next prompt or a custom selector.
 
-`Agent.session()` and `Agent.start()` create a `session/start` anchor for a new session; calling `agent.tape(name)` alone does not create one.
+`Agent.session()` and `Agent.start()` create a `session/start` anchor for a new session. Calling `agent.tape(name)` alone does not create one.
 
 ### Choosing another starting point {#custom-selectors}
 
-`TapeContext.anchor` determines the query range:
+`TapeContext.anchor` controls the query range:
 
 | Value | Query range |
 | --- | --- |
 | `LAST_ANCHOR` (default) | After the most recent anchor |
-| `"order-reviewed"` | After the anchor with the specified name |
+| `"order-reviewed"` | After the anchor with that name |
 | `None` | No anchor filtering |
 
-When you want the default message conversion but a different starting point, use `dataclasses.replace()`:
+Use `dataclasses.replace()` when you want the default projection with a different starting point:
 
 ```python
 from dataclasses import replace
 
 from bub.core import Agent, default_tape_context
 
+
 agent = Agent(
     context=replace(default_tape_context(), anchor="order-reviewed"),
 )
 ```
 
-When you need a completely different projection, pass a selection function to `TapeContext(select=...)`. It receives the entries and context, and returns a list of Republic messages or an awaitable of one. A custom function replaces the default selector, so ordinary conversation, tool round-trips, and business events are yours to compose as needed.
+For a different projection, pass a function to `TapeContext(select=...)`. It receives the selected entries and context, and returns Republic messages or an awaitable containing them. A custom selector replaces the default one, so conversation, tool round-trips, anchors, and business events are yours to compose deliberately.
 
-### Context too long {#context-overflow}
+### Automatic handoff on context overflow {#context-overflow}
 
-When the Agent recognizes a context-length error, it performs one automatic handoff and retries the original prompt. This only moves the context's starting point; it does not generate a summary, and if the remaining request is still too large, it fails again.
+When the Agent recognizes a context-length error, it performs one automatic handoff and retries the original prompt. This is a recovery mechanism, not a memory summary: it moves the starting point, and the retry can still fail if the remaining request is too large.
 
-To manage context against a budget on purpose, use the [`bub-context-budget` plugin](/docs/sdk/reuse-app/), which lets the model call `tape.handoff` as it approaches the limit.
+To manage context proactively against a budget, use the [`bub-context-budget` plugin](/docs/integrations/reuse-app/#other-hooks). It lets the model call `tape.handoff` as it approaches the limit.
 
-## Run state versus persistent records {#state}
+## Decide what deserves persistence {#state}
 
-The `state` passed to `agent.run()` is a mutable dictionary shared for that run. It is not persisted automatically and is not restored on the next run.
+Not every value belongs in permanent history. The `state` passed to `agent.run()` is a mutable dictionary shared during that Run; it is not persisted or restored automatically.
 
-| What you need to keep | Where it goes |
+| What you need to keep | Where it belongs |
 | --- | --- |
-| A temporary value used only during this run | `state` |
-| A business fact you need to query later | Write it to the Tape with `append_event()` |
-| Structured state to restore on the next run | Application storage, or an anchor's `state` plus explicit loading |
-| The conversation and tool round-trips | Written to the Tape by `TapeRecorder` |
+| A temporary value used only in this Run | `state` |
+| A business fact to query later | An explicit Tape entry written with `append_event()` |
+| Structured state to restore on the next Run | Application storage, or anchor `state` plus explicit loading |
+| Conversation and tool round-trips | Tape entries written by `TapeRecorder` |
 
-`TapeRecorder` records only the conversation, tool round-trips, and selected lifecycle events; it is not a complete auditor. Custom business events need to be written explicitly, and whether they enter the model context is still decided by `TapeContext`.
+`TapeRecorder` records conversation, tool round-trips, and selected lifecycle events. Custom business facts must be written explicitly, and `TapeContext` still decides whether they become model input.
 
-## Run forks {#forks}
+## Run forks isolate records, not side effects {#forks}
 
-Each `agent.run()` records new entries on a fork of the Tape. When the stream closes, the fork merges back into the parent Tape by default; the merge runs on normal completion, exceptions, cancellation, and stopping consumption early.
+Each `agent.run()` records new entries on a fork of the Tape. When the stream closes, the fork merges into its parent by default—on normal completion, exceptions, cancellation, and early exit:
 
 ```python
 async with agent.run("Continue processing the order", tape="customer-42") as stream:
@@ -110,29 +117,29 @@ async with agent.run("Continue processing the order", tape="customer-42") as str
         ...
 ```
 
-Pass `merge_back=False` to discard this fork's records on exit. You can also manage the scope yourself with `agent.session(name, merge_back=...)` or `tape.fork_tape(merge_back=...)`.
+Pass `merge_back=False` to discard the fork's records when it closes. You can also manage the scope with `agent.session(name, merge_back=...)` or `tape.fork_tape(merge_back=...)`.
 
-<Aside type="caution">
-  A fork isolates Tape records only; it is not a side-effect transaction. Even with `merge_back=False`, files a tool already modified, requests it sent, or external writes are not rolled back.
-</Aside>
+:::caution
+A fork is not a transaction over the outside world. Even with `merge_back=False`, tool changes to files, sent requests, and external writes are not rolled back.
+:::
 
-When multiple runs need to read each other's completed results, the application coordinates the execution order. `FileTapeStore` does not provide a session lock across workers; the [FastAPI example](/docs/sdk/web-service/) demonstrates locking within a single process.
+When concurrent Runs need to consume one another's completed results, the application coordinates their order. `FileTapeStore` does not provide a cross-worker session lock; the [FastAPI example](/docs/sdk/web-service/) demonstrates locking within one process.
 
-## Sidecars {#sidecars}
+## Sidecars keep parallel records out of context {#sidecars}
 
-A `TapeSidecar` stores associated data in another Tape that is paired with the main Tape. Once mounted through `Agent(sidecars=...)`, the sidecar forks, merges, and resets along with the main Tape, but its entries do not enter the main context.
+A `TapeSidecar` stores associated data in a separate Tape paired with the main one. Mounted through `Agent(sidecars=...)`, it forks, merges, and resets with the main Tape, but its entries do not enter the main context.
 
-The Bub app uses a spill sidecar to store large tool results. The main conversation keeps only a preview and a handle, and the Agent then reads the result in chunks through `spill.read`. The trigger threshold is configured by [`BUB_SPILL_THRESHOLD`](/docs/reference/settings/#spill-settings).
+The Bub app uses a spill sidecar for large tool results. The main conversation retains a preview and a handle, and the Agent reads the full result in chunks through `spill.read`. [`BUB_SPILL_THRESHOLD`](/docs/reference/settings/#spill-settings) configures the trigger.
 
-## Media recording boundaries {#media}
+## Media has a separate storage boundary {#media}
 
-Model requests can contain images, audio, and video, but a Tape is not media file storage. When a Run's fork writes its records, it strips non-text content blocks from the prompt and keeps only text, avoiding copying inline media into the JSONL history.
+Model requests can contain images, audio, and video, but Tape is not a media file store. When a Run's fork writes records, it strips non-text content blocks from the prompt and keeps only text, avoiding inline media in JSONL history.
 
-When media must be replayed or audited later, the host saves the files to object storage or a filesystem and records a resolvable reference in the text. When a tool needs to hand media back to the current model call, use [`content_result()`](/docs/sdk/tools/#media-results).
+For later replay or audit, the host stores media in object storage or a filesystem and records a resolvable reference in text. To return media to the current model call from a tool, use [`content_result()`](/docs/sdk/tools/#media-results).
 
-## Choosing storage {#storage}
+## Choose storage for the record {#storage}
 
-A plain `Agent` uses `InMemoryTapeStore` by default, and records live only in the current process. To keep them across processes, pass a file store:
+A plain `Agent` uses `InMemoryTapeStore` by default, so records live only in the current process. Supply a file store when they must survive process restarts:
 
 ```python
 from pathlib import Path
@@ -140,12 +147,13 @@ from pathlib import Path
 from bub.core import Agent
 from bub.core.store import FileTapeStore
 
+
 agent = Agent(store=FileTapeStore(Path("sessions")))
 ```
 
-`agent.run(..., tape="customer-42")` uses the Tape of that name. The same name continues the existing records; different names are independent of each other.
+`agent.run(..., tape="customer-42")` selects the Tape by name. Reusing a name continues its record; different names remain independent.
 
-Outside a Run, you can read history through `agent.tape(name)`:
+Outside a Run, inspect either view through `agent.tape(name)`:
 
 ```python
 async def inspect_history() -> None:
@@ -155,18 +163,18 @@ async def inspect_history() -> None:
     print(f"model messages: {len(messages)}, stored entries: {len(entries)}")
 ```
 
-`read_messages()` applies the context rules, while `query()` returns raw entries. A custom backend must implement `bub.core.store.TapeStore` or `AsyncTapeStore`; for a complete replacement example, see [Storage integration](/docs/integrations/storage/).
+`read_messages()` applies the projection; `query()` returns raw entries. A custom backend implements `bub.core.store.TapeStore` or `AsyncTapeStore`. See [Storage integration](/docs/integrations/storage/) for a complete replacement example.
 
-## App storage {#app-storage}
+### App storage {#app-storage}
 
-The built-in app provides `FuzzyFileTapeStore` through `provide_tape_store`, with the default directory `~/.bub/tapes/`. The Tape name is generated from the workspace path and the session ID together, so sessions with the same name in different workspaces do not share history.
+The built-in app supplies `FuzzyFileTapeStore` through `provide_tape_store`, with `~/.bub/tapes/` as the default directory. It derives the Tape name from both workspace path and session ID, so same-named sessions in different workspaces do not share history.
 
-`BubAgent` chooses its store in the following order:
+`BubAgent` chooses its store in this order:
 
-1. A `tape_store` passed explicitly;
-2. The store returned by `framework.get_tape_store()` when the Agent was created;
-3. The in-memory store when neither is present.
+1. An explicitly supplied `tape_store`;
+2. The store returned by `framework.get_tape_store()` when the Agent is created;
+3. The in-memory store when neither is available.
 
-To use the store provided by `framework.running()`, create the `BubAgent` inside that scope. Replace the store with `provide_tape_store`, and replace the context strategy with `build_tape_context`.
+Create `BubAgent` inside `framework.running()` when it should use the store supplied by that scope. Replace storage with `provide_tape_store`, and replace the projection strategy with `build_tape_context`.
 
-The built-in app restores session settings such as the model, reasoning effort, and code mode from the Tape; any other application state must be persisted by you.
+The built-in app restores session settings such as model, reasoning effort, and code mode from Tape. Persist any other application state explicitly.

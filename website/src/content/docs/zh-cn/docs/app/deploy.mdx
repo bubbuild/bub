@@ -3,7 +3,7 @@ title: 部署
 description: 运行 Bub 常驻服务与云端沙箱，涵盖 Docker Compose 与 Daemon 守护进程模式。
 ---
 
-import { Steps, Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
 Bub 既能在本地终端交互使用（见[终端交互](/zh-cn/docs/app/terminal/)），也可以部署到服务器常驻运行：
 
@@ -27,9 +27,9 @@ Bub 既能在本地终端交互使用（见[终端交互](/zh-cn/docs/app/termin
 2. **渠道凭据与白名单**：接入 Telegram 等渠道时，**务必配置白名单**（如 `BUB_TELEGRAM_ALLOW_USERS`），防止未授权访问消耗 Token。
 3. **数据持久化**：会话状态（Tape）、历史记录与插件保存在数据目录（宿主机 `~/.bub`，容器内 `/data`），部署时需确保持久化存储。
 
-<Aside type="caution" title="安全提示">
+:::caution[安全提示]
 生产部署中切勿留空白名单！若白名单为空，任何能搜索到机器人的用户都能向其发送指令并调用 Agent 工具。
-</Aside>
+:::
 
 ---
 
@@ -66,7 +66,7 @@ BUB_TELEGRAM_ALLOW_USERS=123456789,your_telegram_username
 
 `docker compose` 会自动读取当前目录的 `.env`。切勿将包含 Token 的 `.env` 提交到公开仓库。
 
-### 2. 目录挂载 {#volumes}
+### 2. 挂载目录 {#volumes}
 
 默认 `docker-compose.yml` 包含三个卷挂载：
 
@@ -85,9 +85,9 @@ volumes:
 
 容器内设置了 `BUB_HOME=/data`，容器销毁重建不会丢失会话数据与插件。
 
-<Aside type="danger" title="隔离防范">
+:::danger[隔离防范]
 工作区决定了 Agent 能触及的文件范围。**切勿**将宿主机根目录 `/` 或含有敏感密钥的目录挂进 `/workspace`。
-</Aside>
+:::
 
 ### 3. 启动 {#start}
 
@@ -166,7 +166,9 @@ docker compose exec -it app bub chat
 <Steps>
 
 1. **安装 Python 依赖**：若 `/workspace/bub-reqs.txt` 存在，自动通过 `uv pip install` 安装。
+
 2. **同步插件**：激活虚拟环境并执行 `bub install`，同步 `/data/bub-project` 中的托管插件。
+
 3. **执行入口**：若 `/workspace/startup.sh` 存在，用 `bash` 执行它；否则执行 `bub gateway`。
 
 </Steps>

@@ -15,7 +15,7 @@ description: 27 个 hook 的签名、返回类型、分发规则和生命周期�
 | `Envelope` | `Any`。映射、dataclass、Pydantic model 或带属性的对象均可 |
 | `TurnState` | `dict[str, Any]`，本轮 hooks、工具和事件共享 |
 
-未标记“同步”的 hook 可以同步或异步实现。
+未标记「同步」的 hook 可以同步或异步实现。
 
 ## 优先级与分发 {#priority-and-dispatch}
 
@@ -108,7 +108,7 @@ Bub 用 pluggy 注册实现，再用 `HookRuntime` 统一调用。
 
 ### 返回类型与调用时机 {#application-hook-details}
 
-- `onboard_config` 接收“已加载配置 + 前序实现修改”，返回的字典会合并回去。插件名过滤由 `collect_onboard_config()` 执行。
+- `onboard_config` 接收「已加载配置 + 前序实现修改」，返回的字典会合并回去。插件名过滤由 `collect_onboard_config()` 执行。
 - `provide_model_options` 只提供候选。是否展示、如何保存当前模型由调用方决定。
 - `provide_environment` 用于 `bash`、文件工具和代码执行。未提供时，内置实现返回 `LocalEnvironment`。
 - `system_prompt` 的多个结果不会互相覆盖；高优先级实现只能追加自己的块。

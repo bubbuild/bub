@@ -28,7 +28,7 @@ Docs pages explain the `steering` and `queue up` difference where it changes the
 
 ## Punctuation (zh-cn)
 
-- Use full-width `，。；：！？、` and `“”`.
+- Use full-width `，。；：！？、` and `「」`.
 - Put one space between Chinese and Latin letters, digits, or inline code.
 - Use `……` for an ellipsis and `——` for a dash.
 - Put no space next to full-width punctuation, and none inside bold or italic text.

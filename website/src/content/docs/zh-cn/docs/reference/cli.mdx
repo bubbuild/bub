@@ -183,7 +183,7 @@ bub onboard [OPTIONS] [PLUGIN_NAME]
 
 连接检查只调用模型列表端点，不发起生成请求，超时 10 秒。模型是否支持工具调用不会在这一步验证。
 
-`onboard_config` 的实现收到“当前配置 + 前序 hook 的修改”，返回字典后合并；返回非字典会抛 `TypeError`。全部实现结束后经过 `configure.validate` 才写盘。
+`onboard_config` 的实现收到「当前配置 + 前序 hook 的修改」，返回字典后合并；返回非字典会抛 `TypeError`。全部实现结束后经过 `configure.validate` 才写盘。
 
 ## `bub install` {#bub-install}
 

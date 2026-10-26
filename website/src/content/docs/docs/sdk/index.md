@@ -1,50 +1,59 @@
 ---
-title: Run an agent in Python
-description: Run an Agent in a Python program, add tools, and manage sessions and output streams.
+title: The Agent Loop
+description: Build a first order assistant and understand Runs, Steps, stream events, and resource ownership.
 ---
 
-`bub.core.Agent` handles the loop between the model and its tools. You provide the model and tools, and decide how sessions are saved and how output connects to your existing system.
+`bub.core.Agent` is an agent kernel embedded in a host program. It drives the model-tool loop, but it does not manage your web framework, configuration discovery, or channel lifecycle.
 
-This page uses the base SDK installation and does not need the `app` optional dependency. See [Install the SDK](/docs/getting-started/install/#agent-install) for the command. When you need configuration, skills, channels, and plugin discovery, use the [Bub application](/docs/app/workspace/).
+This tutorial builds the same **order assistant** chapter by chapter, ending with a FastAPI service that supports durable conversations and SSE:
 
-## Run an agent with a tool {#basic-agent}
+1. **The Agent loop**: run a minimal assistant and understand its event stream.
+2. **[Tools](/docs/sdk/tools/)**: query orders and handle arguments, results, and tool errors.
+3. **[Tape & Memory](/docs/sdk/tape/)**: persist conversations and distinguish history from model context.
+4. **[Events](/docs/sdk/events/)**: add audit logs and enforce a permission policy before refunds.
+5. **[Capstone: FastAPI Service](/docs/sdk/web-service/)**: manage application lifetime, per-session concurrency, and streaming output.
 
-Save the following code as `sdk_example.py`:
+If you would rather reuse the app's configuration, skills, plugins, or complete Turn pipeline than assemble these components yourself, see [Reuse the Bub app](/docs/integrations/reuse-app/).
+
+## Create the first assistant {#quickstart}
+
+Install the core package. `bub` already includes `republic`, which this guide uses to create the model connection:
+
+```bash
+uv init bub-order-agent
+cd bub-order-agent
+uv add bub
+```
+
+Create `main.py`:
 
 ```python
 import asyncio
-from pathlib import Path
 
 import republic
 
 from bub.core import Agent
-from bub.core.store import FileTapeStore
-from bub.core.tools import Tool
-
-
-async def lookup_order(order_id: str) -> dict[str, str]:
-    """Look up the status of an order."""
-    return {"order_id": order_id, "status": "shipped"}
 
 
 async def main() -> None:
     agent = Agent(
-        store=FileTapeStore(Path(__file__).resolve().parent / "sessions"),
-        tools=[Tool.from_callable(lookup_order)],
-        system_prompt="Use lookup_order to check order status before answering.",
+        system_prompt="You are an order support assistant. Be concise and say when order information is unavailable.",
+        max_steps=6,
     )
+
     async with republic.get_model("openai:gpt-5-mini") as model:
         async with agent.run(
-            "Where is order A123?",
+            "What kinds of order questions can you help me with?",
             model=model,
-            options={"max_tokens": 4096},
             tape="customer-42",
+            options={"max_tokens": 512},
+            state={"session_id": "customer-42"},
         ) as stream:
             async for event in stream:
                 if event.kind == "text":
-                    print(event.data.get("delta", ""), end="", flush=True)
-                elif event.kind == "error":
-                    raise RuntimeError(str(event.data.get("message", "Agent failed")))
+                    print(event.data["delta"], end="", flush=True)
+                elif event.kind == "reasoning":
+                    print(event.data["delta"], end="", flush=True)
         print()
 
 
@@ -52,42 +61,92 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Set the OpenAI API key and run it:
+Set the model credential and run it:
 
 ```bash
 export REPUBLIC_OPENAI_API_KEY=sk-...
-uv run python sdk_example.py
+uv run python main.py
 ```
 
-`lookup_order` returns demonstration data; replace its body when connecting a real system. The Agent gives the tool result back to the model, which then writes the answer.
+`options` is passed to every model call in this Run. The host owns the model connection through `async with`; exiting a Run does not close that connection for you.
 
-`FileTapeStore` saves records under `sessions/`. Using `tape="customer-42"` again continues that session; changing the name starts a different one. If you omit `store`, an in-memory store is used.
+## Runs, Steps, and the event stream {#how-the-loop-works}
 
-## Consume the output stream {#stream-lifecycle}
+One `agent.run()` is a **Run**. A Run contains one or more **Steps**: each Step calls the model once and executes its requested tools. Tool results feed the next Step until the model answers without requesting more tools.
 
-`agent.run()` is an async context manager that yields an `AsyncStreamEvents` once entered. **Iterating the stream is what drives the model and tool loop.** The run ends when the model no longer requests tools and there are no pending messages.
+```mermaid
+flowchart TD
+    Start["Enter agent.run() and prepare a Tape fork"] --> Consume["Caller iterates the event stream"]
+    Consume --> Step["Step: call the model"]
+    Step --> Output["Yield reasoning / text / usage"]
+    Output --> Decision{"Tools requested?"}
+    Decision -->|"Yes"| Call["Yield tool_call and execute local tools"]
+    Call --> Result["Yield tool_result and final"]
+    Result --> Step
+    Decision -->|"No"| Final["Yield final and finish the Run"]
+    Final --> Close["Close stream, emit RunFinished, merge Tape fork"]
+```
 
-A `final` event only marks the end of one model Step. A Step that contains tool calls may be followed by another Step. When handling text output, keep iterating until the stream ends; do not stop after the first `final`.
+### Consuming events drives the model loop
 
-`async with` closes the stream, releases the model connection, and merges the run's Tape fork on normal completion, on an exception, or on an early `break`. Closing early marks the unfinished Run as `cancelled`; records already written are kept by default. See [Tape forks](/docs/concepts/tape/#forks).
+Entering `agent.run()` prepares the session and emits `RunStarted`, but `async for` drives the model and tool loop on demand. Do not create a stream and leave it unconsumed.
 
-If another component owns output consumption, `await agent.start(...)` takes the same arguments and returns the stream. That receiver must close it, including when it has not started iterating. Prefer `run()` when you consume the stream yourself.
+`async with` closes the stream on early `break`, exceptions, and cancellation. A Run closed before normal completion ends as `cancelled`. By default, records already written to the fork still merge into the parent Tape when the stream closes; this is not a transaction rollback. See [Tape & Memory](/docs/sdk/tape/#forks-and-merges).
 
-Stream events include:
+### `final` ends a Step, not necessarily the Run
 
-| `kind` | Contents |
+A Step that calls tools also yields `final`, and another Step may follow. Do not treat the first `final` as the completion signal for an HTTP response or frontend. Wait until stream iteration finishes.
+
+## Handle event payloads correctly {#stream-events}
+
+Each `kind` has a different `event.data` shape. Tool events carry lists, not a single `name` and `args`:
+
+| `kind` | Key payload | Meaning |
+| --- | --- | --- |
+| `reasoning` | `{"delta": "..."}` | Reasoning deltas supplied by the model |
+| `text` | `{"delta": "..."}` | User-facing text deltas |
+| `tool_call` | `{"tool_calls": [{"id", "name", "arguments"}, ...]}` | Calls requested by one model response; `arguments` is a JSON string |
+| `tool_result` | `{"tool_results": [...]}` | Results in call order; ordinary tool errors also reach the model here |
+| `usage` | `{"usage": {...}, "elapsed_seconds": ...}` | Model usage for the current Step |
+| `final` | `{"ok": True, "text": ...}` or tool calls and results | Summary of the current Step |
+
+For example, observe tool names without exposing their arguments:
+
+```python
+async for event in stream:
+    if event.kind == "tool_call":
+        for call in event.data["tool_calls"]:
+            print(f"Model requested: {call['name']}")
+    elif event.kind == "text":
+        print(event.data["delta"], end="", flush=True)
+```
+
+Whether to forward reasoning, tool arguments, or tool results to end users is a product and security decision made by the host. Do not expose every event by default.
+
+## Stream lifetime, failures, and resource boundaries {#stream-lifecycle}
+
+Model, storage, and event-handler exceptions can propagate directly from stream iteration. **Do not wait for an `error` event as a substitute for exception handling**:
+
+```python
+try:
+    async with agent.run(prompt, model=model, tape="customer-42") as stream:
+        async for event in stream:
+            ...
+except Exception as exc:
+    # Log the server-side error and return a stable error to the caller.
+    report_error(exc)
+```
+
+Argument validation failures and ordinary tool exceptions usually become tool results, allowing the model to observe the failure and adjust its response. That is different from an exception that aborts the whole Run.
+
+When assembling a service, make resource ownership explicit:
+
+| Resource | Owner and lifetime |
 | --- | --- |
-| `text` / `reasoning` | Text or reasoning deltas |
-| `tool_call` / `tool_result` | Tool calls and results |
-| `usage` | Model usage |
-| `error` | Error payload |
-| `final` | The current model Step ended |
+| Model connection | Created and closed by the host, usually for the application lifetime |
+| Run event stream | Managed by `async with agent.run(...)` and closed on exit |
+| Per-Run `state` | Shared within one Run; never persisted automatically |
+| Tape fork records | Merged on close by default; discarded with `merge_back=False` |
+| External tool side effects | Owned by business code; closing a stream or discarding Tape records does not roll them back |
 
-Errors can surface as an `error` event, or be raised while iterating. To observe internal lifecycle notifications or intercept calls, use [Agent events](/docs/concepts/events/); do not rely only on the output stream.
-
-## Next steps {#next-steps}
-
-- [Configure the agent](/docs/sdk/options/): the model, the prompts, and run parameters.
-- [Custom tools and code mode](/docs/sdk/tools/): give the agent actions to perform.
-- [Reuse the Bub app](/docs/sdk/reuse-app/): connect plugin tools, `BubAgent`, or a complete Turn at the depth you need.
-- [FastAPI service](/docs/sdk/web-service/): expose an HTTP endpoint with per-session history.
+Next, give the assistant an order-query capability: [Tools](/docs/sdk/tools/).

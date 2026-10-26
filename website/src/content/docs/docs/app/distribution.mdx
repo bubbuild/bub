@@ -3,7 +3,7 @@ title: Packaging and distribution
 description: Package Bub apps, your own commands, plugins, and skills into standard Python distributions, and verify them before release.
 ---
 
-import { Steps, Aside } from '@astrojs/starlight/components';
+import { FileTree, Steps } from '@astrojs/starlight/components';
 
 When you build custom tools, channel plugins, or workflow-specific skills on top of Bub, or even want to ship a branded CLI of your own, you can package them as standard Python distributions (wheels) and publish them to PyPI or a private index for your team and users to install.
 
@@ -15,9 +15,9 @@ In Bub, packaging and distribution usually falls into one of three shapes:
 | **Dedicated business CLI** | Your own command script (for example `my-bub`) | Wrap Bub as an agent for one business scenario, pinning the workspace or baking in default settings |
 | **All-in-one suite** | Own commands + plugins + skills | Deliver a complete vertical-domain agent that works as soon as users install it |
 
-<Aside type="note">
-This page focuses on **building and distributing a standalone installable package**. If you are integrating Bub as code into an existing web framework or backend service, see [Reuse the Bub app](/docs/sdk/reuse-app/).
-</Aside>
+:::note
+This page focuses on **building and distributing a standalone installable package**. If you are integrating Bub as code into an existing web framework or backend service, see [Reuse the Bub app](/docs/integrations/reuse-app/).
+:::
 
 ## Publish your own command {#publish-a-command}
 
@@ -54,27 +54,29 @@ After installation, users can run `my-bub chat`, `my-bub gateway`, or `my-bub ru
 
 A single wheel can provide plugin entry points, a standard skill namespace package, and custom CLI commands together:
 
-```text
-my-bub/
-├── pyproject.toml
-└── src/
-    ├── my_bub/
-    │   ├── __init__.py
-    │   ├── cli.py             # Your CLI entry point
-    │   ├── plugin.py          # Plugin and hook implementations
-    │   └── tools.py           # Custom tools
-    └── skills/                # Skill namespace package (never add __init__.py)
-        └── repo-reviewer/
-            ├── SKILL.md
-            └── references/
-                └── guidelines.md
-```
+<FileTree>
 
-<Aside type="caution" title="Namespace package rules">
+- my-bub/
+  - pyproject.toml
+  - src/
+    - my_bub/
+      - \_\_init\_\_.py
+      - cli.py # Your CLI entry point
+      - plugin.py # Plugin and hook implementations
+      - tools.py # Custom tools
+    - skills/ # Skill namespace package (never add \_\_init\_\_.py)
+      - repo-reviewer/
+        - SKILL.md
+        - references/
+          - guidelines.md
+
+</FileTree>
+
+:::caution[Namespace package rules]
 Ship `src/skills/` as a **PEP 420 implicit namespace package**, and **never** create `__init__.py` inside `src/skills/`. Only the namespace layout lets the package's skills merge with Bub's bundled skills and the skills of other extension packages in `skills.__path__` once users install it. For how to write skills, see [Skills](/docs/app/skills/).
-</Aside>
+:::
 
-### Configure pyproject.toml and Hatch {#configure-packaging}
+### Configure pyproject.toml {#configure-packaging}
 
 Set up the entry points and Hatch build includes in `pyproject.toml`:
 
@@ -125,7 +127,7 @@ For downstream users:
 
 ## Verify before release {#verify-a-release}
 
-Before publishing publicly or to production, **verify the release in a brand-new clean virtual environment**. A clean environment exposes undeclared dependencies, entry points that cannot be imported, and configuration with relative paths that only resolve in your development directory.
+Before publishing publicly or releasing to production, always verify the package in a fresh virtual environment.
 
 <Steps>
 
@@ -156,6 +158,6 @@ Before publishing publicly or to production, **verify the release in a brand-new
    Confirm model interaction, custom tool execution, internal command dispatch, and session history persistence.
 
 5. **Verify the gateway and host integration (if applicable)**:
-   If the distribution provides channel extensions or is embedded in a host system, follow [Deploy](/docs/app/deploy/) and [Reuse the Bub app](/docs/sdk/reuse-app/) to wire it into the host service, and verify concurrency, stream closure, and shutdown cleanup.
+   If the distribution provides channel extensions or is embedded in a host system, follow [Deploy](/docs/app/deploy/) and [Reuse the Bub app](/docs/integrations/reuse-app/) to wire it into the host service, and verify concurrency, stream closure, and shutdown cleanup.
 
 </Steps>

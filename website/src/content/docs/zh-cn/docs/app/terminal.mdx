@@ -3,8 +3,6 @@ title: 终端
 description: 使用 Bub 的交互式会话、运行中补充指令、命令和后台进程。
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
 Bub 应用提供两种终端交互方式：`bub run` 和 `bub chat`，两者都使用相同的模型、工具和 Tape 能力：
 
 - `bub run` 处理单条消息，适用于一次性任务；
@@ -12,13 +10,15 @@ Bub 应用提供两种终端交互方式：`bub run` 和 `bub chat`，两者都�
 
 ## 开始交互式会话
 
+在终端输入如下命令会进入到交互式会话界面中，此时你可以输入内容并按回车发送。
+
 ```bash
 bub chat
 ```
 
-输入内容并按回车发送。`,help` 列出当前可用的内部命令，<kbd>Ctrl+D</kbd>、`,quit` 或 `,exit` 退出。输入历史按工作区保存在 Bub home 的 `history/` 中，与会话 Tape 分开。
+此外，输入 `,help` 指令列出当前可用的内部命令；如需退出，可按下 <kbd>Ctrl+D</kbd> 键或使用 `,quit` 或 `,exit`  指令。
 
-也可以在启动时直接提交第一条消息：
+当然，你也可以在启动时直接提交第一条消息：
 
 ```bash
 bub chat "Inspect this repository and suggest a first task."
@@ -26,24 +26,24 @@ bub chat "Inspect this repository and suggest a first task."
 
 ## 在运行中引导 Agent {#steering}
 
-如果在等待模型回复期间，你发现模型的输出偏离了你的预期，或者你想补充一些约束条件，可以在界面中直接输入新指令以引导 Agent 的行为。
+在等待模型回复期间，如果发现模型的输出偏离了你的预期，或者你想补充一些约束条件，可以在界面中直接输入新指令以引导 Agent 的行为。
 
-**引导**（Steering）是在当前 Turn 尚未结束时补充指令，让 Agent 调整正在执行的任务。生成过程中不必等待回复结束，直接输入并回车即可：
+**引导**（Steering）用于在当前对话轮次尚未结束时补充指令，让 Agent 调整正在执行的任务。生成过程中不必等待回复结束，直接输入并回车即可：
 
 ```text
 先不要修改文件，只列出问题和建议。
 ```
 
-CLI 会把消息放到引导收件箱中。Agent 在后续构建模型请求时读取它，正在执行的模型或工具调用不会被强制中断。
+Bub 应用会把消息放到引导收件箱中。Agent 在后续构建模型请求时读取它，正在执行的模型或工具调用不会被强制中断。
 
-除了引导之外，也许在其他工具中你也会看到「排队」的概念。引导与排队（Queue up）的区别在于消息何时生效：
+除了引导之外，也许在其他工具中你也会看到「排队」（Queue up）的概念。引导与排队的区别在于消息何时生效：
 
 | 方式 | 处理方式 | 适合什么 |
 | --- | --- | --- |
-| 引导（Steering） | 注入当前 Turn 的后续模型请求；来不及消费时转为待处理消息 | 纠正方向、补充约束、提供与当前任务有关的新信息 |
-| 排队（Queue up） | 等当前 Turn 结束后，再作为后续任务处理 | 追加另一项任务、按顺序执行多个需求 |
+| 引导（Steering） | 注入当前对话的后续模型请求；来不及消费时转为待处理消息 | 纠正方向、补充约束、提供与当前任务有关的新信息 |
+| 排队（Queue up） | 等当前结束后，再作为后续任务处理 | 追加另一项任务、按顺序执行多个需求 |
 
-当前 CLI 对运行期间的普通输入默认使用引导，没有单独的排队快捷键。未被当前 Turn 消费的引导消息会自动进入待处理队列，不会直接丢失。
+默认情况下，Bub 应用对运行期间的普通输入使用引导，没有单独的排队快捷键。未被当前消费的引导消息会自动进入待处理队列，不会直接丢失。
 
 需要停止当前会话的任务时，使用 `,quit`；它会清理待处理消息并取消运行中的任务。
 
@@ -81,9 +81,7 @@ bub run ",help"
 bub run ",fs.read path=README.md"
 ```
 
-交互式会话中也可以直接输入命令。按 <kbd>Ctrl-X</kbd> 在 Agent 与 Shell 输入模式之间切换；Shell 模式会自动为输入添加命令前缀。
-
-常用命令：
+交互式会话中也可以直接输入命令。按 <kbd>Ctrl-X</kbd> 在 Agent 与 Shell 输入模式之间切换；Shell 模式会自动为输入添加命令前缀。常用命令如下：
 
 | 命令 | 用途 |
 | --- | --- |
@@ -102,19 +100,19 @@ bub run ",fs.read path=README.md"
 - `,tape.reset archive=true` 会把主 Tape 和 sidecar 备份到 `<BUB_HOME>/tapes/`，文件名带有 UTC 时间戳和 `.bak` 后缀。使用 `archive=false` 或直接 `,tape.reset` 则不备份。重置后会产生新的 `session/start` anchor，旧文件不会被自动恢复。
 - `handoff` 不会自动生成或注入摘要。`summary` 保存在 anchor 的 `state` 中；后续是否读取它，取决于提示词或上下文策略。详见 [Tape](/zh-cn/docs/concepts/tape/#anchors)。
 
-<Aside type="caution">
-  未注册的命令会交给 `bash` 执行。输入未知命令前，确认它确实是你允许运行的 Shell 命令。
-</Aside>
+:::caution
+未注册的命令会交给 `bash` 执行。输入未知命令前，确认它确实是你允许运行的 Shell 命令。
+:::
 
 ## 运行后台进程 {#background-shell}
 
-在 `bub chat` 中，用 `background=true` 启动开发服务器等长期进程：
+在 `bub chat` 中，用 `background=true` 使用单独的后台进程来运行相关命令：
 
 ```text
 ,bash command='npm run dev' background=true
 ```
 
-返回结果包含 `shell_id`。使用它增量读取输出或终止进程：
+执行返回结果中包含 `shell_id`。我们使用它增量读取输出或终止进程：
 
 ```text
 ,bash.output shell_id=bsh-12345678
@@ -122,6 +120,7 @@ bub run ",fs.read path=README.md"
 ,bash.kill shell_id=bsh-12345678
 ```
 
-`offset` 是已缓冲输出的字符位置，不是行号；返回值中的 `next_offset` 可用于下一次读取。`limit` 限制本次返回的字符数。
+注意：
 
-前台 `bash` 默认等待 30 秒。超时后进程不会被直接判定失败，而是转为后台并返回 `shell_id`；可通过 `timeout_seconds` 调整。后台任务应在同一个 `bub chat` 或网关进程中管理，退出应用时会执行清理。
+- `offset` 是已缓冲输出的字符位置，不是行号；返回值中的 `next_offset` 可用于下一次读取。`limit` 限制本次返回的字符数。
+- 前台 `bash` 默认**等待 30 秒**。超时后进程不会被直接判定失败，而是转为后台并返回 `shell_id`；可通过 `timeout_seconds` 调整。后台任务应在同一个 `bub chat` 或网关进程中管理，退出应用时会执行清理。

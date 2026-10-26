@@ -3,7 +3,7 @@ title: Install Bub
 description: Install Bub step by step, with several install paths to choose from.
 ---
 
-import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 ## Install the CLI app {#app-install}
 
@@ -36,9 +36,9 @@ The install script installs uv and Python 3.12, and puts `bub[app]` into your cu
 
 When it finishes, run `bub --help`, then run `bub onboard` to start configuring.
 
-<Aside type="tip">
-    If the command is not found, check whether the environment variables include the directory that holds the executable, or add `~/.local/bin` to PATH yourself.
-</Aside>
+:::tip
+If the command is not found, check whether the environment variables include the directory that holds the executable, or add `~/.local/bin` to PATH yourself.
+:::
 
 ## Install the SDK {#agent-install}
 

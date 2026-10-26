@@ -1,125 +1,268 @@
 ---
-title: "Example: FastAPI service"
-description: Give your Agent an HTTP endpoint and keep a separate conversation for each session.
+title: "Capstone: FastAPI Service"
+description: Assemble the loop, tools, Tape, and events into an order service with durable sessions, authorization, and SSE.
+sidebar:
+  label: FastAPI Capstone
 ---
 
-Give your Agent an HTTP endpoint so another program can send it work. Each request names a session; requests with the same name continue a conversation stored on disk.
+This chapter assembles the previous four chapters into an order service. FastAPI is only the host; the focus is the **lifetime, concurrency, and failure boundaries** of Bub components in a real application.
 
-This guide follows [Run an agent in Python](/docs/sdk/). It uses `core.Agent` directly, with FastAPI managing the model's lifetime and each request managing its agent stream.
+The final service provides:
 
-## Install
+- `POST /chat`: return a complete answer as JSON;
+- `POST /chat/stream`: stream text and tool status over SSE;
+- `FileTapeStore`: preserve multi-turn conversations by `session_id`;
+- Tool events: audit calls and deny unauthorized refunds;
+- Session locks: serialize each `session_id` within one process.
 
-Use Python 3.12+ and an OpenAI API key. Create a project and install Bub with the web server dependencies:
+## Install and create the project {#setup}
 
 ```bash
-uv init bub-api
-cd bub-api
+uv init bub-order-service
+cd bub-order-service
 uv add bub fastapi uvicorn
+export REPUBLIC_OPENAI_API_KEY=sk-...
 ```
 
-To add an existing Bub plugin, follow [Reuse the Bub app](/docs/sdk/reuse-app/). You can add its tools or selected hooks while keeping the endpoint and request lifecycle below.
+## Make three design decisions first {#design}
 
-## Write the service
+### 1. Model and Agent live for the application lifetime
 
-Save this as `app.py`. The order tool returns demonstration data; replace its body when connecting your own service.
+Do not recreate the model connection and Agent for every request. FastAPI's `lifespan` assembles them at startup and releases them at shutdown, allowing components and file storage to be shared across requests.
+
+### 2. Serialize one session while allowing different sessions in parallel
+
+Multiple Runs on one Tape do not automatically become an ordered conversation. This example uses one `asyncio.Lock` per `session_id`:
+
+- different sessions can still run in parallel;
+- a session waits until its previous Run closes and merges;
+- these locks are local to one Python process and are not distributed consistency.
+
+### 3. SSE is an application protocol, not a raw Bub event forwarder
+
+Send only the text and tool names the browser needs. Keep tool arguments, results, reasoning, and internal exceptions on the server by default. `final` ends only one Step, so `done` must be sent after the entire event stream finishes.
+
+## Complete `app.py` {#complete-app}
 
 ```python
 import asyncio
+import json
+import logging
 from collections import defaultdict
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import republic
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from bub.core import Agent
+from bub.core.events import ToolCallDecision, ToolCallFinished, ToolCallStarted
 from bub.core.store import FileTapeStore
-from bub.core.tools import Tool
+from bub.core.tools import tool
 
 
-async def lookup_order(order_id: str) -> dict[str, str]:
-    """Look up the status of an order."""
-    return {"order_id": order_id, "status": "shipped"}
+logger = logging.getLogger(__name__)
 
 
-def create_agent() -> Agent:
-    return Agent(
-        store=FileTapeStore(Path(__file__).resolve().parent / "sessions"),
-        tools=[Tool.from_callable(lookup_order)],
-        system_prompt=[
-            "You are an order assistant. Reply directly to the user.",
-            "Use lookup_order to check order status before answering.",
-        ],
-    )
+@tool
+async def get_order(order_id: str) -> dict[str, str]:
+    """Look up an order's status by ID."""
+    await asyncio.sleep(0.1)
+    if order_id == "A123":
+        return {"order_id": "A123", "status": "shipped"}
+    return {"order_id": order_id, "error": "order_not_found"}
+
+
+@tool
+def refund_order(order_id: str, reason: str) -> dict[str, str]:
+    """Request an order refund. Authorization must run first."""
+    return {"order_id": order_id, "status": "refund_requested", "reason": reason}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # The key comes from REPUBLIC_OPENAI_API_KEY.
     async with republic.get_model("openai:gpt-5-mini") as model:
-        app.state.agent = create_agent()
+        agent = Agent(
+            store=FileTapeStore(Path("sessions")),
+            tools=[get_order, refund_order],
+            system_prompt="You are an order support assistant. Use tools and respect their denial reasons.",
+            max_steps=6,
+            max_tool_concurrency=2,
+        )
+
+        @agent.events.on(ToolCallStarted)
+        def authorize_tool(event: ToolCallStarted) -> None:
+            if event.call.tool == "refund_order" and not event.state.get("allow_refunds", False):
+                event.decision = ToolCallDecision.deny("This session cannot issue refunds.")
+
+        @agent.events.on(ToolCallFinished)
+        def audit_tool(event: ToolCallFinished) -> None:
+            logger.info(
+                "tool=%s status=%s duration_ms=%s",
+                event.result.tool,
+                "error" if event.result.error else "ok",
+                event.result.duration_ms,
+            )
+
         app.state.model = model
+        app.state.agent = agent
         app.state.session_locks = defaultdict(asyncio.Lock)
         yield
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="Bub Order Service", lifespan=lifespan)
 
 
-class Task(BaseModel):
-    session_id: str = Field(min_length=1, max_length=200)
-    prompt: str = Field(min_length=1)
+class ChatRequest(BaseModel):
+    # Tape names enter filenames; production should also namespace by tenant and user.
+    session_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    prompt: str = Field(min_length=1, max_length=10_000)
 
 
-@app.post("/tasks")
-async def run_task(task: Task, request: Request) -> dict[str, str]:
+def agent_run(agent: Agent, model, req: ChatRequest):
+    return agent.run(
+        req.prompt,
+        model=model,
+        tape=req.session_id,
+        state={"session_id": req.session_id, "allow_refunds": False},
+    )
+
+
+@app.post("/chat")
+async def chat(req: ChatRequest, request: Request):
     state = request.app.state
-    # Runs on one session's tape must not overlap; different sessions run concurrently.
-    async with state.session_locks[task.session_id]:
-        parts: list[str] = []
-        error: str | None = None
-        async with state.agent.run([task.prompt], model=state.model, tape=task.session_id) as stream:
-            async for event in stream:
-                if event.kind == "text":
-                    parts.append(str(event.data.get("delta", "")))
-                elif event.kind == "error":
-                    error = str(event.data.get("message", "Agent failed"))
-        if error is not None:
-            raise HTTPException(status_code=502, detail=error)
-        return {"session_id": task.session_id, "output": "".join(parts)}
+    lock: asyncio.Lock = state.session_locks[req.session_id]
+    reply_parts: list[str] = []
+
+    try:
+        async with lock:
+            async with agent_run(state.agent, state.model, req) as stream:
+                async for event in stream:
+                    if event.kind == "text":
+                        reply_parts.append(event.data["delta"])
+    except Exception:
+        logger.exception("Agent run failed: session=%s", req.session_id)
+        raise HTTPException(status_code=500, detail="Agent run failed") from None
+
+    return {"session_id": req.session_id, "reply": "".join(reply_parts)}
+
+
+def sse(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest, request: Request):
+    state = request.app.state
+    lock: asyncio.Lock = state.session_locks[req.session_id]
+
+    async def generate() -> AsyncGenerator[str, None]:
+        try:
+            async with lock:
+                async with agent_run(state.agent, state.model, req) as stream:
+                    async for event in stream:
+                        if event.kind == "text":
+                            yield sse("message", {"delta": event.data["delta"]})
+                        elif event.kind == "tool_call":
+                            names = [call["name"] for call in event.data["tool_calls"]]
+                            yield sse("tool", {"names": names})
+
+                    # The whole Run has finished; usage belongs to the last model Step.
+                    yield sse("done", {"last_step_usage": stream.usage})
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Streaming agent run failed: session=%s", req.session_id)
+            yield sse("error", {"message": "Agent run failed"})
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 ```
 
-The FastAPI lifespan opens the Republic model once and closes it on shutdown. Each request opens an agent stream with `async with`, which closes the stream and merges the tape fork even when the request's agent run fails.
+The shared model remains owned by `lifespan` and is passed explicitly to each Run. Request-scoped `state` contains only session policy and identity; it is not a place to store the model connection.
 
-The per-session lock keeps two requests from starting with the same incomplete history. Different sessions can run concurrently. The example targets trusted internal callers; a public service should also add authentication, request body size limits, and timeouts.
-
-## Run it
-
-Set `REPUBLIC_OPENAI_API_KEY` in your shell, then start the server:
+Start the single-process development service:
 
 ```bash
-uv run uvicorn app:app
+uv run uvicorn app:app --port 8000
 ```
 
-In another terminal, send two requests with the same session ID:
+## Verify JSON, memory, and SSE {#verify}
+
+### JSON endpoint and multi-turn memory
+
+Send two requests with the same `session_id`:
 
 ```bash
-curl -s localhost:8000/tasks -H 'content-type: application/json' \
-  -d '{"session_id": "customer-42", "prompt": "Where is order A123?"}'
-
-curl -s localhost:8000/tasks -H 'content-type: application/json' \
-  -d '{"session_id": "customer-42", "prompt": "And when did it ship?"}'
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"customer-42","prompt":"My order is A123. Leave delivery at the front desk."}'
 ```
 
-The second answer can refer to the first because both runs read the `customer-42` tape under `sessions/`. The example order data only contains a status, so the agent has no shipping date to report.
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"customer-42","prompt":"What delivery note did I just leave?"}'
+```
 
-## Prepare for more sessions
+The second request reads the history already merged into `sessions/customer-42.jsonl`.
 
-The example keeps one in-memory lock per session. A service that creates many sessions over time should clean up idle locks. These locks work only within one process; multiple workers sharing a tape store need coordination across processes. That coordination must cover the whole run, including model calls and tape writes.
+### SSE and tool progress
 
-`FileTapeStore` keeps history on one host. To use another backend, implement `TapeStore` or `AsyncTapeStore` and pass it to `Agent(store=...)`; see [Choose where history lives](/docs/concepts/tape/#storage). Give that store's connections an application lifespan when they need opening and closing.
+```bash
+curl -N -X POST http://localhost:8000/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"customer-42","prompt":"Look up the status of order A123."}'
+```
 
-## Extend the service
+The client receives frames like:
 
-Add [tools or code mode](/docs/sdk/tools/) to give the agent new actions. Use [event handlers](/docs/concepts/events/) to observe calls or make a decision before execution. Choose what the model sees through [TapeContext](/docs/concepts/tape/#context).
+```text
+event: tool
+data: {"names": ["get_order"]}
+
+event: message
+data: {"delta": "Order"}
+
+event: message
+data: {"delta": " A123"}
+
+event: done
+data: {"last_step_usage": {"input_tokens": 0}}
+```
+
+Actual text and token values depend on the model. For a refund request, `authorize_tool` skips the function and the model explains the denial returned as a tool error.
+
+## Streaming failures and disconnects {#streaming-failures}
+
+The JSON endpoint can return HTTP 500 when the Agent fails. Once an SSE response starts, its HTTP status is usually already 200 and cannot be changed to 500. The example therefore emits an `error` frame and does not emit `done`. Clients should treat both `error` and `done` as terminal signals.
+
+When a browser disconnects or cancels a request, FastAPI/ASGI closes or cancels the response generator, and the nested `async with` blocks close the Agent stream:
+
+- the unfinished Run ends as `cancelled`;
+- records already written to the fork still merge by default;
+- external side effects from completed tools do not roll back;
+- if cancellation must discard the run's records, use `merge_back=False` explicitly and assess tool side effects separately.
+
+Production deployments also need to consider SSE heartbeats, proxy buffering, client reconnection, and request timeouts. `X-Accel-Buffering: no` is a hint for compatible proxies, not a universal fix for intermediate buffering.
+
+## This is not a distributed deployment recipe {#production-boundaries}
+
+| Concern | What this example guarantees | What production still needs |
+| --- | --- | --- |
+| Same-session concurrency | Serialization by `session_id` in one process | Multi-worker/multi-instance locks, queues, or an explicit concurrency policy |
+| Lock dictionary | Simple process-local locks | Lock reclamation so the dictionary does not grow forever |
+| Session identity | Restricted name characters and length | Authentication, authorization, and tenant namespaces; never trust clients to select other users' sessions |
+| File storage | Single-machine JSONL persistence | Backups, concurrent-write policy, or a database Store |
+| Tool side effects | Event interception before refunds | Real authorization, idempotency, business compensation, and durable audit |
+| Usage | `done` carries the last Step's usage | Aggregate by Step in the host when totals are required |
+| Errors | JSON 500 or SSE `error` frame | Stable error codes, retry policy, timeouts, alerts, and sensitive-log governance |
+
+If you do not want to own this assembly and Turn orchestration, use the app layer instead: [Reuse the Bub app](/docs/integrations/reuse-app/). See the [Python API](/docs/reference/python-api/) for complete constructor parameters.

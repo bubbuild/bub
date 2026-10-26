@@ -7,8 +7,7 @@ Keep two things separate: use the Tape commands to see **what a session remember
 
 ## Prerequisites
 
-- `bub --help` works.
-- In a workspace, `bub run "What tools do you have?"` can call the configured model.
+- You have [installed the Bub application](/docs/getting-started/install/#app-install) and configured a working model.
 - Docker or Podman is required to run Phoenix locally.
 - Activate the [application virtual environment](/docs/getting-started/install/#app-install) before installing the tracing dependencies.
 
@@ -55,11 +54,11 @@ bub run "Inspect the current tape and summarize what the last turn did."
 
 See [Tape](/docs/concepts/tape/) for persistence and context selection rules.
 
-## Export execution traces {#export-traces}
+## Export traces {#export-traces}
 
 Export traces when you need to see model and tool timing, concurrency relationships, and error paths. Tape and telemetry are independent of each other.
 
-### Phoenix (OTLP)
+### Arize Phoenix (local deployment)
 
 ```bash
 docker run --rm --name bub-phoenix \
@@ -76,7 +75,7 @@ Install the tracing dependencies:
 uv sync --extra app --extra trace
 
 # Or an installed distribution
-uv pip install "bub[app,trace]"
+uv add "bub[app,trace]"
 ```
 
 The `trace` optional dependency includes the OpenTelemetry API/SDK and an HTTP/protobuf OTLP exporter. Installing the `logfire` optional dependency also includes the dependencies for `app` and `trace`; if both are installed, an **explicit OTLP endpoint still takes precedence**.
@@ -96,7 +95,7 @@ In Phoenix, open the default project, then the most recent trace, and look for `
 
 ![A screenshot showing Bub GenAI telemetry exported to Phoenix through OTLP](/docs/observability/phoenix-otel.png)
 
-### Logfire
+### Pydantic Logfire
 
 When no explicit OTLP endpoint is set, the Bub CLI configures Logfire at startup (the `logfire` optional dependency must be installed).
 
@@ -107,7 +106,7 @@ unset OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_ENDPOINT
 uv sync --extra app --extra logfire
 
 # Or an installed distribution
-uv pip install "bub[logfire]"
+uv add "bub[logfire]"
 
 logfire auth
 logfire projects use

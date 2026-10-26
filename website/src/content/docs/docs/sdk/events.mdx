@@ -1,0 +1,164 @@
+---
+title: Events
+description: Observe the order assistant with AgentEvent and deny or replace tool calls before side effects occur.
+---
+
+`agent.events` is an EventBus with synchronous, awaited dispatch. It gives the host audit and metrics hooks, and can also modify, deny, or replace model and tool calls before they execute.
+
+This chapter adds one explicit policy to the order assistant: **order lookups are allowed, but refunds require authorization in the current Run.**
+
+## Complete auditing and refund-interception example {#complete-example}
+
+Replace `main.py` with:
+
+```python
+import asyncio
+
+import republic
+
+from bub.core import Agent
+from bub.core.events import (
+    LLMCallFinished,
+    RunFinished,
+    ToolCallDecision,
+    ToolCallFinished,
+    ToolCallStarted,
+)
+from bub.core.tools import tool
+
+
+@tool
+async def get_order(order_id: str) -> dict[str, str]:
+    """Look up an order's status by ID."""
+    await asyncio.sleep(0.1)
+    if order_id == "A123":
+        return {"order_id": "A123", "status": "shipped"}
+    return {"order_id": order_id, "error": "order_not_found"}
+
+
+@tool
+def refund_order(order_id: str, reason: str) -> dict[str, str]:
+    """Request an order refund. This is a write and requires authorization first."""
+    return {"order_id": order_id, "status": "refund_requested", "reason": reason}
+
+
+async def main() -> None:
+    agent = Agent(
+        tools=[get_order, refund_order],
+        system_prompt="You are an order support assistant. Use the proper tool and respect its denial reason.",
+        max_steps=6,
+    )
+
+    @agent.events.on(ToolCallStarted)
+    def authorize_tool(event: ToolCallStarted) -> None:
+        print(f"[Tool requested] {event.call.tool}, arguments: {event.call.arguments}")
+        if event.call.tool == "refund_order" and not event.state.get("allow_refunds", False):
+            event.decision = ToolCallDecision.deny("This session cannot issue refunds; contact support.")
+
+    @agent.events.on(ToolCallFinished)
+    def audit_tool(event: ToolCallFinished) -> None:
+        status = "error" if event.result.error else "ok"
+        print(f"[Tool audit] {event.result.tool}: {status}, {event.result.duration_ms}ms")
+
+    @agent.events.on(LLMCallFinished)
+    def record_usage(event: LLMCallFinished) -> None:
+        if event.result.error:
+            print(f"[Model failure] {event.result.error}")
+        else:
+            print(f"[Model usage] {event.result.usage}")
+
+    @agent.events.on(RunFinished)
+    def report_run(event: RunFinished) -> None:
+        print(f"[Run finished] status={event.status}, steps={event.steps}")
+
+    async def run_turn(prompt: str, model) -> None:
+        async with agent.run(
+            prompt,
+            model=model,
+            tape="customer-42",
+            state={"session_id": "customer-42", "allow_refunds": False},
+        ) as stream:
+            async for event in stream:
+                if event.kind == "text":
+                    print(event.data["delta"], end="", flush=True)
+        print()
+
+    async with republic.get_model("openai:gpt-5-mini") as model:
+        await run_turn("Look up the status of order A123.", model)
+        await run_turn("Refund order A123 because the item does not fit.", model)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Run it:
+
+```bash
+uv run python main.py
+```
+
+In the second scenario, `refund_order` never executes. Bub still emits its `ToolCallFinished` and returns the denial as a tool error, allowing the model to explain why the refund cannot be issued.
+
+`deny` prevents that tool side effect; it does not automatically terminate the Run. If the business flow must stop immediately, control it through an exception or run status in the host rather than treating `deny` as an exception mechanism.
+
+## Do not confuse the three event channels {#three-channels}
+
+A run involves three kinds of “events” with different directions and responsibilities:
+
+| Type | Obtained from | Purpose |
+| --- | --- | --- |
+| `AgentEvent` | `agent.events.on(...)` | Observe the lifecycle and synchronously intervene before specific calls |
+| `StreamEvent` | Iterating the `agent.run()` stream | Deliver text, tool progress, usage, and Step summaries to the caller |
+| `TapeEntry` | Querying a Tape | Preserve conversations, tool round-trips, and run records for later reads and projection |
+
+For example, `ToolCallStarted` can stop a tool; a `tool_call` stream event only notifies the caller that the model requested it; a tool entry on Tape supports later history and context. None replaces the others.
+
+## Control tool calls before execution {#call-control}
+
+Register permission policies on `ToolCallStarted`, not `ToolCallDecision`. The latter is the decision object assigned to `event.decision`:
+
+| Action | Original tool runs? | Model-facing result | Later handlers for this Started event |
+| --- | --- | --- | --- |
+| Keep the default `proceed` | Yes | Actual result or tool error | Continue |
+| `ToolCallDecision.deny(message)` | No | Tool error containing the denial | Stop dispatch |
+| `ToolCallDecision.replace(result)` | No | Supplied replacement | Stop dispatch |
+| Replace `event.call` | Yes, using the new call | Actual result of the new call | Continue |
+
+Denied and replaced calls still emit `ToolCallFinished`. A permission denial is stronger than a natural-language reminder: it actually skips the tool function.
+
+`ToolCall` is a frozen dataclass. To normalize arguments, replace the whole call with `dataclasses.replace()` instead of mutating its fields:
+
+```python
+from dataclasses import replace
+
+
+@agent.events.on(ToolCallStarted)
+def normalize_order_id(event: ToolCallStarted) -> None:
+    if event.call.tool == "get_order":
+        arguments = {
+            **event.call.arguments,
+            "order_id": event.call.arguments["order_id"].strip().upper(),
+        }
+        event.call = replace(event.call, arguments=arguments)
+```
+
+`LLMCallStarted` provides corresponding pre-call control for models: replace `event.request`, or set `LLMCallDecision.finish(text)` to skip the provider call.
+
+## Handlers block dispatch and exceptions propagate {#delivery}
+
+EventBus dispatch rules directly affect reliability:
+
+1. Handlers run in registration order, and a base-class handler receives subclass events.
+2. Awaitable results are awaited before the next handler runs.
+3. Ordinary return values are ignored; modify event fields or set `decision` to control the run.
+4. Handler exceptions propagate to the publisher and can fail the whole Run.
+5. Once a decision makes `event.stopped` true, later handlers do not receive that event.
+
+Non-critical logging, metrics, and notification handlers should catch their own exceptions so an observability outage does not abort the business Run. Remove long-lived registrations with `agent.events.off(EventType, handler)` when necessary.
+
+Every started Run emits `RunFinished` when its stream closes, including early cancellation, making it the preferred end-to-end measurement point. Model and tool Finished events are not guaranteed on every cancellation path, so do not rely on them alone for cleanup or billing.
+
+See [Event concepts](/docs/concepts/events/) and the [Python API](/docs/reference/python-api/) for complete event fields. To package policies as installable plugins, see [Portable Agent Plugins](/docs/integrations/agent-plugins/).
+
+Next, assemble the loop, tools, Tape, and events into a complete service: [Capstone: FastAPI Service](/docs/sdk/web-service/).

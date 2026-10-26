@@ -5,7 +5,7 @@ description: Delegate tasks with the built-in subagent tool, choose a session st
 
 The Bub app includes a built-in `subagent` tool that lets the current agent delegate a specific subtask to another agent instance.
 
-Subagents are a good fit for tasks that generate a huge amount of intermediate context — **large-scale retrieval, long document reading, independent code review** — so that only the conclusions come back to the main session and the main context window stays intact.
+Subagents are a good fit for tasks that generate a huge amount of intermediate context — **large-scale retrieval, long document reading, independent code review** — so that only the final conclusions return to the main session and intermediate details don't consume its context window.
 
 ## Delegate a task {#delegate}
 
@@ -36,7 +36,7 @@ The `session` parameter decides how the child's session context is stored and wh
 The default `temp` mode returns only the final `output` text and any `errors` to the parent agent; every prompt and tool call produced inside the subtask stays out of the main conversation's context.
 :::
 
-## State boundaries and capability limits {#boundaries}
+## State sharing and capability boundaries {#boundaries}
 
 A subagent is derived from the same running instance as its parent. What it inherits and what stays isolated:
 
@@ -50,9 +50,9 @@ A subagent is derived from the same running instance as its parent. What it inhe
 
 Parameter types and defaults are listed in the [subagent reference](/docs/reference/tools/#subagent).
 
-### Security limits and measures
+### Security limits
 
 Like the parent, a subagent also runs in the local environment under the current user's privileges, and can affect the current system:
 
 1. A temporary session isolates only **conversation records and model context**, not files, network requests, or system processes. File changes and network requests made by the child have real system side effects and are not rolled back on exit just because `temp` was used.
-2. Parameters such as `allowed_tools` can restrict model behavior when needed, but **they are not an enforced security boundary**. To hard-block dangerous commands or out-of-scope tools, use [tool interception hooks](/docs/app/hooks/#control-a-model-or-tool-call); for physical isolation, configure a separate [execution environment](/docs/app/tools/#environment).
+2. Parameters such as `allowed_tools` can restrict model behavior when needed, but **they are not an enforced security boundary**. To hard-block dangerous commands or out-of-scope tools, use [tool interception hooks](/docs/reference/hooks/#interception-through-pluginagenthooks); for physical isolation, configure a separate [execution environment](/docs/app/tools/#environment).

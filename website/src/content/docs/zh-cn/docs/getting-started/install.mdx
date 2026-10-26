@@ -3,7 +3,9 @@ title: 安装 Bub
 description: 跟着文档一步步安装 Bub，提供了多种安装途径。
 ---
 
-import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Bub 有 CLI 和 SDK 两种使用方式，因此可以根据你的需要选择对应安装方式。
 
 ## 安装 CLI 应用 {#app-install}
 
@@ -36,9 +38,9 @@ uv tool update-shell
 
 完成后执行 `bub --help`，再运行 `bub onboard` 开始配置。
 
-<Aside type="tip">
-    如果当前环境提示找不到命令，请检查环境变量是否包含了可执行文件所在路径，或者手动把 `~/.local/bin` 加入 PATH。
-</Aside>
+:::tip
+如果当前环境提示找不到命令，请检查环境变量是否包含了可执行文件所在路径，或者手动把 `~/.local/bin` 加入 PATH。
+:::
 
 ## 安装 SDK {#agent-install}
 
@@ -60,7 +62,3 @@ uv sync
 ```
 
 之后执行 `uv run bub` 运行即可。
-
----
-
-安装完成后，继续[快速上手](/zh-cn/docs/getting-started/quickstart/)。

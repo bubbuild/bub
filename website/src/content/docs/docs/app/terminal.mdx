@@ -3,8 +3,6 @@ title: Terminal
 description: Interactive sessions, steering a running agent, commands, and background processes in Bub.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
 The Bub application provides two ways to interact in the terminal: `bub run` and `bub chat`. Both use the same model, tools, and Tape capabilities:
 
 - `bub run` handles a single message and is suitable for one-off tasks;
@@ -12,11 +10,13 @@ The Bub application provides two ways to interact in the terminal: `bub run` and
 
 ## Start an interactive session
 
+Run the following command in your terminal to start an interactive session. You can then type a message and press Enter to send it:
+
 ```bash
 bub chat
 ```
 
-Type your message and press Enter to send it. `,help` lists the internal commands currently available, and <kbd>Ctrl+D</kbd>, `,quit`, or `,exit` exits. Input history is saved per workspace in the `history/` directory under the Bub home, separately from the session's Tape.
+Use `,help` to list the internal commands currently available. To exit, press <kbd>Ctrl+D</kbd> or enter `,quit` or `,exit`.
 
 You can also submit the first message directly at startup:
 
@@ -28,22 +28,22 @@ bub chat "Inspect this repository and suggest a first task."
 
 If the model's output diverges from your expectations while you are waiting for a response, or you want to add constraints, you can enter a new instruction directly in the interface to guide the agent's behavior.
 
-**Steering** adds an instruction while the current Turn is still running so the agent can adjust the task in progress. You don't have to wait for the current generation to finish; just type the correction and press Enter:
+**Steering** adds an instruction while the current turn is still running so the agent can adjust the task in progress. You don't have to wait for the current generation to finish; just type the correction and press Enter:
 
 ```text
 Do not modify files yet. List the problems and suggestions first.
 ```
 
-The CLI places the message in the steering inbox. The agent reads it when building a later model request; a model or tool call already in progress is not forcibly interrupted.
+The Bub app places the message in the steering inbox. The agent reads it when building a later model request; a model or tool call already in progress is not forcibly interrupted.
 
-You may also encounter the concept of queueing in other tools. Steering and queueing differ in when the message takes effect:
+You may also encounter queueing in other tools. [Steering and queueing](https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/steering-and-queueing) differ in when the message takes effect:
 
 | Approach | Handling | Use it for |
 | --- | --- | --- |
-| Steering | Injects into later model requests in the current Turn; messages that cannot be consumed in time become pending messages | Correcting direction, adding constraints, and providing new information relevant to the current task |
-| Queue up | Processed as a follow-up task after the current Turn ends | Adding another task or running several requests in order |
+| Steering | Injects into later model requests in the current turn; messages that cannot be consumed in time become pending messages | Correcting direction, adding constraints, and providing new information relevant to the current task |
+| Queue up | Processed as a follow-up task after the current turn ends | Adding another task or running several requests in order |
 
-The current CLI steers ordinary input by default while a run is in progress; there is no separate queueing shortcut. Steering messages that the current Turn does not consume automatically enter the pending queue instead of being dropped.
+By default, the Bub app steers ordinary input while a run is in progress; there is no separate queueing shortcut. Steering messages that the current turn does not consume automatically enter the pending queue instead of being dropped.
 
 To stop the task in the current session, use `,quit`; it clears pending messages and cancels running tasks.
 
@@ -81,9 +81,7 @@ bub run ",help"
 bub run ",fs.read path=README.md"
 ```
 
-You can enter commands directly in an interactive session too. Press <kbd>Ctrl-X</kbd> to switch between Agent and Shell input modes; Shell mode automatically adds the command prefix to your input.
-
-Common commands:
+You can enter commands directly in an interactive session too. Press <kbd>Ctrl-X</kbd> to switch between Agent and Shell input modes; Shell mode automatically adds the command prefix to your input. Common commands include:
 
 | Command | Purpose |
 | --- | --- |
@@ -102,13 +100,13 @@ Note:
 - `,tape.reset archive=true` backs up the main Tape and its sidecar to `<BUB_HOME>/tapes/`, with a UTC timestamp and a `.bak` suffix in the file names. Using `archive=false` or plain `,tape.reset` skips the backup. After a reset, a new `session/start` anchor is created, and the old files are not restored automatically.
 - `handoff` does not generate or inject a summary automatically. `summary` is stored in the anchor's `state`; whether it is read later depends on the prompt or context policy. See [Tape](/docs/concepts/tape/#anchors) for details.
 
-<Aside type="caution">
-  Unregistered commands are handed to `bash` for execution. Before entering an unknown command, make sure it is a shell command you are willing to run.
-</Aside>
+:::caution
+Unregistered commands are handed to `bash` for execution. Before entering an unknown command, make sure it is a shell command you are willing to run.
+:::
 
 ## Run background processes {#background-shell}
 
-In `bub chat`, use `background=true` to start long-running processes such as a development server:
+In `bub chat`, use `background=true` to run a command in a separate background process:
 
 ```text
 ,bash command='npm run dev' background=true
@@ -122,6 +120,7 @@ The result includes a `shell_id`. Use it to read output incrementally or termina
 ,bash.kill shell_id=bsh-12345678
 ```
 
-`offset` is the character position in the buffered output, not a line number; use `next_offset` from the returned value for the next read. `limit` caps the number of characters returned in this call.
+Note:
 
-A foreground `bash` call waits 30 seconds by default. On timeout, the process is not treated as failed; it moves to the background and returns a `shell_id`. Adjust this with `timeout_seconds`. Background tasks should be managed within the same `bub chat` or gateway process, and they are cleaned up when the application exits.
+- `offset` is the character position in the buffered output, not a line number; use `next_offset` from the returned value for the next read. `limit` caps the number of characters returned in this call.
+- A foreground `bash` call **waits 30 seconds** by default. On timeout, the process is not treated as failed; it moves to the background and returns a `shell_id`. Adjust this with `timeout_seconds`. Background tasks should be managed within the same `bub chat` or gateway process, and they are cleaned up when the application exits.

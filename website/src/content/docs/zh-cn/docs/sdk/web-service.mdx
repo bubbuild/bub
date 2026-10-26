@@ -1,125 +1,268 @@
 ---
-title: 示例：FastAPI 服务
-description: 为 Agent 提供 HTTP 接口，并为每个会话保留独立历史。
+title: 综合案例：FastAPI 服务
+description: 将 Agent 循环、工具、Tape 和事件组装成支持多轮记忆、权限拦截与 SSE 的订单服务。
+sidebar:
+  label: FastAPI 综合案例
 ---
 
-为 Agent 提供 HTTP 接口，让其他程序可以向它提交任务。每个请求指定会话名称；使用相同名称的请求会继续磁盘上保存的会话。
+这一章把前四章组装成一个订单服务。FastAPI 只是宿主；重点是 Bub 各组件在真实应用中的**生命周期、并发和错误边界**。
 
-本指南接续[在 Python 中运行 Agent](/zh-cn/docs/sdk/)，直接使用 `core.Agent`。FastAPI 管理模型的生命周期，每个请求负责管理自己的 Agent 输出流。
+最终服务提供：
 
-## 安装
+- `POST /chat`：收集完整回答后返回 JSON；
+- `POST /chat/stream`：通过 SSE 推送文本和工具状态；
+- `FileTapeStore`：按 `session_id` 保留多轮会话；
+- 工具事件：记录审计日志，拒绝未授权退款；
+- 会话锁：同一进程内串行处理同一 `session_id`。
 
-需要 Python 3.12+ 和 OpenAI API key。创建项目，安装 Bub 与 Web 服务依赖：
+## 安装与启动项目 {#setup}
 
 ```bash
-uv init bub-api
-cd bub-api
+uv init bub-order-service
+cd bub-order-service
 uv add bub fastapi uvicorn
+export REPUBLIC_OPENAI_API_KEY=sk-...
 ```
 
-如果要接入已有的 Bub 插件，见[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)。加入插件工具或指定 hooks 后，仍可沿用下面的接口与请求生命周期。
+## 组装前先做三个决策 {#design}
 
-## 编写服务
+### 1. 模型和 Agent 覆盖应用生命周期
 
-保存为 `app.py`。订单工具返回示例数据，接入自己的服务时替换函数体即可。
+不要在每个请求里重新创建模型连接和 Agent。FastAPI 的 `lifespan` 负责启动时组装、关闭时释放；这样默认组件和文件存储也能跨请求共享。
+
+### 2. 同一会话排队，不同会话并行
+
+同一个 Tape 上的多个 Run 不会自动形成有序对话。示例为每个 `session_id` 使用一把 `asyncio.Lock`：
+
+- 不同会话仍可并行；
+- 同一会话等待上一个 Run 关闭并合并后再开始；
+- 锁只在当前 Python 进程有效，不代表分布式一致性。
+
+### 3. SSE 是应用协议，不是 Bub 事件的透传
+
+只向浏览器发送其需要的文本和工具名称。工具参数、结果、推理内容和内部异常默认留在服务端。`final` 只表示一个 Step 结束，因此 `done` 必须在整个事件流消费完毕后发送。
+
+## 完整 `app.py` {#complete-app}
 
 ```python
 import asyncio
+import json
+import logging
 from collections import defaultdict
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import republic
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from bub.core import Agent
+from bub.core.events import ToolCallDecision, ToolCallFinished, ToolCallStarted
 from bub.core.store import FileTapeStore
-from bub.core.tools import Tool
+from bub.core.tools import tool
 
 
-async def lookup_order(order_id: str) -> dict[str, str]:
-    """Look up the status of an order."""
-    return {"order_id": order_id, "status": "shipped"}
+logger = logging.getLogger(__name__)
 
 
-def create_agent() -> Agent:
-    return Agent(
-        store=FileTapeStore(Path(__file__).resolve().parent / "sessions"),
-        tools=[Tool.from_callable(lookup_order)],
-        system_prompt=[
-            "You are an order assistant. Reply directly to the user.",
-            "Use lookup_order to check order status before answering.",
-        ],
-    )
+@tool
+async def get_order(order_id: str) -> dict[str, str]:
+    """按订单号查询订单状态。"""
+    await asyncio.sleep(0.1)
+    if order_id == "A123":
+        return {"order_id": "A123", "status": "shipped"}
+    return {"order_id": order_id, "error": "order_not_found"}
+
+
+@tool
+def refund_order(order_id: str, reason: str) -> dict[str, str]:
+    """为订单申请退款。执行前必须检查权限。"""
+    return {"order_id": order_id, "status": "refund_requested", "reason": reason}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # The key comes from REPUBLIC_OPENAI_API_KEY.
     async with republic.get_model("openai:gpt-5-mini") as model:
-        app.state.agent = create_agent()
+        agent = Agent(
+            store=FileTapeStore(Path("sessions")),
+            tools=[get_order, refund_order],
+            system_prompt="你是订单客服助手。使用工具查询和退款，并尊重工具的拒绝原因。",
+            max_steps=6,
+            max_tool_concurrency=2,
+        )
+
+        @agent.events.on(ToolCallStarted)
+        def authorize_tool(event: ToolCallStarted) -> None:
+            if event.call.tool == "refund_order" and not event.state.get("allow_refunds", False):
+                event.decision = ToolCallDecision.deny("当前会话没有退款权限。")
+
+        @agent.events.on(ToolCallFinished)
+        def audit_tool(event: ToolCallFinished) -> None:
+            logger.info(
+                "tool=%s status=%s duration_ms=%s",
+                event.result.tool,
+                "error" if event.result.error else "ok",
+                event.result.duration_ms,
+            )
+
         app.state.model = model
+        app.state.agent = agent
         app.state.session_locks = defaultdict(asyncio.Lock)
         yield
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="Bub Order Service", lifespan=lifespan)
 
 
-class Task(BaseModel):
-    session_id: str = Field(min_length=1, max_length=200)
-    prompt: str = Field(min_length=1)
+class ChatRequest(BaseModel):
+    # Tape 名称会进入文件名；生产环境还应加入租户和用户命名空间。
+    session_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    prompt: str = Field(min_length=1, max_length=10_000)
 
 
-@app.post("/tasks")
-async def run_task(task: Task, request: Request) -> dict[str, str]:
+def agent_run(agent: Agent, model, req: ChatRequest):
+    return agent.run(
+        req.prompt,
+        model=model,
+        tape=req.session_id,
+        state={"session_id": req.session_id, "allow_refunds": False},
+    )
+
+
+@app.post("/chat")
+async def chat(req: ChatRequest, request: Request):
     state = request.app.state
-    # Runs on one session's tape must not overlap; different sessions run concurrently.
-    async with state.session_locks[task.session_id]:
-        parts: list[str] = []
-        error: str | None = None
-        async with state.agent.run([task.prompt], model=state.model, tape=task.session_id) as stream:
-            async for event in stream:
-                if event.kind == "text":
-                    parts.append(str(event.data.get("delta", "")))
-                elif event.kind == "error":
-                    error = str(event.data.get("message", "Agent failed"))
-        if error is not None:
-            raise HTTPException(status_code=502, detail=error)
-        return {"session_id": task.session_id, "output": "".join(parts)}
+    lock: asyncio.Lock = state.session_locks[req.session_id]
+    reply_parts: list[str] = []
+
+    try:
+        async with lock:
+            async with agent_run(state.agent, state.model, req) as stream:
+                async for event in stream:
+                    if event.kind == "text":
+                        reply_parts.append(event.data["delta"])
+    except Exception:
+        logger.exception("Agent run failed: session=%s", req.session_id)
+        raise HTTPException(status_code=500, detail="Agent run failed") from None
+
+    return {"session_id": req.session_id, "reply": "".join(reply_parts)}
+
+
+def sse(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@app.post("/chat/stream")
+async def chat_stream(req: ChatRequest, request: Request):
+    state = request.app.state
+    lock: asyncio.Lock = state.session_locks[req.session_id]
+
+    async def generate() -> AsyncGenerator[str, None]:
+        try:
+            async with lock:
+                async with agent_run(state.agent, state.model, req) as stream:
+                    async for event in stream:
+                        if event.kind == "text":
+                            yield sse("message", {"delta": event.data["delta"]})
+                        elif event.kind == "tool_call":
+                            names = [call["name"] for call in event.data["tool_calls"]]
+                            yield sse("tool", {"names": names})
+
+                    # 此刻整个 Run 已结束；usage 是最后一个模型 Step 的用量。
+                    yield sse("done", {"last_step_usage": stream.usage})
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Streaming agent run failed: session=%s", req.session_id)
+            yield sse("error", {"message": "Agent run failed"})
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 ```
 
-FastAPI lifespan 在启动时打开 Republic 模型，并在关闭时释放。每个请求都用 `async with` 打开 Agent 流，退出时关闭流并合并 Tape 分支，Agent 运行失败时也会执行这些操作。
+共享模型由 `lifespan` 持有，并显式传给每个 Run。请求级 `state` 只包含会话身份与策略，不应被用来保存模型连接。
 
-会话锁避免两个请求同时基于同一份尚未完成的历史开始执行。不同会话可以并发运行。示例面向受信任的内部调用方；公开服务还应增加身份认证、请求体大小限制和超时。
-
-## 运行
-
-在 shell 中设置 `REPUBLIC_OPENAI_API_KEY`，然后启动服务：
+启动单进程开发服务：
 
 ```bash
-uv run uvicorn app:app
+uv run uvicorn app:app --port 8000
 ```
 
-在另一个终端中，用相同会话 ID 发送两次请求：
+## 验证 JSON、多轮记忆与 SSE {#verify}
+
+### JSON 接口与多轮记忆
+
+连续使用同一个 `session_id`：
 
 ```bash
-curl -s localhost:8000/tasks -H 'content-type: application/json' \
-  -d '{"session_id": "customer-42", "prompt": "Where is order A123?"}'
-
-curl -s localhost:8000/tasks -H 'content-type: application/json' \
-  -d '{"session_id": "customer-42", "prompt": "And when did it ship?"}'
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"customer-42","prompt":"我的订单是 A123，配送时请放在前台。"}'
 ```
 
-两次运行都读取 `sessions/` 下的 `customer-42` Tape，因此第二次回答可以参考第一次交互。示例订单只有状态，没有发货日期，Agent 无法从中查到日期。
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"customer-42","prompt":"我刚才留了哪条配送备注？"}'
+```
 
-## 支持更多会话
+第二次请求会读取 `sessions/customer-42.jsonl` 中已经合并的历史。
 
-示例为每个会话保留一个内存锁。长期创建大量会话的服务应清理空闲锁。这些锁只在单进程内生效；多个 worker 共享 Tape 存储时，需要跨进程协调。协调范围应覆盖整轮运行，包括模型调用和 Tape 写入。
+### SSE 与工具进度
 
-`FileTapeStore` 将历史保存在一台主机上。使用其他后端时，实现 `TapeStore` 或 `AsyncTapeStore`，再传给 `Agent(store=...)`，详见[选择历史存储位置](/zh-cn/docs/concepts/tape/#storage)。如果存储连接需要打开和关闭，也应纳入应用的 lifespan。
+```bash
+curl -N -X POST http://localhost:8000/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"customer-42","prompt":"查询订单 A123 的状态。"}'
+```
 
-## 扩展服务
+客户端会依次收到类似帧：
 
-通过[工具或 code mode](/zh-cn/docs/sdk/tools/)增加动作，用[事件处理器](/zh-cn/docs/concepts/events/)观察调用或在执行前作出决定，通过 [TapeContext](/zh-cn/docs/concepts/tape/#context)选择交给模型的内容。
+```text
+event: tool
+data: {"names": ["get_order"]}
+
+event: message
+data: {"delta": "订单"}
+
+event: message
+data: {"delta": " A123"}
+
+event: done
+data: {"last_step_usage": {"input_tokens": 0}}
+```
+
+实际文本与 token 数值由模型决定。若请求退款，`authorize_tool` 会阻止函数执行，模型随后根据工具错误解释拒绝原因。
+
+## 流式错误与断连语义 {#streaming-failures}
+
+JSON 接口可以在 Agent 失败时返回 HTTP 500；SSE 一旦开始响应，HTTP 状态通常已经是 200，不能再改成 500。因此示例通过 `error` 帧报告失败，并且不再发送 `done`。客户端应把 `error` 和 `done` 都视为流结束信号。
+
+浏览器断开或取消请求时，FastAPI/ASGI 会关闭或取消响应生成器，嵌套的 `async with` 随之关闭 Agent 流：
+
+- 未完成的 Run 以 `cancelled` 结束；
+- 已写入分支的记录默认仍合并回 Tape；
+- 已执行工具的外部副作用不会回滚；
+- 若产品要求“取消即丢弃本次记录”，必须显式使用 `merge_back=False`，并单独评估工具副作用。
+
+生产环境还应考虑 SSE 心跳、代理缓冲、客户端重连和请求超时。`X-Accel-Buffering: no` 只是对兼容代理的提示，并不能解决所有中间层缓冲。
+
+## 这份示例尚不是分布式部署方案 {#production-boundaries}
+
+| 关注点 | 本示例的保证 | 生产环境仍需补充 |
+| --- | --- | --- |
+| 同会话并发 | 单进程内按 `session_id` 串行 | 多 worker/多实例锁、队列或明确的并发策略 |
+| 锁字典 | 简单直观 | 会话锁回收，避免字典随会话数无限增长 |
+| 会话身份 | 限制名称字符与长度 | 身份认证、授权、租户命名空间，不能信任客户端任意选择他人会话 |
+| 文件存储 | 单机 JSONL 持久化 | 数据备份、并发写入策略，或数据库 Store |
+| 工具副作用 | 退款前事件拦截 | 真实授权、幂等、业务补偿与审计持久化 |
+| 用量 | `done` 携带最后一个 Step 的用量 | 需要总量时在宿主中按 Step 聚合 |
+| 错误 | JSON 500 或 SSE `error` 帧 | 稳定错误码、重试策略、超时、告警与敏感日志治理 |
+
+如果不希望自己维护这些组装与 Turn 编排，可以改用应用层能力：[复用 Bub 应用](/zh-cn/docs/integrations/reuse-app/)。完整构造参数见 [Python API](/zh-cn/docs/reference/python-api/)。

@@ -5,9 +5,9 @@ description: 配置和运行 Bub 网关，接入聊天平台，并管理消息�
 
 import { Steps } from '@astrojs/starlight/components';
 
-Bub 最初的灵感就是来源于 Openclaw、nanobot 这样的常驻型 Agent，所以除了终端交互之外，Bub 还提供了网关（Gateway）功能，把聊天平台的消息交给 Bub 处理。
+Bub 最初的灵感就是来源于 Openclaw、nanobot 这样的常驻型 Agent，所以除了终端交互之外，Bub 还提供了网关（Gateway）功能。
 
-`bub gateway` 将运行已启用的渠道并作为网关启动。
+执行 `bub gateway` 子命令 Bub 将运行已启用的渠道并作为网关启动。
 
 目前 Bub 仅内置 Telegram 渠道，其他平台需通过 Bub 社区 [插件](https://hub.bub.build/) 接入。因此本文档主要以 Telegram 渠道的配置和使用为例。
 
@@ -66,7 +66,7 @@ BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
 BUB_TELEGRAM_ALLOW_CHATS=-1001234567890,-1009876543210
 ```
 
-| 白名单 | 通过条件 | 未通过时 |
+| 白名单配置 | 通过条件 | 未通过时 |
 | --- | --- | --- |
 | `BUB_TELEGRAM_ALLOW_USERS` | 数字 ID 或用户名匹配 | 用户收到 `Access denied.` |
 | `BUB_TELEGRAM_ALLOW_CHATS` | 聊天 ID 匹配 | 消息被静默丢弃 |
@@ -119,13 +119,11 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
 # 也支持 socks5://<user>:<password>@host:port
 ```
 
-完整字段见 [TelegramSettings](/zh-cn/docs/reference/settings/#telegram-settings)。渠道只处理 `message` 更新；启动时会丢弃停机期间积压的更新，不补发离线消息。
-
 ## 接入其他平台
 
 尽管 Bub 只内置了 Telegram 渠道，但社区提供了多种 [插件](https://hub.bub.build/) 以接入其他平台。
 
-安装其他平台插件后需重启网关，重启完成后用 `bub hooks` 确认 `provide_channels` 下是否出现对应名称。未配置凭据的渠道会被跳过。
+安装其他平台插件后需重启网关，重启完成后用 `bub hooks` 确认 `provide_channels` 下是否出现对应名称。在启动时未配置凭据的渠道会被跳过。
 
 | 平台 | 渠道名 | 插件 |
 | --- | --- | --- |
@@ -141,7 +139,7 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
 
 ## 自定义渠道 {#custom-channels}
 
-没有现成插件可用时，可自己实现渠道：通过 Python 代码来继承 `Channel` 类，设置 `name` 属性并实现 `start`、`stop` 以及 `send` 方法即可。以下是一个最小示例：
+无现成插件可用时，可自己实现渠道：通过 Python 代码来继承 `Channel` 类，设置 `name` 属性并实现 `start`、`stop` 以及 `send` 方法即可。以下是一个最小示例：
 
 ```python
 import asyncio
@@ -163,7 +161,7 @@ class MyChannel(Channel):
         return bool(self._token)
 
     async def start(self, stop_event: asyncio.Event) -> None:
-        # 不要阻塞：start 返回后，网关才会继续消费消息。
+        # start 方法不允许阻塞主循环，否则网关无法接收后续消息
         self._listener = asyncio.create_task(self._listen(stop_event))
 
     async def stop(self) -> None:
@@ -172,7 +170,7 @@ class MyChannel(Channel):
 
     async def _listen(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
-            chat_id, text = await self._next_message()  # 你的平台协议
+            chat_id, text = await self._next_message()  # 平台消息
             await self._on_receive(
                 ChannelMessage(
                     session_id=f"myapp:{chat_id}",
@@ -199,6 +197,10 @@ class MyChannel(Channel):
 import os
 
 from bub import hookimpl
+
+# 前面的代码片段
+# class MyChannel(Channel):
+#       ...
 
 
 @hookimpl

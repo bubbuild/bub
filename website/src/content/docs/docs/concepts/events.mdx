@@ -1,25 +1,35 @@
 ---
-title: Events
-description: Use the EventBus to observe and control Agent runs, and tell stream events apart from Tape records.
+title: "Events: observability and synchronous decisions"
+description: Use the EventBus not only to observe an Agent run, but also to deny, replace, or rewrite calls before execution.
+sidebar:
+  label: Events
 ---
 
-Every Agent has an event bus (`EventBus`). Register handlers through `agent.events` to record a run, or to make a decision before a model or tool call.
+Observability answers “what happened?” Policy often needs to answer an earlier question: “should this happen at all?” A log emitted after a tool writes to production is useful, but it cannot prevent that write.
 
-## Telling the three kinds of data apart {#three-kinds}
+Every Agent therefore has an `EventBus` that supports both observation and **synchronous decision-making**. Handlers can inspect lifecycle events, and selected pre-call events let them deny, replace, or rewrite work before the Agent proceeds.
+
+## Three kinds of data, three directions {#three-kinds}
+
+Agent events are easy to confuse with stream output and Tape records because all three describe a run. Their jobs are different:
 
 | Type | Purpose | How to access it |
 | --- | --- | --- |
-| `AgentEvent` | Observe the lifecycle and control model and tool calls | `agent.events.on(...)` |
+| `AgentEvent` | Observe the lifecycle and control model or tool calls | `agent.events.on(...)` |
 | `StreamEvent` | Deliver text, tool progress, usage, and errors to the caller | Iterate the stream returned by `agent.run()` |
-| `TapeEntry` | Save the conversation and some run records | Query the [Tape](/docs/concepts/tape/) |
+| `TapeEntry` | Preserve conversation and selected run records | Query the [Tape](/docs/concepts/tape/) |
 
-The three kinds of data flow in different directions:
+The direction of data flow tells you what each one can do:
 
-- Modifying mutable fields of an `AgentEvent` can affect subsequent execution.
-- A `StreamEvent` is only an output payload. Iterating drives the model loop; closing the stream ends a run that has not finished.
-- A `TapeEntry` is for later queries and does not change the Step that is executing; only entries selected by `TapeContext` become input for later model calls.
+- Mutable fields on an `AgentEvent` can affect subsequent execution.
+- A `StreamEvent` is an output payload. Iterating the stream drives the model loop; closing it ends an unfinished Run.
+- A `TapeEntry` supports later queries and does not change the executing Step. Only entries selected by `TapeContext` become input to later model calls.
 
-## Registering handlers {#handlers}
+In short: events coordinate the present, streams inform the caller, and Tape preserves the past for future projections.
+
+## Handlers form an ordered, awaited chain {#handlers}
+
+Register a handler for the event type you care about:
 
 ```python
 from bub.core.events import StepFinished, ToolCallFinished
@@ -38,23 +48,25 @@ agent.events.on(StepFinished, report_step)
 agent.events.off(StepFinished, report_step)  # remove it when no longer needed
 ```
 
-The decorator and passing the function directly are equivalent. A handler registered on a base class also receives subclass events; listening to `AgentEvent` handles all Agent events uniformly.
+The decorator and direct registration are equivalent. A handler registered for a base class also receives subclass events; listen to `AgentEvent` to handle every Agent event uniformly.
 
 ### Delivery rules {#delivery}
 
-1. Each `emit()` calls the matching handlers in registration order.
-2. When a handler returns an awaitable, the bus waits for it to finish before calling the next one.
-3. Return values are ignored; to control the run, modify the event's fields.
-4. Exceptions propagate to the caller of `emit()` and may fail the run.
-5. Before each handler runs, `event.stopped` is checked; when it is `True`, this dispatch stops.
+1. Each `emit()` calls matching handlers in registration order.
+2. When a handler returns an awaitable, the bus waits for it before calling the next handler.
+3. Return values are ignored. Control the run by modifying event fields, not by returning a decision from the function.
+4. Exceptions propagate to the caller of `emit()` and can fail the Run.
+5. Before each handler runs, the bus checks `event.stopped`; when it is `True`, this dispatch ends.
 
-Handlers used only for logging or metrics should handle their own exceptions so they do not affect the main flow. The ordering guarantee applies only within a single `emit()`; when concurrent tools or multiple Runs share state, the caller still has to coordinate.
+The bus waits because policy must finish before the action begins. This guarantee applies within one `emit()`; concurrent tool calls or multiple Runs still require application-level coordination when they share state. Logging and metrics handlers should catch their own exceptions if they must not affect the main flow.
 
-## Controlling model and tool calls {#call-control}
+## Decisions happen before side effects {#call-control}
 
-`decision` is used to skip the original call; other mutable fields are used to replace the request, arguments, result, or subsequent messages. For example, forbid an order modification that lacks permission before it runs:
+Pre-call events expose mutable requests and a `decision`. For example, an order-update tool can remain focused on updating orders while a separate handler enforces session policy:
 
 ```python
+from dataclasses import replace
+
 from bub.core.events import ToolCallDecision, ToolCallStarted
 
 
@@ -64,27 +76,42 @@ def check_order_update(event: ToolCallStarted) -> None:
         return
     if not event.state.get("orders_writable"):
         event.decision = ToolCallDecision.deny("This session does not allow order changes.")
+        return
+    if event.call.arguments.get("dry_run") is None:
+        event.call = replace(event.call, arguments={**event.call.arguments, "dry_run": False})
 ```
 
-`ToolCallStarted` supports three ways to take control:
+`ToolCallStarted` supports three forms of control:
 
-| Action | Is the tool executed? | Result | Subsequent handlers |
+| Action | Does the original tool execute? | Result | Subsequent handlers |
 | --- | --- | --- | --- |
 | `deny(message)` | No | A tool error | Dispatch stops |
-| `replace(result)` | No | The specified result | Dispatch stops |
+| `replace(result)` | No | The supplied result | Dispatch stops |
 | Replace `event.call` | Yes, with the new call | The actual execution result | Dispatch continues |
 
-A denied or replaced tool still emits `ToolCallFinished`. The model loop returns the error to the model as a tool result; a direct command raises the error to the caller.
+A denied or replaced call still emits `ToolCallFinished`. The model loop returns a denial to the model as a tool error; a direct command raises that error to its caller.
 
-The event itself is a mutable dataclass, but payloads such as `event.call` and `event.request` are frozen objects. When replacing arguments, create a new payload with `dataclasses.replace()` instead of modifying fields in place.
+Event objects are mutable dataclasses, but payloads such as `event.call` and `event.request` are frozen. Create a replacement with `dataclasses.replace()` rather than modifying payload fields in place.
 
-Setting `event.decision = LLMCallDecision.finish(text)` on `LLMCallStarted` skips the model provider and produces text directly. In that case no corresponding `LLMCallFinished` is emitted.
+On `LLMCallStarted`, setting `event.decision = LLMCallDecision.finish(text)` skips the model provider and produces text directly. No corresponding `LLMCallFinished` is emitted for that short-circuit.
 
-## Recording conversations and custom events {#recording}
+## Cross-cutting policy without tool pollution {#ioc}
 
-The Agent registers `TapeRecorder` before your handlers. The recorder subscribes to `RunStarted`, `RunFinished`, `StepStarted`, `StepFinished`, `ChatFinished`, and `CommandFinished`.
+This is an inversion-of-control boundary. The Agent loop invokes tools, but the event bus gives the surrounding application a chance to apply cross-cutting concerns first:
 
-Among them, `ChatFinished` saves the conversation and tool round-trips, and later model calls build their context from these records. Tracing and Tape recording are independent of each other; turning tracing off does not stop recording.
+- permission and admission checks;
+- human approval before a sensitive operation;
+- argument redaction or normalization;
+- budget controls, mocking, and deterministic test doubles;
+- metrics and audit notifications.
+
+The business tool keeps one responsibility: performing its domain action. Reusable policy lives in a listener that can apply across many tools. Domain invariants that must always hold still belong in the domain or tool layer; the point is not to move every rule into events, but to give shared policy one consistent home.
+
+## Recording and custom events {#recording}
+
+The Agent registers `TapeRecorder` before your handlers. It subscribes to `RunStarted`, `RunFinished`, `StepStarted`, `StepFinished`, `ChatFinished`, and `CommandFinished`.
+
+`ChatFinished` records the conversation and tool round-trips from which later model calls build context. Tracing and Tape recording are independent; disabling tracing does not stop Tape recording.
 
 Custom events inherit from `AgentEvent`, or from `TapeEvent` when they need the current Tape:
 
@@ -111,9 +138,9 @@ async def mark_reviewed() -> None:
     )
 ```
 
-`TapeRecorder` does not record custom events automatically; the example above writes one explicitly in a handler. Custom events also have no built-in `decision` protocol; when you need to return a result, define mutable fields yourself, and when you need to stop dispatch early, override the `stopped` property. Tools can emit events through `context.events`.
+`TapeRecorder` does not automatically record custom events; this example writes one explicitly. Custom events also have no built-in `decision` protocol. Define mutable fields when you need to return data, and override the `stopped` property when a decision should end dispatch. Tools can publish through `context.events`.
 
-## Using hooks in the app {#app-plugins}
+## Application hooks build on the same events {#app-plugins}
 
 `AgentPlugins` connects application hooks to Agent events:
 
@@ -124,17 +151,17 @@ async def mark_reviewed() -> None:
 | `continue_prompt` | `StepFinished` |
 | `provide_steering_inbox` | `MessagesPending` |
 
-Steering injects supplementary messages into later model requests of the current Run through `MessagesPending`. It differs from queueing: queued messages wait until the current Turn ends. The event layer provides the injection point; admission and queueing policies are decided by the channel and the application.
+`MessagesPending` provides an injection point for steering: a supplementary message can join a later model request in the current Run. Unlike queue up, which waits for the current Turn, steering asks the current Run to consume the message. A steering message that the current Turn does not consume falls back to the pending queue. See [Steering and queueing](https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/steering-and-queueing) for the general distinction; channel and application policies decide admission and queueing.
 
-`BubAgent` uses this adapter by default, and a core Agent can also [connect it explicitly](/docs/sdk/reuse-app/#other-hooks).
+`BubAgent` uses this adapter by default, and a core Agent can also [connect it explicitly](/docs/integrations/reuse-app/#other-hooks).
 
-The two ways of connecting have different exception policies: exceptions from direct EventBus handlers propagate to the publisher, while exceptions from interception hooks are logged and skipped. To reject a call, return the corresponding decision. For full signatures, see the [Hooks reference](/docs/reference/hooks/#interception-through-pluginagenthooks); for examples, see [Application hooks](/docs/app/hooks/).
+The two connection styles have different exception policies. Exceptions from direct EventBus handlers propagate to the publisher; exceptions from interception hooks are logged and skipped. Return the corresponding decision to reject a call. See the [Hooks reference](/docs/reference/hooks/#interception-through-pluginagenthooks) for signatures and [Application plugins](/docs/app/plugins/) for examples.
 
-`framework.events` is another, independent bus that publishes only the application-level `CommandChanged`, `WorkChanged`, and `PromptChanged`; it does not carry model-call or channel events.
+`framework.events` is a separate bus. It publishes only application-level `CommandChanged`, `WorkChanged`, and `PromptChanged`; it does not carry model-call or channel events.
 
 ## Event reference {#event-reference}
 
-| Event | When it fires | What can be read or modified |
+| Event | When it fires | What handlers can read or modify |
 | --- | --- | --- |
 | `RunStarted` | A model Run starts | `model`, `prompt`, `metadata` |
 | `RunFinished` | The Run's stream closes | `status`, `steps`, elapsed time, and error |
@@ -142,14 +169,14 @@ The two ways of connecting have different exception policies: exceptions from di
 | `StepFinished` | A Step ends | Progress and usage; set `next_prompt` to continue |
 | `MessagesPending` | While building a request, or when a particular Step ends | Append user content to `messages` |
 | `LLMCallStarted` | Before calling the model provider | Replace `request`; set `LLMCallDecision.finish()` |
-| `LLMCallFinished` | The provider call succeeds or fails with an ordinary exception | `request` and the aggregated `result` |
+| `LLMCallFinished` | The provider call succeeds or fails with an ordinary exception | `request` and aggregated `result` |
 | `ToolCallStarted` | Before a tool runs | Replace `call`; set `deny` or `replace` |
-| `ToolCallFinished` | A tool succeeds, fails ordinarily, is denied, or is replaced | Assign to `event.result.result` to replace the result |
-| `ChatFinished` | When the current Step's conversation and tool round-trips can be recorded | Messages, tool round-trips, usage, and errors |
+| `ToolCallFinished` | A tool succeeds, fails ordinarily, is denied, or is replaced | Assign to `event.result.result` to replace the model-facing result |
+| `ChatFinished` | The current Step's conversation and tool round-trips can be recorded | Messages, tool round-trips, usage, and errors |
 | `CommandFinished` | A direct command succeeds or fails | Command, status, and output |
 
-`RunFinished` is emitted when the stream closes; a Run closed before it is iterated ends as `cancelled` with zero Steps. The Finished events for models and tools are not guaranteed to cover cancellation paths, so billing and cleanup cannot rely on them alone.
+`RunFinished` is emitted when the stream closes. A Run closed before iteration ends as `cancelled` with zero Steps. Model and tool Finished events are not guaranteed on cancellation paths, so billing and cleanup cannot rely on them alone.
 
-`StepFinished.next_prompt` sets the next Step's user message, and `MessagesPending.messages` receives messages that arrived during the run. When `BUB_MAX_STEPS` is reached, the run raises a `max_steps_reached` error.
+`StepFinished.next_prompt` supplies the next Step's user message, while `MessagesPending.messages` receives messages that arrived during the Run. Reaching `BUB_MAX_STEPS` raises a `max_steps_reached` error.
 
-A direct command emits tool events and `CommandFinished`, but no `RunStarted` / `RunFinished`. Every Agent event has `state`; subclasses of `TapeEvent` also carry the current `tape`.
+A direct command emits tool events and `CommandFinished`, but no `RunStarted` or `RunFinished`. Every Agent event carries `state`; `TapeEvent` subclasses also carry the current `tape`.

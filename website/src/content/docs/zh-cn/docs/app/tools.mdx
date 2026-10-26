@@ -47,15 +47,17 @@ description: 了解 Bub 应用内置工具、工具调用方式以及如何配�
 ,code_mode enable=true
 ```
 
+注意：
+
 - 该设置在下一轮对话生效，并持久化保存在当前会话记录中。
 - 使用 `,code_mode enable=false` 可以关闭并恢复默认模式。
 - 关于在代码模式下调用工具的 Python 语法，见[组合工具与 code mode](/zh-cn/docs/sdk/tools/#compose-tools-with-codemode)。
 
-## 执行环境与安全边界 {#environment}
+## 执行环境与安全 {#environment}
 
-注意，内置的 Shell 命令（`bash`）、文件读写（`fs.*`）和代码执行（`run_code`）均在本地当前用户权限下直接运行，可能会对系统或数据产生不可逆的影响，使用前须知：
+内置的 Shell 命令（`bash`）、文件读写（`fs.*`）和代码执行（`run_code`）等均在本地当前用户权限下直接运行，可能会对系统或数据产生不可逆的影响，使用前须知：
 
-- **非安全沙箱**：默认环境不是隔离沙箱，模型执行的命令会**对本地系统产生真实的读写和进程副作用**。
+- **非安全隔离**：默认环境不是隔离沙箱，模型执行的命令会**对本地系统产生真实的读写和进程副作用**。
 - **权限与拦截**：如需在执行高危命令前进行人工审批或条件限制，可使用[工具拦截 Hooks](/zh-cn/docs/app/plugins/#control-a-model-or-tool-call)。
 - **容器与隔离环境**：如需隔离执行，可通过插件提供独立的[执行环境](/zh-cn/docs/sdk/tools/#choose-an-execution-environment)。
 

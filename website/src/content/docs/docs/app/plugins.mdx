@@ -3,22 +3,26 @@ title: Plugins
 description: Write, install, and distribute Bub plugins, and choose entry point, tool, and lifecycle forms.
 ---
 
-Plugins change Bub app behavior through hooks. A Python package declares a plugin object in the `bub` entry point group; Bub imports it and wires its hook implementations into the app.
+import { FileTree } from '@astrojs/starlight/components';
 
-The following first builds an echo plugin that needs no model credentials, so you can verify the complete create, install, and run flow. To reuse existing plugins, see [Reuse the Bub app](/docs/sdk/reuse-app/).
+Plugins are one of the Bub app's core capabilities. Bub uses standard [Python Entry Points](https://packaging.python.org/en/latest/specifications/entry-points/) to discover them automatically and hook contracts to inject custom logic throughout the app. A Python package declares a plugin object in the `bub` entry point group; Bub imports it and wires its hook implementations into the app.
+
+To get familiar with Bub plugins before exploring more advanced capabilities, start with an example that requires no external model credentials. To reuse existing plugins, see [Reuse the Bub app](/docs/integrations/reuse-app/).
 
 ## Create a plugin {#create-a-plugin}
 
-Prepare Python 3.12+ and [uv](/docs/getting-started/install/), then create this project:
+Prepare Python 3.12+ and [uv](https://docs.astral.sh/uv/), then create this project:
 
-```text
-bub-echo-plugin/
-├── pyproject.toml
-└── src/
-    └── bub_echo_plugin/
-        ├── __init__.py
-        └── plugin.py
-```
+<FileTree>
+
+- bub-echo-plugin/
+  - pyproject.toml
+  - src/
+    - bub_echo_plugin/
+      - \_\_init\_\_.py
+      - plugin.py
+
+</FileTree>
 
 `src/bub_echo_plugin/__init__.py` can stay empty. Declare the package and entry point in `pyproject.toml`:
 
@@ -40,7 +44,12 @@ echo = "bub_echo_plugin.plugin:echo_plugin"
 packages = ["src/bub_echo_plugin"]
 ```
 
-The entry point key `echo` is the plugin name; the value points to the object to load. Implement the model stage in `src/bub_echo_plugin/plugin.py`:
+Note:
+
+- The `entry-points` group name must be `"bub"`; Bub scans this namespace for plugins at startup.
+- The entry point key `echo` is the plugin's globally unique name, and the value points to the module, instance, or factory class to load.
+
+Implement the model stage in `src/bub_echo_plugin/plugin.py`, using `@hookimpl` to mark the hook implementation:
 
 ```python
 from bub import hookimpl
@@ -111,7 +120,7 @@ class MyPlugin:
         return f"Describe the workspace at {self.framework.workspace}."
 ```
 
-`build_prompt` replaces the model input. A real extension should choose the hook that matches its responsibility; see [Application hooks](/docs/app/hooks/).
+`build_prompt` replaces the model input. A real extension should choose the hook that matches its responsibility; see the [hooks reference](/docs/reference/hooks/).
 
 ## Provide tools {#provide-tools}
 
@@ -156,7 +165,9 @@ class MyRuntime(Lifecycle):
         await self._close()
 ```
 
-Lifecycle channels start and stop with the channel runtime and do not receive messages:
+Lifecycle channels start and stop with the channel runtime and do not receive messages.
+
+Note:
 
 - They appear among the channel names accepted by `--enable-channel`;
 - When ordinary channels are listed explicitly, enabled `Lifecycle` channels are still attached automatically;

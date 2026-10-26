@@ -41,7 +41,7 @@ In production, set `BUB_TELEGRAM_ALLOW_CHATS` or `BUB_TELEGRAM_ALLOW_USERS` as w
 
 `docker compose` reads `.env` and passes it to the container. Do not commit an `.env` that contains tokens.
 
-## 2. Understand the mounts {#volumes}
+## 2. Mount directories {#volumes}
 
 By default, the Compose file uses three bind mounts:
 
@@ -121,7 +121,9 @@ docker logs -f bub
 On every container start, `entrypoint.sh` does the following in order:
 
 1. If `/workspace/bub-reqs.txt` exists, install the Python packages listed in it into the image's virtual environment.
+
 2. Activate `/app/.venv` and run `bub install` with no arguments, which syncs the managed plugins in `/data/bub-project`.
+
 3. If `/workspace/startup.sh` exists, run it with `bash`; otherwise run `bub gateway`.
 
 As a result, plugins added by `bub install` survive container restarts. To pin extra dependencies in the workspace, commit `bub-reqs.txt`; it suits packages in the image that cannot be declared through a plugin project, but it lengthens every startup.

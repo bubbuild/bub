@@ -27,6 +27,10 @@ export default defineConfig({
     imageService: image_service,
     prerenderEnvironment: 'node',
   }),
+  redirects: {
+    '/docs/sdk/options': '/docs/sdk/tape',
+    '/zh-cn/docs/sdk/options': '/zh-cn/docs/sdk/tape',
+  },
   site: process.env.SITE_URL ?? 'https://bub.build',
   env: {
     schema: {
@@ -130,6 +134,7 @@ export default defineConfig({
           translations: { 'zh-CN': '核心概念' },
           items: [
             'docs/concepts',
+            'docs/concepts/kernel',
             'docs/concepts/turn',
             'docs/concepts/tape',
             'docs/concepts/events',
@@ -178,9 +183,9 @@ export default defineConfig({
           translations: { 'zh-CN': '构建你的 Bub Agent' },
           items: [
             'docs/sdk',
-            'docs/sdk/options',
             'docs/sdk/tools',
-            'docs/sdk/reuse-app',
+            'docs/sdk/tape',
+            'docs/sdk/events',
             'docs/sdk/web-service',
           ],
         },
@@ -188,10 +193,11 @@ export default defineConfig({
           label: 'Integrations',
           translations: { 'zh-CN': '集成' },
           items: [
+            'docs/integrations/reuse-app',
             'docs/integrations/mcp',
             {
               label: 'Portable Agent Plugins',
-              translations: { 'zh-CN': '可移植 Agent Plugins' },
+              translations: { 'zh-CN': '使用 Agent Plugins' },
               slug: 'docs/integrations/agent-plugins',
             },
             'docs/integrations/acp',

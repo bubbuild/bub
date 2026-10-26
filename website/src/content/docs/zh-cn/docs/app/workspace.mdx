@@ -3,9 +3,7 @@ title: 工作区
 description: 介绍如何在一个工作区中使用 Bub。
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
-默认情况下，Bub 在一个工作区（Workspace）中运行，这里的工作区即目录。它在这里浏览有关于当前工作区的文件信息或指令。
+默认情况下，Bub 在一个工作区（Workspace，即目录）中运行并浏览有关于当前工作区的文件信息或指令。
 
 ## 准备工作区（可选）
 
@@ -26,9 +24,9 @@ cd hello-bub
 
 之后每当 Bub 运行时，会从该指令中读取相应的规则，以便模型能够按照规则输出相应内容。在示例之后，你也可以自己不断去修改这个文件中的内容，然后看看不同规则下，模型输出的差异。
 
-<Aside type="tip">
-    `AGENTS.md` 是由 OpenAI 发起的一种用于指导编码代理（Agent）的简单开放格式，就好像很多项目都会有的 `README.md` 文件一样。点击以了解更多有关于 [AGENTS.md](https://agents.md/) 的介绍。
-</Aside>
+:::tip
+`AGENTS.md` 是由 OpenAI 发起的一种用于指导编码代理（Agent）的简单开放格式，就好像很多项目都会有的 `README.md` 文件一样。点击以了解更多有关于 [AGENTS.md](https://agents.md/) 的介绍。
+:::
 
 ## 检查命令
 

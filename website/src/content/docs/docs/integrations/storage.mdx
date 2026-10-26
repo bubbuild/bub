@@ -3,18 +3,19 @@ title: Store conversation history in SQLite
 description: Move Bub's Tapes from files to SQLite with a SQLAlchemy tape store plugin.
 ---
 
-By default, Bub stores Tapes as JSONL files. With [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy), the application can use SQLite or another SQLAlchemy database instead; `,tape.info`, `,tape.search`, Tape branching, and sidecars keep the same behavior.
+By default, Bub stores Tapes as JSONL files.
 
-This guide configures the global store used by the CLI. You can also construct `SQLAlchemyTapeStore` in your own Python program and pass it to `core.Agent`; see [Reuse the Bub app](/docs/sdk/reuse-app/).
+With [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy), the application can use SQLite or another SQLAlchemy database instead; `,tape.info`, `,tape.search`, Tape branching, and sidecars keep the same behavior.
 
-:::caution
+This guide configures the global store used by the CLI. You can also construct `SQLAlchemyTapeStore` in your own Python program and pass it to `core.Agent`; see [Reuse the Bub app](/docs/integrations/reuse-app/).
+
+:::caution[Existing history]
 Switching storage does not migrate existing JSONL Tapes. After moving to a new database, old sessions do not appear in `tape.search` or the session list, though the original files remain in the `tapes/` directory under Bub home. If you need the old history, back it up and complete the migration before switching.
 :::
 
 ## Before you begin {#before-you-start}
 
-- [Install the Bub application](/docs/getting-started/install/#app-install) and confirm that `bub --help` works.
-- Have a workspace where `bub run "What tools do you have?"` can call the model normally.
+- You have [installed the Bub application](/docs/getting-started/install/#app-install) and configured a working model.
 - Optional: the `sqlite3` command line for inspecting the database.
 - Confirm that the current `BUB_HOME` points to the directory where you want to keep the database:
 

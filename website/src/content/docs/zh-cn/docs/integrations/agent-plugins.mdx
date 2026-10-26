@@ -1,18 +1,33 @@
 ---
-title: 加载可移植 Agent Plugins
-description: 加载包含技能和 MCP 服务器的可移植 Agent Plugin，与现有 Bub 扩展一起使用。
+title: 使用 Agent Plugins
+description: 加载与管理遵循开放规范的 Agent Plugins 扩展包，开箱即用打包的技能与 MCP 工具。
 sidebar:
-  label: 可移植 Agent Plugins
   badge: { text: '应用', variant: 'note' }
 ---
 
-import { Steps } from '@astrojs/starlight/components';
+import { FileTree, Steps } from '@astrojs/starlight/components';
 
-[Agent Plugins 1.0.0](https://agent-plugins.org/specification) 定义了一种可移植目录：`plugin.json` 描述包，`skills/` 放技能，`mcp.json` 声明 MCP 服务器。`bub-agent-plugins` 把这个目录接入 Bub 的技能发现和 MCP 生命周期，不替换 Python 插件入口点。
+[Agent Plugins](https://agent-plugins.org/specification) 是一种跨平台的 Agent 扩展包规范。它采用纯声明式的目录结构，将提示词技能（Skills）和外部工具（MCP 服务器）打包在一起，无需编写或修改任何 Python 代码，即可实现即插即用和跨项目复用。
 
-下面创建一个包含摘要技能和时间服务器的插件包。验证命令直接调用技能和工具，不需要模型 API 密钥。
+```mermaid
+flowchart TD
+    subgraph Plugin ["Agent Plugin 扩展包"]
+        PJ["plugin.json (包元数据)"]
+        SK["skills/ (Prompt 技能集合)"]
+        MC["mcp.json (专有 MCP 服务器)"]
+    end
 
-开始前，先[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并确保 `PATH` 中有 `uvx`。
+    Bub["Bub Agent"]
+    Bub -->|"自动扫描加载"| Plugin
+    SK -->|"注册提示词"| Bub
+    MC -->|"独立渠道挂载"| Bub
+```
+
+[bub-agent-plugins](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-agent-plugins) 插件让 Bub 原生支持这一规范，自动识别并加载插件包中的技能与工具。
+
+## 如何接入
+
+开始前，请先[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并确保系统中安装了 [`uvx`](https://docs.astral.sh/uv/)。
 
 <Steps>
 
@@ -23,62 +38,54 @@ import { Steps } from '@astrojs/starlight/components';
    bub hooks
    ```
 
-   `bub-agent-plugins` 依赖 `bub-mcp`，请安装最新版；即使只使用技能也要显式安装。`bub hooks` 的 `load_state` 和 `provide_channels` 行中应出现 `agent-plugins`。
+   :::note
+   `bub-agent-plugins` 依赖 `bub-mcp` 提供底层工具生命周期支持，即使你当前只打算使用插件包中的技能，也请一并安装。
+   :::
 
-2. **创建插件包**
+   执行 `bub hooks` 检查输出，确认在 `load_state` 和 `provide_channels` 挂载列表中均出现了 `agent-plugins`。
 
-   在工作区中创建以下结构：
+2. **创建标准插件包**
 
-   ```text
-   .agents/plugins/portable-notes/
-   ├── plugin.json
-   ├── skills/
-   │   └── plugin-summary/
-   │       └── SKILL.md
-   └── mcp.json
-   ```
+   在当前项目工作区根目录下创建如下目录结构：
 
-   `plugin.json`：
+   <FileTree>
+
+   - .agents/
+     - plugins/
+       - portable-notes/
+         - plugin.json
+         - skills/
+           - plugin-summary/
+             - SKILL.md
+         - mcp.json
+
+   </FileTree>
+
+   编写清单文件 `plugin.json`：
 
    ```json
    {
      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
      "name": "portable-notes",
      "version": "1.0.0",
-     "description": "A summary skill and a time server for Bub"
+     "description": "提供笔记总结技能与时间工具的示例插件"
    }
    ```
 
-   `$schema` 和 `name` 为必填字段，`skills/` 和 `mcp.json` 均可选。
-
-   `skills/plugin-summary/SKILL.md`：
+   编写技能文件 `skills/plugin-summary/SKILL.md`：
 
    ```markdown
    ---
    name: plugin-summary
-   description: Summarize notes into decisions and next actions.
+   description: 快速总结会议或工作笔记，提取决策项和待办动作。
    ---
 
-   Read the supplied notes. List the decisions made, then the remaining actions and their owners.
-   If an owner is missing, say that it is unassigned.
+   阅读用户提供的笔记内容：
+   1. 列出所有已经做出的关键决策；
+   2. 列出后续待办动作，并注明具体责任人（若无明确人选，标记为「待指派」）。
    ```
 
-   技能的 `name` 必须与目录名一致。工作区和用户目录中的同名技能优先于插件内技能。
-
-3. **验证技能**
-
-   在工作区运行：
-
-   ```bash
-   bub --workspace . run ',skill'
-   bub --workspace . run ',skill name=plugin-summary'
-   ```
-
-   第一条命令应列出 `plugin-summary`，第二条应打印它的位置和正文。技能不需要后台渠道，因此可以使用 `bub run`。
-
-4. **添加并调用 MCP 服务器**
-
-   `mcp.json`：
+   编写工具文件 `mcp.json`：
 
    ```json
    {
@@ -93,86 +100,84 @@ import { Steps } from '@astrojs/starlight/components';
    }
    ```
 
-   可移植格式要求 `$schema`，每个服务器必须声明 `type`：`stdio`、`streamable-http` 或 `sse`。远程服务器使用 `url` 和可选的 `headers`；除回环地址外，URL 必须使用 HTTPS。
+3. **验证技能加载**
 
-   启动聊天界面：
+   在当前工作区运行 Bub 内置命令：
+
+   ```bash
+   bub --workspace . run ',skill'
+   bub --workspace . run ',skill name=plugin-summary'
+   ```
+
+   - 第一条命令将列出当前工作区可用的全部技能，其中应包含 `plugin-summary`。
+   - 第二条命令将打印出该技能的具体提示词内容和来源路径。由于技能本质是静态提示词注入，不需要常驻后台服务，因此可以通过 `bub run` 直接调用。
+
+4. **验证并调用插件内的 MCP 工具**
+
+   由于插件包内的 MCP 工具需要建立后台通道通信，请启动交互界面：
 
    ```bash
    bub --workspace . chat
    ```
 
-   等待服务器连接后，直接调用时间工具：
+   服务就绪后，直接在聊天窗口中测试插件工具（注意工具名称带插件名作为命名空间）：
 
    ```text
    ,mcp.portable-notes.time_get_current_time timezone=UTC
    ```
 
-   首次启动时，`uvx` 可能需要下载服务器。看到 `command not found` 时，检查启动日志并等待工具注册后重试。
+   也可以让配置好的大模型直接基于笔记执行总结或调用时间：
+   ```text
+   请使用 $plugin-summary 技能总结今天的任务，并帮我查一下当前的时间。
+   ```
 
 </Steps>
 
-[配置模型](/zh-cn/docs/app/configure/)后，也可以让模型调用时间工具，或使用 `$plugin-summary` 总结笔记。
+## 与全局 MCP 协同
 
-## 与现有 MCP 服务器一起使用
+Agent Plugins 内部声明的 MCP 服务与全局配置 `~/.bub/mcp.json` 是相互隔离的，双方拥有独立的作用域和生命周期通道：
 
-两类配置分别管理，互不影响：
+| 配置来源 | 配置文件路径 | 生命周期渠道 | 工具命名格式 |
+|---|---|---|---|
+| 全局独立配置 | `~/.bub/mcp.json` | `mcp.lifecycle` | `mcp.<server>_<tool>` |
+| Agent Plugin 内部 | `<plugin>/mcp.json` | `agent-plugins.mcp` | `mcp.<plugin>.<server>_<tool>` |
 
-| 配置来源 | 生命周期渠道 | 工具名称格式 |
-| --- | --- | --- |
-| `~/.bub/mcp.json` | `mcp.lifecycle` | `mcp.<server>_<tool>` |
-| `<plugin>/mcp.json` | `agent-plugins.mcp` | `mcp.<plugin>.<server>_<tool>` |
+这意味着你可以在两个配置中同时声明名为 `time` 的服务，而绝不会产生命名冲突。
+`bub mcp list` / `add` 仅用于管理全局配置；插件内部的服务会在插件加载时由 `agent-plugins.mcp` 自动维系。
 
-因此，两处都可以有名为 `time` 的服务器。`bub mcp add`、`remove` 和 `list` 只管理 `~/.bub/mcp.json`；插件包中的服务器通过启动日志和包含插件名的工具验证。
+## 配置发现路径
 
-`bub chat` 和 `bub gateway` 会启动已启用的生命周期渠道，`bub run` 不会。使用 `BUB_ENABLED_CHANNELS` 时，检查是否排除了 `agent-plugins.mcp` 或 `mcp.lifecycle`。
+Bub 默认会自动扫描以下两处目录的直接子文件夹：
+1. **工作区目录**：`<workspace>/.agents/plugins/`（针对当前项目生效）
+2. **用户根目录**：`~/.agents/plugins/`（对本机所有 Bub 任务生效）
 
-## 配置发现路径与组件
-
-Bub 默认扫描 `<workspace>/.agents/plugins/` 和 `~/.agents/plugins/` 的直接子目录。需要其他位置时，在 `~/.bub/config.yml` 中配置：
+如果需要加载系统其他目录下的插件，或需要单独开关某些功能，可以在 `~/.bub/config.yml` 中进行配置：
 
 ```yaml
 agent-plugins:
   paths:
-    - /opt/agent-plugins/reporting
+    - /opt/shared-agent-plugins/dev-tools
   auto_discover: true
   skills_enabled: true
   mcp_enabled: true
   data_root: ~/.bub/agent-plugins
 ```
 
-| 字段 | 作用 |
-| --- | --- |
-| `paths` | 显式插件根目录，每项直接包含 `plugin.json`；相对路径基于当前工作区 |
-| `auto_discover` | 设为 `false` 后只使用显式路径 |
-| `skills_enabled` / `mcp_enabled` | 分别启用技能和 MCP 组件 |
-| `data_root` | 插件持久化数据根目录，默认 `$BUB_HOME/agent-plugins` 或 `~/.bub/agent-plugins` |
+| 配置字段 | 默认值 | 说明 |
+|---|---|---|
+| `paths` | `[]` | 显式指定插件根目录列表（相对路径基于当前工作区）。 |
+| `auto_discover` | `true` | 是否自动扫描默认目录；设为 `false` 后仅加载 `paths` 中显式指定的插件。 |
+| `skills_enabled` | `true` | 是否加载插件包内的技能（Skills）。 |
+| `mcp_enabled` | `true` | 是否启动插件包内的 MCP 服务器。 |
+| `data_root` | `~/.bub/agent-plugins` | 插件运行时持久化数据的根存储路径。 |
 
-显式路径优先，其次是工作区目录，再其次是用户目录。多个插件包的清单名称相同时，采用第一个有效插件包。
+**优先级规则**：`paths` 中显式指定的插件 > 工作区目录插件 > 用户全局目录插件。若遇到同名清单插件，以最先扫描到的为准。
 
-环境变量使用 `BUB_AGENT_PLUGINS_` 前缀，列表值使用 JSON：
+## 故障排查 {#troubleshooting}
 
-```bash
-export BUB_AGENT_PLUGINS_PATHS='["/opt/agent-plugins/reporting"]'
-export BUB_AGENT_PLUGINS_AUTO_DISCOVER=false
-```
-
-stdio 服务器会收到绝对路径形式的 `PLUGIN_ROOT` 和 `PLUGIN_DATA`，默认工作目录是插件根目录。`${PLUGIN_ROOT}` 和 `${PLUGIN_DATA}` 仅在 `args`、`env` 的值和 `cwd` 中展开：
-
-```json
-{
-  "command": "python",
-  "args": ["${PLUGIN_ROOT}/server.py"]
-}
-```
-
-`PLUGIN_DATA` 指向 `data_root` 下以插件名命名的持久化目录。下载或更新插件包后，重启 Bub 加载新内容。
-
-## 故障排查
-
-| 现象 | 检查项 |
-| --- | --- |
-| `bub hooks` 中没有 `agent-plugins` | 确认两个接入插件都安装在当前环境，且 `bub-mcp` 版本兼容 |
-| 插件包被拒绝 | 检查 `plugin.json` 的 `$schema` 和 `name`，查看 `bub-agent-plugins:` 启动日志 |
-| 技能未出现 | 检查 `name` 是否与目录一致、`skills_enabled` 是否开启，以及是否有同名高优先级技能 |
-| MCP 工具未出现 | 检查 `mcp.json`、`mcp_enabled`、已启用渠道和连接日志 |
-| 技能可用但 MCP 不可用 | 两类组件独立加载；无效服务器会被跳过，不影响技能 |
+| 常见问题 | 排查方法 | 解决办法 |
+| --- | --- | --- |
+| 无法识别 `plugin-summary` 技能 | 检查 `plugin.json` 中的 `name` 是否与插件目录名一致 | 规范要求目录名与 `name` 严格相同；确认执行命令时携带了 `--workspace .`。 |
+| 提示 `mcp.<plugin>...` 工具未找到 | `bub-mcp` 未安装，或运行在 `bub run` 下 | 确认已执行 `bub install bub-mcp@main`，并在长会话模式 `bub chat` 下测试工具。 |
+| stdio 工具报路径找不到错误 | 插件依赖环境与系统环境脱节 | 在 `mcp.json` 的 `command` 中使用系统的绝对路径，或确保依赖命令在系统的全局 `PATH` 中。 |
+| 同名技能冲突 | 工作区定义了与插件同名的技能 | 工作区自身的技能（`skills/`）始终优先于插件内的同名技能。若想使用插件版本，重命名本地技能。 |

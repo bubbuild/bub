@@ -2,13 +2,16 @@
 title: Load portable Agent Plugins
 description: Load a portable Agent Plugin containing skills and MCP servers alongside existing Bub extensions.
 sidebar:
-  label: Portable Agent Plugins
   badge: { text: 'App', variant: 'note' }
 ---
 
-import { Steps } from '@astrojs/starlight/components';
+import { FileTree, Steps } from '@astrojs/starlight/components';
 
-[Agent Plugins 1.0.0](https://agent-plugins.org/specification) defines a portable directory: `plugin.json` describes the package, `skills/` holds skills, and `mcp.json` declares MCP servers. `bub-agent-plugins` connects this directory to Bub's skill discovery and MCP lifecycle without replacing Python plugin entry points.
+[Agent Plugins](https://agent-plugins.org/specification) is a cross-platform specification for Agent extension packages. It uses a purely declarative directory structure to package prompt skills and external tools (MCP servers) together, enabling plug-and-play use and reuse across projects without writing or modifying any Python code.
+
+The [bub-agent-plugins](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-agent-plugins) plugin gives Bub native support for this specification, automatically discovering and loading the skills and tools in each plugin package.
+
+## Get started
 
 Below you will create a plugin package containing a summary skill and a time server. The verification commands call the skill and tool directly and do not require a model API key.
 
@@ -29,14 +32,18 @@ Before you start, [install the Bub application](/docs/getting-started/install/#a
 
    Create the following structure in your workspace:
 
-   ```text
-   .agents/plugins/portable-notes/
-   ├── plugin.json
-   ├── skills/
-   │   └── plugin-summary/
-   │       └── SKILL.md
-   └── mcp.json
-   ```
+   <FileTree>
+
+   - .agents/
+     - plugins/
+       - portable-notes/
+         - plugin.json
+         - skills/
+           - plugin-summary/
+             - SKILL.md
+         - mcp.json
+
+   </FileTree>
 
    `plugin.json`:
 

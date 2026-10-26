@@ -218,7 +218,7 @@ from bub.builtin.agent import BubAgent
 | `BubAgent(framework, *, tools=None, tape_store=None, skill_dirs=None, command_prefix=None)` | 带设置、技能、code mode 的应用 Agent |
 | `await agent.run_stream(session_id=..., prompt=..., state=None, ...)` | 准备模型阶段并返回流 |
 
-配置是进程级缓存。要用 framework 的活动 store，在 `async with framework.running():` 内构造 `BubAgent`。显式 `tape_store` 优先，生命周期由调用方负责。嵌入见[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)。
+配置是进程级缓存。要用 framework 的活动 store，在 `async with framework.running():` 内构造 `BubAgent`。显式 `tape_store` 优先，生命周期由调用方负责。嵌入见[复用 Bub 应用](/zh-cn/docs/integrations/reuse-app/)。
 
 `run_stream` 参数：`session_id`（`temp/` 前缀使分支不合并）、`prompt`、`state`（`None` 时经 hook 加载）、`model`、`allowed_skills`、`allowed_tools`、`reasoning_effort`。须先 `await` 再迭代；不负责出站渲染、`save_state` 或同会话并发串行化。与完整 Turn 的差异见 [Turn 入口](/zh-cn/docs/concepts/turn/#entry-points)。
 
@@ -290,11 +290,3 @@ from bub.inquirer import ask_checkbox, ask_confirm, ask_fuzzy, ask_secret, ask_s
 ```
 
 这些同步函数用于插件 CLI 和 `onboard_config`：分别收集多选、确认、模糊单选、隐藏密钥、普通单选和文本。它们通过 Bub CLI 运行时会发布 `PromptChanged`；用户取消时抛出 `typer.Abort`。用法见[收集交互式输入](/zh-cn/docs/app/plugins/#prompt-for-input)。
-
-## 相关参考 {#related}
-
-- [Tape 与上下文](/zh-cn/docs/concepts/tape/)
-- [事件](/zh-cn/docs/concepts/events/)
-- [扩展点](/zh-cn/docs/concepts/extension-points/)
-- [Hooks](/zh-cn/docs/reference/hooks/)
-- [工具](/zh-cn/docs/sdk/tools/)

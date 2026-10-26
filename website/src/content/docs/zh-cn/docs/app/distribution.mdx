@@ -3,7 +3,7 @@ title: 打包与分发
 description: 将 Bub 应用、自有命令、插件与技能打包为标准 Python 发行包并进行发布验证。
 ---
 
-import { Steps, Aside } from '@astrojs/starlight/components';
+import { FileTree, Steps } from '@astrojs/starlight/components';
 
 当你基于 Bub 构建了自定义工具、通道插件、特定工作流技能，甚至想要打造专属的定制 CLI 时，可以将它们打包为标准的 Python 发行包（Wheel），发布至 PyPI 或私有镜像源供团队与用户安装。
 
@@ -15,9 +15,9 @@ import { Steps, Aside } from '@astrojs/starlight/components';
 | **专属业务 CLI** | 自定义命令行脚本（如 `my-bub`） | 包装 Bub 为特定业务场景的专属 Agent，固定工作区或封装默认配置 |
 | **一体化套件** | 自有命令 + 插件 + 技能（All-in-One） | 一键交付完整的垂直领域智能体，用户安装即可直接使用 |
 
-<Aside type="note">
-本页侧重于**作为独立可安装包的构建与分发**。若你是在已有的 Web 框架或后台服务中以代码形式集成 Bub，请参阅[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)。
-</Aside>
+:::note
+本页侧重于**作为独立可安装包的构建与分发**。若你是在已有的 Web 框架或后台服务中以代码形式集成 Bub，请参阅[复用 Bub 应用](/zh-cn/docs/integrations/reuse-app/)。
+:::
 
 ## 发布自有命令 {#publish-a-command}
 
@@ -53,27 +53,29 @@ my-bub = "my_bub.cli:main"
 
 一个 Wheel 发行包可以同时提供插件入口点、标准技能命名空间包以及自定义 CLI 命令：
 
-```text
-my-bub/
-├── pyproject.toml
-└── src/
-    ├── my_bub/
-    │   ├── __init__.py
-    │   ├── cli.py             # 自有 CLI 入口
-    │   ├── plugin.py          # 插件与 Hook 实现
-    │   └── tools.py           # 自定义工具
-    └── skills/                # 技能命名空间包（切勿放置 __init__.py）
-        └── repo-reviewer/
-            ├── SKILL.md
-            └── references/
-                └── guidelines.md
-```
+<FileTree>
 
-<Aside type="caution" title="命名空间包规范">
+- my-bub/
+  - pyproject.toml
+  - src/
+    - my_bub/
+      - \_\_init\_\_.py
+      - cli.py # 自有 CLI 入口
+      - plugin.py # 插件与 Hook 实现
+      - tools.py # 自定义工具
+    - skills/ # 技能命名空间包（切勿放置 \_\_init\_\_.py）
+      - repo-reviewer/
+        - SKILL.md
+        - references/
+          - guidelines.md
+
+</FileTree>
+
+:::caution[命名空间包规范]
 `src/skills/` 必须作为 **PEP 420 隐式命名空间包** 分发，**绝对不能**在 `src/skills/` 目录下创建 `__init__.py`。只有保持命名空间包结构，用户安装此包后，其目录下的技能才能与 Bub 内置技能及其他扩展包中的技能在 `skills.__path__` 中自动合流。技能编写规范详见[技能](/zh-cn/docs/app/skills/)。
-</Aside>
+:::
 
-### 配置 pyproject.toml 与 Hatch {#configure-packaging}
+### 配置 pyproject.toml {#configure-packaging}
 
 在 `pyproject.toml` 中配置入口点与 Hatch 构建包含规则：
 
@@ -123,7 +125,7 @@ uv build
 
 ## 发布前验证 {#verify-a-release}
 
-发布到公开或生产环境前，**务必在全新的干净虚拟环境中完成验证**。干净环境可以有效暴露漏声明的外部依赖、不可导入的入口点或只在本地开发目录才能读取的相对路径配置。
+发布到公开或生产环境前，务必在全新的虚拟环境中完成验证。
 
 <Steps>
 
@@ -154,6 +156,6 @@ uv build
    验证模型交互、自定义工具执行、内部命令调度以及会话历史持久化。
 
 5. **验证网关与宿主集成（如适用）**：
-   若该发行包提供了渠道扩展或被宿主系统集成，按[部署](/zh-cn/docs/app/deploy/)与[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)接入宿主服务，验证并发、关闭流和退出清理。
+   若该发行包提供了渠道扩展或被宿主系统集成，按[部署](/zh-cn/docs/app/deploy/)与[复用 Bub 应用](/zh-cn/docs/integrations/reuse-app/)接入宿主服务，验证并发、关闭流和退出清理。
 
 </Steps>

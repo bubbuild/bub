@@ -7,7 +7,11 @@ sidebar:
 
 import { Steps } from '@astrojs/starlight/components';
 
-With the `bub-mcp` plugin, you can connect the tools provided by MCP servers to the Bub application. The walkthrough below uses a time server to cover installation, connection, and invocation.
+[Model Context Protocol](https://modelcontextprotocol.io/), or **MCP**, is an open protocol that lets Agents securely and consistently call external tools and data sources, whether local or remote.
+
+By installing the [bub-mcp](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp) plugin, you can seamlessly connect tools from across the MCP ecosystem to the Bub application.
+
+## Get started
 
 Before you start, [install the Bub application](/docs/getting-started/install/#app-install) and make sure [`uvx`](https://docs.astral.sh/uv/) is on `PATH`, since it launches [`mcp-server-time`](https://pypi.org/project/mcp-server-time/).
 
@@ -48,7 +52,10 @@ Before you start, [install the Bub application](/docs/getting-started/install/#a
    EOF
    ```
 
-   Stdio servers require `command`; `args` and `env` are optional. The presence of `command` selects stdio, so no `transport` field is needed.
+   Configuration notes:
+
+   - For local command-line servers (stdio), provide `command` and, optionally, `args` and `env`.
+   - A configuration containing `command` automatically uses stdio, so no `transport` field is needed.
 
 3. **Verify the connection**
 
@@ -65,7 +72,10 @@ Before you start, [install the Bub application](/docs/getting-started/install/#a
      Tools: mcp.time_get_current_time, mcp.time_convert_time
    ```
 
-   Each remote tool is exposed to Bub as `mcp.<server>_<tool>`. By default, the model lazily loads full tool definitions and calls `tool.describe` first when needed; set `BUB_MCP_DEFERRED_TOOLS=false` to put all definitions directly into the prompt.
+   Note:
+
+   - Each MCP tool is exposed to Bub as `mcp.<server>_<tool>`.
+   - To reduce prompt token usage, Bub lazily loads full tool definitions by default. The model calls `tool.describe` to fetch a definition when needed. Set `BUB_MCP_DEFERRED_TOOLS=false` to include all definitions directly in the system prompt.
 
    If you see `Status: Disconnected`, first run `uvx mcp-server-time` outside Bub to diagnose startup problems, then press `Ctrl-C` to stop it.
 

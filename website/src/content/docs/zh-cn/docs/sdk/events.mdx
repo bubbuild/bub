@@ -1,0 +1,164 @@
+---
+title: 事件
+description: 用 AgentEvent 观察订单助手，并在工具副作用发生前拒绝或替换调用。
+---
+
+`agent.events` 是同步派发、可等待的 EventBus。它既能为宿主提供审计与指标，也能在模型或工具调用前修改请求、拒绝执行或替换结果。
+
+本章给订单助手增加一条明确策略：**查询订单允许执行，退款必须得到当前 Run 的授权。**
+
+## 审计与退款拦截的完整示例 {#complete-example}
+
+将 `main.py` 改为：
+
+```python
+import asyncio
+
+import republic
+
+from bub.core import Agent
+from bub.core.events import (
+    LLMCallFinished,
+    RunFinished,
+    ToolCallDecision,
+    ToolCallFinished,
+    ToolCallStarted,
+)
+from bub.core.tools import tool
+
+
+@tool
+async def get_order(order_id: str) -> dict[str, str]:
+    """按订单号查询订单状态。"""
+    await asyncio.sleep(0.1)
+    if order_id == "A123":
+        return {"order_id": "A123", "status": "shipped"}
+    return {"order_id": order_id, "error": "order_not_found"}
+
+
+@tool
+def refund_order(order_id: str, reason: str) -> dict[str, str]:
+    """为订单申请退款。这是写操作，执行前必须检查权限。"""
+    return {"order_id": order_id, "status": "refund_requested", "reason": reason}
+
+
+async def main() -> None:
+    agent = Agent(
+        tools=[get_order, refund_order],
+        system_prompt="你是订单客服助手。查询和退款必须使用对应工具，并尊重工具返回的拒绝原因。",
+        max_steps=6,
+    )
+
+    @agent.events.on(ToolCallStarted)
+    def authorize_tool(event: ToolCallStarted) -> None:
+        print(f"[工具请求] {event.call.tool}，参数：{event.call.arguments}")
+        if event.call.tool == "refund_order" and not event.state.get("allow_refunds", False):
+            event.decision = ToolCallDecision.deny("当前会话没有退款权限，请联系人工客服。")
+
+    @agent.events.on(ToolCallFinished)
+    def audit_tool(event: ToolCallFinished) -> None:
+        status = "error" if event.result.error else "ok"
+        print(f"[工具审计] {event.result.tool}：{status}，{event.result.duration_ms}ms")
+
+    @agent.events.on(LLMCallFinished)
+    def record_usage(event: LLMCallFinished) -> None:
+        if event.result.error:
+            print(f"[模型失败] {event.result.error}")
+        else:
+            print(f"[模型用量] {event.result.usage}")
+
+    @agent.events.on(RunFinished)
+    def report_run(event: RunFinished) -> None:
+        print(f"[Run 结束] status={event.status}, steps={event.steps}")
+
+    async def run_turn(prompt: str, model) -> None:
+        async with agent.run(
+            prompt,
+            model=model,
+            tape="customer-42",
+            state={"session_id": "customer-42", "allow_refunds": False},
+        ) as stream:
+            async for event in stream:
+                if event.kind == "text":
+                    print(event.data["delta"], end="", flush=True)
+        print()
+
+    async with republic.get_model("openai:gpt-5-mini") as model:
+        await run_turn("查询订单 A123 的状态。", model)
+        await run_turn("我要给订单 A123 退款，原因是商品不合适。", model)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+运行：
+
+```bash
+uv run python main.py
+```
+
+第二个场景中，`refund_order` 函数不会执行。Bub 仍会发出对应的 `ToolCallFinished`，并把拒绝原因作为工具错误交回模型，让模型解释为什么无法退款。
+
+`deny` 阻止的是这次工具副作用，不会自动终止整个 Run。如果业务需要立即中断，应由宿主根据异常或运行状态控制流程，而不是把 `deny` 当作异常机制。
+
+## 三种事件不要混淆 {#three-channels}
+
+一次运行会同时涉及三类“事件”，它们的方向和职责不同：
+
+| 类型 | 获取方式 | 用途 |
+| --- | --- | --- |
+| `AgentEvent` | `agent.events.on(...)` | 观察生命周期，在特定调用前同步干预 |
+| `StreamEvent` | 迭代 `agent.run()` 的流 | 向调用方交付文本、工具进度、用量和 Step 汇总 |
+| `TapeEntry` | 查询 Tape | 保存对话、工具往返与运行记录，供以后读取和投影 |
+
+例如，`ToolCallStarted` 可以阻止工具执行；`tool_call` 流事件只是通知调用方模型请求了工具；Tape 中的工具条目用于后续历史与上下文。三者不能互相替代。
+
+## 在执行前控制工具调用 {#call-control}
+
+工具权限策略应注册在 `ToolCallStarted`，而不是监听 `ToolCallDecision`。后者是设置在 `event.decision` 上的决策对象：
+
+| 操作 | 原工具是否执行 | 模型看到的结果 | 后续同名事件处理器 |
+| --- | --- | --- | --- |
+| 保持默认 `proceed` | 是 | 实际结果或工具错误 | 继续 |
+| `ToolCallDecision.deny(message)` | 否 | 指定拒绝原因形成的工具错误 | 停止本次 Started 派发 |
+| `ToolCallDecision.replace(result)` | 否 | 指定替代结果 | 停止本次 Started 派发 |
+| 替换 `event.call` | 是，使用新调用 | 新调用的实际结果 | 继续 |
+
+被拒绝或被替换的调用仍会产生 `ToolCallFinished`。权限拒绝不等于只给模型一句自然语言提醒：它确实跳过了工具函数。
+
+`ToolCall` 是 frozen dataclass。需要规范化参数时，用 `dataclasses.replace()` 替换整个调用，不要原地修改字段：
+
+```python
+from dataclasses import replace
+
+
+@agent.events.on(ToolCallStarted)
+def normalize_order_id(event: ToolCallStarted) -> None:
+    if event.call.tool == "get_order":
+        arguments = {
+            **event.call.arguments,
+            "order_id": event.call.arguments["order_id"].strip().upper(),
+        }
+        event.call = replace(event.call, arguments=arguments)
+```
+
+`LLMCallStarted` 提供对应的模型调用前控制，可以替换 `event.request`，或设置 `LLMCallDecision.finish(text)` 跳过提供商调用。
+
+## 处理器会阻塞派发，异常会传播 {#delivery}
+
+EventBus 的派发规则直接影响可靠性：
+
+1. 处理器按注册顺序执行，基类处理器也能接收子类事件。
+2. 返回 awaitable 时，总线会等待它完成，再调用下一个处理器。
+3. 普通返回值会被忽略；要控制运行，应修改事件字段或设置 `decision`。
+4. 处理器异常会传播给发布方，可能使整个 Run 失败。
+5. `decision` 使 `event.stopped` 为真后，本次事件不再派发给后续处理器。
+
+因此，非关键日志、指标或通知处理器应自行捕获异常，避免可观测性故障中断业务 Run。需要移除长期注册时，使用 `agent.events.off(EventType, handler)`。
+
+每个已开始的 Run 在流关闭时都会发出 `RunFinished`，包括提前取消，因此端到端统计应优先使用它。模型与工具的 Finished 事件不保证覆盖所有取消路径，不能只靠它们做清理或计费。
+
+完整事件字段见[事件核心概念](/zh-cn/docs/concepts/events/)和 [Python API](/zh-cn/docs/reference/python-api/)。要把策略封装成可安装插件，见[使用 Agent Plugins](/zh-cn/docs/integrations/agent-plugins/)。
+
+下一步把循环、工具、Tape 和事件组装成完整服务：[综合案例：FastAPI 服务](/zh-cn/docs/sdk/web-service/)。

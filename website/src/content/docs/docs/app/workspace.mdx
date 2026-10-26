@@ -3,8 +3,6 @@ title: Workspace
 description: How to use Bub within a workspace.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
 By default, Bub runs in a workspace, which is simply a directory. It reads information and instructions about the current workspace from there.
 
 ## Prepare a workspace (optional)
@@ -26,9 +24,9 @@ Keep replies short and specific.
 
 From then on, each time Bub runs, it reads these rules from the instructions so the model can follow them in its output. After trying the example, keep editing this file and see how the model's output changes under different rules.
 
-<Aside type="tip">
-    `AGENTS.md` is a simple open format introduced by OpenAI for guiding coding agents, much like the `README.md` file that many projects have. Learn more about [AGENTS.md](https://agents.md/).
-</Aside>
+:::tip
+`AGENTS.md` is a simple open format introduced by OpenAI for guiding coding agents, much like the `README.md` file that many projects have. Learn more about [AGENTS.md](https://agents.md/).
+:::
 
 ## Check commands
 

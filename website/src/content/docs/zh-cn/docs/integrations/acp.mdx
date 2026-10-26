@@ -1,47 +1,61 @@
 ---
 title: 通过 ACP 接入 IDE
-description: 安装 bub-acp-server，在 Zed 或兼容 ACP 的客户端中运行 Bub。
+description: 安装 bub-acp-server，在 Zed 或兼容 ACP 协议的代码编辑器中运行与交互 Bub Agent。
 sidebar:
   badge: { text: '应用', variant: 'note' }
 ---
 
-[Agent Client Protocol](https://agentclientprotocol.com/)（ACP）让编辑器启动一个 Agent 进程，并通过 JSON-RPC 交换会话、提示词、工具调用和流式更新。`bub-acp-server` 把 Bub 应用接到这个协议上。
+[Agent Client Protocol](https://agentclientprotocol.com/)（ACP）是一套开放的标准协议，允许代码编辑器（如 Zed）以子进程方式启动 Agent，并通过 JSON-RPC 双向流式交换会话、提示词、工具调用状态和代码编辑操作。
 
-本指南先用 stdio 接入 Zed，再说明 HTTP/WebSocket 和排障。ACP 只负责编辑器界面；模型、工具、技能和 Tape 仍由 Bub 配置。
+`bub-acp-server` 插件将 Bub 应用接入 ACP 协议，使你能够在日常使用的 IDE 中直接唤出 Bub 进行代码编写、重构与排障。
+
+```mermaid
+flowchart LR
+    IDE["代码编辑器\n (支持 ACP 协议)"]
+    Server["bub-acp-server"]
+    Bub["Bub Agent"]
+
+    IDE <-->|"JSON-RPC"| Server
+    Server <-->|"Turn 事件与工具执行"| Bub
+```
 
 ## 开始之前 {#before-you-start}
 
-- 已[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并确认 `bub --help` 可用。
-- `bub run "Reply with one short sentence."` 能正常使用模型。
-- Zed 已安装。其他 ACP 客户端也可以使用，只是启动配置字段不同。
+- 已[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并配置可用模型。
+- 已安装 [Zed](https://zed.dev/) 编辑器（或其他支持 ACP 协议的客户端）。
 
-ACP 进程读取当前环境的 Bub 配置。Zed 启动进程时的工作目录和环境可能与终端不同，因此先确认 `bub` 指向你安装插件的那个可执行文件：
+:::note[环境变量与路径]
+Zed 等应用程序在启动时，其继承的 `PATH` 和环境变量通常与终端（如 `~/.zshrc` 或 `~/.bashrc`）不同。请先通过终端确认当前环境的 `bub` 绝对路径：
 
 ```bash
 command -v bub
-bub --version
 ```
+:::
 
-## 1. 安装并验证插件 {#install}
+## 1. 安装插件 {#install}
+
+在包含 Bub 的 Python 环境中安装适配器插件：
 
 ```bash
 bub install bub-acp-server@main
 bub acp --help
 ```
 
-输出应包含：
+如果安装成功，终端输出将显示：
 
 ```text
 Usage: bub acp [OPTIONS]
 ```
 
-`bub-acp-server` 位于 [`bubbuild/bub-contrib`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-acp-server)。插件依赖最新版 `bub-mcp`，用于 ACP 会话中的 MCP 服务器。找不到命令时，检查插件是否装进了 `command -v bub` 所在的环境。
-
-`bub acp` 默认通过 stdio 通信。旧命令 `bub acp serve` 仍暂时可用，但会打印弃用警告；新配置直接使用 `bub acp`。
+`bub-acp-server` 默认使用标准输入输出（`stdio`）与宿主编辑器通信。
 
 ## 2. 配置 Zed {#zed}
 
-用命令面板执行 `zed: open settings`，在 `settings.json` 中加入：
+在 Zed 中使用快捷键 `Cmd+Shift+P`（macOS）或 `Ctrl+Shift+P`（Linux/Windows）打开命令面板，输入并执行 `zed: open settings`，在打开的 `settings.json` 中添加 `agent_servers` 配置。
+
+### 方案 A：全局安装
+
+如果 `bub` 位于系统全局 `PATH` 中，且不需要额外加载特定项目的 `.env` 文件，可直接配置：
 
 ```json
 {
@@ -56,16 +70,34 @@ Usage: bub acp [OPTIONS]
 }
 ```
 
-Zed 找不到 `bub` 时，把 `command` 换成 `command -v bub` 输出的绝对路径。项目配置放在项目 `.env` 时，使用一个会先加载它的包装脚本：
+*如果 Zed 报错找不到 `bub`，请将 `"command"` 替换为前面通过 `command -v bub` 获取到的绝对路径。*
+
+### 方案 B：使用包装脚本
+
+如果你的项目依赖特定的 Python 虚拟环境，或者模型 API Key 保存在工作区根目录的 `.env` 中，强烈建议编写一个启动包装脚本（例如 `~/.bub/bub-acp-wrapper`）：
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-cd /path/to/project
-set -a
-. ./.env
-set +a
-exec /absolute/path/to/bub acp
+
+# 1. 激活虚拟环境（若有）
+# source /path/to/venv/bin/activate
+
+# 2. 加载工作区或用户环境变量
+if [ -f "$PWD/.env" ]; then
+  set -a
+  source "$PWD/.env"
+  set +a
+fi
+
+# 3. 使用绝对路径启动 Bub ACP
+exec /path/to/your/bub acp
+```
+
+赋予执行权限后，在 Zed 设置中直接指向该脚本：
+
+```bash
+chmod +x ~/.bub/bub-acp-wrapper
 ```
 
 ```json
@@ -73,7 +105,7 @@ exec /absolute/path/to/bub acp
   "agent_servers": {
     "Bub": {
       "type": "custom",
-      "command": "/path/to/bub-acp-wrapper",
+      "command": "/Users/yourname/.bub/bub-acp-wrapper",
       "args": [],
       "env": {}
     }
@@ -81,76 +113,72 @@ exec /absolute/path/to/bub acp
 }
 ```
 
-包装脚本中的 `cd` 也决定了 ACP 的默认工作区。需要让编辑器打开的项目成为 workspace 时，在客户端传入 ACP 的 `cwd`，或让包装脚本进入对应目录。
-
-`env` 只用于补充 Bub 自己无法读取的变量。模型凭据、工具和插件仍由 Bub 的配置文件与环境变量管理；不要在两个地方维护同一份 token。
-
 ## 3. 启动会话 {#start}
 
-保存设置并重新加载 Zed。用 `cmd-?`（macOS）或 `ctrl-?`（Linux/Windows）打开 Agent 面板，新建线程并选择 **Bub**。发送一条简单消息：
+保存设置后重启 Zed 或重新加载配置：
 
-```text
-hello
-```
+1. 按 `Cmd+?`（macOS）或 `Ctrl+?`（Linux/Windows）打开 Zed 的 Agent 侧边面板。
+2. 在模型/后端选择菜单中切换为 **Bub**。
+3. 在输入框中输入消息进行测试：
+   ```text
+   你好！请介绍一下你自己。
+   ```
+4. Bub 将通过流式传输把响应、思考过程及工具调用步骤逐一投递在面板上。
 
-回复应显示在 Agent 面板中。ACP 会把文本增量、工具调用和状态更新转成编辑器可显示的事件。
-
-图片和文件由 ACP 客户端按自身能力处理。Zed 支持时，Bub 的 `bash`、`fs.read`、`fs.write` 和 `fs.edit` 可以使用编辑器提供的终端与文件系统；客户端未声明对应能力时，继续使用本地工具。
+:::tip[原生工具能力]
+Zed 支持让 Agent 借助编辑器的文件系统和终端执行操作。当 Zed 具备相关权限时，Bub 的 `bash`、`fs.read`、`fs.write` 将自动优先由编辑器托管执行；若客户端未声明该能力，则退回到本机运行。
+:::
 
 ## 4. 会话与恢复 {#sessions}
 
-`bub-acp-server` 支持新建、加载、恢复、列出和删除 ACP 会话。会话元数据保存在 Bub home 下的 `acp-sessions.json`；历史从 Bub 当前的 Tape 存储读取。
+`bub-acp-server` 具备完整的会话生命周期管理能力：
 
-- **加载**：恢复已有会话，并重放用户消息、助手文本和工具事件。
-- **恢复**：重新附着到同一会话，但不重放历史。
-- **删除**：清理 ACP 元数据、活动 turn，以及该会话的 Tape 和 sidecar Tape。
-- **关闭**：结束连接，保留历史。
+- **新建会话**：在 Zed 面板新建 Thread，对应底层开启一条全新的会话 Tape。
+- **历史恢复**：切换回旧 Thread 时，Bub 会从持久化 Tape 存储中提取并重放该会话的历史消息与工具上下文。
+- **持久化绑定**：会话的元数据索引存放在 `$BUB_HOME/acp-sessions.json`。只要你的 `BUB_HOME` 和工作区路径保持稳定，重启编辑器后历史会话列表依然完好无损。
+- **模型与推理参数**：在 Zed 界面中调节的思考深度（Reasoning Effort）或选择的具体模型别名，会自动附加在本次 ACP 会话的后续请求中。
 
-因此要保留编辑器中的线程列表，需要保持 `BUB_HOME` 和 Tape 存储配置稳定。ACP 只隔离协议会话 ID；Bub 会在内部加上渠道前缀，避免与同一 ID 的其他渠道共用 Tape。
+## 5. 远程服务模式 {#http}
 
-ACP 客户端可以为每个会话选择模型和 reasoning effort。实际可选值取决于当前提供商；选择结果会随 ACP 会话保存，并进入后续 Bub turn 的模型调用。
+在大多数本地开发场景中，默认的 `stdio` 是最轻量且低开销的选择。如果你把 Bub 部署在云端开发机（Remote Server）或 Docker 容器内，需要供本地开发机上的编辑器远程调用，可以使用 HTTP/WebSocket 服务模式。
 
-## 5. HTTP 与 WebSocket（可选） {#http}
-
-默认 stdio 足够本地编辑器使用。需要远程客户端或长期运行的 ACP 服务时，从 `bub-contrib` 检出目录安装 HTTP 依赖，再启动网关渠道：
+### 方式 1：独立启动服务
 
 ```bash
-git clone https://github.com/bubbuild/bub-contrib
-cd bub-contrib
-uv pip install -e 'packages/bub-acp-server[http]'   # 应作用于 bub 所在虚拟环境
-bub gateway --enable-channel acp-server
-```
-
-默认端点为 `http://127.0.0.1:28200/acp`。配置项：
-
-| 环境变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `BUB_ACP_SERVER_HOST` | `127.0.0.1` | 监听地址 |
-| `BUB_ACP_SERVER_PORT` | `28200` | 监听端口 |
-| `BUB_ACP_SERVER_CERTFILE` | — | TLS 证书，需与 key 同时设置 |
-| `BUB_ACP_SERVER_KEYFILE` | — | TLS 私钥 |
-
-`acp-server` 是 `Interface` 渠道，不会由 `all` 自动启动，必须显式启用。HTTP 端点默认没有认证，只适合本机或受信任网络；远程暴露时应在前面加认证代理并启用 TLS。
-
-也可以不经过网关，直接运行：
-
-```bash
+# 启动 HTTP 服务
 bub acp --transport http
+
+# 或启动 WebSocket 服务
 bub acp --transport websocket
 ```
 
-WebSocket 默认端点为 `ws://127.0.0.1:28200/acp`。HTTP 和 WebSocket 由同一个 SDK Web 传输提供，TLS 使用 `https://` 或 `wss://`。网关渠道会复用活动会话资源；断线重连和未发送事件仍由客户端负责。
+默认监听地址为 `127.0.0.1:28200`（HTTP 端点为 `http://127.0.0.1:28200/acp`，WebSocket 端点为 `ws://127.0.0.1:28200/acp`）。
 
-## 排障 {#troubleshooting}
+### 方式 2：作为 Bub Gateway 渠道长驻运行
 
-| 现象 | 检查 |
-| --- | --- |
-| `bub acp` 不存在 | 把插件装进 Zed 实际使用的 `bub` 环境，并用绝对路径启动。 |
-| 编辑器无法启动进程 | 先在同一工作目录手动运行 `bub acp`，查看 stderr；stdio 进程不能向 stdout 打印普通日志。 |
-| 启动后模型配置错误 | 在同一环境运行 `bub run "hello"`。项目 `.env` 未加载时使用包装脚本。 |
-| 工具调用没有显示 | 打开 Zed 的 `dev: open acp logs`，检查 JSON-RPC 与 ACP 能力协商。 |
-| 重启后线程消失 | 保持 `BUB_HOME`、工作区和 Tape 存储不变。 |
-| HTTP 客户端连不上 | 确认启动的是 `acp-server` 渠道或 `bub acp --transport http`，并检查监听地址、端口和 TLS。 |
-| 长会话被压缩 | `bub-acp-server` 会把 `tape.handoff` 报告为上下文压缩事件；这是 Tape 上下文策略，不是编辑器缓存。 |
+通过网关模式可以同时维护会话池与后台连接：
 
-协议与高级能力以[插件 README](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-acp-server) 为准。启用客户端文件或终端能力后，对应工具会在编辑器中执行；模型选择、花费和 Tape 存储仍由 Bub 管理。
+```bash
+bub gateway --enable-channel acp-server
+```
+
+| 环境变量 | 默认值 | 作用说明 |
+| --- | --- | --- |
+| `BUB_ACP_SERVER_HOST` | `127.0.0.1` | 监听的主机 IP（如需对外开放可设为 `0.0.0.0`，注意网络安全） |
+| `BUB_ACP_SERVER_PORT` | `28200` | 服务端口 |
+| `BUB_ACP_SERVER_CERTFILE` | 空 | TLS 证书路径（开启 HTTPS/WSS 必须） |
+| `BUB_ACP_SERVER_KEYFILE` | 空 | TLS 私钥路径 |
+
+:::caution[安全边界]
+HTTP/WebSocket 端点默认不提供复杂的用户鉴权。若需要跨公网暴露，请务必在前置配置 Nginx 或 Cloudflare Tunnel 增加身份认证，并启用 TLS 加密。
+:::
+
+## 故障排查 {#troubleshooting}
+
+| 常见问题 | 排查切入点 | 解决建议 |
+| --- | --- | --- |
+| Zed 提示找不到 Agent Server | 检查 `"command"` 路径 | 在终端执行 `command -v bub`，将配置中的 `command` 改为系统绝对路径。 |
+| 面板显示启动失败或退回 | 环境变量未生效（如缺少 API Key） | 采用[方案 B](#zed) 编写 wrapper 脚本，在脚本中强制 `source` 所需的 `.env`。 |
+| 不清楚协议握手卡在哪里 | 查看 Zed 的 ACP 通信日志 | 在 Zed 中打开命令面板，执行 `dev: open acp logs`，实时观察 JSON-RPC 的交互事件。 |
+| 工具调用没有正常触发 | 检查客户端能力协商（Capabilities） | 确认工作区具有读写权限；在同一终端下先用 `bub run` 测试工具是否正常。 |
+| 会话历史无法保存 | 检查 `BUB_HOME` 目录权限 | 确保运行 Zed 的用户对 `~/.bub` 目录拥有读写权限。 |

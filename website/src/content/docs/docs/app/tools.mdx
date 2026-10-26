@@ -47,16 +47,18 @@ For complex logic or batch data processing, repeated tool round-trips consume a 
 ,code_mode enable=true
 ```
 
-- The setting takes effect from the next Turn and is persisted in the current session record.
+Note:
+
+- The setting takes effect from the next turn and is persisted in the current session record.
 - Use `,code_mode enable=false` to turn it off and return to the default mode.
 - For the Python syntax for calling tools in code mode, see [Compose tools with code mode](/docs/sdk/tools/#compose-tools-with-codemode).
 
-## Execution environment and security boundaries {#environment}
+## Execution environment and security {#environment}
 
-The built-in Shell (`bash`), file access (`fs.*`), and code execution (`run_code`) all run directly under the current local user's privileges and can have irreversible effects on the system or data, so know this before you use them:
+Built-in tools such as Shell commands (`bash`), file access (`fs.*`), and code execution (`run_code`) run directly with the current local user's permissions and can have irreversible effects on your system or data. Keep the following in mind:
 
-- **Not a sandbox**: the default environment is not an isolated sandbox; commands the model runs have **real read/write and process side effects on the local system**.
-- **Permissions and interception**: use [tool interception hooks](/docs/app/hooks/#control-a-model-or-tool-call) when you need human approval or extra conditions before high-risk commands run.
+- **Not securely isolated**: the default environment is not an isolated sandbox; commands the model runs have **real read/write and process side effects on the local system**.
+- **Permissions and interception**: use [tool interception hooks](/docs/reference/hooks/#interception-through-pluginagenthooks) when you need human approval or extra conditions before high-risk commands run.
 - **Containers and isolated environments**: provide a separate [execution environment](/docs/sdk/tools/#choose-an-execution-environment) through a plugin when you need isolated execution.
 
 ## Integrate and extend tools {#provide-tools}

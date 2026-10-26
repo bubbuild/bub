@@ -3,7 +3,7 @@ title: 技能
 description: 编写、验证和使用 Bub 技能，并理解技能发现与覆盖规则。
 ---
 
-[技能](https://agentskills.io/) 是由 Anthropic 所提出的标准发布的格式，用于扩展 AI 代理能力、补充专业知识与工作流程。一个技能即一个包含 `SKILL.md` 文件的文件夹，写清某类任务该怎么做，模型会按需加载。
+[技能](https://agentskills.io/)（Skill）是由 Anthropic 所提出的标准发布的格式，用于扩展 AI 代理能力、补充专业知识与工作流程。一个技能即一个包含 `SKILL.md` 文件的文件夹，写清某类任务该怎么做，模型会按需加载。
 
 ## 发现技能与优先级 {#discovery}
 
@@ -83,4 +83,4 @@ bub run '使用 $skill-creator 技能，创建一个名为 `repo-map` 的技能�
 
 ## 随 Python 包分发 {#include-skills-in-a-wheel}
 
-通用技能可通过 Python 命名空间包进行分发（存放在 `src/skills/<skill-name>/` 下）。关于如何组织包目录结构、配置 Hatch 打包以及独立环境发布验证，详见[打包与分发](/zh-cn/docs/app/distribution/#bundle-plugins-and-skills)。
+技能可通过插件包进行分发。关于如何组织插件包目录结构、配置打包以及独立环境发布验证，详见[打包与分发](/zh-cn/docs/app/distribution/#bundle-plugins-and-skills)。

@@ -1,87 +1,115 @@
 ---
-title: Extension points
-description: Depending on the task, choose a tool, a skill, an event handler, a plugin, or a channel.
+title: "Extension points: capability boundaries and single responsibility"
+description: Choose among tools, skills, events, Turn hooks, plugins, and channels by the responsibility you need to add.
+sidebar:
+  label: Extension points
 ---
 
-Before choosing an extension point, first consider whether you are adding an action, operating instructions, or a change to how a run works. Different extension points can be combined, but the same rule should have only one implementation.
+A new requirement rarely fails because Bub has no place for it. More often, the difficulty is choosing the wrong home: a policy hidden inside a tool, executable scripts buried in a skill, or transport concerns mixed into the model loop.
 
-## Choose by goal {#choose}
+Start with the responsibility, not the mechanism you happen to know best. Bub's extension points are orthogonal, so a feature can compose several of them without giving any one component several unrelated jobs.
+
+## Five orthogonal dimensions {#dimensions}
+
+| Dimension | Extension point | Question it answers |
+| --- | --- | --- |
+| **Action** | [Tools](/docs/sdk/tools/) | What executable operation can the Agent perform? |
+| **Instruction** | [Skills](/docs/app/skills/) | What process or expertise should the model read to perform a task well? |
+| **Policy** | [Agent events](/docs/concepts/events/) | Which calls should be observed, denied, replaced, or rewritten? |
+| **Lifecycle** | [Plugins and Turn hooks](/docs/app/plugins/) | What should happen while a message moves through its processing stages? |
+| **Transport** | [Channels](/docs/app/gateway/) | How do messages enter and leave external systems? |
+
+These dimensions answer different questions. A tool should not need to know which channel carried the request; a channel should not need to understand the model's tool loop; a skill should describe a process rather than become a second plugin system.
+
+## Choose by intent {#choose}
+
+Use this decision tree to find the first candidate:
+
+```mermaid
+flowchart TD
+  Q{"What are you adding?"}
+  Q -->|"An executable action"| T["Tool"]
+  Q -->|"Reusable task instructions"| S["Skill"]
+  Q -->|"A rule around model or tool calls"| E["Event handler"]
+  Q -->|"Behavior in a message-processing stage"| H["Turn hook"]
+  Q -->|"A new messaging platform"| C["Channel"]
+```
+
+In concrete terms:
+
+- “I need to call an external system or database” → **Tool**.
+- “I need to teach the model a complex business SOP” → **Skill**.
+- “I need to check permission before a sensitive tool call” → **Event handler**.
+- “I need to change how an inbound message is assembled for the model” → **Turn hook**.
+- “I need to connect DingTalk, Feishu, or Telegram” → **Channel**.
+
+Some choices sit alongside those five dimensions:
 
 | Goal | Extension point | How to connect it |
 | --- | --- | --- |
-| Query or modify an external system | [Tool](/docs/sdk/tools/) | `Agent(tools=[...])`, or the app's `provide_tools()` |
-| Give the Agent a set of reusable operating instructions | [Skill](/docs/app/skills/) | A workspace skill directory, or shipped with a plugin package |
-| Hand an independent subtask to another Agent to run | [Subagent](/docs/app/subagents/) | The built-in `subagent` tool, which can restrict the session, model, tools, and skills |
-| Observe, rewrite, or block model and tool calls | [Agent events](/docs/concepts/events/#call-control) | `agent.events.on()`; app plugins use interception hooks |
-| Change how history is converted into model messages | [TapeContext](/docs/concepts/tape/#context) | `Agent(context=...)`, or `build_tape_context()` |
+| Delegate an independent subtask to another Agent | [Subagent](/docs/app/subagents/) | Use the built-in `subagent` tool with the required session, model, tool, and skill limits |
+| Change how Tape history becomes model messages | [TapeContext](/docs/concepts/tape/#context) | `Agent(context=...)`, or `build_tape_context()` in the app |
 | Replace history storage | [Storage integration](/docs/integrations/storage/) | `Agent(store=...)`, or `provide_tape_store()` |
-| Replace the model client or execution environment | Core components | Constructor arguments; the app environment uses `provide_environment()` |
-| Change message preparation, state saving, or reply sending | [Application hooks](/docs/app/hooks/) | A plugin implements the corresponding Turn hook |
-| Connect a new messaging platform or backend service | [Channel](/docs/app/gateway/) | Implement Channel and provide it through `provide_channels(message_handler)` |
-| Make an extension take effect automatically once installed | [Plugin](/docs/app/plugins/) | Register it in the `bub` entry point group |
+| Replace the model client or execution environment | Core components | Constructor arguments; use `provide_environment()` for the app environment |
+| Make an extension activate when installed | [Plugin](/docs/app/plugins/) | Register it in the `bub` entry-point group |
 
-For example, an order plugin can provide:
+A plugin is a distribution and lifecycle mechanism rather than a sixth kind of domain logic. It can package tools, skills, hooks, channels, and providers while leaving each responsibility in its proper extension point.
 
-- tools to query and modify orders;
+## Compose without collapsing boundaries {#compose}
+
+Consider an order plugin. It might provide:
+
+- tools that query and modify orders;
 - a skill describing the after-sales process;
-- an interception hook that checks permissions before an order is modified;
-- a Tape handler that saves order events.
+- an interception hook that checks session permissions before an order changes;
+- an event handler that writes order facts to Tape.
 
-They handle execution, process, constraints, and recording respectively; there is no need to cram all four kinds of logic into one function.
+Those pieces handle execution, instructions, policy, and records respectively. They can work together on one feature without becoming one large function.
 
-## Kernel assembly and app discovery {#kernel-and-app}
+### Explicit assembly or automatic discovery {#kernel-and-app}
 
-The core layer is assembled explicitly by the caller:
+The same components can be assembled in two ways. With `bub.core`, the host passes tools, storage, context, and other dependencies to `Agent` directly. With the application layer, providers such as `provide_tools`, `build_tape_context`, and `provide_tape_store` assemble equivalents, and `BubFramework.load_hooks()` discovers built-in implementations and installed plugins.
 
-```python
-agent = Agent(
-    model=model,
-    tools=[order_tool],
-    store=store,
-    context=context,
-)
-```
+Choose according to **who owns assembly and lifecycle**:
 
-The application layer assembles the same kinds of components through hooks such as `provide_tools`, `build_tape_context`, and `provide_tape_store`, and then `BubFramework.load_hooks()` loads the built-in implementations and installed plugins.
+- An existing service that already manages dependencies and resources usually benefits from explicit kernel assembly.
+- An extension that should activate after installation, or be distributed to other Bub users, fits an application plugin.
 
-The choice rests on **who is responsible for assembly and lifecycle**:
+See [Kernel](/docs/concepts/kernel/) for the layer boundary. You can also [reuse selected app capabilities](/docs/integrations/reuse-app/) while driving a core Agent yourself.
 
-- Embedding into an existing service, where the host manages dependencies and resources: use the core-layer constructor arguments.
-- Wanting an extension to take effect automatically after installation, or distributing it to others: use an application plugin.
+## Tools and skills are not interchangeable {#tools-and-skills}
 
-When using core components directly, you can also [reuse the Bub app](/docs/sdk/reuse-app/) as needed.
-
-## Tools and skills {#tools-and-skills}
-
-A tool is a type-annotated Python function that performs an action. A skill is a directory containing `SKILL.md` and supporting files that tells the model how to complete a class of tasks.
+A tool is a type-annotated Python function that performs an action. A skill is a directory containing `SKILL.md` and supporting files that tells the model how to approach a class of tasks.
 
 | Dimension | Tool | Skill |
 | --- | --- | --- |
 | Content | Python functions and a parameter schema | Markdown instructions and supporting files |
 | Purpose | Execute code and access external systems | Define processes, constraints, and operating methods |
-| Loading | The available tools are provided on every model call | Each step lists names and descriptions; the body is expanded when the skill is referenced |
-| Distribution | Passed directly to the Agent, or registered by a plugin | Placed in the workspace, or distributed with a package |
+| Loading | Available tools are provided on every model call | Names and descriptions are listed; the body expands when referenced |
+| Distribution | Passed to the Agent or registered by a plugin | Placed in a workspace or distributed with a package |
 
-Scripts in a skill do not run automatically just because the files exist. When code needs to run, it still happens through a tool call; the skill can guide the model on when to call it.
+Scripts in a skill do not execute merely because their files exist. Code still runs through a tool call; the skill can guide when and why the model should call it.
 
-The same tool can be called directly by the model, called by Python generated in code mode, or called through a [text command](/docs/sdk/tools/#call-a-tool-without-a-model). All three paths share the handler and parameter validation, but their output and error behavior can differ.
+The same tool can be called directly by the model, called by Python generated in code mode, or invoked as a [text command](/docs/sdk/tools/#call-a-tool-without-a-model). These paths share the handler and parameter validation, although their output and error behavior can differ.
 
-## Messages, state, and records {#messages-and-state}
+## Messages, state, and records have different lifetimes {#messages-and-state}
 
 | Object | Responsibility | Lifetime |
 | --- | --- | --- |
-| `Envelope` | Carries message content, routing, and session information | One inbound or outbound message |
-| `TurnState` | Shares this round's data between hooks, tools, and event handlers | One Turn or Run |
-| Tape | Saves the conversation, tool round-trips, and explicitly written records | Determined by storage; can span Turns and processes |
+| `Envelope` | Carry message content, routing, and session information | One inbound or outbound message |
+| `TurnState` | Share temporary data among hooks, tools, and event handlers | One Turn or Run |
+| Tape | Preserve conversation, tool round-trips, and explicitly written records | Determined by storage; can span Turns and processes |
 
-New message sources produce an `Envelope` through a Channel. Data used only in the current Turn goes into `TurnState`; long-term facts are written to the Tape or to application storage. Not every hook receives `TurnState`; when you need state, declare the parameter according to the corresponding signature.
+A Channel produces an `Envelope` for a new message source. Put data used only in the current Turn into `TurnState`; write long-term facts to Tape or application storage. Not every hook receives `TurnState`, so declare the parameter only where the corresponding signature provides it.
 
-## Reviewing an extension design {#one-owner}
+## The golden rule: one owner {#one-owner}
 
-Before implementing, make these boundaries clear:
+Before implementing an extension, give each responsibility exactly one authoritative owner:
 
-- **A rule has only one authoritative source**: domain constraints are guaranteed by the tool or the domain layer; a unified policy can live in a hook, but do not maintain two judgments that may diverge.
-- **Each kind of instruction has its own purpose**: `AGENTS.md` provides workspace rules, while skills provide task instructions that are expanded on demand.
-- **Context is not concatenated twice**: `TapeContext` selects history, and `build_prompt` prepares the current input.
-- **Errors have a definite destination**: decide whether an exception should propagate, be logged and skipped, or be converted into a tool result.
-- **Resources have an owner that closes them**: make the lifecycle of connections and streams explicit, and decide how concurrent runs in the same session coordinate.
+- **A rule has one source of truth.** Domain invariants belong to the tool or domain layer; shared policy can live in an event handler or hook. Do not maintain two permission checks that can drift apart.
+- **Each instruction has one job.** `AGENTS.md` supplies workspace rules; skills supply task instructions expanded on demand. Keep substantial executable behavior in tools rather than embedding it as an opaque script in instructions.
+- **Context is assembled once per concern.** `TapeContext` projects history, while `build_prompt` prepares the current input. Avoid concatenating the same information in both.
+- **Errors have a defined destination.** Decide whether an exception propagates, is logged and skipped, or becomes a tool result.
+- **Resources have an owner that closes them.** Make connection and stream lifecycles explicit, including coordination between concurrent Runs in one session.
+
+The goal is not to minimize the number of extension points in a feature. It is to make each one easy to understand, test, replace, and reason about independently.

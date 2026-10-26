@@ -218,7 +218,7 @@ from bub.builtin.agent import BubAgent
 | `BubAgent(framework, *, tools=None, tape_store=None, skill_dirs=None, command_prefix=None)` | Application Agent with settings, skills, and code mode |
 | `await agent.run_stream(session_id=..., prompt=..., state=None, ...)` | Prepares the model stage and returns a stream |
 
-Configuration is cached process-wide. To use the framework's active store, construct `BubAgent` inside `async with framework.running():`. An explicit `tape_store` takes precedence and remains the caller's lifecycle responsibility. See [Reuse the Bub app](/docs/sdk/reuse-app/) for embedding.
+Configuration is cached process-wide. To use the framework's active store, construct `BubAgent` inside `async with framework.running():`. An explicit `tape_store` takes precedence and remains the caller's lifecycle responsibility. See [Reuse the Bub app](/docs/integrations/reuse-app/) for embedding.
 
 `run_stream` parameters: `session_id` (a `temp/` prefix prevents the branch from merging), `prompt`, `state` (loaded through hooks when `None`), `model`, `allowed_skills`, `allowed_tools`, and `reasoning_effort`. Await it before iterating; it does not handle outbound rendering, `save_state`, or serialization of concurrent runs in the same session. See [Turn entry points](/docs/concepts/turn/#entry-points) for differences from a complete Turn.
 

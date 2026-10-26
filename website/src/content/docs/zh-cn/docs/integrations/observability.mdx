@@ -1,25 +1,39 @@
 ---
 title: 可观测性
-description: 检查会话 Tape，并把模型与工具调用轨迹导出到 Phoenix 或 Logfire。
+description: 检查会话 Tape 上下文，并将模型推理与工具调用 Traces 导出至 Phoenix 或 Logfire。
 ---
 
-两件事分开做：用 Tape 命令看**会话记住了什么**；用 OTLP / Logfire 看**一次 turn 怎么跑**。即使不接外部追踪，Agent 仍会保存选定的对话与运行记录。事件、输出流与持久化记录的区别见[事件](/zh-cn/docs/concepts/events/)。
+Bub 的可观测性遵循「**双轨并行**」原则：
+- **状态内省（Tape）**：检查 Agent **记住了什么**、上下文窗口消耗趋势以及提示词缓存命中率（原生支持，无需外部组件）。
+- **运行遥测（Traces）**：追踪每一轮对话 **具体怎么执行**、模型与工具的耗时瓶颈以及错误调用堆栈（通过 OpenTelemetry 导出到外部 APM）。
 
-## 前置条件
+```mermaid
+flowchart LR
+    Turn["Bub Agent"]
+    Tape["Tape\n(原生上下文持久化)"]
+    OTEL["OpenTelemetry SDK\n(OTLP 协议导出)"]
+    Platform["可观测性平台\n(Arize Phoenix / Logfire / 生产 APM)"]
 
-- `bub --help` 可用
-- 工作区里 `bub run "你有哪些工具？"` 能调用已配置的模型
-- 本地跑 Phoenix 需要 Docker 或 Podman
-- 安装追踪依赖前，激活[应用虚拟环境](/zh-cn/docs/getting-started/install/#app-install)
+    Turn -->|"记录会话历史"| Tape
+    Turn -->|"上报调用 Trace"| OTEL
+    OTEL --> Platform
+```
+
+## 开始之前 {#before-you-start}
+
+- 已[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并正确配置模型。
+- 若在本地测试 Phoenix，需确保已安装 Docker 或 Podman。
 
 ## 检查 Tape {#inspect-tape}
+
+Tape 是 Bub 内置的会话记录机制。无需任何配置，你可以直接使用内置指令查看当前会话的健康状况：
 
 ```bash
 bub run "你有哪些工具？各自适合做什么？"
 bub run ",tape.info"
 ```
 
-期望输出类似：
+预期终端输出类似：
 
 ```text
 name: becda04eb9f7369c__065943a03cbe6395
@@ -31,35 +45,34 @@ last_token_usage: 7458
 last_token_cache_hit_rate: 72.50%
 ```
 
-![展示 Bub task run 之后 `tape.info` 输出的终端截图](/docs/observability/tape-info.png)
+![展示 Bub task run 之后 tape.info 输出的终端截图](/docs/observability/tape-info.png)
 
-| 字段 | 用途 |
+### 核心指标解读
+
+| 字段 | 含义与排查意义 |
 |---|---|
-| `entries` | 会话已积累多少历史 |
-| `anchors` / `last_anchor` | 锚点数量与最新上下文边界 |
-| `entries_since_last_anchor` | 是否值得 handoff 缩短下次提示词 |
-| `last_token_usage` | 最近一次模型路径记录的用量（有则出现） |
-| `last_token_cache_hit_rate` | 同次调用中命中缓存的提示词 token 比例（提供商有明细时） |
+| `entries` | 会话中记录的事件总数（含输入、输出、工具调用）。 |
+| `anchors` / `last_anchor` | 历史锚点数量及最新上下文边界。决定了模型调用时的起始上下文起点。 |
+| `entries_since_last_anchor` | 自上个锚点以来的新条目数；数值过高时建议触发 handoff 截断多余历史。 |
+| `last_token_usage` | 最近一次大模型调用的 Token 总消耗量。 |
+| `last_token_cache_hit_rate` | 提示词缓存（Prompt Cache）命中率。命中率高代表响应更快且成本更低。 |
 
-搜索工具调用、错误或 handoff：
+### 快速检索历史事件
+
+当需要排查工具调用是否成功或查找特定步骤时，无需手动翻看完整日志，使用 `,tape.search`：
 
 ```bash
+# 检索包含循环步骤或工具调用的事件
 bub run ",tape.search query=loop.step"
 ```
 
-需要模型解读时再跑自然语言（依赖凭据）：
+## 导出调用链 {#export-traces}
 
-```bash
-bub run "检查当前 tape，总结上一轮做了什么。"
-```
+当需要分析大模型延迟、工具执行耗时与异常报错时，可通过 OpenTelemetry（OTLP）将调用链导出到专业的分析面板。
 
-持久化与上下文选择规则见 [Tape](/zh-cn/docs/concepts/tape/)。
+### Arize Phoenix（本地部署）
 
-## 导出执行轨迹 {#export-traces}
-
-需要看模型 / 工具耗时、并发关系和错误路径时，再导出 trace。Tape 与遥测互相独立。
-
-### Phoenix（OTLP）
+[Arize Phoenix](https://github.com/Arize-ai/phoenix) 是一款出色的开源 AI 遥测工具，通过 Docker 一键即可启动：
 
 ```bash
 docker run --rm --name bub-phoenix \
@@ -67,75 +80,78 @@ docker run --rm --name bub-phoenix \
   arizephoenix/phoenix:latest
 ```
 
-UI：`http://localhost:6006`。
+启动后可在浏览器打开控制台界面：`http://localhost:6006`。
 
-安装追踪依赖：
+在 Bub 所在的环境中安装追踪依赖包：
 
 ```bash
-# 源码仓库
+# 源码安装
 uv sync --extra app --extra trace
 
-# 或已安装的发行版
-uv pip install "bub[app,trace]"
+# 或发行版安装
+uv add "bub[app,trace]"
 ```
 
-`trace` 可选依赖包含 OpenTelemetry API/SDK 与 HTTP/protobuf OTLP 导出器。安装 `logfire` 可选依赖时，会同时包含 `app` 与 `trace` 对应依赖；若同时安装，**显式 OTLP 端点仍优先**。
+配置标准的 OpenTelemetry 环境变量并运行任务：
 
 ```bash
-OTEL_SERVICE_NAME=bub \
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces \
-OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf \
-bub run "你有哪些工具？各自适合做什么？"
+export OTEL_SERVICE_NAME=bub
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces
+export OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+
+bub run "请使用工具列出当前工作区的文件。"
 ```
 
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` 是完整 trace URL。也可设 `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006`（导出器追加 `/v1/traces`）；trace 专用变量优先。默认协议 `http/protobuf`；headers、timeout、resource attributes、采样用标准 OTEL 环境变量。
-
-显式 OTLP 端点会走直接导出，即使装了 Logfire 也不再配 Logfire。已有追踪提供器会保留；`OTEL_SDK_DISABLED=true` 关闭这条初始化路径。认证用 `OTEL_EXPORTER_OTLP_TRACES_HEADERS`（或 `OTEL_EXPORTER_OTLP_HEADERS`）；Phoenix 项目名可加 `x-project-name=my-project`。
-
-在 Phoenix 中打开 default 项目 → 最近的 trace → 查找 `invoke_agent bub`、`chat <model>`、`execute_tool <tool>`。
+运行完成后，刷新 Phoenix 控制台界面，进入 Default 项目，你将看到完整的调用瀑布流，清晰展现每一次模型调用（`chat <model>`）与工具执行（`execute_tool <tool>`）的细分耗时：
 
 ![展示 Bub GenAI 遥测通过 OTLP 导出到 Phoenix 的截图](/docs/observability/phoenix-otel.png)
 
-### Logfire
+### Pydantic Logfire
 
-无显式 OTLP 端点时，Bub CLI 启动会配置 Logfire（需安装 `logfire` 可选依赖）。
+如果你不想在本地维护 Docker 容器，可以使用 [Pydantic Logfire](https://logfire.pydantic.dev/)：
 
 ```bash
+# 清除显式 OTLP 端点（让 Logfire 自动接管）
 unset OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_ENDPOINT
 
-# 源码仓库
-uv sync --extra app --extra logfire
+# 安装 logfire 依赖
+uv add "bub[logfire]"
 
-# 或已安装的发行版
-uv pip install "bub[logfire]"
-
+# 登录并绑定项目
 logfire auth
 logfire projects use
-bub run "检查这个仓库并总结它的结构。"
+
+# 运行任务
+bub run "检查这个仓库并总结它的目录结构。"
 ```
 
-部署时设 `LOGFIRE_TOKEN`。在 Logfire Agents 页查找 `bub`。子 Agent 挂在启动它的工具 span 下；同会话通过 `gen_ai.conversation.id` 关联。
+登录 Logfire Web 控制台，在 Agents 页面下即可实时查看 Bub 的运行调用栈与子 Agent 链路。
 
-### 嵌入与 span 内容
+### Python 代码配置
 
-Span 记录模型输入输出、工具参数与最终结果（经结果 hook / spill 之后）、token usage 与错误；内联媒体不上传。模型回退会更新模型属性并把失败尝试记为事件。Token usage 只写在模型 span 上。
-
-Loop step、handoff、spill 等 Tape 事件会附到当前 span；Tape 元数据含 `trace_id` / `span_id`。嵌入时显式初始化：
+如果你正在通过 Python SDK 复用 Bub，也可以在程序初始化时显式启动遥测：
 
 ```python
 from bub.tracing import configure_otlp
 
-configure_otlp()  # 读 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT 或 OTEL_EXPORTER_OTLP_ENDPOINT
+# 自动读取 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT 等标准环境变量
+configure_otlp()
 ```
 
-缺少这些可选依赖时跳过追踪。提前停止消费流时用 `contextlib.aclosing(stream)`，以便关闭模型流、Tape 分支和 span。取消会关 span 并设 `bub.cancelled`。
+## 故障排查 {#troubleshooting}
 
-原生 span 提供 Phoenix 所需的 OpenInference 分类与标准 `gen_ai.*` 属性。若仍需把**已保存**的 Tape 投影成 span，可用 contrib 的 [`bub-tapestore-otel`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-otel)；迁移时安装本页的 `trace` 或 `logfire` 可选依赖，设 `BUB_TAPESTORE_OTEL_ENABLED=false`，并保留现有 Tape 存储。
+| 常见问题 | 可能原因 | 解决办法 |
+| --- | --- | --- |
+| Phoenix 界面中看不到任何 Trace | OTLP 协议或端点配置有误 | 确认 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` 带有 `/v1/traces`，且协议为 `http/protobuf`。 |
+| 终端提示找不到 `opentelemetry` 依赖 | 缺少 `trace` 可选依赖 | 执行 `uv sync --extra app --extra trace` 或 `pip install "bub[app,trace]"`。 |
+| Logfire 无法上报数据 | 未登录或未清除 OTLP 变量 | 显式 `unset OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`，并运行 `logfire auth` 重新授权。 |
+| `,tape.info` 提示无活跃 Tape | 当前工作区或会话未运行过任务 | 先执行任意一条 `bub run "..."` 命令生成会话记录。 |
 
-## 清理
+## 清理 {#cleanup}
 
-前台 Phoenix 用 `Ctrl+C`；detached 时：
+停止并移除本地测试用的 Phoenix 容器：
 
 ```bash
 docker rm -f bub-phoenix
+unset OTEL_SERVICE_NAME OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
 ```

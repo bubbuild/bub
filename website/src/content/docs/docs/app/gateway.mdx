@@ -5,9 +5,9 @@ description: Configure and run the Bub gateway, connect chat platforms, and mana
 
 import { Steps } from '@astrojs/starlight/components';
 
-Bub was originally inspired by always-on agents such as OpenClaw and nanobot. In addition to terminal interaction, Bub provides a gateway that passes messages from chat platforms to Bub for processing.
+Bub was originally inspired by always-on agents such as OpenClaw and nanobot. In addition to terminal interaction, Bub provides a gateway.
 
-`bub gateway` runs the enabled channels and starts Bub as a gateway.
+Running the `bub gateway` subcommand starts Bub as a gateway and runs all enabled channels.
 
 Bub currently ships with only the Telegram channel. Other platforms require community [plugins](https://hub.bub.build/), so this document focuses on configuring and using the Telegram channel.
 
@@ -66,7 +66,7 @@ BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
 BUB_TELEGRAM_ALLOW_CHATS=-1001234567890,-1009876543210
 ```
 
-| Allowlist | Pass condition | When it fails |
+| Allowlist configuration | Pass condition | When it fails |
 | --- | --- | --- |
 | `BUB_TELEGRAM_ALLOW_USERS` | Numeric ID or username matches | The user receives `Access denied.` |
 | `BUB_TELEGRAM_ALLOW_CHATS` | Chat ID matches | The message is dropped silently |
@@ -119,13 +119,11 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
 # socks5://<user>:<password>@host:port is also supported
 ```
 
-See [TelegramSettings](/docs/reference/settings/#telegram-settings) for the full fields. The channel handles only `message` updates; at startup it discards updates that accumulated while it was down and does not replay offline messages.
-
 ## Connect other platforms
 
 Although Bub ships with only the Telegram channel, the community provides a variety of [plugins](https://hub.bub.build/) for connecting other platforms.
 
-After installing a plugin for another platform, restart the gateway and use `bub hooks` to confirm the corresponding name appears under `provide_channels`. Channels without configured credentials are skipped.
+After installing a plugin for another platform, restart the gateway and use `bub hooks` to confirm the corresponding name appears under `provide_channels`. At startup, channels without configured credentials are skipped.
 
 | Platform | Channel name | Plugin |
 | --- | --- | --- |
@@ -141,7 +139,7 @@ See each plugin's documentation for channel-specific configuration.
 
 ## Custom channels {#custom-channels}
 
-When no existing plugin fits, you can implement your own channel in Python: subclass `Channel`, set the `name` attribute, and implement the `start`, `stop`, and `send` methods. Here is a minimal example:
+If no existing plugin is available, you can implement your own channel in Python: subclass `Channel`, set the `name` attribute, and implement the `start`, `stop`, and `send` methods. Here is a minimal example:
 
 ```python
 import asyncio
@@ -163,7 +161,7 @@ class MyChannel(Channel):
         return bool(self._token)
 
     async def start(self, stop_event: asyncio.Event) -> None:
-        # Do not block: the gateway continues consuming messages only after start returns.
+        # start must not block the main loop, or the gateway cannot receive subsequent messages.
         self._listener = asyncio.create_task(self._listen(stop_event))
 
     async def stop(self) -> None:
@@ -172,7 +170,7 @@ class MyChannel(Channel):
 
     async def _listen(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
-            chat_id, text = await self._next_message()  # Your platform protocol
+            chat_id, text = await self._next_message()  # Platform message
             await self._on_receive(
                 ChannelMessage(
                     session_id=f"myapp:{chat_id}",
@@ -199,6 +197,10 @@ When finished, expose the channel through the plugin's entry-point module with `
 import os
 
 from bub import hookimpl
+
+# From the previous snippet
+# class MyChannel(Channel):
+#     ...
 
 
 @hookimpl

@@ -1,26 +1,38 @@
 ---
 title: 接入 MCP 服务器
-description: 安装 bub-mcp 插件，注册一个时间 MCP 服务器，并在 Bub Turn 中调用其工具。
+description: 安装 bub-mcp 插件，配置 stdio 或 HTTP/SSE 类型的 MCP 服务器，并在 Bub 对话中调用外部工具。
 sidebar:
   badge: { text: '应用', variant: 'note' }
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 
-通过 `bub-mcp` 插件，可以把 MCP 服务器提供的工具接入 Bub 应用。下面用一个时间服务器完成安装、连接和调用。
+[Model Context Protocol](https://modelcontextprotocol.io/)，即 **MCP**，是一种让 Agent 安全、标准化地调用本地或远程的外部工具与数据源的开放协议。
 
-开始前，先[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并确保 `PATH` 中有 [`uvx`](https://docs.astral.sh/uv/)，用于启动 [`mcp-server-time`](https://pypi.org/project/mcp-server-time/)。
+通过安装 [bub-mcp](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp) 插件，你可以将整个 MCP 生态中的工具无缝接入 Bub 应用。
+
+```mermaid
+flowchart LR
+    User["用户 / 客户端"] --> Bub["Bub Agent 运行时"]
+    Bub --> Plugin["bub-mcp 插件"]
+    Plugin -->|"stdio (子进程)"| LocalServer["本地 MCP Server\n(如: filesystem / time)"]
+    Plugin -->|"HTTP / SSE (远程)"| RemoteServer["远程 MCP Server\n(如: 企业 API / 数据库)"]
+```
+
+## 如何接入
+
+开始前，请确保已[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，且系统中已安装 [`uvx`](https://docs.astral.sh/uv/)（用于免安装启动示例工具）。
 
 <Steps>
 
-1. **安装插件**
+1. **安装插件并验证环境**
 
    ```bash
    bub install bub-mcp@main
    bub hooks
    ```
 
-   `bub install` 会从 [`bub-contrib`](https://github.com/bubbuild/bub-contrib) 解析 `bub-mcp@main`。`bub hooks` 应显示：
+   `bub install` 会从 [`bub-contrib`](https://github.com/bubbuild/bub-contrib) 解析安装 `bub-mcp`。执行 `bub hooks` 检查插件是否已正确挂载：
 
    ```text
    load_state: builtin, mcp
@@ -28,11 +40,13 @@ import { Steps } from '@astrojs/starlight/components';
    register_cli_commands: builtin, mcp
    ```
 
-   没有 `mcp` 时，检查插件是否装进了当前 `bub` 使用的环境。
+   :::note
+   如果列表中没有出现 `mcp`，说明插件安装到了其他 Python 环境。请确认当前运行的 `bub` 路径（可通过 `command -v bub` 查看）与安装环境一致。
+   :::
 
-2. **注册时间服务器**
+2. **配置 MCP 服务器**
 
-   `bub-mcp` 从 `~/.bub/mcp.json` 读取服务器定义；设置 `BUB_HOME` 时，改读 `$BUB_HOME/mcp.json`。
+   `bub-mcp` 会默认读取 `~/.bub/mcp.json`（若定义了 `BUB_HOME`，则读取 `$BUB_HOME/mcp.json`）。这里以官方时间工具 [`mcp-server-time`](https://pypi.org/project/mcp-server-time/) 为例：
 
    ```bash
    mkdir -p ~/.bub
@@ -47,16 +61,21 @@ import { Steps } from '@astrojs/starlight/components';
    }
    EOF
    ```
+   
+   填写说明：
 
-   stdio 服务器需要 `command`，`args` 和 `env` 可选。存在 `command` 时会使用 stdio，不需要 `transport` 字段。
+    - 对于本地命令行服务（stdio），只需填写 `command` 和可选的 `args` / `env`。
+    - 带有 `command` 的配置会自动采用 stdio 传输，无需显式声明 `transport`。
 
-3. **验证连接**
+3. **测试连接与工具发现**
+
+   运行 `bub mcp list` 检查配置是否生效：
 
    ```bash
    bub mcp list
    ```
 
-   预期输出：
+   正常情况下，输出将显示连接就绪并列出发现的工具：
 
    ```text
    🔌 MCP Tools
@@ -65,39 +84,43 @@ import { Steps } from '@astrojs/starlight/components';
      Tools: mcp.time_get_current_time, mcp.time_convert_time
    ```
 
-   每个远程工具会以 `mcp.<server>_<tool>` 的名称暴露给 Bub。模型默认延迟加载完整工具定义，需要时先调用 `tool.describe`；设置 `BUB_MCP_DEFERRED_TOOLS=false` 可以让所有定义直接进入提示词。
+   注意：
+    
+    - 每个 MCP 工具都会以 `mcp.<server>_<tool>` 命名并注入 Bub。
+    - 为了节约提示词 token，Bub 默认采用**延迟加载**策略（模型在需要时通过 `tool.describe` 获取详细模式）。如果希望完整模式直接进入系统提示词，可设置环境变量 `BUB_MCP_DEFERRED_TOOLS=false`。
 
-   如果显示 `Status: Disconnected`，先在 Bub 之外运行 `uvx mcp-server-time` 排查启动问题，按 `Ctrl-C` 终止。
+4. **在会话中调用工具**
 
-4. **在 Turn 中调用工具**
-
-   MCP 工具由 `mcp.lifecycle` 维持连接。`bub chat` 和 `bub gateway` 会启动它，`bub run` 不会。
+   MCP 工具由后台生命周期渠道 `mcp.lifecycle` 维持长连接。因此，请使用长连接模式运行：
 
    ```bash
    bub chat
    ```
 
-   等待几秒让 MCP 完成握手，然后输入：
+   在交互界面中直接提问：
 
    ```text
    现在 UTC 时间是多少？
    ```
 
-   模型应调用 `mcp.time_get_current_time`。也可以直接调用工具，不经过模型：
+   模型会自动推断并触发 `mcp.time_get_current_time` 工具完成应答。
 
+   :::tip[无需模型的直接测试]
+   如果你想直接测试工具连通性，可以跳过模型推理，在 `bub chat` 中使用前导逗号直接执行工具命令：
    ```text
    ,mcp.time_get_current_time timezone=UTC
    ```
-
-   第一轮对话可能早于工具就绪。模型没有调用工具时，先用 `bub mcp list` 检查连接，再明确要求它使用时间工具。
+   :::
 
 </Steps>
 
-长期部署使用[网关](/zh-cn/docs/app/gateway/)或[容器](/zh-cn/docs/app/deploy/)。例如 `bub gateway --enable-channel telegram` 仍会自动启动 `mcp.lifecycle`，除非显式传入 `!mcp.lifecycle`。
-
 ## 添加其他服务器
 
-在 `mcpServers` 下追加条目。HTTP 和 SSE 使用 `url`，并可选择 `headers`：
+在 `~/.bub/mcp.json` 的 `mcpServers` 字典中可以追加多个服务。
+
+### 远程服务 (HTTP/SSE)
+
+如果工具作为微服务运行在远程服务器或本地容器中，使用 `url` 和 `transport` 进行配置：
 
 ```json
 {
@@ -106,60 +129,64 @@ import { Steps } from '@astrojs/starlight/components';
       "url": "https://weather.example.com/mcp",
       "transport": "http"
     },
-    "events": {
-      "url": "https://events.example.com/mcp",
+    "internal_crm": {
+      "url": "https://crm.corp.internal/mcp",
       "transport": "sse",
-      "headers": { "Authorization": "Bearer token" }
+      "headers": {
+        "Authorization": "Bearer YOUR_SECRET_TOKEN"
+      }
     }
   }
 }
 ```
 
-另一个 stdio 示例，通过 `npx` 启动文件系统服务器：
+### 本地服务 (文件系统)
+
+对于有权限限制的本地工具，可通过 `args` 限制其操作目录范围：
 
 ```json
 {
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/bub-sandbox"]
     }
   }
 }
 ```
 
-允许访问的目录写入 `args`，凭据通过 `env` 传入。保存后执行 `bub mcp list` 检查连接。
+### 命令行管理
 
-### 使用 CLI 管理
-
-也可以用 `bub mcp add` 修改同一份配置：
+除了直接编辑 JSON 文件，也可以直接使用 `bub mcp` 命令行工具快速注册或删除：
 
 ```bash
-# stdio
+# 注册 stdio 本地工具
 bub mcp add --transport stdio time -- uvx mcp-server-time
-bub mcp add --transport stdio --env API_KEY=secret example -- node ./my-server.js
+bub mcp add --transport stdio --env API_KEY=secret custom -- node ./my-server.js
 
-# HTTP / SSE
+# 注册远程 HTTP 或 SSE 服务（带认证 Header）
 bub mcp add --transport http weather https://weather.example.com/mcp
-bub mcp add --transport sse --header "Authorization: Bearer token" \
-  events https://events.example.com/mcp
+bub mcp add --transport sse --header "Authorization: Bearer token" events https://events.example.com/mcp
 
-# 移除
+# 移除指定服务
 bub mcp remove time
 ```
 
-`--env` 仅用于 stdio，`--header` 仅用于 HTTP 或 SSE。
+## 与 Agent Plugins 一起使用
 
-## 与可移植插件一起使用
+Bub 同样支持标准的 [Agent Plugins](/zh-cn/docs/integrations/agent-plugins/)。两者中的 MCP 服务器分别拥有独立的生命周期渠道与工具命名空间，可以同时无缝运行：
 
-[Agent Plugins](/zh-cn/docs/integrations/agent-plugins/) 也可以携带 MCP 服务器。两份配置分别使用独立的生命周期渠道和工具名称，可以同时运行，互不影响。
+| 来源 | 配置文件 | 运行渠道 | 工具名称前缀 |
+|---|---|---|---|
+| 全局 MCP | `~/.bub/mcp.json` | `mcp.lifecycle` | `mcp.<server>_<tool>` |
+| Agent Plugin | `<plugin>/mcp.json` | `agent-plugins.mcp` | `mcp.<plugin>.<server>_<tool>` |
 
-## 故障排查
+## 故障排查 {#troubleshooting}
 
-| 现象 | 检查项 |
-| --- | --- |
-| `bub hooks` 中没有 `mcp` | 用当前 `bub` 所在环境重新安装插件 |
-| `Status: Disconnected` | 在 Bub 之外直接运行 `command`，或访问 `url` |
-| `bub mcp add` 在写入后打印 `CancelledError` | 条目可能已经保存；用 `bub mcp list` 复核 |
-| Turn 中工具未出现 | 使用 `bub chat` 或 `bub gateway`，确认未排除 `mcp.lifecycle` |
-| `mcp.json` 权限被拒绝 | 确认 `~/.bub/` 可写，或将 `BUB_HOME` 设到当前用户拥有的目录 |
+| 常见现象 | 可能原因 | 解决办法 |
+| --- | --- | --- |
+| `bub hooks` 中无 `mcp` | 插件未装入当前运行的 Python 环境 | 运行 `command -v bub`，确认当前执行环境后重新执行 `bub install bub-mcp@main`。 |
+| `bub mcp list` 显示 `Status: Disconnected` | 外部服务未启动或命令无法执行 | 独立在终端运行 `uvx mcp-server-time` 或用 `curl` 访问 `url`，确认其是否正常响应。 |
+| `bub run "..."` 中无法调用 MCP 工具 | `bub run` 是单次执行任务，不启动后台生命周期渠道 | 长期运行请使用 `bub chat` 或 `bub gateway`；如需一次性调用，请在交互中使用 `,mcp.<tool>`。 |
+| `bub mcp add` 保存时打印 `CancelledError` | 进程提前退出，但配置通常已持久化 | 执行 `bub mcp list` 确认条目是否已写入 `mcp.json`。 |
+| 提示 `Permission denied` 无法写入配置 | `~/.bub/` 目录所有者权限不匹配 | 检查 `~/.bub` 目录权限，或设置 `BUB_HOME` 指向当前用户拥有写权限的路径。 |

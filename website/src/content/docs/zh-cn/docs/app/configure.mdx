@@ -3,8 +3,6 @@ title: 配置
 description: 介绍如何配置 Bub 应用。
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
 Bub 按以下顺序读取配置，优先级从高到低：
 
 1. 环境变量（以 `BUB_` 前缀开头）；
@@ -13,12 +11,12 @@ Bub 按以下顺序读取配置，优先级从高到低：
 
 对于配置中未声明的字段将使用配置类的默认值。完整的可写配置项见 [完整示例](/zh-cn/docs/reference/settings/#example)。
 
-<Aside title="开始之前">
+:::note[开始之前]
 
 - 确保 Bub CLI 应用[已安装](/zh-cn/docs/getting-started/install/)。
 - 已有某个模型提供商的 API 密钥，或通过 `bub login codex` 完成 OAuth 认证（限 OpenAI）。
 
-</Aside>
+:::
 
 ## 1. 完成初始配置
 
@@ -41,9 +39,13 @@ telegram:
   allow_users: "123456789,your_username"
 ```
 
+:::danger
+**默认情况下你的密钥会直接以明文写入到配置文件中**；如果你有更高的安全要求，避免模型供应商 API 密钥以明文存储到本地，那么在运行 Bub 时可以直接传递环境变量进行设置或覆盖
+:::
+
 ## 3. 用环境变量覆盖
 
-**注意，默认情况下你的密钥会直接以明文写入到配置文件中**；如果你有更高的安全要求，避免模型供应商 API 密钥以明文存储到本地，那么在运行 Bub 时可以直接传递环境变量进行设置或覆盖，相关的环境变量如下：
+常用的环境变量如下所示：
 
 | 变量 | 说明 |
 |---|---|
@@ -58,7 +60,7 @@ telegram:
 
 ## 4. 配置模型与备用模型
 
-`model` 使用 `provider:model` 格式。需要主模型不可用时按顺序尝试备用模型，在 `~/.bub/config.yml` 中配置：
+`model` 配置使用 `provider:model` 格式设置。如主模型不可用时按顺序尝试备用模型（fallback model），在 `~/.bub/config.yml` 中配置 可进行修改：
 
 ```yaml
 model: openai:gpt-5-mini
@@ -66,16 +68,7 @@ fallback_models:
   - openrouter:openrouter/free
 ```
 
-每个候选提供商都需要自己的有效凭据。fallback 只覆盖创建客户端和打开请求的失败；流已经开始后发生的错误不会换一个模型重放，以免重复产生副作用。只有当前模型标识与配置中的 `model` 相同时才携带这组 fallback；切换到其他模型后不会套用。完整规则见[模型与 fallback](/zh-cn/docs/reference/settings/#model-routing)。
-
-在 `bub chat` 中，可以只切换当前会话：
-
-```text
-,model openai:gpt-5-mini
-,reasoning_effort high
-```
-
-这两项设置从下一次 Turn 起生效，并保存在当前会话的 Tape 中。推理力度的可选值取决于提供商。
+每个候选提供商都需要自己的有效凭据。fallback 只覆盖创建客户端和打开请求的失败；消息流已经开始后发生的错误不会换一个模型重放，以免重复产生副作用。完整规则见[模型与 fallback](/zh-cn/docs/reference/settings/#model-routing)。
 
 ## 5. 配置 Telegram 渠道（可选）
 

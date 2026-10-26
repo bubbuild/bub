@@ -3,8 +3,6 @@ title: Configuration
 description: How to configure the Bub application.
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
 Bub reads configuration in this order, highest priority first:
 
 1. Environment variables (the `BUB_` prefix);
@@ -13,12 +11,12 @@ Bub reads configuration in this order, highest priority first:
 
 Fields not declared in the configuration use the settings class defaults. See the [full example](/docs/reference/settings/#example) for every writable field.
 
-<Aside title="Before you begin">
+:::note[Before you begin]
 
 - Make sure the Bub CLI is [installed](/docs/getting-started/install/).
 - You have an API key from a model provider, or you have completed OAuth with `bub login codex` (OpenAI only).
 
-</Aside>
+:::
 
 ## 1. Finish the initial setup
 
@@ -41,9 +39,13 @@ telegram:
   allow_users: "123456789,your_username"
 ```
 
+:::danger
+**By default, your keys are written directly to the config file in plain text.** If you need stronger security and want to avoid storing model provider API keys locally in plain text, pass environment variables when running Bub to set or override them instead.
+:::
+
 ## 3. Override with environment variables
 
-**By default, your key is written directly to the config file in plain text.** If you have higher security requirements and don't want provider API keys stored locally in plain text, you can set or override them with environment variables when running Bub. The relevant variables are:
+Commonly used environment variables include:
 
 | Variable | Description |
 |---|---|
@@ -58,7 +60,7 @@ See the [settings reference](/docs/reference/settings/) for the full table.
 
 ## 4. Configure the model and fallback models
 
-`model` uses the `provider:model` format. To try fallback models in order when the primary model is unavailable, configure this in `~/.bub/config.yml`:
+The `model` setting uses the `provider:model` format. To try fallback models in order when the primary model is unavailable, configure them in `~/.bub/config.yml`:
 
 ```yaml
 model: openai:gpt-5-mini
@@ -66,16 +68,7 @@ fallback_models:
   - openrouter:openrouter/free
 ```
 
-Each candidate provider needs its own valid credentials. Fallbacks only cover failures while creating a client and opening a request; an error after the stream has started does not replay on another model, to avoid duplicate side effects. The fallback set is carried only when the current model identifier matches `model` in the configuration; it does not apply after you switch to another model. See [Models and fallback](/docs/reference/settings/#model-routing) for the full rules.
-
-In `bub chat`, you can switch only the current session:
-
-```text
-,model openai:gpt-5-mini
-,reasoning_effort high
-```
-
-Both settings take effect from the next Turn and are saved in the current session's Tape. The available reasoning effort values depend on the provider.
+Each candidate provider needs its own valid credentials. Fallbacks only cover failures while creating a client and opening a request; errors after the message stream has started are not retried with another model, to avoid duplicate side effects. See [Models and fallback](/docs/reference/settings/#model-routing) for the full rules.
 
 ## 5. Configure the Telegram channel (optional)
 

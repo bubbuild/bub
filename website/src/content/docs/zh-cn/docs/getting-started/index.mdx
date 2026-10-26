@@ -2,9 +2,9 @@
 title: Bub 是什么？
 description: 一个由 Python 构建的轻量级 Agent 运行时。可以直接运行，也可以嵌入你自己的程序。
 ---
-import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
-Bub 是一个由 Python 构建的轻量级 Agent 运行时。它自带一个开箱即用的 Agent 应用，也可以按需替换执行逻辑、自由组合插件。
+Bub 是一个由 Python 构建的轻量级 Agent 运行时。它自带一个开箱即用的 CLI 应用，也提供了一个可自由组合的 SDK，方便你在自己的程序中嵌入 Agent 能力。
 
 Agent 的本质是一个循环：模型读取上下文并决定调用哪个工具，工具的结果写回上下文，再交给模型；当模型不再请求工具、直接给出答案时，循环结束。
 
@@ -12,14 +12,10 @@ Agent 的本质是一个循环：模型读取上下文并决定调用哪个工�
 
 <CardGrid>
   <Card title="核心层" icon="puzzle">
-    提供可自由组合的 Agent 能力：循环、工具、上下文、事件总线、模型客户端。
-
-    通过 [republic](https://getrepublic.org) 调用模型；其余核心依赖为 [pydantic](https://pydantic.dev)、[loguru](https://github.com/delgan/loguru) 和 typing-extensions。
+    提供可自由组合的 Agent 能力，如循环、工具、上下文、事件总线、模型客户端等。
   </Card>
   <Card title="应用层" icon="rocket">
-    在核心层之上给出开箱即用的 Harness：配置、插件、hooks、技能、消息渠道、网关。
-
-    这些都不需要你从头实现，配好就能开始用。
+    在核心层之上的 Harness，提供配置、插件、hooks、技能、消息渠道、网关等能力。
   </Card>
 </CardGrid>
 
@@ -28,31 +24,31 @@ Agent 的本质是一个循环：模型读取上下文并决定调用哪个工�
 - 如果你想**把 Bub 与你现有的代码库或服务相结合**，那么请直接使用 Bub 核心层的 [SDK](/zh-cn/docs/sdk/)；
 - 如果你想**开箱即用 Bub**，那么请直接使用 Bub 应用层的 [App](/zh-cn/docs/app/workspace/)。
 
-<Aside type="tip">
-  二者并不互斥，必要时你甚至可以在 SDK 中[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/#reuse-bubagent)。
-</Aside>
+:::tip
+二者并不互斥，必要时你甚至可以在 SDK 中[复用 Bub 应用](/zh-cn/docs/integrations/reuse-app/#reuse-bubagent)。
+:::
 
-## 核心设计理念 {#core-design}
+## 特性 {#features}
 
-Bub 秉持着简单、可组合、可扩展的设计理念，这意味着你可以自由组合 Bub 的能力，或在 Bub 的基础上构建自己的 Agent：
+Bub 秉持着简单、可组合、可扩展的设计理念，意味着你可以自由组合 Bub 的能力，或在 Bub 的基础上构建自己的 Agent，所以 Bub 有以下特性：
 
 <CardGrid>
   <Card title="追加式上下文" icon="database">
-    每个 turn 追加写入 tape，不修改已有条目。模型读的是 tape 的一个切片，而不是一个不断增长的 message 数组。
+     会话内容以追加方式（append-only）写入 [tape](/zh-cn/docs/concepts/tape)，不修改已有记录。
   </Card>
   <Card title="事件驱动" icon="analytics">
-    模型调用与工具调用各自发出开始、结束和结果。宿主可以旁观一次运行、改写下一步的输入，或直接中止。
+    每次一模型与工具调用的发出开始、结束和结果都以事件形式被观测、改写或介入。
   </Card>
   <Card title="工具即函数" icon="code-branch">
-    一个有类型标注的 Python 函数即可成为工具。Code mode 让模型自己写一小段程序，在一步之内调用多个工具。
+    工具以函数形式存在，直接使用 Python 原生代码驱动，复用社区生态能力。
   </Card>
   <Card title="插件化" icon="setting">
-    Bub 的能力都可以通过插件提供。插件可以是一个工具、一个事件监听器、一个消息渠道，或一个完整的技能集合。
+    能力可以通过插件进行扩展。插件可以是一个工具、事件监听器、消息渠道，或完整的技能集合。
   </Card>
 </CardGrid>
 
-完整定义见[核心概念](/zh-cn/docs/concepts/)。
-
----
+:::tip
+查阅 [核心概念](/zh-cn/docs/concepts/) 以深入了解 Bub 的功能特性。
+:::
 
 现在你可以开始自由探索 Bub 文档，或者跟着下一页，开始你的 Bub 之旅。
