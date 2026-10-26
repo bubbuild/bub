@@ -1195,6 +1195,7 @@ async def test_cli_channel_stream_events_prints_stream_and_yields_events(monkeyp
 def test_cli_toolbar_shows_latest_call_token_speed(usage, elapsed, expected) -> None:
     channel = CliChannel.__new__(CliChannel)
     channel._last_token_speed = 99.0
+    channel._last_ttft_seconds = None
     channel._last_tape_info = None
     channel._mode = "agent"
     channel._expand_thinking = False
@@ -1203,7 +1204,23 @@ def test_cli_toolbar_shows_latest_call_token_speed(usage, elapsed, expected) -> 
     channel._update_token_speed({"usage": usage, "elapsed_seconds": elapsed})
 
     toolbar = "".join(text for _, text in channel._render_bottom_toolbar())
-    assert f"speed:{expected} token/s" in toolbar
+    assert f"speed:{expected} tok/s" in toolbar
+
+
+@pytest.mark.parametrize(("ttft", "expected"), [(2.5, "  ttft:2.5s"), (None, ""), (0.0, ""), (float("nan"), "")])
+def test_cli_toolbar_shows_time_to_first_token(ttft, expected) -> None:
+    channel = CliChannel.__new__(CliChannel)
+    channel._last_token_speed = None
+    channel._last_ttft_seconds = None
+    channel._last_tape_info = None
+    channel._mode = "agent"
+    channel._expand_thinking = False
+    channel._agent = SimpleNamespace(settings=SimpleNamespace(model="test"))
+
+    channel._update_token_speed({"usage": {"output_tokens": 84}, "elapsed_seconds": 2.0, "ttft_seconds": ttft})
+
+    toolbar = "".join(text for _, text in channel._render_bottom_toolbar())
+    assert f"speed:42.0 tok/s{expected}  " in toolbar
 
 
 @pytest.mark.asyncio

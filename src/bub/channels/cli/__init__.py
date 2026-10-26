@@ -7,7 +7,7 @@ from functools import cached_property
 from hashlib import md5
 from pathlib import Path
 from time import monotonic
-from typing import Any
+from typing import Any, TypeGuard
 
 from loguru import logger
 from prompt_toolkit import PromptSession
@@ -48,6 +48,11 @@ from bub.streaming import StreamEvent
 
 _GENERATION_SPINNER: str = SPINNERS["dots"]["frames"]  # type: ignore[assignment]
 _PROMPT_REFRESH_INTERVAL: float = SPINNERS["dots"]["interval"] / 1000.0  # type: ignore[operator]
+
+
+def _is_positive_number(value: Any) -> TypeGuard[float]:
+    """Whether ``value`` can divide a token count, rejecting bools, negatives, and non-finite floats."""
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value) and value > 0
 
 
 class _StreamPrinter:
@@ -301,6 +306,7 @@ class CliChannel(Interface):
         self._presenter = TerminalPresenter()
         self._last_tape_info: TapeInfo | None = None
         self._last_token_speed: float | None = None
+        self._last_ttft_seconds: float | None = None
         self._workspace = workspace
 
     @cached_property
@@ -500,16 +506,10 @@ class CliChannel(Interface):
         usage = data.get("usage")
         tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
         elapsed = data.get("elapsed_seconds")
+        ttft = data.get("ttft_seconds")
         self._last_token_speed = None
-        if (
-            isinstance(tokens, int)
-            and not isinstance(tokens, bool)
-            and tokens >= 0
-            and isinstance(elapsed, int | float)
-            and not isinstance(elapsed, bool)
-            and math.isfinite(elapsed)
-            and elapsed > 0
-        ):
+        self._last_ttft_seconds = ttft if _is_positive_number(ttft) else None
+        if _is_positive_number(elapsed) and isinstance(tokens, int) and not isinstance(tokens, bool) and tokens >= 0:
             self._last_token_speed = tokens / elapsed
         self._invalidate_prompt()
 
@@ -581,13 +581,13 @@ class CliChannel(Interface):
         now = datetime.now().strftime("%H:%M")
         left = f"{now}  mode:{self._mode}"
         speed = self._last_token_speed
-        speed_label = f"{speed:.1f} token/s" if speed is not None else "- token/s"
+        speed_label = f"{speed:.1f} tok/s" if speed is not None else "- tok/s"
+        ttft = self._last_ttft_seconds
+        ttft_label = f"  ttft:{ttft:.1f}s" if ttft is not None else ""
         right = (
-            f"thinking:{'expand' if self._expand_thinking else 'collapse'}  "
-            f"speed:{speed_label}  "
+            f"speed:{speed_label}{ttft_label}  "
             f"model:{self._current_model()}  "
             f"entries:{field_of(info, 'entries', '-')} "
-            f"anchors:{field_of(info, 'anchors', '-')} "
             f"last:{field_of(info, 'last_anchor', None) or '-'}"
         )
         return FormattedText([("", f"{left}  {right}")])

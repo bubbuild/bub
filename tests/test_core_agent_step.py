@@ -277,6 +277,50 @@ async def test_streaming_reports_usage_and_records_it_in_tape(
 
 
 @pytest.mark.asyncio
+async def test_streaming_measures_generation_time_without_time_to_first_chunk(
+    tmp_path: Path, provider_service: ProviderService
+) -> None:
+    provider_service.reply(sse(chat_events()))
+    async with provider_service.client() as client:
+        runner = StepRunner(AgentSettings(max_tokens=100, client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("speed")
+        events = [
+            event
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("hello")
+            )
+        ]
+    usage = next(event.data for event in events if event.kind == "usage")
+    assert usage["ttft_seconds"] is not None
+    assert usage["ttft_seconds"] >= 0
+    assert usage["total_seconds"] >= usage["ttft_seconds"]
+    assert usage["elapsed_seconds"] >= 0
+    # Generation time starts at the first chunk, so it excludes what the request and prefill took.
+    assert usage["elapsed_seconds"] <= usage["total_seconds"] - usage["ttft_seconds"] + 1e-6
+
+
+@pytest.mark.asyncio
+async def test_streaming_without_any_chunk_times_the_whole_call(
+    tmp_path: Path, provider_service: ProviderService
+) -> None:
+    provider_service.reply(
+        sse([{"choices": [], "usage": {"prompt_tokens": 3, "completion_tokens": 0, "total_tokens": 3}}, "[DONE]"])
+    )
+    async with provider_service.client() as client:
+        runner = StepRunner(AgentSettings(max_tokens=100, client_args={"http_client": client, "api_format": "chat"}))
+        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("speed")
+        events = [
+            event
+            async for event in runner.run(
+                tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("hello")
+            )
+        ]
+    usage = next(event.data for event in events if event.kind == "usage")
+    assert usage["ttft_seconds"] is None
+    assert usage["elapsed_seconds"] == pytest.approx(usage["total_seconds"])
+
+
+@pytest.mark.asyncio
 async def test_anthropic_request_enables_caching_and_generation_options(
     tmp_path: Path, provider_service: ProviderService
 ) -> None:

@@ -49,6 +49,13 @@ from bub.turn import TurnState
 
 MAX_AUTO_HANDOFF_RETRIES = 1
 
+FIRST_CHUNK_KINDS = frozenset({"text", "reasoning"})
+"""Stream events that carry a token the model emitted, marking where decode starts.
+
+``_stream_events`` folds refusals into ``text``, and only releases ``tool_call`` once the response
+ends, so those two are the complete set of per-token events.
+"""
+
 E = TypeVar("E", bound=AgentEvent)
 T = TypeVar("T", bound=TapeEvent)
 
@@ -341,18 +348,36 @@ class Agent:
             yield StreamEvent("final", {"ok": True, "text": decision.text})
             return
         completion_started = time.monotonic()
+        first_chunk_at: float | None = None
         async with self._traced_completion(tape, client, options, request, tools, state) as (
             provider,
             completion,
             events,
         ):
             async for event in events:
+                if first_chunk_at is None and event.kind in FIRST_CHUNK_KINDS:
+                    first_chunk_at = time.monotonic()
                 yield event
             response = completion.response
-            completion_elapsed = time.monotonic() - completion_started
+            completion_finished = time.monotonic()
         text = response.text or response.refusal or ""
+        # Time to first chunk covers request latency and prefill, so leaving it in the denominator
+        # understates generation speed, badly so for models that think before emitting anything.
+        # A call that never streamed a chunk has nothing to measure, so it falls back to the full call.
+        if first_chunk_at is None:
+            completion_elapsed = completion_finished - completion_started
+        else:
+            completion_elapsed = completion_finished - first_chunk_at
 
-        yield StreamEvent("usage", {"usage": state.usage, "elapsed_seconds": completion_elapsed})
+        yield StreamEvent(
+            "usage",
+            {
+                "usage": state.usage,
+                "elapsed_seconds": completion_elapsed,
+                "ttft_seconds": None if first_chunk_at is None else first_chunk_at - completion_started,
+                "total_seconds": completion_finished - completion_started,
+            },
+        )
 
         tool_calls = response.tool_calls
         if tool_calls:

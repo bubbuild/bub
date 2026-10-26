@@ -13,7 +13,7 @@ bub chat
 
 Each input submits a message. Press Ctrl-D or enter `,quit` or `,exit` to leave. The default session ID is `cli_session`.
 
-The toolbar shows output speed for the latest model call. It includes request latency and excludes tool execution. When the provider does not report usage, it shows `speed:- token/s`.
+The toolbar shows the speed of the latest model call, measured from the first streamed chunk to the end of the response. It counts every output token, reasoning included, and excludes both the time before the first chunk and tool execution. The `ttft` next to it is that excluded time to first chunk. When the provider does not report usage, it shows `speed:- tok/s`.
 
 ## Run a task from the shell
 
