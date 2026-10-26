@@ -1,49 +1,74 @@
 ---
 title: 部署
-description: 用 Docker Compose 运行 Bub 网关，持久化数据并安全升级。
+description: 运行 Bub 常驻服务与云端沙箱，涵盖 Docker Compose 与 Daemon 守护进程模式。
 ---
 
-Bub 可以作为常驻容器运行。官方镜像已包含运行时、常用命令行工具和托管插件环境；宿主机只需要提供 `.env`、工作区和数据目录。
+import { Steps, Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
-两种起步方式：
+Bub 既能在本地终端交互使用（见[终端交互](/zh-cn/docs/app/terminal/)），也可以部署到服务器常驻运行：
 
-- **使用发布镜像**：下载仓库中的 [`docker-compose.yml`](https://github.com/bubbuild/bub/blob/main/docker-compose.yml) 和 [`env.example`](https://github.com/bubbuild/bub/blob/main/env.example)，不需要源码。
-- **本地构建**：从 [GitHub Releases](https://github.com/bubbuild/bub/releases) 获取源码归档，或克隆仓库，再使用同一份 Compose 文件构建。
+- **常驻网关（Gateway）**：7×24 小时监听 Telegram、飞书等渠道并响应消息。
+- **云端隔离沙箱（Remote Workspace）**：在独立容器内提供完整的开发工具链，并通过终端接入 `bub chat` 交互，保障宿主机安全。
 
-镜像由仓库中的 [`Dockerfile`](https://github.com/bubbuild/bub/blob/main/Dockerfile) 和 [`entrypoint.sh`](https://github.com/bubbuild/bub/blob/main/entrypoint.sh) 定义。
+两种主流部署方式：
+
+| 方式 | 场景 | 优势 |
+| --- | --- | --- |
+| **Docker Compose**（推荐） | 云服务器、VPS、NAS、本地容器 | 开箱即用，自带 Node/pnpm/Python/Git 等工具链；环境隔离，易于备份与升级 |
+| **Daemon 模式** | 已有 Python 环境的 Linux / Windows 宿主机 | 资源占用低，通过 `bub gateway --install` 一键注册为系统后台服务 |
+
+---
 
 ## 开始之前 {#before-you-start}
 
-- 安装 Docker 与 Compose v2，并确认 `docker compose version` 可用。
-- 准备模型配置。`.env` 至少包含 `BUB_MODEL`，以及 `BUB_API_KEY` 或提供商专用 key；字段说明见[配置](/zh-cn/docs/app/configure/)。
-- 如果要运行 Telegram 网关，准备 `BUB_TELEGRAM_TOKEN` 和一份用户或群组白名单，见[Telegram 网关](/zh-cn/docs/app/gateway/#telegram)。
+部署前需完成以下准备：
 
-容器会以 `root` 运行。若宿主机目录由其他用户创建，先确认 Docker 进程能读写对应路径。
+1. **模型配置**：在 `.env` 中指定 `BUB_MODEL` 和 `BUB_API_KEY`，详见[配置](/zh-cn/docs/app/configure/)。
+2. **渠道凭据与白名单**：接入 Telegram 等渠道时，**务必配置白名单**（如 `BUB_TELEGRAM_ALLOW_USERS`），防止未授权访问消耗 Token。
+3. **数据持久化**：会话状态（Tape）、历史记录与插件保存在数据目录（宿主机 `~/.bub`，容器内 `/data`），部署时需确保持久化存储。
 
-## 1. 准备配置 {#configure}
+<Aside type="caution" title="安全提示">
+生产部署中切勿留空白名单！若白名单为空，任何能搜索到机器人的用户都能向其发送指令并调用 Agent 工具。
+</Aside>
 
-在 Compose 文件所在目录创建 `.env`：
+---
+
+## Docker Compose {#docker-compose}
+
+官方镜像（`ghcr.io/bubbuild/bub`）内置 Python 3.12、`uv`、Git、Node.js、pnpm 及常用命令行工具，宿主机只需提供配置文件与存储卷。
+
+### 1. 配置环境 {#configure}
+
+在部署目录中获取 [`docker-compose.yml`](https://github.com/bubbuild/bub/blob/main/docker-compose.yml) 与 [`env.example`](https://github.com/bubbuild/bub/blob/main/env.example)：
 
 ```bash
+mkdir -p bub-deploy && cd bub-deploy
+curl -O https://raw.githubusercontent.com/bubbuild/bub/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/bubbuild/bub/main/env.example
 cp env.example .env
 ```
 
-最小 Telegram 配置：
+在 `.env` 中填入核心参数：
 
 ```bash
+# 模型
 BUB_MODEL=openrouter:openrouter/free
-BUB_API_KEY=sk-or-...
-BUB_TELEGRAM_TOKEN=123456:abcdef...
-BUB_TELEGRAM_ALLOW_USERS=123456789
+BUB_API_KEY=sk-or-v1-...
+
+# 渠道（以 Telegram 为例）
+BUB_TELEGRAM_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
+BUB_TELEGRAM_ALLOW_USERS=123456789,your_telegram_username
+
+# 宿主机数据目录与工作区（可选）
+# BUB_HOME_HOST=~/.bub
+# BUB_WORKSPACE_PATH=.
 ```
 
-生产环境应同时设置 `BUB_TELEGRAM_ALLOW_CHATS` 或 `BUB_TELEGRAM_ALLOW_USERS`。留空白名单会让任何能找到机器人的人发起会话。
+`docker compose` 会自动读取当前目录的 `.env`。切勿将包含 Token 的 `.env` 提交到公开仓库。
 
-`docker compose` 会读取 `.env` 并传给容器。不要把含有 token 的 `.env` 提交到仓库。
+### 2. 目录挂载 {#volumes}
 
-## 2. 了解挂载 {#volumes}
-
-默认 Compose 使用三个绑定挂载：
+默认 `docker-compose.yml` 包含三个卷挂载：
 
 ```yaml
 volumes:
@@ -52,157 +77,206 @@ volumes:
   - ${BUB_AGENT_HOME:-${HOME}/.agents}:/root/.agents
 ```
 
-| 容器路径 | 内容 | 宿主机变量 |
+| 容器路径 | 宿主机对应路径 | 说明 |
 | --- | --- | --- |
-| `/workspace` | Bub 的工具以这里为工作目录 | `BUB_WORKSPACE_PATH`，默认当前目录 |
-| `/data` | Tape、命令历史、托管插件项目、code mode 临时文件 | `BUB_HOME_HOST`，默认 `~/.bub` |
-| `/root/.agents` | 全局 Agent 技能 | `BUB_AGENT_HOME`，默认 `~/.agents` |
+| `/workspace` | `BUB_WORKSPACE_PATH`（默认当前目录） | **工作区**：Agent 执行命令与读写文件的目录 |
+| `/data` | `BUB_HOME_HOST`（默认 `~/.bub`） | **数据目录**：保存 Tape、历史记录和托管插件（`/data/bub-project`） |
+| `/root/.agents` | `BUB_AGENT_HOME`（默认 `~/.agents`） | **全局技能**：跨项目复用的 Agent 技能目录 |
 
-Compose 在容器内设置 `BUB_HOME=/data`。`BUB_HOME` 改变 Bub 的运行时数据根目录，**不会移动**默认的 `~/.bub/config.yml`；容器中的配置文件路径仍按容器用户的主目录解析。非敏感设置优先写进 `.env`。
+容器内设置了 `BUB_HOME=/data`，容器销毁重建不会丢失会话数据与插件。
 
-工作区挂载决定模型和工具能看到哪些文件。不要把宿主机根目录或包含密钥的目录整体挂进 `/workspace`。
+<Aside type="danger" title="隔离防范">
+工作区决定了 Agent 能触及的文件范围。**切勿**将宿主机根目录 `/` 或含有敏感密钥的目录挂进 `/workspace`。
+</Aside>
 
-## 3. 启动 {#start}
+### 3. 启动 {#start}
 
-使用发布镜像：
+<Tabs>
+  <TabItem label="使用官方镜像（推荐）">
+    拉取镜像并在后台启动：
 
-```bash
-docker compose pull
-docker compose up -d
-docker compose logs -f app
-```
+    ```bash
+    docker compose pull
+    docker compose up -d
+    docker compose logs -f app
+    ```
 
-Compose 默认使用 `ghcr.io/bubbuild/bub:latest`。发布工作流还会生成：
+    生产环境建议在 `.env` 中固定具体 Tag（如 `BUB_IMAGE=ghcr.io/bubbuild/bub:0.6.0`）。
+  </TabItem>
+  <TabItem label="本地构建">
+    从源码构建并启动：
 
-- 完整版本 tag，例如 `0.6.0` 或预发布 tag `0.6.0a2`；
-- 正式版的 `<major>.<minor>` tag，例如 `0.6`；
-- 仅正式版更新 `latest`。
+    ```bash
+    docker compose up -d --build
+    ```
+  </TabItem>
+  <TabItem label="使用 docker run">
+    不依赖 Compose 时的等价命令：
 
-需要可重复部署时，把 `BUB_IMAGE` 固定到完整版本：
+    ```bash
+    docker run -d --name bub --restart unless-stopped \
+      --env-file .env \
+      -e BUB_HOME=/data \
+      -v "$PWD":/workspace \
+      -v "$HOME/.bub":/data \
+      -v "$HOME/.agents":/root/.agents \
+      ghcr.io/bubbuild/bub:latest
 
-```bash
-BUB_IMAGE=ghcr.io/bubbuild/bub:0.6.0
-```
+    docker logs -f bub
+    ```
+  </TabItem>
+</Tabs>
 
-本地构建：
+### 4. 验证 {#verify}
 
-```bash
-docker compose up -d --build
-```
-
-本地构建会安装系统工具并执行：
-
-```bash
-uv sync --locked --no-dev --no-editable --extra app
-```
-
-首次构建通常需要几分钟。构建出的镜像使用 Compose 中的 `BUB_IMAGE` tag；如果该 tag 与远端同名，后续 `docker compose pull` 会重新拉取远端镜像。开发时可以使用自己的 tag，例如 `BUB_IMAGE=bub-local:dev`。
-
-### 不用 Compose {#docker-run}
-
-直接运行镜像时，挂载和启动命令与 Compose 等价：
-
-```bash
-docker run -d --name bub --restart unless-stopped \
-  --env-file .env \
-  -e BUB_HOME=/data \
-  -v "$PWD":/workspace \
-  -v "$HOME/.bub":/data \
-  -v "$HOME/.agents":/root/.agents \
-  ghcr.io/bubbuild/bub:latest
-
-docker logs -f bub
-```
-
-`docker run` 不会自动读取 Compose 的 `environment` 段，因此这里显式传入 `BUB_HOME=/data`。升级时拉取新 tag，删除旧容器，再用相同卷重新创建；不要在升级前删除 `/data`。
-
-## 4. 启动脚本做什么 {#entrypoint}
-
-容器每次启动时，`entrypoint.sh` 依次执行：
-
-1. 如果 `/workspace/bub-reqs.txt` 存在，把里面的 Python 包装入镜像虚拟环境。
-2. 激活 `/app/.venv`，运行无参数 `bub install`，同步 `/data/bub-project` 中的托管插件。
-3. 如果 `/workspace/startup.sh` 存在，用 `bash` 执行它；否则执行 `bub gateway`。
-
-因此，`bub install` 添加的插件会在容器重启后继续存在。需要把额外依赖固定在工作区时，可以提交 `bub-reqs.txt`；它适合镜像中无法通过插件项目声明的包，但会延长每次启动时间。
-
-用 `startup.sh` 覆盖默认入口：
-
-```bash
-#!/bin/bash
-# /workspace/startup.sh
-set -euo pipefail
-exec /app/.venv/bin/bub gateway --enable-channel telegram
-```
-
-脚本必须 `exec` 最终的长期进程，否则容器信号会停在 shell 上。需要自定义渠道组合时，在这里传 `--enable-channel`，或改用 `BUB_ENABLED_CHANNELS`。
-
-## 5. 验证 {#verify}
+检查容器状态与网关日志：
 
 ```bash
 docker compose ps
 docker compose logs -f app
 ```
 
-Telegram 正常启动时会记录类似：
+Telegram 网关启动正常时会输出：
 
 ```text
+telegram.start allow_users_count=1 allow_chats_count=0 proxy_enabled=False
 telegram.start polling
 ```
 
-检查变量是否传入而不打印值：
+检查环境变量是否注入（不输出明文）：
 
 ```bash
 docker compose exec app sh -c 'test -n "$BUB_TELEGRAM_TOKEN" && echo token-present'
 ```
 
-如果容器反复重启，先看日志中的插件导入失败或配置校验错误。`bub install` 失败会阻止 `entrypoint.sh` 继续执行，这是为了避免带着半安装的插件启动网关。
+### 5. 交互式 Chat {#chat}
 
-## 6. 升级与回滚 {#upgrade}
-
-升级前备份 `/data` 和 `.env`。Tape 是追加写入的 JSONL；备份时应停止写入，或使用文件系统快照：
+Compose 默认开启了 `stdin_open` 与 `tty`。即使容器在后台运行网关，你也可以随时进入容器开启交互式对话：
 
 ```bash
+docker compose exec -it app bub chat
+```
+
+这让你能在云端完全隔离的沙箱环境中，直接调用预装的工具链与 Agent 结对编程。
+
+### 6. 定制启动与依赖 {#entrypoint}
+
+容器启动时，`entrypoint.sh` 依次执行：
+
+<Steps>
+
+1. **安装 Python 依赖**：若 `/workspace/bub-reqs.txt` 存在，自动通过 `uv pip install` 安装。
+2. **同步插件**：激活虚拟环境并执行 `bub install`，同步 `/data/bub-project` 中的托管插件。
+3. **执行入口**：若 `/workspace/startup.sh` 存在，用 `bash` 执行它；否则执行 `bub gateway`。
+
+</Steps>
+
+#### 覆盖启动命令示例
+
+在工作区创建 `startup.sh` 并赋予可执行权限：
+
+```bash
+#!/bin/bash
+# /workspace/startup.sh
+set -euo pipefail
+
+# 必须使用 exec 替换进程，确保系统信号正常传递给网关
+exec /app/.venv/bin/bub gateway --enable-channel telegram
+```
+
+### 7. 插件管理 {#plugins}
+
+托管插件存放在持久卷 `/data/bub-project` 中，直接在容器内安装无需重建镜像：
+
+```bash
+# 安装插件
+docker compose exec app bub install https://github.com/owner/repo.git@v1.2.0
+
+# 更新插件
+docker compose exec app bub update
+
+# 重启使新插件生效
+docker compose restart app
+```
+
+### 8. 备份与升级 {#upgrade}
+
+Tape 是追加写入的 JSONL 文件。升级前建议先暂停写入并备份：
+
+```bash
+# 1. 停止写入并备份
 docker compose stop app
 tar -czf "bub-data-$(date +%Y%m%d-%H%M%S).tar.gz" "$HOME/.bub"
-docker compose start app
-```
+cp .env ".env.bak-$(date +%Y%m%d-%H%M%S)"
 
-使用发布镜像升级：
-
-```bash
+# 2. 拉取新镜像并启动
 docker compose pull
 docker compose up -d
-docker compose logs -f app
 ```
 
-本地构建升级：
+若需回滚，只需在 `.env` 中换回旧 Tag（如 `BUB_IMAGE=ghcr.io/bubbuild/bub:0.6.0`）并重新启动。
+
+---
+
+## Daemon 模式 {#daemon}
+
+在已有 Python 环境的主机上，可使用 `bub gateway` 内置的 `--install` 命令直接注册为系统后台服务：
+
+- **Linux**：注册为 systemd 用户级服务 `~/.config/systemd/user/bub-gateway.service`。
+- **Windows**：注册为当前用户的计划任务（登录自启，失败自动重启）。
+- **macOS**：暂不支持 `--install`，建议使用 launchd、tmux 或上述 Docker 方案。
+
+### 1. 安装服务 {#daemon-install}
+
+在包含 `.env` 的工作区目录下执行：
 
 ```bash
-git pull
-docker compose build --pull
-docker compose up -d
+# 创建环境并安装应用
+uv venv && source .venv/bin/activate
+uv pip install 'bub[app]'
+
+# 一键安装并启动后台服务
+bub gateway --install
 ```
 
-回滚到固定版本只需换回旧 tag：
+安装程序会自动记录当前 Python 解释器路径、工作区目录与环境变量。
+
+### 2. 保活与管理 {#daemon-manage}
+
+Linux 用户注销 SSH 后，默认会挂起用户级服务。如需保持 7×24 小时运行，需启用 linger：
 
 ```bash
-BUB_IMAGE=ghcr.io/bubbuild/bub:0.6.0 docker compose up -d
+loginctl enable-linger $USER
 ```
 
-如果新版本改动了插件依赖或数据格式，同时恢复对应的 `/data` 备份。不要假定旧代码能读取新版本已经写入的全部数据。
-
-### 管理容器内插件 {#plugins}
-
-托管插件项目位于 `/data/bub-project`。以下命令只影响该虚拟环境，不修改系统 Python：
+常用管理命令：
 
 ```bash
-docker compose exec app bub install
-docker compose exec app bub install https://github.com/owner/repo.git@v1.2.0
-docker compose exec app bub update
-docker compose exec app bub update specific-plugin
+# 查看状态
+systemctl --user status bub-gateway
+
+# 实时查看日志
+journalctl --user -u bub-gateway -f
+
+# 重启与停止
+systemctl --user restart bub-gateway
+systemctl --user stop bub-gateway
 ```
 
-无参数 `bub install` 按项目声明同步；带参数会新增或锁定插件。`bub update` 升级全部包，也可以指定包名。修改后重启容器，或重新运行启动脚本，让网关加载新入口点。
+### 3. 卸载服务 {#daemon-uninstall}
 
-`bub install` 与 `bub update` 要求 Bub 自身位于虚拟环境中。官方镜像满足这个条件，`entrypoint.sh` 也会先激活 `/app/.venv`。
+如需移除后台服务：
+
+```bash
+bub gateway --uninstall
+```
+
+---
+
+## 安全建议 {#security-checklist}
+
+- **严格白名单**：配置 `BUB_TELEGRAM_ALLOW_USERS` 或 `BUB_TELEGRAM_ALLOW_CHATS`，未通过验证的消息将被拒绝或静默丢弃。
+- **最小化工作区**：工作区仅挂载所需项目目录，不要让 Agent 访问包含主机密钥或系统关键路径的目录。
+- **轮数上限**：通过 `BUB_MAX_STEPS`（默认 50）限制单次任务最大步数，防范死循环与 API 额度消耗。
+- **凭据安全**：通过 `.env` 或环境变量注入密钥，不要将 Token 提交至版本管理。
+- **定期备份**：定期归档备份 `~/.bub`（或容器 `/data`）目录中的 Tape 文件。

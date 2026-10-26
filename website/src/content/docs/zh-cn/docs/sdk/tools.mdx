@@ -25,7 +25,7 @@ agent = Agent(tools=[add_tool])
 
 运行时使用名称 `math.add`，提供给模型时将点替换为下划线，因此模型看到 `math_add`。可通过 `name=` 和 `description=` 显式覆盖名称与描述。
 
-普通 `Agent` 向模型提供传入的工具，只排除 `exposure="command"`。延迟加载、`allowed_tools` 和 `state["code_mode"]` 是 [BubAgent 的应用策略](/zh-cn/docs/app/tools/)。核心 Agent 需要按 Step 选择工具时，覆写 [`prepare_tools()`](/zh-cn/docs/sdk/options/#customize-how-a-step-is-prepared)。
+普通 `Agent` 向模型提供传入的工具，只排除 `exposure="command"`。延迟加载、`allowed_tools` 和 `state["code_mode"]` 是 [BubAgent 的策略](/zh-cn/docs/sdk/reuse-app/#run-stream-options)。核心 Agent 需要按 Step 选择工具时，覆写 [`prepare_tools()`](/zh-cn/docs/sdk/options/#customize-how-a-step-is-prepared)。
 
 ### 使用 Pydantic 参数模型 {#pydantic-input}
 
@@ -186,7 +186,7 @@ print("Chart attached.")
 
 `attach_image`、`attach_audio`、`attach_video` 接受环境中的文件路径、URL、data URL 或对应 Republic 媒体对象。它们只在 `run_code` 内有效。
 
-`CodeMode` 只使用你传入的工具，并排除 `exposure="command"`。BubAgent 对 `auto`、`direct`、`code` 工具的分组规则见[应用工具](/zh-cn/docs/app/tools/)。
+`CodeMode` 只使用你传入的工具，并排除 `exposure="command"`。BubAgent 对 `auto`、`direct`、`code` 工具的分组规则见[应用工具](/zh-cn/docs/app/tools/#code-mode)。
 
 ### CodeMode 参数 {#codemode-options}
 

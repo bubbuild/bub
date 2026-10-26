@@ -1,83 +1,11 @@
 ---
-title: Embedding and distribution
-description: Run a complete Turn inside an existing service, or publish a Bub distribution that includes plugins, skills, and your own command.
+title: Packaging and distribution
+description: Package the Bub app, plugins, and skills into an installable distribution, and publish your own command.
 ---
 
-When you need Bub's configuration, plugins, sessions, and message routing, reuse the full application instead of reassembling `core.Agent`. Choose your entry point by goal first:
+This page covers packaging and publishing only. To reuse Bub's configuration, plugins, and complete Turns inside an existing service, see [Reuse the Bub app](/docs/sdk/reuse-app/).
 
-| You need | Entry point |
-| --- | --- |
-| Only reuse tool implementations | Import the public components and pass them to `core.Agent`; see [Reuse application plugins](/docs/sdk/reuse-plugins/) |
-| Reuse interception, system prompts, or steering | `AgentPlugins.attach()`; see [Reuse application plugins](/docs/sdk/reuse-plugins/) |
-| Use the application's default configuration, skills, and tool policies | `framework.running()` + `BubAgent`; see [Reuse application plugins](/docs/sdk/reuse-plugins/) |
-| Run a full message Turn | `process_inbound()`; continue on this page |
-| Publish your own CLI or wheel | See [Publish your own command](#publish-a-command) |
-
-This path requires the [application dependencies](/docs/getting-started/install/#app-install). If you only need the model loop and tools, start from [Run an agent in Python](/docs/sdk/).
-
-## Embed the full Turn {#embed-the-application}
-
-`process_inbound()` runs the complete Turn, from resolving the session to sending the reply:
-
-```python
-import asyncio
-
-from bub import BubFramework
-from bub.envelope import content_of
-
-
-async def main() -> None:
-    framework = BubFramework()
-    framework.load_hooks()
-
-    async with framework.running():
-        result = await framework.process_inbound({
-            "session_id": "embedded:demo",
-            "channel": "embedded",
-            "chat_id": "demo",
-            "content": "Describe what you can help with.",
-        })
-
-    print(result.session_id)
-    for outbound in result.outbounds:
-        print(content_of(outbound))
-
-
-asyncio.run(main())
-```
-
-Configure a model before running this. `load_hooks()` loads the builtin implementations and installed plugins. The example does not bind a channel router, so replies stay in `result.outbounds` and the host sends them itself.
-
-`process_inbound()` returns a `TurnResult`, not an event stream. With `stream_output=True`, it consumes the event stream through the bound router and still returns the complete result when it finishes.
-
-`framework.running()` should cover the service's entire lifetime, not be entered once per request. It holds `provide_lifespan`, Tape storage, and the steering inbox (`SteeringInbox`); create objects that need these resources after entering the scope. Do not enter multiple overlapping scopes on the same Framework.
-
-The framework has no default session lock. When concurrent requests share a session, serialize them by `session_id`, or explicitly allow concurrency through the channel admission policy. A Turn is not a transaction either: tool side effects are not rolled back if a later step fails.
-
-### Bind a sending channel {#bind-a-router}
-
-If the host already has sending logic, just read `outbounds`. To let a channel handle outbound messages and streaming output, implement `ChannelRouter` and bind it:
-
-```python
-class HostRouter:
-    async def dispatch_output(self, message) -> bool:
-        await send_to_host(message)
-        return True
-
-    def wrap_stream(self, message, stream):
-        return stream
-
-    async def quit(self, session_id) -> None:
-        ...
-
-    async def admit_channel_message(self, session_id, message, turn):
-        return None
-
-
-framework.bind_channel_router(HostRouter())
-```
-
-`dispatch_output` returns whether it handled the message; `wrap_stream` can wrap the model stream; `admit_channel_message` returns an admission decision, and `None` means use the default scheduling. Pass `None` to unbind.
+This path requires the [application dependencies](/docs/getting-started/install/#app-install).
 
 ## Publish your own command {#publish-a-command}
 
@@ -125,6 +53,6 @@ Run the following checks in a separate virtual environment:
 2. Run `bub hooks` and confirm that the entry points load without deprecation warnings.
 3. Run `bub run` to verify the model, tools, and state.
 4. Run `bub chat` to verify skills, commands, and lifecycle channels.
-5. For a host service, verify concurrency, stream closure, and shutdown cleanup.
+5. Embed it into a host service as described in [Reuse the Bub app](/docs/sdk/reuse-app/), and verify concurrency, stream closure, and shutdown cleanup.
 
 A clean environment exposes undeclared dependencies, entry points that cannot be imported, and configuration that only works in the development directory.

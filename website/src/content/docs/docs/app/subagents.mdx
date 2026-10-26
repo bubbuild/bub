@@ -1,99 +1,58 @@
 ---
 title: Subagents
-description: Delegate tasks with the builtin subagent tool, choose a session, and restrict the model, tools, and skills available to it.
+description: Delegate tasks with the built-in subagent tool, choose a session strategy, and narrow the model, tools, and skills a subagent can use.
 ---
 
-The Bub app includes a `subagent` tool that lets the current agent delegate a task to another agent run. The child uses the same `BubAgent`, model configuration, tools, and execution environment, but can have its own session, model, and available capabilities.
+The Bub app includes a built-in `subagent` tool that lets the current agent delegate a specific subtask to another agent instance.
 
-Use it to keep research, reviews, and other relatively independent subtasks out of the main conversation. It is not a security sandbox or a standalone multi-agent workflow system.
+Subagents are a good fit for tasks that generate a huge amount of intermediate context — **large-scale retrieval, long document reading, independent code review** — so that only the conclusions come back to the main session and the main context window stays intact.
 
 ## Delegate a task {#delegate}
 
-Start `bub chat` and ask for a subagent explicitly:
+In `bub chat`, you can ask the model to call a subagent directly:
 
 ```text
-Use the subagent tool to review the authentication flow.
-Give it a temporary session and allow only fs.read and bash.
-Do not modify files. Return findings with file paths.
+Use the subagent tool to review the authentication flow:
+1. Use a temporary session and allow only fs.read and bash;
+2. Do not modify files;
+3. Return the review findings with the relevant file paths.
 ```
 
-The parent calls `subagent`. The child completes its own model-and-tool loop, then returns text to the parent. The tool call and the nested run are visible in the terminal and traces.
+The parent agent then calls the `subagent` tool; the child calls tools inside its own loop, finishes the analysis, and returns a summary to the parent.
 
-To let the model decide when to delegate, describe the policy in a system prompt or skill—for example, “give code review to a read-only subagent before the parent edits the code.”
+Beyond asking by hand, you can also set a rule in the workspace `AGENTS.md` or in a skill (for example, "complex retrieval or code review should be delegated to a read-only subagent first, and the main agent only applies changes based on the review") to get **automatic delegation**.
 
-## Choose a session {#sessions}
+## Choose a session strategy {#sessions}
 
-The `session` parameter selects the child session:
+The `session` parameter decides how the child's session context is stored and who owns it:
 
-| Value | Behavior | Use it for |
+| Session mode | Behavior | Use it for |
 | --- | --- | --- |
-| `temp` (default) | Creates a `temp/<id>` session; new tape entries are not merged back | One-off research and separate context |
-| `inherit` | Uses the current `session_id` | Keeping the subtask in the same conversation history |
-| Any other string | Uses that session ID | Continuing or inspecting the child session later |
+| `temp` (default) | Creates a separate `temp/<id>` temporary session; intermediate records are not merged into the main session afterwards | **Most common.** One-off analysis or research that returns conclusions only and keeps the main context clean |
+| `inherit` | Reuses the parent agent's current `session_id` | When every interaction of the subtask must be recorded in full in the main session history |
+| A custom string | Uses that fixed session ID | Longer tasks whose child session you need to resume or inspect later |
 
-A temporary session returns only the final `output` and `errors` to the parent; it does not retain the child's intermediate conversation. With `inherit`, parent and child runs may write to the same session. Avoid running them concurrently when you need a clear history, or use a separate named session.
+:::tip
+The default `temp` mode returns only the final `output` text and any `errors` to the parent agent; every prompt and tool call produced inside the subtask stays out of the main conversation's context.
+:::
 
-The workspace and session ID together determine the tape name. Named sessions and `temp/` follow the same merge rules as direct `BubAgent.run_stream()` calls.
+## State boundaries and capability limits {#boundaries}
 
-## Restrict the model, tools, and skills {#parameters}
+A subagent is derived from the same running instance as its parent. What it inherits and what stays isolated:
 
-Use `prompt` to state the subtask, expected result, and constraints. Set the other parameters when you need separate context, a different model, or a narrower set of tools and skills. See the [built-in tools reference](/docs/reference/tools/#subagent) for the complete parameters, types, and defaults.
+| Resource | Boundary | Notes and controls |
+| --- | --- | --- |
+| **Base instance** | Fully shared | Shares plugin hooks, model credentials, and `BubAgent` configuration |
+| **Execution environment** | Fully shared | Shares the workspace directory, local filesystem, Shell processes, and network access |
+| **Model selection** | Set separately | Defaults to the parent model; use `model` (e.g. `model="gpt-4o-mini"`) to downgrade to a lighter model |
+| **Tools and skills** | Narrowed by parameter | All available by default; use `allowed_tools` and `allowed_skills` to narrow the set |
+| **Conversation records** | Isolated per session strategy | Decided by `session`; `temp` returns only the final summary text to the parent |
 
-Tool names accept runtime names or model aliases, such as `fs.read` and `fs_read`. Unknown names raise an error. Skill names are case-insensitive.
+Parameter types and defaults are listed in the [subagent reference](/docs/reference/tools/#subagent).
 
-A read-only review could use these parameters:
+### Security limits and measures
 
-```json
-{
-  "prompt": "Review the authentication flow. Do not modify files.",
-  "session": "temp",
-  "allowed_tools": ["fs.read", "bash"],
-  "allowed_skills": []
-}
-```
+Like the parent, a subagent also runs in the local environment under the current user's privileges, and can affect the current system:
 
-This JSON illustrates the tool parameters; it is not a command you need to paste. `allowed_skills: []` disables skill discovery. When minimizing tool access, provide an explicit, non-empty `allowed_tools` list.
-
-`allowed_tools` really filters the child run, but **the model still generates the parameter in chat**. When permissions are a security boundary, also enforce them through `BubAgent.run_stream()` or `before_tool_call`; do not rely on natural-language instructions alone.
-
-## Shared state and isolation {#boundaries}
-
-| Resource | Relationship |
-| --- | --- |
-| `BubAgent`, plugin hooks, model credentials | Shared |
-| Workspace, `Environment`, files, external systems | Shared |
-| Turn state | Shallow-copied; nested mutable objects may still be shared |
-| Tools and skills | Restricted by parameters |
-| Tape | Determined by `session` |
-| Final text and errors | Returned to the parent |
-
-A temporary session separates **conversation records and model context**, not side effects. File changes, network requests, and processes produced by the child are not rolled back when it uses `temp`. Use a separate [execution environment](/docs/app/tools/#environment) for execution isolation, and [tool interception hooks](/docs/app/hooks/#control-a-model-or-tool-call) for approval policies.
-
-The tool returns:
-
-```python
-{
-    "session_id": "temp/1a2b3c4d",
-    "output": "...",
-    "errors": [],
-}
-```
-
-`output` contains text deltas only. Other stream events remain available through events and tracing. The child's trace sits below the tool span that started it; see [Observability](/docs/integrations/observability/).
-
-## When to use it {#when-to-use}
-
-Good fits:
-
-- Keep large search or reading tasks in temporary context and return only conclusions.
-- Separate read-only review from later edits.
-- Choose another model for one subtask.
-- Give a subtask a smaller set of tools and skills.
-
-It does not replace:
-
-- Permission approval or a security sandbox.
-- Cross-process queues and distributed locks.
-- Automatic role orchestration, planner loops, or long-term memory.
-
-You can build those requirements on Bub's tools, events, tapes, and channels, but the host must define their lifecycle and consistency rules.
+1. A temporary session isolates only **conversation records and model context**, not files, network requests, or system processes. File changes and network requests made by the child have real system side effects and are not rolled back on exit just because `temp` was used.
+2. Parameters such as `allowed_tools` can restrict model behavior when needed, but **they are not an enforced security boundary**. To hard-block dangerous commands or out-of-scope tools, use [tool interception hooks](/docs/app/hooks/#control-a-model-or-tool-call); for physical isolation, configure a separate [execution environment](/docs/app/tools/#environment).

@@ -229,7 +229,7 @@ const COL_COUNT = 5;
 </section>
 
 <style>
-  /* ── Scan line gradient (complex — kept out of Tailwind arbitrary values) ── */
+  /* Complex gradient — kept out of Tailwind arbitrary values */
   .tape-scan {
     background: linear-gradient(
       90deg,
@@ -242,7 +242,6 @@ const COL_COUNT = 5;
     box-shadow: 0 0 8px var(--site-accent-signal-shadow);
   }
 
-  /* ── Animations ── */
   .tape-live-dot,
   .tape-cursor-line {
     animation-play-state: paused;
@@ -280,7 +279,6 @@ const COL_COUNT = 5;
     }
   }
 
-  /* ── JS-applied dynamic states ── */
   .tape-row-superseded .tape-td--payload span:last-child {
     text-decoration: line-through;
     text-decoration-color: var(--site-accent-signal-emphasis);

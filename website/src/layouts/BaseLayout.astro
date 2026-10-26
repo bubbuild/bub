@@ -1,14 +1,5 @@
 ---
-/**
- * BaseLayout.astro — shared HTML shell for every page.
- *
- * Provides: <!doctype>, <head> (meta, OG, favicon, inline theme init),
- * <body> with NavBar, <slot/> for main content, Footer, and
- * the scroll-reveal + back-to-top scripts.
- *
- * All other layouts (LandingLayout, PostLayout, PostListLayout)
- * and standalone pages (404) should compose on top of this.
- */
+/** Shared shell: head/meta, NavBar, slot, Footer. Other layouts compose on this. */
 import '@/styles/site.css';
 import Footer from '@/components/Footer.astro';
 import NavBar from '@/components/NavBar.astro';
@@ -18,24 +9,15 @@ import { getRepoStats } from '@/lib/github';
 import { SITE_URL } from 'astro:env/client';
 
 interface Props {
-  /** Page <title>. Falls back to site.title from ui.ts. */
   title?: string;
-  /** Meta description. Falls back to site.description from ui.ts. */
   description?: string;
-  /** Canonical URL. If not set, omitted from head. */
   canonicalUrl?: string;
-  /** OG type. Defaults to 'website'. */
   ogType?: string;
-  /** OG image path (relative to site root, e.g. '/og/index.png'). */
+  /** Relative to site root, e.g. '/og/index.png'. */
   ogImage?: string;
-  /** Extra class on <body>. */
   bodyClass?: string;
-  /** Whether to render the back-to-top button. Default true. */
   backToTop?: boolean;
-  /** Whether to render the skip-to-content link. Default true. */
   skipLink?: boolean;
-  /** Extra head content via named slot. */
-  /** robots meta. */
   robots?: string;
 }
 

@@ -199,7 +199,7 @@ subagent(prompt, model=None, session="temp", allowed_tools=None, allowed_skills=
 }
 ```
 
-`output` 只汇总文本增量，其他流事件仍可通过事件和 tracing 观察。子 Agent 与父 Agent 共享 `BubAgent`、插件 hooks、模型凭据、工作区、`Environment`、文件和外部系统；Turn state 是浅拷贝，嵌套的可变对象仍可能共享。临时会话隔离的是**对话记录和模型上下文**，不是文件、网络或进程副作用，这些副作用不会因使用 `temp` 而回滚。需要隔离执行时，应提供独立的[执行环境](/zh-cn/docs/app/tools/#environment)；需要审批时，使用[工具拦截 hooks](/zh-cn/docs/app/hooks/#control-a-model-or-tool-call)。
+`output` 只汇总文本增量，其他流事件仍可通过事件和 tracing 观察。子 Agent 与父 Agent 共享 `BubAgent`、插件 hooks、模型凭据、工作区、`Environment`、文件和外部系统；Turn state 是浅拷贝，嵌套的可变对象仍可能共享。临时会话隔离的是**对话记录和模型上下文**，不是文件、网络或进程副作用，这些副作用不会因使用 `temp` 而回滚。需要隔离执行时，应提供独立的[执行环境](/zh-cn/docs/app/tools/#environment)；需要审批时，使用[工具拦截 Hooks](/zh-cn/docs/app/plugins/#control-a-model-or-tool-call)。
 
 完整使用示例见[子 Agent](/zh-cn/docs/app/subagents/)。
 

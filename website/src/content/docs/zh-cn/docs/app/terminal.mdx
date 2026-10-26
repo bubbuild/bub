@@ -5,7 +5,10 @@ description: 使用 Bub 的交互式会话、运行中补充指令、命令和�
 
 import { Aside } from '@astrojs/starlight/components';
 
-`bub run` 处理一条消息，`bub chat` 则保持会话打开，适合连续任务。两者使用相同的模型、工具和 Tape。
+Bub 应用提供两种终端交互方式：`bub run` 和 `bub chat`，两者都使用相同的模型、工具和 Tape 能力：
+
+- `bub run` 处理单条消息，适用于一次性任务；
+- `bub chat` 则保持会话打开，可以连续对话。
 
 ## 开始交互式会话
 
@@ -21,7 +24,9 @@ bub chat
 bub chat "Inspect this repository and suggest a first task."
 ```
 
-## 在运行时引导 Agent {#steering}
+## 在运行中引导 Agent {#steering}
+
+如果在等待模型回复期间，你发现模型的输出偏离了你的预期，或者你想补充一些约束条件，可以在界面中直接输入新指令以引导 Agent 的行为。
 
 **引导**（Steering）是在当前 Turn 尚未结束时补充指令，让 Agent 调整正在执行的任务。生成过程中不必等待回复结束，直接输入并回车即可：
 
@@ -29,9 +34,9 @@ bub chat "Inspect this repository and suggest a first task."
 先不要修改文件，只列出问题和建议。
 ```
 
-CLI 会把消息交给引导收件箱（`SteeringInbox`）。Agent 在后续 Step 构建模型请求时读取它；正在执行的模型或工具调用不会被强制中断。
+CLI 会把消息放到引导收件箱中。Agent 在后续构建模型请求时读取它，正在执行的模型或工具调用不会被强制中断。
 
-引导与排队（Queue up）的区别在于消息何时生效：
+除了引导之外，也许在其他工具中你也会看到「排队」的概念。引导与排队（Queue up）的区别在于消息何时生效：
 
 | 方式 | 处理方式 | 适合什么 |
 | --- | --- | --- |
@@ -44,30 +49,28 @@ CLI 会把消息交给引导收件箱（`SteeringInbox`）。Agent 在后续 Ste
 
 ## 查看推理过程
 
-输入 `,thinking` 在展开和折叠之间切换：
+输入 `,thinking` 以展开和折叠模型思考过程：
 
 ```text
 ,thinking
 ```
 
-它只控制终端是否显示模型返回的 `reasoning` 增量，不会改变模型或推理力度。调整推理力度使用：
+它只控制终端是否显示模型返回的 `reasoning` 增量，不会改变模型或推理力度。如需调整推理力度请使用：
 
 ```text
 ,reasoning_effort high
 ```
 
-具体可选值由模型提供商决定。该设置从下一次 Turn 起生效，并保存在当前会话的 Tape 中。
+具体可选值由模型提供商决定。该设置从下一轮对话起生效，并保存在当前会话的 Tape 中。
 
 ## 指定会话
 
-`bub run` 默认使用 `cli:local`，`bub chat` 默认使用 `cli_session`。显式指定相同的会话 ID，可以在两个入口之间延续历史：
+`bub run` 默认使用 `cli:local` 作为会话 ID，`bub chat` 则默认使用 `cli_session`。显式指定相同的会话 ID，可以在两个入口之间延续历史：
 
 ```bash
 bub chat --session-id cli:echo
 bub run --session-id cli:echo "Summarize what we discussed."
 ```
-
-Tape 名称还包含工作区路径，因此相同的会话 ID 在不同工作区不会共享历史。
 
 ## 使用命令 {#commands}
 
@@ -94,9 +97,10 @@ bub run ",fs.read path=README.md"
 | `,tape.reset archive=true` | 归档当前 Tape 后重新开始 |
 | `,thinking` | 展开或折叠推理输出 |
 
-`,tape.reset archive=true` 会把主 Tape 和 sidecar 备份到 `<BUB_HOME>/tapes/`，文件名带有 UTC 时间戳和 `.bak` 后缀。使用 `archive=false` 或直接 `,tape.reset` 则不备份。重置后会产生新的 `session/start` anchor，旧文件不会被自动恢复。
+注意：
 
-`handoff` 不会自动生成或注入摘要。`summary` 保存在 anchor 的 `state` 中；后续是否读取它，取决于提示词或上下文策略。详见 [Tape](/zh-cn/docs/concepts/tape/#anchors)。
+- `,tape.reset archive=true` 会把主 Tape 和 sidecar 备份到 `<BUB_HOME>/tapes/`，文件名带有 UTC 时间戳和 `.bak` 后缀。使用 `archive=false` 或直接 `,tape.reset` 则不备份。重置后会产生新的 `session/start` anchor，旧文件不会被自动恢复。
+- `handoff` 不会自动生成或注入摘要。`summary` 保存在 anchor 的 `state` 中；后续是否读取它，取决于提示词或上下文策略。详见 [Tape](/zh-cn/docs/concepts/tape/#anchors)。
 
 <Aside type="caution">
   未注册的命令会交给 `bash` 执行。输入未知命令前，确认它确实是你允许运行的 Shell 命令。

@@ -1,83 +1,11 @@
 ---
-title: 嵌入与分发
-description: 在现有服务中运行完整 Turn，或发布包含插件、技能和自有命令的 Bub 发行包。
+title: 打包与分发
+description: 把 Bub 应用、插件和技能打包成可安装的发行包，并发布自有命令。
 ---
 
-需要 Bub 的配置、插件、会话和消息路由时，可以复用完整应用，不必重新组合 `core.Agent`。先按目标选择入口：
+本页只讲打包和发布。要在已有服务中复用 Bub 的配置、插件和完整 Turn，见[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)。
 
-| 需要 | 入口 |
-| --- | --- |
-| 只复用工具实现 | 导入公开组件，传给 `core.Agent`；见[复用应用插件](/zh-cn/docs/sdk/reuse-plugins/) |
-| 复用拦截、系统提示或引导（Steering） | `AgentPlugins.attach()`；见[复用应用插件](/zh-cn/docs/sdk/reuse-plugins/) |
-| 使用应用默认配置、技能和工具策略 | `framework.running()` + `BubAgent`；见[复用应用插件](/zh-cn/docs/sdk/reuse-plugins/) |
-| 执行完整消息 Turn | `process_inbound()`；继续使用本页 |
-| 发布自有 CLI 或 wheel | 见本文[发布自有命令](#publish-a-command) |
-
-这条路径需要[应用依赖](/zh-cn/docs/getting-started/install/#app-install)。只使用模型循环和工具时，从[在 Python 中运行 Agent](/zh-cn/docs/sdk/)开始。
-
-## 嵌入完整 Turn {#embed-the-application}
-
-`process_inbound()` 执行从会话解析到回复发送的完整 Turn：
-
-```python
-import asyncio
-
-from bub import BubFramework
-from bub.envelope import content_of
-
-
-async def main() -> None:
-    framework = BubFramework()
-    framework.load_hooks()
-
-    async with framework.running():
-        result = await framework.process_inbound({
-            "session_id": "embedded:demo",
-            "channel": "embedded",
-            "chat_id": "demo",
-            "content": "Describe what you can help with.",
-        })
-
-    print(result.session_id)
-    for outbound in result.outbounds:
-        print(content_of(outbound))
-
-
-asyncio.run(main())
-```
-
-运行前配置模型。`load_hooks()` 加载内置实现和已安装插件。示例没有绑定渠道 router，因此回复保留在 `result.outbounds` 中，由宿主自行发送。
-
-`process_inbound()` 返回 `TurnResult`，不是事件流。设置 `stream_output=True` 时，它会通过已绑定 router 消费事件流，结束后仍返回完整结果。
-
-`framework.running()` 应覆盖服务的整个运行期，而不是每个请求单独进入。它持有 `provide_lifespan`、Tape 存储和引导收件箱（`SteeringInbox`）；需要这些资源的对象应在进入作用域后创建。同一个 Framework 不要重叠进入多个作用域。
-
-框架没有默认的会话锁。并发请求共享同一会话时，应按 `session_id` 串行化，或通过渠道准入策略明确允许并发。Turn 也不是事务，工具副作用不会因后续失败而回滚。
-
-### 绑定发送渠道 {#bind-a-router}
-
-宿主已有发送逻辑时，直接读取 `outbounds` 即可。需要让渠道处理出站和流式输出时，实现 `ChannelRouter` 并绑定：
-
-```python
-class HostRouter:
-    async def dispatch_output(self, message) -> bool:
-        await send_to_host(message)
-        return True
-
-    def wrap_stream(self, message, stream):
-        return stream
-
-    async def quit(self, session_id) -> None:
-        ...
-
-    async def admit_channel_message(self, session_id, message, turn):
-        return None
-
-
-framework.bind_channel_router(HostRouter())
-```
-
-`dispatch_output` 返回是否已处理；`wrap_stream` 可以包装模型流；`admit_channel_message` 返回准入决定，`None` 表示使用默认调度。解绑时传入 `None`。
+这条路径需要[应用依赖](/zh-cn/docs/getting-started/install/#app-install)。
 
 ## 发布自有命令 {#publish-a-command}
 
@@ -102,7 +30,23 @@ my-bub = "my_bub.cli:main"
 
 ## 分发插件和技能 {#bundle-plugins-and-skills}
 
-一个 wheel 可以提供多个入口点和技能目录：
+一个 wheel 可以同时提供插件入口点和技能命名空间包：
+
+```text
+src/
+├── my_bub/
+│   ├── __init__.py
+│   └── ...
+└── skills/
+    └── my-skill/
+        ├── SKILL.md
+        └── references/
+            └── examples.md
+```
+
+`skills/` 属于命名空间包，不要在其中添加 `__init__.py`。技能可以随插件一起分发，也可以独立打包发布。
+
+在 `pyproject.toml` 中配置入口点与 Hatch 构建包含：
 
 ```toml
 [project.entry-points."bub"]
@@ -113,9 +57,7 @@ channels = "my_bub.channels:ChannelPlugin"
 packages = ["src/my_bub", "src/skills"]
 ```
 
-入口点遵循[插件注册规则](/zh-cn/docs/app/plugins/#entry-point-forms)，技能目录结构见[随 Python 包分发技能](/zh-cn/docs/app/skills/#include-skills-in-a-wheel)。
-
-插件依赖应声明在发行包中。需要把插件安装到 Bub 管理的独立项目时，使用 [`bub install`](/zh-cn/docs/reference/cli/#bub-install)。
+入口点遵循[插件注册规则](/zh-cn/docs/app/plugins/#entry-point-forms)，技能编写规范见[技能](/zh-cn/docs/app/skills/)。插件依赖应声明在发行包中。需要把插件安装到 Bub 管理的独立项目时，使用 [`bub install`](/zh-cn/docs/reference/cli/#bub-install)。
 
 ## 发布前验证 {#verify-a-release}
 
@@ -125,6 +67,6 @@ packages = ["src/my_bub", "src/skills"]
 2. 运行 `bub hooks`，确认入口点加载成功且没有弃用警告。
 3. 运行 `bub run`，验证模型、工具和状态。
 4. 运行 `bub chat`，验证技能、命令和生命周期渠道。
-5. 对宿主服务验证并发、关闭流和退出清理。
+5. 按[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)接入宿主服务，验证并发、关闭流和退出清理。
 
 干净环境可以暴露漏声明的依赖、不可导入的入口点和只在开发目录可用的配置。

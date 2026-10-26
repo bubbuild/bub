@@ -25,7 +25,7 @@ agent = Agent(tools=[add_tool])
 
 The runtime keeps the name `math.add`; model-facing names replace dots with underscores, so the model sees `math_add`. Use `name=` and `description=` to override the name and description explicitly.
 
-Plain `Agent` offers the supplied tools and excludes only those marked `exposure="command"`. Deferred loading, `allowed_tools`, and `state["code_mode"]` are [BubAgent application policies](/docs/app/tools/). To choose tools per Step in a core Agent, override [`prepare_tools()`](/docs/sdk/options/#customize-how-a-step-is-prepared).
+Plain `Agent` offers the supplied tools and excludes only those marked `exposure="command"`. Deferred loading, `allowed_tools`, and `state["code_mode"]` are [BubAgent policies](/docs/sdk/reuse-app/#run-stream-options). To choose tools per Step in a core Agent, override [`prepare_tools()`](/docs/sdk/options/#customize-how-a-step-is-prepared).
 
 ### Use a Pydantic parameter model {#pydantic-input}
 
@@ -186,7 +186,7 @@ print("Chart attached.")
 
 `attach_image`, `attach_audio`, and `attach_video` accept file paths in the environment, URLs, data URLs, or the corresponding Republic media objects. They are only valid inside `run_code`.
 
-`CodeMode` takes only the tools you supply, excluding `exposure="command"`. See [application tools](/docs/app/tools/) for how BubAgent groups `auto`, `direct`, and `code` tools.
+`CodeMode` takes only the tools you supply, excluding `exposure="command"`. See [application tools](/docs/app/tools/#code-mode) for how BubAgent groups `auto`, `direct`, and `code` tools.
 
 ### CodeMode options {#codemode-options}
 

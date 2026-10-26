@@ -126,7 +126,7 @@ async def mark_reviewed() -> None:
 
 Steering injects supplementary messages into later model requests of the current Run through `MessagesPending`. It differs from queueing: queued messages wait until the current Turn ends. The event layer provides the injection point; admission and queueing policies are decided by the channel and the application.
 
-`BubAgent` uses this adapter by default, and a core Agent can also [connect it explicitly](/docs/sdk/reuse-plugins/#other-hooks).
+`BubAgent` uses this adapter by default, and a core Agent can also [connect it explicitly](/docs/sdk/reuse-app/#other-hooks).
 
 The two ways of connecting have different exception policies: exceptions from direct EventBus handlers propagate to the publisher, while exceptions from interception hooks are logged and skipped. To reject a call, return the corresponding decision. For full signatures, see the [Hooks reference](/docs/reference/hooks/#interception-through-pluginagenthooks); for examples, see [Application hooks](/docs/app/hooks/).
 

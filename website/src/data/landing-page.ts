@@ -1,9 +1,5 @@
-// ---------------------------------------------------------------------------
-// Landing-page structured data — single source of truth for all landing-page
-// content. Locale-specific text (nav, footer, 404, etc.) lives in i18n/ui.ts.
-// Testimonial items are loaded separately from src/data/userwall.yml via the
-// Astro content collection; only section labels (eyebrow/heading) live here.
-// ---------------------------------------------------------------------------
+// Landing structured data. Locale chrome (nav/footer/404) → i18n/ui.ts.
+// Testimonial items → userwall.yml; only section labels live here.
 
 export type HeroData = {
   badge: string;

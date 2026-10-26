@@ -89,5 +89,5 @@ uv run python sdk_example.py
 
 - [配置 Agent](/zh-cn/docs/sdk/options/)：模型、提示词和运行参数。
 - [自定义工具与 code mode](/zh-cn/docs/sdk/tools/)：让 Agent 执行动作。
-- [复用应用插件](/zh-cn/docs/sdk/reuse-plugins/)：在核心 Agent 中接入应用插件。
+- [复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)：按深度接入插件工具、BubAgent 或完整 Turn。
 - [FastAPI 服务](/zh-cn/docs/sdk/web-service/)：提供按会话隔离历史的 HTTP 接口。

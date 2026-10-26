@@ -1,103 +1,67 @@
 ---
 title: 工具
-description: 在 Bub 应用中发现和使用工具，限制可用范围，并配置延迟加载和 code mode。
+description: 了解 Bub 应用内置工具、工具调用方式以及如何配置 Code Mode 与扩展。
 ---
 
-工具为 Bub 应用执行具体动作。应用已经内置文件、Shell、Web、Tape 和子 Agent 等工具，也可以通过插件添加自己的工具。函数签名、结果渲染和 `ToolContext` 见[自定义工具与 code mode](/zh-cn/docs/sdk/tools/)，内置工具的参数与默认值见[内置工具参考](/zh-cn/docs/reference/tools/)。
+工具（Tool）为 Bub 应用执行具体的外部动作，负责实际执行（如读写文件、运行命令、管理会话等）。
 
-## 内置工具目录 {#builtin-tools}
+## 内置工具 {#builtin-tools}
 
-模型可以根据任务自行选择工具，你也可以用命令前缀直接调用。模型看到的名称会把点替换为下划线，例如 `fs.read` 对应 `fs_read`。
+安装 Bub 应用后自带以下核心工具：
 
-| 任务 | 工具 | 说明 |
+| 类别 | 工具 | 用途 |
 | --- | --- | --- |
-| 运行进程 | `bash` | 执行 Shell；支持工作目录、超时和后台运行 |
-| 管理后台进程 | `bash.output`、`bash.kill` | 增量读取输出、终止进程 |
-| 读写文件 | `fs.read`、`fs.write`、`fs.edit` | 分页读取、写入整个文件、替换文本 |
-| 获取网页 | `web.fetch` | 发起 GET 请求，优先请求 Markdown；网页搜索使用搜索插件 |
-| 使用技能 | `skill` | 列出技能，或读取指定技能正文 |
-| 发现延迟工具 | `tool.describe` | 加载工具定义，从下一个 Step 开始调用 |
-| 检查会话 | `tape.info`、`tape.search`、`tape.anchors` | 查看用量、搜索记录、列出 anchor |
-| 管理上下文 | `tape.handoff`、`tape.reset` | 移动上下文起点；重置时可先归档 |
-| 委派任务 | [`subagent`](/zh-cn/docs/app/subagents/) | 使用独立或指定会话运行子 Agent |
-| 执行组合逻辑 | `run_code` | 在 code mode 中用 Python 组合工具调用 |
-| 读取大型结果 | `spill.read` | 按块读取已移出主上下文的大型工具结果 |
+| **进程管理** | `bash` | 执行 Shell 命令；支持工作目录、超时与后台执行 |
+| | `bash.output`、`bash.kill` | 增量读取后台进程输出，或终止正在运行的进程 |
+| **文件操作** | `fs.read`、`fs.write`、`fs.edit` | 分页读取、覆盖写入与文本精准替换 |
+| **网络抓取** | `web.fetch` | 发起 GET 请求抓取网页（优先返回 Markdown） |
+| **能力发现** | `skill` | 列出工作区发现的技能，或读取指定技能正文 |
+| | `tool.describe` | 动态加载延迟工具的完整定义 |
+| **会话管理** | `tape.info`、`tape.search` | 查看 Token 用量、检索历史会话记录 |
+| | `tape.handoff`、`tape.reset` | 移动上下文起点以压缩会话，或归档并重置上下文 |
+| | `spill.read` | 分块读取超出上下文上限的大型工具输出 |
+| **多任务协作**| [`subagent`](/zh-cn/docs/app/subagents/) | 启动子 Agent 在独立会话中并行处理任务 |
+| **代码模式** | `run_code` | 在 Code Mode 开启时通过 Python 组合多个工具 |
 
-`model`、`reasoning_effort`、`code_mode`、`help` 和 `quit` 仅作为命令提供，不直接暴露给模型。终端中的使用方式见[终端](/zh-cn/docs/app/terminal/#commands)，后台进程示例见[后台进程](/zh-cn/docs/app/terminal/#background-shell)。
+内置工具的详细参数及默认值见 [工具参考](/zh-cn/docs/reference/tools/)。
 
-自定义工具的创建、`provide_tools` 注册和插件加载见[提供工具](/zh-cn/docs/app/plugins/#provide-tools)。注册后，可以按下文策略限制本次 Turn、延迟加载定义或选择执行环境。
+## 使用工具 {#instructions}
 
-## 限制本次 Turn 的工具 {#allowed-tools}
+在 Bub 应用中，工具可以通过两种方式调用：
 
-调用 `BubAgent.run_stream()` 时传入 `allowed_tools`：
+1. **模型自主选用**：在会话中正常提问，模型会根据任务意图和工具描述自动选择并调用。
+2. **命令行直接调用**：在终端中使用逗号前缀直接调用工具（不调用模型、不消耗 Token）：
+   ```bash
+   bub run ",fs.read path=README.md"
+   ```
 
-```python
-stream = await agent.run_stream(
-    session_id="customer-42",
-    prompt=["查询订单 A123"],
-    allowed_tools={"orders.get"},
-)
-```
+若要约束或规范模型如何使用工具：
+- **全局约定**：在项目根目录的 `AGENTS.md` 中编写通用约束；
+- **任务流程**：将多步骤操作封装为 [技能](/zh-cn/docs/app/skills/)，指引模型按顺序调用对应工具。
 
-它接受运行时名称或模型别名。`None` 允许全部实例工具，空集合不允许任何工具，未知名称抛出 `ValueError`。
+## 开启 Code Mode {#code-mode}
 
-筛选作用于模型直接调用和 code mode。逗号命令直接使用 Agent 实例的工具，不受此列表限制；需要同时约束命令时，使用[工具调用 decision](/zh-cn/docs/app/hooks/#control-a-model-or-tool-call)。
-
-## 延迟加载工具定义 {#deferred-tools}
-
-工具较多时，设置 `deferred=True`，避免把完整定义都放进初始模型请求：
-
-```python
-from bub import tool
-
-
-@tool(name="orders.get", deferred=True)
-def get_order(order_id: str) -> dict[str, str]:
-    """Look up an order by id."""
-    return {"id": order_id, "status": "shipped"}
-```
-
-`BubAgent` 在系统提示词中列出延迟工具的名称，并提供 `tool.describe`。模型调用它加载定义，从下一个 Step 开始可以直接调用工具。
-
-加载记录写为 Tape 的 `tool.loaded` 事件，因此后续 Step 和 Turn 都能继续使用该工具，直到 Tape 重置。`allowed_tools` 同时限制工具的展示与加载。
-
-code mode 中，允许使用的 `auto` 和 `code` 工具可以直接由 Python 调用；延迟加载只影响仍直接提供给模型的工具。
-
-## 使用 code mode {#code-mode}
-
-在会话中启用 code mode：
+当需要处理复杂逻辑或批量处理数据时，模型多次往返调用工具会消耗大量上下文。启用 Code Mode 后，模型会直接编写 Python 代码（通过 `run_code` 工具执行）一次性组合多个工具：
 
 ```text
 ,code_mode enable=true
 ```
 
-设置从下一个 Turn 开始生效，并记录在 Tape 中供重启后恢复。使用 `,code_mode enable=false` 关闭。直接调用 `BubAgent` 时，可为本次运行设置 `state["code_mode"] = True`。
+- 该设置在下一轮对话生效，并持久化保存在当前会话记录中。
+- 使用 `,code_mode enable=false` 可以关闭并恢复默认模式。
+- 关于在代码模式下调用工具的 Python 语法，见[组合工具与 code mode](/zh-cn/docs/sdk/tools/#compose-tools-with-codemode)。
 
-`run_code` 可用时，应用按 `exposure` 选择工具：
+## 执行环境与安全边界 {#environment}
 
-| `exposure` | code mode 关闭 | code mode 开启 |
-| --- | --- | --- |
-| `auto` | 直接提供给模型 | 通过 `run_code` 调用 |
-| `direct` | 直接提供给模型 | 仍直接提供，不出现在 `tools.*` 下 |
-| `code` | 不提供给模型 | 通过 `run_code` 调用 |
-| `command` | 仅命令调用 | 仅命令调用 |
+注意，内置的 Shell 命令（`bash`）、文件读写（`fs.*`）和代码执行（`run_code`）均在本地当前用户权限下直接运行，可能会对系统或数据产生不可逆的影响，使用前须知：
 
-`run_code` 不在允许工具集合中时，本次 Turn 按 code mode 关闭的规则处理。
+- **非安全沙箱**：默认环境不是隔离沙箱，模型执行的命令会**对本地系统产生真实的读写和进程副作用**。
+- **权限与拦截**：如需在执行高危命令前进行人工审批或条件限制，可使用[工具拦截 Hooks](/zh-cn/docs/app/plugins/#control-a-model-or-tool-call)。
+- **容器与隔离环境**：如需隔离执行，可通过插件提供独立的[执行环境](/zh-cn/docs/sdk/tools/#choose-an-execution-environment)。
 
-应用将 Python 工具声明写入 `<BUB_HOME>/codemode/`，并把文件路径加入系统提示词。代码使用 `await tools.orders_get(order_id="123")` 调用工具，仍经过应用的拦截 hooks。
+## 集成与扩展工具 {#provide-tools}
 
-code mode 使用会话的执行环境和模型配置。Republic bridge 在宿主侧处理模型凭据；默认 `LocalEnvironment` 仍以宿主用户权限运行生成的代码，不是安全沙箱。核心 Agent 需要[显式组合 CodeMode](/zh-cn/docs/sdk/tools/#compose-tools-with-codemode)。
+如果内置工具无法满足需求，可以通过以下方式扩展：
 
-## 选择执行环境 {#environment}
-
-内置 `bash`、`bash.output`、`bash.kill`、`fs.*` 和 `run_code` 使用会话的 `Environment`。默认是运行在宿主上的 `LocalEnvironment`。
-
-插件通过 `provide_environment(session_id, workspace)` 提供其他环境。Framework 为每个会话缓存一个环境，并在 `framework.running()` 退出时关闭。接口见[执行环境](/zh-cn/docs/sdk/tools/#choose-an-execution-environment)。
-
-自定义工具通过 `bub.builtin.environment.environment_from_state(context.state)` 取得环境。普通 Python 工具函数仍在宿主进程执行，只有显式调用环境的操作才进入该环境。
-
-## 为工具提供操作说明 {#instructions}
-
-工作区通用约定放在 `AGENTS.md`，按任务加载的流程放在[技能](/zh-cn/docs/app/skills/)中。技能可以告诉模型何时调用工具，Python 函数负责实际执行。
-
-使用者也可以通过命令前缀直接调用工具，不经过模型。语法见[文本命令](/zh-cn/docs/sdk/tools/#call-a-tool-without-a-model)。
+- **安装社区插件**：浏览 [社区插件](https://hub.bub.build/) 列表搜索插件或第三方 MCP 服务（见 [MCP 集成](/zh-cn/docs/integrations/mcp/)）；
+- **开发自定义插件**：编写 Python 函数并注册为 Bub 工具，随插件一起分发，详见[插件开发：提供工具](/zh-cn/docs/app/plugins/#provide-tools)。

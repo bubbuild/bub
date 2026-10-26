@@ -5,7 +5,7 @@ description: Move Bub's Tapes from files to SQLite with a SQLAlchemy tape store 
 
 By default, Bub stores Tapes as JSONL files. With [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy), the application can use SQLite or another SQLAlchemy database instead; `,tape.info`, `,tape.search`, Tape branching, and sidecars keep the same behavior.
 
-This guide configures the global store used by the CLI. You can also construct `SQLAlchemyTapeStore` in your own Python program and pass it to `core.Agent`; see [Reusing application plugins](/docs/sdk/reuse-plugins/).
+This guide configures the global store used by the CLI. You can also construct `SQLAlchemyTapeStore` in your own Python program and pass it to `core.Agent`; see [Reuse the Bub app](/docs/sdk/reuse-app/).
 
 :::caution
 Switching storage does not migrate existing JSONL Tapes. After moving to a new database, old sessions do not appear in `tape.search` or the session list, though the original files remain in the `tapes/` directory under Bub home. If you need the old history, back it up and complete the migration before switching.

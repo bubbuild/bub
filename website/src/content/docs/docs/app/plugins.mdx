@@ -5,7 +5,7 @@ description: Write, install, and distribute Bub plugins, and choose entry point,
 
 Plugins change Bub app behavior through hooks. A Python package declares a plugin object in the `bub` entry point group; Bub imports it and wires its hook implementations into the app.
 
-The following first builds an echo plugin that needs no model credentials, so you can verify the complete create, install, and run flow. To reuse existing plugins, see [Reuse application plugins](/docs/sdk/reuse-plugins/).
+The following first builds an echo plugin that needs no model credentials, so you can verify the complete create, install, and run flow. To reuse existing plugins, see [Reuse the Bub app](/docs/sdk/reuse-app/).
 
 ## Create a plugin {#create-a-plugin}
 
@@ -177,7 +177,7 @@ orders = "bub_orders.plugin"
 packages = ["src/bub_orders", "src/skills"]
 ```
 
-For general wheel building, CLI packaging, and pre-release verification, see [Embedding and distribution](/docs/app/distribution/). Agent Plugins instead use `plugin.json`, skills, and MCP server definitions; see [Load Agent Plugins](/docs/integrations/agent-plugins/).
+For general wheel building, CLI packaging, and pre-release verification, see [Packaging and distribution](/docs/app/distribution/). Agent Plugins instead use `plugin.json`, skills, and MCP server definitions; see [Load Agent Plugins](/docs/integrations/agent-plugins/).
 
 ## WASM plugins (experimental) {#wasm-plugins}
 

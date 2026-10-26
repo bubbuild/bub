@@ -160,7 +160,6 @@ export default defineConfig({
                 'docs/app/skills',
                 'docs/app/subagents',
                 'docs/app/plugins',
-                'docs/app/hooks',
               ],
             },
             {
@@ -181,7 +180,7 @@ export default defineConfig({
             'docs/sdk',
             'docs/sdk/options',
             'docs/sdk/tools',
-            'docs/sdk/reuse-plugins',
+            'docs/sdk/reuse-app',
             'docs/sdk/web-service',
           ],
         },

@@ -5,7 +5,7 @@ description: 通过 SQLAlchemy 存储插件，把 Bub 的 Tape 从文件改存�
 
 Bub 默认把 Tape 存成 JSONL 文件。通过 [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy)，可以让应用改用 SQLite 或其他 SQLAlchemy 数据库；`,tape.info`、`,tape.search`、Tape 分支和 sidecar 的行为保持不变。
 
-本指南配置 CLI 使用的全局存储。也可以在自己的 Python 程序中构造 `SQLAlchemyTapeStore` 并传给 `core.Agent`，见[复用应用插件](/zh-cn/docs/sdk/reuse-plugins/)。
+本指南配置 CLI 使用的全局存储。也可以在自己的 Python 程序中构造 `SQLAlchemyTapeStore` 并传给 `core.Agent`，见[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)。
 
 :::caution
 更换存储不会迁移现有 JSONL Tape。切换到新数据库后，旧会话不会出现在 `tape.search` 或会话列表中，但原文件仍保留在 Bub home 的 `tapes/` 目录。需要旧历史时，先备份并在切换前完成迁移。

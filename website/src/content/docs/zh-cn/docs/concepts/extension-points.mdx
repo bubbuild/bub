@@ -16,7 +16,7 @@ description: 根据要完成的任务，选择工具、技能、事件处理器�
 | 改变历史到模型消息的转换 | [TapeContext](/zh-cn/docs/concepts/tape/#context) | `Agent(context=...)`，或 `build_tape_context()` |
 | 更换历史存储 | [存储集成](/zh-cn/docs/integrations/storage/) | `Agent(store=...)`，或 `provide_tape_store()` |
 | 替换模型客户端或执行环境 | 核心组件 | 构造函数参数；应用环境使用 `provide_environment()` |
-| 改变消息准备、状态保存或回复发送 | [应用 hooks](/zh-cn/docs/app/hooks/) | 插件实现对应 Turn hook |
+| 改变消息准备、状态保存或回复发送 | [插件与 Hooks](/zh-cn/docs/app/plugins/) | 插件实现对应 Turn hook |
 | 接入新的消息平台或后台服务 | [渠道](/zh-cn/docs/app/gateway/) | 实现 Channel，并通过 `provide_channels(message_handler)` 提供 |
 | 让扩展随安装自动生效 | [插件](/zh-cn/docs/app/plugins/) | 在 `bub` entry point 组中注册 |
 
@@ -49,7 +49,7 @@ agent = Agent(
 - 嵌入已有服务，由宿主管理依赖和资源：使用核心层构造参数。
 - 希望安装后自动生效，或分发给别人：使用应用插件。
 
-直接使用核心组件时，也可以按需接入[应用插件](/zh-cn/docs/sdk/reuse-plugins/)。
+直接使用核心组件时，也可以按需[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)。
 
 ## 工具与技能 {#tools-and-skills}
 

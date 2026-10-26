@@ -1,67 +1,24 @@
 /*
- * global.css — Starlight-safe shared theme stylesheet.
- *
- * Loaded via:
- *   • Starlight `customCss` (docs pages)
- *   • `site.css` import (landing & blog pages)
- *
- * Structure follows the official Starlight + Tailwind v4 pattern:
- *   https://starlight.astro.build/guides/css-and-tailwind/
- *
- * Key rules:
- *   1. Define cascade layer order FIRST so Starlight/EC styles always
- *      beat the base reset but yield to theme/utilities.
- *   2. Import @astrojs/starlight-tailwind INSTEAD of bare `tailwindcss`.
- *      It configures the dark variant, provides a partial Preflight that
- *      doesn't conflict with Starlight/EC, and maps --color-accent-* /
- *      --color-gray-* into --sl-color-* tokens automatically.
- *   3. Import only `tailwindcss/theme.css` and `tailwindcss/utilities.css`
- *      here. Full Tailwind Preflight must stay in a separate non-Starlight
- *      entry file or it will reset markdown content styles like list markers.
- *   4. Keep site-specific resets in @layer base (lowest priority).
- *   5. Leave Starlight overrides (--sl-font-*) unlayered so they beat
- *      @layer starlight defaults.
+ * Shared theme for Starlight docs (`customCss`) and landing/blog (`site.css`).
+ * Follow https://starlight.astro.build/guides/css-and-tailwind/ —
+ * do NOT import full Tailwind Preflight here (resets markdown markers).
+ * Layer order: base → starlight → theme → components → utilities → unlayered.
  */
-
-/* ═══ Font imports ═══ */
 @import "@fontsource-variable/outfit";
 @import "@fontsource-variable/jetbrains-mono";
 
-/* ═══ Cascade layer ordering (Starlight + Tailwind v4) ═══
- *
- * Precedence (lowest → highest):
- *   base → starlight → theme → components → utilities → (unlayered)
- *
- * Starlight & expressive-code styles live in `starlight`, so they
- * always override `base` resets. Unlayered CSS has the highest
- * precedence of all.
- */
 @layer base, starlight, theme, components, utilities;
 
-/* Starlight ↔ Tailwind v4 bridge */
 @import '@astrojs/starlight-tailwind';
-
-/* Tailwind layers for the Starlight-compatible entry. */
 @import 'tailwindcss/theme.css' layer(theme);
 @import 'tailwindcss/utilities.css' layer(utilities);
 
-/* ═══ Tailwind theme tokens ═══ */
 @theme inline {
-    /* ─ Typography ─ */
     --font-sans: "Outfit Variable", system-ui, sans-serif;
     --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
     --font-heading: var(--font-sans);
 
-    /*
-     * ─ Starlight color scales ─
-     *
-     * @astrojs/starlight-tailwind reads these numbered scales and
-     * generates the corresponding --sl-color-* variables. This
-     * replaces the manual --sl-color-gray-*, --sl-color-accent-*,
-     * --sl-color-white/black overrides that were previously needed.
-     *
-     * Pure neutral (0 chroma) to match the site's oklch palette.
-     */
+    /* starlight-tailwind maps these scales into --sl-color-*; keep chroma 0 for monochrome. */
     --color-accent-50: oklch(0.985 0 0);
     --color-accent-100: oklch(0.97 0 0);
     --color-accent-200: oklch(0.922 0 0);
@@ -86,7 +43,6 @@
     --color-gray-900: oklch(0.205 0 0);
     --color-gray-950: oklch(0.145 0 0);
 
-    /* ─ Site design tokens (shadcn/ui conventions) ─ */
     --color-background: var(--background);
     --color-foreground: var(--foreground);
     --color-card: var(--card);
@@ -119,7 +75,6 @@
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
 
-    /* ─ Radius tokens ─ */
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -130,7 +85,6 @@
 }
 
 
-/* ═══ Raw design tokens — light (default) ═══ */
 :root {
     --radius: 0.625rem;
     --background: oklch(1 0 0);
@@ -165,7 +119,6 @@
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.708 0 0);
 
-    /* ─ Site semantic effect tokens ─ */
     --site-shadow-elevated: 0 8px 30px rgb(0 0 0 / 0.06), 0 2px 8px rgb(0 0 0 / 0.04);
     --site-shadow-card: 0 1px 2px rgb(0 0 0 / 0.04), 0 2px 8px rgb(0 0 0 / 0.03);
     --site-shadow-card-strong: 0 2px 10px rgb(0 0 0 / 0.04);
@@ -194,21 +147,18 @@
     --site-hook-ping-glow-soft: oklch(0.55 0.06 260 / 0.06);
     --site-hook-ping-glow-idle: oklch(0.55 0.06 260 / 0);
 
-    /* ─ Testimonial border accents (muted to fit monochrome palette) ─ */
     --site-testimonial-1: oklch(0.62 0.04 40);
     --site-testimonial-2: oklch(0.58 0.03 185);
     --site-testimonial-3: oklch(0.48 0.025 227);
     --site-testimonial-4: oklch(0.70 0.04 84);
     --site-testimonial-5: oklch(0.66 0.04 70);
 
-    /* ─ Ambient gradient tints ─ */
     --site-ambient-1: oklch(0.88 0.025 250 / 0.5);
     --site-ambient-2: oklch(0.90 0.02 78 / 0.4);
     --site-ambient-3: oklch(0.87 0.018 155 / 0.35);
 }
 
-/* Dark tokens — both selectors to cover landing pages (.dark class) and
-   Starlight docs ([data-theme="dark"]). ThemeToggle.astro sets both. */
+/* Landing uses .dark; Starlight docs use [data-theme="dark"]. ThemeToggle sets both. */
 .dark,
 [data-theme="dark"] {
     --background: oklch(0.145 0 0);
@@ -243,7 +193,6 @@
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
 
-    /* ─ Dark-mode effect tokens ─ */
     --site-shadow-elevated: 0 8px 30px rgb(0 0 0 / 0.35), 0 2px 8px rgb(0 0 0 / 0.25), 0 0 0 1px rgb(255 255 255 / 0.04);
     --site-shadow-card: 0 1px 2px rgb(0 0 0 / 0.25), 0 2px 8px rgb(0 0 0 / 0.18);
     --site-shadow-card-strong: 0 2px 10px rgb(0 0 0 / 0.3);
@@ -261,18 +210,9 @@
 }
 
 /*
- * Starlight theme overrides — unlayered so they beat @layer starlight
- * AND the bridge's @layer utilities mapping.
- *
- * @astrojs/starlight-tailwind auto-maps --color-accent-* or --color-gray-*
- * into --sl-color-*, but the mapping does not produce the right visual
- * result for a monochrome theme (e.g. accent-600 → oklch(0.47) is too
- * dark for link text). These manual overrides give precise control.
- *
- * Reference: https://starlight.astro.build/guides/css-and-tailwind/
+ * Unlayered Starlight overrides — bridge auto-map is too dark for monochrome
+ * link text (e.g. accent-600 → oklch(0.47)).
  */
-
-/* Starlight dark mode (default) */
 :root {
     --sl-font: "Outfit Variable", system-ui, sans-serif;
     --sl-font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
@@ -291,7 +231,6 @@
     --sl-color-accent-high: hsl(0, 0%, 96%);
 }
 
-/* Starlight light mode */
 :root[data-theme="light"],
 [data-theme="light"] ::backdrop {
     --sl-color-white: hsl(0, 0%, 11%);
@@ -310,12 +249,6 @@
 }
 
 
-/* ═══ Base reset layer ═══
- *
- * Lives in `@layer base` — the LOWEST priority layer. Starlight and
- * expressive-code styles in the `starlight` layer (or unlayered)
- * will always override these declarations.
- */
 @layer base {
     * {
         @apply border-border outline-ring/50;
@@ -353,17 +286,11 @@
     }
 }
 
-/* ═══ 文档正文宽度 ═══
- *
- * Starlight 把正文容器固定在 --sl-content-width（45rem），剩下空间分给右侧栏。
- * 窄屏上没有问题；宽屏时右栏被推到最右，正文左侧留下大块空白，
- * 看起来像「内容偏右」。这里提高正文宽度上限，让正文和右侧栏分掉剩余空间。
- */
+/* Widen body past Starlight's 45rem default so wide screens don't look right-biased. */
 .sl-container:where(.astro-3u2j7pwv) {
     --sl-content-width: 52rem;
 }
 
-/* 宽屏下让正文容器真正居中，不靠右栏吸收剩余宽度。 */
 @media (min-width: 72rem) {
     .content-panel > .sl-container {
         margin-inline: auto;
@@ -373,23 +300,12 @@
     }
 }
 
-/* ═══ 文档表格 ═══
- *
- * 溢出的根因不是「表格太宽」，而是宽屏下把 display 改成了 table。
- *
- * display:table 的宽度由内容决定（table-layout:auto 时尤其如此）。
- * 单元格里的 code 设为 nowrap 后不能折行，表格就被撑到内容宽度，
- * 例如 935px，而父容器只有 632px。此时表格已经不再是一个可滚动盒子，
- * 超出的部分以 overflow:visible 直接画到容器外，页面整体横向溢出。
- *
- * 因此这里不放弃 Starlight 的 display:block + overflow-x:auto：
- * 表格始终是独立滚动盒子，宽屏时收缩到容器宽度，放不下就在盒子内部滚动。
- * 需要的是让单元格内容在触顶前就能折行，而不是让表格无限变宽。
+/*
+ * Keep Starlight's display:block + overflow-x:auto — switching to display:table
+ * lets nowrap code inflate the table past the container and break page scroll.
  */
 .sl-markdown-content table:not(:where(.not-content *)) {
-    /* Starlight 的 display:block + overflow:auto 保持不动 */
     width: 100%;
-    /* 让表格在窄屏下最大不超过容器，滚动条只出现在表格内部 */
     max-width: 100%;
 }
 
@@ -398,27 +314,18 @@
     word-break: normal;
 }
 
-/* 单元格里的长代码（hook 名、签名、路径）允许在任意处折行。
- *
- * nowrap 会让列宽随最长 token 无限增长，正是表格撑破容器的直接原因。
- * 改用 break-word 后，长 token 在单元格边界内断开，列宽由容器分配，
- * 中文也不再因为列被挤压而逐字竖排。
- */
+/* Long tokens (hooks, paths) must wrap; nowrap was the overflow trigger. */
 .sl-markdown-content :is(th, td) code:not(:where(.not-content *)) {
     white-space: normal;
     overflow-wrap: anywhere;
 }
 
-/* 纯 ASCII 的短代码（true / None / cli）不值得为它折行，
-   但只在足够宽的行内才允许不折。这里交给浏览器判断：
-   宽度够就整词显示，不够才断。 */
 @media (min-width: 72rem) {
     .sl-markdown-content :is(th, td) code:not(:where(.not-content *)) {
         overflow-wrap: break-word;
     }
 }
 
-/* Pele diagrams inherit the same monochrome palette as the surrounding docs. */
 .pele-diagram {
     --pele-bg: var(--background);
     --pele-fg: var(--foreground);
@@ -445,7 +352,7 @@
     margin-inline: auto;
 }
 
-/* Keep Pele's inline-positioned controls clear of node labels. */
+/* Keep zoom controls clear of node labels. */
 .pele-diagram > .pele-zoom {
     flex-direction: row !important;
 }

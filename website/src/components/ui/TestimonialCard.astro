@@ -3,10 +3,9 @@ import Avatar from '@/components/ui/Avatar.astro';
 import Icon from '@/components/ui/Icon.astro';
 import type { TestimonialItem } from '@/data/landing-page';
 
-/** Accent variant — maps to the `--site-testimonial-N` color tokens. */
 type TestimonialVariant = 1 | 2 | 3 | 4 | 5;
 
-/** Kept as literal strings so Tailwind can statically detect them. */
+/** Literal class strings — Tailwind needs them for static detection. */
 const variantBorder: Record<TestimonialVariant, string> = {
   1: 'border-l-[var(--site-testimonial-1)]',
   2: 'border-l-[var(--site-testimonial-2)]',

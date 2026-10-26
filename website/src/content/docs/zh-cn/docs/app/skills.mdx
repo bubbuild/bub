@@ -1,15 +1,21 @@
 ---
 title: 技能
-description: 编写、验证和分发 Bub 技能，并理解技能发现与加载规则。
+description: 编写、验证和使用 Bub 技能，并理解技能发现与覆盖规则。
 ---
 
-技能将一套操作说明保存在 `SKILL.md` 中，供模型按需使用。项目专用技能可以放在工作区，通用技能可以随 Python 包分发。
+[技能](https://agentskills.io/) 是由 Anthropic 所提出的标准发布的格式，用于扩展 AI 代理能力、补充专业知识与工作流程。一个技能即一个包含 `SKILL.md` 文件的文件夹，写清某类任务该怎么做，模型会按需加载。
 
-技能发现和加载属于 Bub 应用行为。普通 `core.Agent` 只使用显式提供的提示词。
+## 发现技能与优先级 {#discovery}
 
-## 自带技能 {#builtin-skills}
+Bub 按以下优先级顺序自动发现并加载技能。**同名时以最先找到的为准**：
 
-Bub 安装包自带三个技能，项目或用户目录中的同名技能可以覆盖它们：
+1. **工作区目录**：`<workspace>/.agents/skills/`（旧目录 `.agent/skills/` 仍兼容）
+2. **用户全局目录**：`~/.agents/skills/`
+3. **已安装包**：环境中所有已安装的 `skills` 命名空间包（含 Bub 自带的[内置技能](#builtin-skills)）
+
+## 内置技能 {#builtin-skills}
+
+安装 Bub 应用时自带三个技能：
 
 | 技能 | 用途 | 外部依赖 |
 | --- | --- | --- |
@@ -17,11 +23,9 @@ Bub 安装包自带三个技能，项目或用户目录中的同名技能可以�
 | `gh` | 通过 GitHub CLI 管理仓库、Issue、PR 和 Actions | 安装并认证 `gh` |
 | `skill-creator` | 指导创建或更新技能 | 无 |
 
-运行 `bub run ",skill"` 可以查看当前工作区实际发现的完整列表。自带技能也会被列出，不代表相应外部服务已经配置。
+## 编写技能 {#write-a-skill}
 
-## 创建项目技能 {#write-a-skill}
-
-在工作区创建 `.agents/skills/repo-map/SKILL.md`：
+可以试着在当前工作区或全局用户目录下试着创建一个技能，例如 `.agents/skills/repo-map/SKILL.md`：
 
 ```markdown
 ---
@@ -34,93 +38,49 @@ description: 修改代码前，先阅读本地仓库结构。
 3. 编辑代码前，说明会涉及哪些模块。
 ```
 
-`name` 必须与目录名一致。`description` 用于帮助模型判断何时使用该技能，应写明任务和适用场景。
+### 字段与变量规范 {#skill-fields}
 
-## 验证技能 {#verify-a-skill}
-
-在工作区运行：
-
-```bash
-bub run ",skill name=repo-map"
-```
-
-命令直接打印技能正文，不调用模型。返回 `(no such skill)` 时，检查文件路径、目录名和 YAML frontmatter。
-
-在模型会话中显式引用：
-
-```bash
-bub run '使用 $repo-map 技能，然后列出你找到的顶层模块。'
-```
-
-`$repo-map` 将技能正文展开到本次 Turn 的系统提示词。模型随后调用应用提供的工具执行步骤；本例要求执行环境中已安装 `rg`。
-
-## SKILL.md 字段 {#skill-fields}
+`SKILL.md` 的 YAML frontmatter 规范如下：
 
 | 字段 | 要求 |
 | --- | --- |
-| `name` | 必填；与目录名一致；连字符分隔的小写字母或数字；最多 64 个字符 |
-| `description` | 必填；非空字符串；最多 1,024 个字符 |
-| `metadata` | 可选映射；键和值都必须是字符串 |
+| `name` | 必填；必须与所在的技能目录名完全一致；仅限小写字母、数字和连字符；最多 64 个字符 |
+| `description` | 必填；清晰说明适用任务和触发场景，供模型判断何时选用该技能；最多 1,024 个字符 |
+| `metadata` | 可选；键值对映射，键和值都必须是字符串 |
 
-配套文件可放在 `scripts/`、`references/`、`assets/` 等目录。技能正文支持：
+配套的辅助脚本或参考文件可存放在技能目录下的 `scripts/`、`references/` 或 `assets/` 中。技能正文支持以下动态变量插值：
 
 | 变量 | 展开结果 |
 | --- | --- |
-| `$SKILL_DIR` | 技能目录的绝对路径 |
+| `$SKILL_DIR` | 当前技能目录的绝对路径 |
 | `$PYTHON` | 运行 Bub 的 Python 解释器路径 |
-| `${config.path.to.value}` | Bub 配置中对应字段的值 |
+| `${config.path.to.value}` | Bub 配置文件中对应字段的值 |
 
-技能中的脚本不会因文件存在而自动执行。模型仍需通过工具调用它，因此应同时提供脚本使用方法和所需工具。
+技能中的脚本不会自动执行。正文中应指引模型调用对应工具执行脚本，并确保环境已安装所需外部依赖（如本例需安装 `rg`）。
 
-## 发现顺序与加载方式 {#discovery}
+当然，如果你不想自己手动创建技能，可以委托给你的 Agent 工具或是 Bub 应用来创建技能，例如：
 
-应用默认按以下顺序搜索，同名时使用最先找到的技能：
+```bash
+bub run '使用 $skill-creator 技能，创建一个名为 `repo-map` 的技能，主要流程是：
+1. 运行 `rg --files`，查看仓库结构。
+2. 阅读能够说明本次修改的文件。
+3. 编辑代码前，说明会涉及哪些模块。'
+``` 
 
-1. `<workspace>/.agents/skills/`
-2. `~/.agents/skills/`
-3. 已安装的 `skills` 命名空间包，包括 Bub 自带技能
+## 验证与使用 {#verify-a-skill}
 
-项目技能可以覆盖包内同名技能。旧项目目录 `.agent/skills/` 仍会被读取并产生迁移警告，新技能使用 `.agents/skills/`。
+在 Bub 应用中可以通过以下方式调用技能：
 
-`BubAgent(skill_dirs=...)` 用指定目录集合替代默认搜索位置，顺序即优先级；传入空集合可禁用技能发现。
+| 命令 | 说明 |
+| --- | --- |
+| `bub run ",skill"` | 列出当前工作区实际发现的技能 |
+| `bub run ",skill name=repo-map"` | 打印变量展开后的正文，不调用模型；返回 `(no such skill)` 时检查目录名与 `name` 是否一致 |
+| `bub run '使用 $repo-map 技能，然后列出你找到的顶层模块。'` | 把正文展开进本轮对话的系统提示词，模型据此调用工具完成后续步骤 |
 
-每个模型 Step 的系统提示词都会列出可用技能的名称和描述。只有提示词含 `$skill-name` 时，才把对应正文展开到当前 Turn。`,skill name=skill-name` 是独立的命令调用，只打印正文。
+:::note
+未显式写出 `$skill-name` 时，模型仍会依据技能的 `description` 自主判断是否采用。
+:::
 
 ## 随 Python 包分发 {#include-skills-in-a-wheel}
 
-在 `src/` 下增加 `skills` 命名空间包：
-
-```text
-src/
-├── bub_myplugin/
-│   ├── __init__.py
-│   └── plugin.py
-└── skills/
-    └── my-skill/
-        ├── SKILL.md
-        └── references/
-            └── examples.md
-```
-
-使用 Hatch 时，将两个目录都加入 wheel：
-
-```toml
-[tool.hatch.build.targets.wheel]
-packages = ["src/bub_myplugin", "src/skills"]
-```
-
-`skills/` 中不要添加 `__init__.py`。命名空间包允许多个发行包共同提供技能；其他构建工具也应生成相同的安装目录结构。
-
-技能可以随插件一起分发，也可以独立打包，不要求同时实现 hook。
-
-## 检查安装结果 {#verify-installation}
-
-将构建好的 wheel 安装到运行 Bub 的同一环境，然后运行：
-
-```bash
-bub run ",skill name=my-skill"
-```
-
-找不到技能时，检查 wheel 是否包含 `skills/my-skill/SKILL.md`。打印了其他版本时，检查项目或用户目录是否有同名技能，它们的优先级更高。
-
-通用 wheel 构建、CLI 打包和完整发布验证见[嵌入与分发](/zh-cn/docs/app/distribution/)。
+通用技能可通过 Python 命名空间包进行分发（存放在 `src/skills/<skill-name>/` 下）。关于如何组织包目录结构、配置 Hatch 打包以及独立环境发布验证，详见[打包与分发](/zh-cn/docs/app/distribution/#bundle-plugins-and-skills)。

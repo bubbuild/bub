@@ -126,9 +126,9 @@ async def mark_reviewed() -> None:
 
 引导（Steering）通过 `MessagesPending` 把补充消息注入当前 Run 的后续模型请求。它不同于排队（Queue up）：排队消息等待当前 Turn 结束后再处理。事件层负责提供注入位置，具体准入与队列策略由渠道和应用决定。
 
-`BubAgent` 默认使用此适配器，核心 Agent 也可以[显式接入](/zh-cn/docs/sdk/reuse-plugins/#other-hooks)。
+`BubAgent` 默认使用此适配器，核心 Agent 也可以[显式接入](/zh-cn/docs/sdk/reuse-app/#other-hooks)。
 
-两种接入方式的异常策略不同：直接 EventBus 处理器的异常向发布方传播；拦截 hook 的异常会被记录并跳过。需要拒绝调用时，应返回对应 decision。完整签名见 [Hooks 参考](/zh-cn/docs/reference/hooks/#interception-through-pluginagenthooks)，示例见[应用 Hooks](/zh-cn/docs/app/hooks/)。
+两种接入方式的异常策略不同：直接 EventBus 处理器的异常向发布方传播；拦截 hook 的异常会被记录并跳过。需要拒绝调用时，应返回对应 decision。完整签名见 [Hooks 参考](/zh-cn/docs/reference/hooks/#interception-through-pluginagenthooks)，示例见[插件与 Hooks](/zh-cn/docs/app/plugins/)。
 
 `framework.events` 是另一条独立总线，只发布应用层的 `CommandChanged`、`WorkChanged` 和 `PromptChanged`，不承载模型调用或渠道事件。
 

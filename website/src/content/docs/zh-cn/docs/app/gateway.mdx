@@ -5,11 +5,17 @@ description: 配置和运行 Bub 网关，接入聊天平台，并管理消息�
 
 import { Steps } from '@astrojs/starlight/components';
 
-`bub gateway` 常驻运行已启用的渠道，把平台消息交给 [Turn](/zh-cn/docs/concepts/turn/) 处理。Bub 内置 Telegram 渠道；终端交互使用 [`bub chat`](/zh-cn/docs/app/terminal/)，其他平台通过插件接入。
+Bub 最初的灵感就是来源于 Openclaw、nanobot 这样的常驻型 Agent，所以除了终端交互之外，Bub 还提供了网关（Gateway）功能，把聊天平台的消息交给 Bub 处理。
+
+`bub gateway` 将运行已启用的渠道并作为网关启动。
+
+目前 Bub 仅内置 Telegram 渠道，其他平台需通过 Bub 社区 [插件](https://hub.bub.build/) 接入。因此本文档主要以 Telegram 渠道的配置和使用为例。
 
 ## 启动 Telegram 网关 {#telegram}
 
-先确认 `bub chat` 已能正常回复，并从 [@BotFather](https://t.me/BotFather) 取得机器人 token。模型配置见[配置](/zh-cn/docs/app/configure/)。
+:::note
+先确认 Bub 应用已正确安装和配置，并从 [@BotFather](https://t.me/BotFather) 取得机器人 token。
+:::
 
 <Steps>
 
@@ -22,13 +28,11 @@ import { Steps } from '@astrojs/starlight/components';
    BUB_TELEGRAM_ALLOW_USERS=123456789
    ```
 
-   保留文件中的 `BUB_MODEL`、`BUB_API_KEY` 等模型配置。将 `BUB_TELEGRAM_ALLOW_USERS` 设为你的数字 ID，可用 [@userinfobot](https://t.me/userinfobot) 查询。
-
-   使用 `.env` 或 `export` 传递变量。仅在 shell 中写 `BUB_TELEGRAM_TOKEN=...` 而不 export，不会传给之后启动的 `bub` 进程。
+   将 `BUB_TELEGRAM_ALLOW_USERS` 设为你的数字 ID，可用 [@userinfobot](https://t.me/userinfobot) 查询。
 
 2. **启动网关**
 
-   在包含 `.env` 的工作区中运行：
+   在包含 `.env` 文件的工作区中运行：
 
    ```bash
    bub gateway
@@ -43,17 +47,19 @@ import { Steps } from '@astrojs/starlight/components';
 
 3. **验证私聊**
 
-   向机器人发一条私聊。Turn 执行期间，聊天窗口会显示 typing。无回复时见[配置回复](#telegram-outbound)和[故障排查](#troubleshooting)。
+    试着向机器人发一条私聊，等待片刻后看是否收到回复。如无回复时见[配置回复](#telegram-outbound)和[故障排查](#troubleshooting)。
 
 </Steps>
 
-`BUB_TELEGRAM_TOKEN` 非空时，Telegram 渠道即为启用状态。网关至少需要一个已启用的渠道。
+Bub 作为网关运行要求至少已启用一个渠道。当 `BUB_TELEGRAM_TOKEN` 非空时，Telegram 渠道即为启用状态。
 
 ## 配置 Telegram
 
 ### 限制访问
 
-`BUB_TELEGRAM_ALLOW_USERS` 限制用户，`BUB_TELEGRAM_ALLOW_CHATS` 限制聊天。多个值用逗号分隔，用户名区分大小写：
+设置 `BUB_TELEGRAM_ALLOW_USERS` 限制可访问用户，设置 `BUB_TELEGRAM_ALLOW_CHATS` 限制可访问的聊天会话。
+
+多个值用逗号分隔，用户名区分大小写：
 
 ```bash
 BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
@@ -65,7 +71,7 @@ BUB_TELEGRAM_ALLOW_CHATS=-1001234567890,-1009876543210
 | `BUB_TELEGRAM_ALLOW_USERS` | 数字 ID 或用户名匹配 | 用户收到 `Access denied.` |
 | `BUB_TELEGRAM_ALLOW_CHATS` | 聊天 ID 匹配 | 消息被静默丢弃 |
 
-两项都设置时，必须全部通过。两个白名单都为空时，任何用户都能使用机器人；公开部署前至少设置一个。
+两项都设置时，必须全部通过。两个白名单都**为空**时，任何用户都能使用机器人；公开部署前至少设置一个。
 
 ### 配置群聊 {#telegram-inbound}
 
@@ -94,7 +100,7 @@ BUB_TELEGRAM_ALLOW_CHATS=-1001234567890,-1009876543210
 
 ### 合并连续消息
 
-Telegram 会把短时间内的连续消息合并进一个 Turn：
+Telegram 会把短时间内的连续消息合并进一个 Turn，你可以通过以下环境变量调整合并策略：
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -104,77 +110,22 @@ Telegram 会把短时间内的连续消息合并进一个 Turn：
 
 私聊和群聊中明确发给机器人的消息是活跃消息；同会话后续未提及的群消息是非活跃消息。两者按会话暂存，计时结束后用换行合并。命令前缀（默认 `,`）开头的输入不参与合并，会立即分发。
 
-### 会话 ID
+### 代理 {#telegram-reference}
 
-默认会话格式为 `<channel>:<chat_id>`：
-
-| 入口 | 默认 `session_id` |
-| --- | --- |
-| `bub run "..."` | `cli:local` |
-| `bub chat` | `cli_session` |
-| Telegram | `telegram:<chat_id>` |
-
-不同入口默认不共享历史。需要跨入口继续对话时，显式使用相同的 `--session-id`：
-
-```bash
-bub chat --session-id shared:demo
-bub run --session-id shared:demo "继续刚才的话题"
-```
-
-### 媒体、代理与轮询 {#telegram-reference}
-
-| 消息类型 | 进入上下文的文本 |
-| --- | --- |
-| 图片 | `[Photo message] Caption: ...` |
-| 贴纸 | `[Sticker: 😀 from sticker_set]` |
-| 语音 / 音频 | `[Voice message: 12s]` / `[Audio: artist - title (12s)]` |
-| 视频 / 视频消息 | `[Video: 12s]` / `[Video note: 12s]` |
-| 文件 | `[Document: report.pdf (application/pdf)]` |
-
-图片、音频和视频会作为 Republic 媒体内容交给模型；模型必须支持对应模态。普通文件只提供上面的文字描述，不会作为媒体附件交给模型。需要下载的媒体超过 2 MB 时直接跳过。回复消息时，被回复内容经 `reply_to_message` 加入上下文。
-
-轮询与 Telegram API 共用同一代理：
+可为 Telegram 渠道配置代理：
 
 ```bash
 BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
-# 也支持 socks5://user:<口令>@host:port
+# 也支持 socks5://<user>:<password>@host:port
 ```
 
 完整字段见 [TelegramSettings](/zh-cn/docs/reference/settings/#telegram-settings)。渠道只处理 `message` 更新；启动时会丢弃停机期间积压的更新，不补发离线消息。
 
-## 选择渠道
-
-默认 `all` 会启动所有 `enabled` 为真、且类型不是 `Interface` 的条目。渠道根据凭据判断是否启用，Telegram 检查 token。
-
-`all` 也包含 `mcp.lifecycle` 等后台服务。显式点名聊天渠道时，已启用的后台服务仍会启动；用 `!name` 排除：
-
-```bash
-bub gateway --enable-channel telegram --enable-channel '!mcp.lifecycle'
-bub gateway --enable-channel telegram --enable-channel discord
-```
-
-排除项须加引号，避免 shell 把 `!` 当成历史展开。内置 `cli` 是 `Interface`，不随网关启动。
-
-也可以在配置中指定：
-
-```yaml
-# config.yml
-enabled_channels: telegram
-```
-
-```bash
-BUB_ENABLED_CHANNELS=telegram
-```
-
-命令行优先于配置文件和环境变量。无可用渠道时，`bub gateway` 会提示 `No channels are enabled` 并退出。
-
 ## 接入其他平台
 
-其他平台安装插件后重启网关，用 `bub hooks` 确认 `provide_channels` 下出现对应名称。未配置凭据的渠道会被跳过。
+尽管 Bub 只内置了 Telegram 渠道，但社区提供了多种 [插件](https://hub.bub.build/) 以接入其他平台。
 
-```bash
-bub install bub-discord@main
-```
+安装其他平台插件后需重启网关，重启完成后用 `bub hooks` 确认 `provide_channels` 下是否出现对应名称。未配置凭据的渠道会被跳过。
 
 | 平台 | 渠道名 | 插件 |
 | --- | --- | --- |
@@ -186,28 +137,11 @@ bub install bub-discord@main
 | 钉钉 | `dingtalk` | [`bub-dingtalk`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-dingtalk) |
 | QQ | `qq` | [`bub-qq`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-qq) |
 
-配置、会话规则和访问策略以各插件 README 为准。更多包见 [bub-contrib](https://github.com/bubbuild/bub-contrib/tree/main/packages) 与 [hub.bub.build](https://hub.bub.build)。
-
-## 部署网关
-
-调试用前台运行，验证后可安装为系统服务：
-
-```bash
-bub gateway --install
-bub gateway --uninstall
-```
-
-| 系统 | 行为 |
-| --- | --- |
-| Linux | systemd user unit `bub-gateway.service`；退出登录仍需运行时执行 `loginctl enable-linger $USER` |
-| Windows | 当前用户计划任务；登录启动，失败后重启 |
-| macOS | 不支持 `--install`；用 launchd、tmux 或[容器部署](/zh-cn/docs/app/deploy/) |
-
-安装会记录当前 Python 解释器、工作区和显式 `--enable-channel`。更换环境或工作区后需要重新安装。
+相关渠道的配置以各插件说明文档为准。
 
 ## 自定义渠道 {#custom-channels}
 
-没有现成插件可用时，再实现自己的渠道。继承 `Channel`，设置 `name` 并实现 `start` / `stop`；需要把回复发回平台时，再实现 `send`：
+没有现成插件可用时，可自己实现渠道：通过 Python 代码来继承 `Channel` 类，设置 `name` 属性并实现 `start`、`stop` 以及 `send` 方法即可。以下是一个最小示例：
 
 ```python
 import asyncio
@@ -217,7 +151,7 @@ from bub.channels.message import ChannelMessage
 
 
 class MyChannel(Channel):
-    name = "myapp"  # 传给 --enable-channel 的名称
+    name = "myapp"  # 渠道名称
 
     def __init__(self, on_receive, token: str) -> None:
         self._on_receive = on_receive
@@ -252,14 +186,14 @@ class MyChannel(Channel):
         await self._post(message.chat_id, message.content)
 ```
 
-实现时守住四条契约：
+注意：
 
-- 每条入站消息都调用框架传入的 `on_receive`；Turn 输出通过 `send` 返回。
-- `session_id` 使用 `<channel>:<chat_id>`，避免不同平台的会话冲突。
-- 配置不完整时让 `enabled` 返回 `False`，网关会跳过该渠道。
+- 每条入站消息都调用框架传入的 `on_receive` 事件方法。
+- `session_id` 使用 `<channel>:<chat_id>` 格式，避免不同平台的会话冲突。
+- 配置不完整时让 `enabled` 默认返回 `False`，网关会跳过该渠道。
 - 需要合并连续短消息时，让 `needs_debounce` 返回 `True`。
 
-在插件入口模块中通过 `provide_channels` 暴露渠道：
+完成后，在插件入口模块中通过 `provide_channels` 暴露渠道：
 
 ```python
 import os
@@ -272,7 +206,29 @@ def provide_channels(message_handler):
     return [MyChannel(on_receive=message_handler, token=os.environ.get("MYAPP_TOKEN", ""))]
 ```
 
-安装插件后运行 `bub gateway --enable-channel myapp`。打包和安装见[插件](/zh-cn/docs/app/plugins/)；消息、媒体和流式输出等字段见 [Python API](/zh-cn/docs/reference/python-api/#channels)，其余渠道接口见 [Hooks 参考](/zh-cn/docs/reference/hooks/)。
+安装插件后运行对应渠道 `bub gateway --enable-channel myapp`。
+
+## 以 Daemon 方式运行
+
+如果想 Bub 常驻系统运行，可按如下命令进行配置：
+
+```bash
+bub gateway --install
+
+# 卸载
+# bub gateway --uninstall
+```
+
+不同系统可能略有差异：
+
+| 系统 | 行为 |
+| --- | --- |
+| Linux | systemd user unit `bub-gateway.service`；退出登录仍需运行时执行 `loginctl enable-linger $USER` |
+| Windows | 当前用户计划任务；登录启动，失败后重启 |
+| macOS | 不支持 `--install`；用 launchd、tmux 或[容器部署](/zh-cn/docs/app/deploy/) |
+
+安装会记录当前 Python 解释器、工作区和显式 `--enable-channel`。更换环境或工作区后需要重新安装。
+
 
 ## 故障排查 {#troubleshooting}
 

@@ -85,7 +85,7 @@ agent = Agent(
 
 Agent 识别到上下文长度错误时，会自动 handoff 一次并重试原提示词。这个操作只移动上下文起点，不生成摘要；剩余请求仍然过大时会再次失败。
 
-需要按预算主动管理上下文时，可以使用 [`bub-context-budget` 插件](/zh-cn/docs/sdk/reuse-plugins/)，让模型在接近上限时调用 `tape.handoff`。
+需要按预算主动管理上下文时，可以使用 [`bub-context-budget` 插件](/zh-cn/docs/sdk/reuse-app/)，让模型在接近上限时调用 `tape.handoff`。
 
 ## 区分运行状态与持久化记录 {#state}
 

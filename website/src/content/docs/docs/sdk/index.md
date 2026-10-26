@@ -89,5 +89,5 @@ Errors can surface as an `error` event, or be raised while iterating. To observe
 
 - [Configure the agent](/docs/sdk/options/): the model, the prompts, and run parameters.
 - [Custom tools and code mode](/docs/sdk/tools/): give the agent actions to perform.
-- [Reuse application plugins](/docs/sdk/reuse-plugins/): connect application plugins to the core Agent.
+- [Reuse the Bub app](/docs/sdk/reuse-app/): connect plugin tools, `BubAgent`, or a complete Turn at the depth you need.
 - [FastAPI service](/docs/sdk/web-service/): expose an HTTP endpoint with per-session history.

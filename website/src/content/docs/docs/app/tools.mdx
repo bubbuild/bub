@@ -1,103 +1,67 @@
 ---
 title: Tools
-description: Discover and use tools in the Bub app, limit what is available, and configure deferred loading and code mode.
+description: Learn about the Bub app's built-in tools, how tools are called, and how to configure code mode and extensions.
 ---
 
-Tools perform concrete actions for the Bub app. The app already bundles tools for files, Shell, Web, Tape, and subagents, and you can add your own through plugins. Function signatures, result rendering, and `ToolContext` are covered in [Custom tools and code mode](/docs/sdk/tools/); for the parameters and defaults of built-in tools, see the [built-in tools reference](/docs/reference/tools/).
+Tools carry out concrete external actions for the Bub app, such as reading and writing files, running commands, and managing sessions.
 
-## Built-in tool catalogue {#builtin-tools}
+## Built-in tools {#builtin-tools}
 
-The model can choose tools based on the task, and you can also call them directly with a command prefix. Names the model sees replace dots with underscores; for example, `fs.read` appears as `fs_read`.
+The Bub app ships with the following core tools:
 
-| Task | Tool | Description |
+| Category | Tool | Purpose |
 | --- | --- | --- |
-| Run processes | `bash` | Executes Shell; supports a working directory, timeouts, and background runs |
-| Manage background processes | `bash.output`, `bash.kill` | Read output incrementally and terminate processes |
-| Read and write files | `fs.read`, `fs.write`, `fs.edit` | Paged reads, whole-file writes, and text replacement |
-| Fetch web pages | `web.fetch` | Issues GET requests, preferring Markdown; use a search plugin for web search |
-| Use skills | `skill` | List skills or read the body of a specified skill |
-| Discover deferred tools | `tool.describe` | Loads a tool definition so it can be called from the next Step |
-| Inspect the session | `tape.info`, `tape.search`, `tape.anchors` | View usage, search records, and list anchors |
-| Manage context | `tape.handoff`, `tape.reset` | Move the context start point; optionally archive before resetting |
-| Delegate tasks | [`subagent`](/docs/app/subagents/) | Run a subagent with an isolated or specified session |
-| Execute composed logic | `run_code` | Compose tool calls in Python in code mode |
-| Read large results | `spill.read` | Read large tool results moved out of the main context in chunks |
+| **Process management** | `bash` | Run Shell commands; supports a working directory, timeouts, and background runs |
+| | `bash.output`, `bash.kill` | Read background output incrementally, or terminate a running process |
+| **File operations** | `fs.read`, `fs.write`, `fs.edit` | Paged reads, whole-file writes, and precise text replacement |
+| **Web fetch** | `web.fetch` | Issue GET requests to fetch pages (Markdown preferred) |
+| **Capability discovery** | `skill` | List skills discovered in the workspace, or read a specified skill's body |
+| | `tool.describe` | Load the full definition of a deferred tool |
+| **Session management** | `tape.info`, `tape.search` | Check token usage and search conversation records |
+| | `tape.handoff`, `tape.reset` | Move the context start point to compact the session, or archive and reset the context |
+| | `spill.read` | Read large tool results that exceed the context limit in chunks |
+| **Multi-task coordination** | [`subagent`](/docs/app/subagents/) | Start a subagent to handle tasks in parallel in a separate session |
+| **Code mode** | `run_code` | Compose multiple tools in Python when code mode is on |
 
-`model`, `reasoning_effort`, `code_mode`, `help`, and `quit` are available only as commands and are not exposed directly to the model. See [Terminal](/docs/app/terminal/#commands) for command usage and [Background processes](/docs/app/terminal/#background-shell) for a background example.
+Built-in tool parameters and defaults are listed in the [tools reference](/docs/reference/tools/).
 
-See [Provide tools](/docs/app/plugins/#provide-tools) for creating custom tools, registering them with `provide_tools`, and loading plugins. Once registered, use the policies below to limit the current Turn, defer definitions, or choose the execution environment.
+## Use tools {#instructions}
 
-## Limit the tools for a Turn {#allowed-tools}
+In the Bub app, tools can be called in two ways:
 
-Pass `allowed_tools` when calling `BubAgent.run_stream()`:
+1. **The model picks them**: ask a question as usual, and the model selects and calls tools based on the task intent and tool descriptions.
+2. **Call from the command line**: use the comma prefix in a terminal to call a tool directly (no model call, no token usage):
+   ```bash
+   bub run ",fs.read path=README.md"
+   ```
 
-```python
-stream = await agent.run_stream(
-    session_id="customer-42",
-    prompt=["Look up order A123"],
-    allowed_tools={"orders.get"},
-)
-```
+To constrain or standardize how the model uses tools:
+- **Workspace conventions**: write general rules in `AGENTS.md` at the project root;
+- **Task procedures**: package multi-step operations as [skills](/docs/app/skills/) that walk the model through the right tools in order.
 
-It accepts runtime names or model aliases. `None` allows all instance tools, an empty collection allows none, and an unknown name raises `ValueError`.
+## Enable code mode {#code-mode}
 
-The filter applies to tools the model calls directly and to code mode. Comma commands use the Agent instance's tools directly and are not limited by this list; when you also need to constrain commands, use a [tool-call decision](/docs/app/hooks/#control-a-model-or-tool-call).
-
-## Load tool definitions on demand {#deferred-tools}
-
-When there are many tools, set `deferred=True` to avoid putting every full definition into the initial model request:
-
-```python
-from bub import tool
-
-
-@tool(name="orders.get", deferred=True)
-def get_order(order_id: str) -> dict[str, str]:
-    """Look up an order by id."""
-    return {"id": order_id, "status": "shipped"}
-```
-
-`BubAgent` lists the names of deferred tools in the system prompt and supplies `tool.describe`. The model calls it to load a definition, and can call the tool directly from the next Step onward.
-
-Loads are recorded as `tool.loaded` events on the Tape, so later Steps and Turns can keep using the tool until the Tape is reset. `allowed_tools` limits both how tools are listed and how they are loaded.
-
-In code mode, allowed `auto` and `code` tools can be called directly from Python; deferred loading only affects tools still offered directly to the model.
-
-## Use code mode {#code-mode}
-
-Enable code mode in a session:
+For complex logic or batch data processing, repeated tool round-trips consume a lot of context. With code mode on, the model writes Python directly (executed through the `run_code` tool) and composes several tools in a single pass:
 
 ```text
 ,code_mode enable=true
 ```
 
-The setting takes effect from the next Turn and is recorded in the Tape so it can be restored after a restart. Use `,code_mode enable=false` to turn it off. When calling `BubAgent` directly, set `state["code_mode"] = True` for that run.
+- The setting takes effect from the next Turn and is persisted in the current session record.
+- Use `,code_mode enable=false` to turn it off and return to the default mode.
+- For the Python syntax for calling tools in code mode, see [Compose tools with code mode](/docs/sdk/tools/#compose-tools-with-codemode).
 
-When `run_code` is available, the app selects tools according to `exposure`:
+## Execution environment and security boundaries {#environment}
 
-| `exposure` | Code mode off | Code mode on |
-| --- | --- | --- |
-| `auto` | Offered directly to the model | Called through `run_code` |
-| `direct` | Offered directly to the model | Still offered directly; not available under `tools.*` |
-| `code` | Unavailable to the model | Called through `run_code` |
-| `command` | Comma command only | Comma command only |
+The built-in Shell (`bash`), file access (`fs.*`), and code execution (`run_code`) all run directly under the current local user's privileges and can have irreversible effects on the system or data, so know this before you use them:
 
-When `run_code` is not in the allowed tool set, the Turn follows the code-mode-off rules.
+- **Not a sandbox**: the default environment is not an isolated sandbox; commands the model runs have **real read/write and process side effects on the local system**.
+- **Permissions and interception**: use [tool interception hooks](/docs/app/hooks/#control-a-model-or-tool-call) when you need human approval or extra conditions before high-risk commands run.
+- **Containers and isolated environments**: provide a separate [execution environment](/docs/sdk/tools/#choose-an-execution-environment) through a plugin when you need isolated execution.
 
-The app writes Python tool declarations under `<BUB_HOME>/codemode/` and adds the file path to the system prompt. Code calls tools with `await tools.orders_get(order_id="123")`, still passing through the app's interception hooks.
+## Integrate and extend tools {#provide-tools}
 
-Code mode uses the session's execution environment and model configuration. The Republic bridge handles model credentials on the host side; the default `LocalEnvironment` still runs generated code with the host user's privileges and is not a security sandbox. A core Agent must [compose CodeMode explicitly](/docs/sdk/tools/#compose-tools-with-codemode).
+If the built-in tools are not enough, extend them in these ways:
 
-## Choose the execution environment {#environment}
-
-The built-in `bash`, `bash.output`, `bash.kill`, `fs.*`, and `run_code` use the session's `Environment`. The default is `LocalEnvironment`, which runs on the host.
-
-Plugins provide other environments through `provide_environment(session_id, workspace)`. The framework caches one environment per session and closes it when `framework.running()` exits. See [Execution environment](/docs/sdk/tools/#choose-an-execution-environment) for the interface.
-
-Custom tools obtain the environment with `bub.builtin.environment.environment_from_state(context.state)`. Ordinary Python tool functions still run in the host process; only operations that explicitly call the environment enter it.
-
-## Add instructions alongside a tool {#instructions}
-
-Put workspace-wide conventions in `AGENTS.md`, and procedures loaded per task in [skills](/docs/app/skills/). A skill can tell the model when to call a tool; the Python function performs the actual work.
-
-Users can also call tools directly with a command prefix without going through the model. See [Text commands](/docs/sdk/tools/#call-a-tool-without-a-model) for the syntax.
+- **Install community plugins**: browse [community plugins](https://hub.bub.build/) to find plugins or third-party MCP services (see [MCP integration](/docs/integrations/mcp/));
+- **Write your own plugin**: write Python functions and register them as Bub tools, then ship them with a plugin; see [Provide tools](/docs/app/plugins/#provide-tools).

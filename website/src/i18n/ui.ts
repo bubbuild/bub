@@ -1,7 +1,4 @@
-// ---------------------------------------------------------------------------
-// Flat-key i18n UI string dictionary — Astro recipe pattern
-// All keys are dot-separated, no nesting. Easy to grep & maintain.
-// ---------------------------------------------------------------------------
+// Flat-key i18n UI strings (Astro recipe). Landing content → data/landing-page.ts.
 
 export const languages = {
   en: 'English',
@@ -15,13 +12,7 @@ export const defaultLang: Locale = 'en';
 /** When false the default locale has NO prefix: `/about` instead of `/en/about` */
 export const showDefaultLang = false;
 
-// ---------------------------------------------------------------------------
-// UI strings — flat keys for nav, footer, 404, posts, and site meta.
-// Landing-page structured data (hero, features, etc.) lives in data/landing-page.ts.
-// English is the source of truth. Other locales override selectively;
-// missing keys automatically fall back to English.
-// ---------------------------------------------------------------------------
-
+// English is the source of truth; other locales override selectively.
 export const ui = {
   en: {
     // Site meta
@@ -79,5 +70,4 @@ export const ui = {
   },
 } as const;
 
-// Type for a valid UI key (from the default locale)
 export type UIKey = keyof (typeof ui)[typeof defaultLang];

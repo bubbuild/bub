@@ -85,7 +85,7 @@ When you need a completely different projection, pass a selection function to `T
 
 When the Agent recognizes a context-length error, it performs one automatic handoff and retries the original prompt. This only moves the context's starting point; it does not generate a summary, and if the remaining request is still too large, it fails again.
 
-To manage context against a budget on purpose, use the [`bub-context-budget` plugin](/docs/sdk/reuse-plugins/), which lets the model call `tape.handoff` as it approaches the limit.
+To manage context against a budget on purpose, use the [`bub-context-budget` plugin](/docs/sdk/reuse-app/), which lets the model call `tape.handoff` as it approaches the limit.
 
 ## Run state versus persistent records {#state}
 
