@@ -1,72 +1,159 @@
 ---
 title: 打包与分发
-description: 把 Bub 应用、插件和技能打包成可安装的发行包，并发布自有命令。
+description: 将 Bub 应用、自有命令、插件与技能打包为标准 Python 发行包并进行发布验证。
 ---
 
-本页只讲打包和发布。要在已有服务中复用 Bub 的配置、插件和完整 Turn，见[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)。
+import { Steps, Aside } from '@astrojs/starlight/components';
 
-这条路径需要[应用依赖](/zh-cn/docs/getting-started/install/#app-install)。
+当你基于 Bub 构建了自定义工具、通道插件、特定工作流技能，甚至想要打造专属的定制 CLI 时，可以将它们打包为标准的 Python 发行包（Wheel），发布至 PyPI 或私有镜像源供团队与用户安装。
+
+在 Bub 架构中，打包分发通常对应三种场景：
+
+| 分发形态 | 交付物 | 适用场景 |
+| --- | --- | --- |
+| **扩展能力包** | 插件入口点 + 技能命名空间 | 为现有 Bub 生态贡献自定义工具、生命周期服务或专业技能 |
+| **专属业务 CLI** | 自定义命令行脚本（如 `my-bub`） | 包装 Bub 为特定业务场景的专属 Agent，固定工作区或封装默认配置 |
+| **一体化套件** | 自有命令 + 插件 + 技能（All-in-One） | 一键交付完整的垂直领域智能体，用户安装即可直接使用 |
+
+<Aside type="note">
+本页侧重于**作为独立可安装包的构建与分发**。若你是在已有的 Web 框架或后台服务中以代码形式集成 Bub，请参阅[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)。
+</Aside>
 
 ## 发布自有命令 {#publish-a-command}
 
-发行包可以提供自己的命令名，内部调用 Bub 入口：
+发行包可以提供自己的命令名，并在内部调用 Bub 的 CLI 入口。通过这种方式，你可以为 Agent 打造专属品牌或固化默认行为：
 
 ```python
 # src/my_bub/cli.py
-def main() -> None:
-    from bub.__main__ import main as bub_main
+from pathlib import Path
+import os
+from bub.__main__ import main as bub_main
 
+
+def main() -> None:
+    # 可选：固化默认工作区。Bub 的工作区默认取当前目录，没有对应的 BUB_* 环境变量，
+    # 因此在调用 bub_main() 之前先切换目录；用户传入的 --workspace 仍可覆盖它。
+    if workspace := os.getenv("MY_BUB_WORKSPACE"):
+        os.chdir(Path(workspace).expanduser())
+
+    # 调用 Bub 核心 CLI 调度器，自动支持 chat, run, gateway 等完整子命令
     bub_main()
 ```
+
+在 `pyproject.toml` 中通过 `[project.scripts]` 注册命令：
 
 ```toml
 [project.scripts]
 my-bub = "my_bub.cli:main"
 ```
 
-安装后可以运行 `my-bub chat` 或 `my-bub gateway`。声明 `dependencies = ["bub[app]"]`，并遵循 [0.6 迁移说明](/zh-cn/docs/migration/v0-6/)中的包结构调整。
+用户安装后，即可直接运行 `my-bub chat`、`my-bub gateway` 或 `my-bub run`。Bub 的 Typer CLI 会自动挂载所有原生子命令并支持 `--workspace` 等标准参数。
 
-需要固定工作区时，在调用前切换当前目录，或让用户传入 `--workspace`。
+## 分发插件与技能 {#bundle-plugins-and-skills}
 
-## 分发插件和技能 {#bundle-plugins-and-skills}
-
-一个 wheel 可以同时提供插件入口点和技能命名空间包：
+一个 Wheel 发行包可以同时提供插件入口点、标准技能命名空间包以及自定义 CLI 命令：
 
 ```text
-src/
-├── my_bub/
-│   ├── __init__.py
-│   └── ...
-└── skills/
-    └── my-skill/
-        ├── SKILL.md
-        └── references/
-            └── examples.md
+my-bub/
+├── pyproject.toml
+└── src/
+    ├── my_bub/
+    │   ├── __init__.py
+    │   ├── cli.py             # 自有 CLI 入口
+    │   ├── plugin.py          # 插件与 Hook 实现
+    │   └── tools.py           # 自定义工具
+    └── skills/                # 技能命名空间包（切勿放置 __init__.py）
+        └── repo-reviewer/
+            ├── SKILL.md
+            └── references/
+                └── guidelines.md
 ```
 
-`skills/` 属于命名空间包，不要在其中添加 `__init__.py`。技能可以随插件一起分发，也可以独立打包发布。
+<Aside type="caution" title="命名空间包规范">
+`src/skills/` 必须作为 **PEP 420 隐式命名空间包** 分发，**绝对不能**在 `src/skills/` 目录下创建 `__init__.py`。只有保持命名空间包结构，用户安装此包后，其目录下的技能才能与 Bub 内置技能及其他扩展包中的技能在 `skills.__path__` 中自动合流。技能编写规范详见[技能](/zh-cn/docs/app/skills/)。
+</Aside>
 
-在 `pyproject.toml` 中配置入口点与 Hatch 构建包含：
+### 配置 pyproject.toml 与 Hatch {#configure-packaging}
+
+在 `pyproject.toml` 中配置入口点与 Hatch 构建包含规则：
 
 ```toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "my-bub"
+version = "0.1.0"
+description = "My Custom Bub Agent Distribution"
+requires-python = ">=3.12"
+dependencies = [
+    "bub[app]>=0.6.0",         # 必须声明 app 依赖以支持 CLI、插件装载与技能
+]
+
+[project.scripts]
+my-bub = "my_bub.cli:main"
+
 [project.entry-points."bub"]
-models = "my_bub.models"
-channels = "my_bub.channels:ChannelPlugin"
+my_plugin = "my_bub.plugin:plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/my_bub", "src/skills"]
 ```
 
-入口点遵循[插件注册规则](/zh-cn/docs/app/plugins/#entry-point-forms)，技能编写规范见[技能](/zh-cn/docs/app/skills/)。插件依赖应声明在发行包中。需要把插件安装到 Bub 管理的独立项目时，使用 [`bub install`](/zh-cn/docs/reference/cli/#bub-install)。
+#### 配置要点
+
+1. **依赖声明**：务必声明 `bub[app]`。自 0.6.0 起，核心包 `bub` 仅包含轻量内核，CLI、插件装载与技能运行时均由 `app` 额外依赖提供，遵循 [0.6 迁移说明](/zh-cn/docs/migration/v0-6/) 中的包结构调整。插件所依赖的三方库（如 `httpx`、`pydantic` 等）也应一并声明在发行包的 `dependencies` 中。
+2. **入口点格式**：插件入口点组必须为 `"bub"`，具体语法参见[插件注册规则](/zh-cn/docs/app/plugins/#entry-point-forms)。
+3. **打包包含范围**：在 `[tool.hatch.build.targets.wheel]` 的 `packages` 中明确包含 `"src/skills"`，确保技能资产随 Wheel 打包并正确安装至环境中的 `site-packages/skills/`。
+
+## 构建与分发 {#build-and-distribute}
+
+推荐使用 [`uv`](/zh-cn/docs/getting-started/install/) 快速构建标准的 Wheel 和源码包：
+
+```bash
+uv build
+```
+
+构建完成后，产物将生成在 `dist/` 目录下（如 `my_bub-0.1.0-py3-none-any.whl`）。你可以将其发布至 PyPI，或在组织内部通过私有源分发。
+
+对于下游用户：
+- **作为全局 CLI 安装**：推荐使用 `uv tool install my-bub`；
+- **作为受管插件安装**：若需要将该包安装至 Bub 管理的独立项目或容器环境中，使用 [`bub install`](/zh-cn/docs/reference/cli/#bub-install)。
 
 ## 发布前验证 {#verify-a-release}
 
-在独立虚拟环境中完成以下检查：
+发布到公开或生产环境前，**务必在全新的干净虚拟环境中完成验证**。干净环境可以有效暴露漏声明的外部依赖、不可导入的入口点或只在本地开发目录才能读取的相对路径配置。
 
-1. 从 wheel 安装，而不是从源码目录运行。
-2. 运行 `bub hooks`，确认入口点加载成功且没有弃用警告。
-3. 运行 `bub run`，验证模型、工具和状态。
-4. 运行 `bub chat`，验证技能、命令和生命周期渠道。
-5. 按[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)接入宿主服务，验证并发、关闭流和退出清理。
+<Steps>
 
-干净环境可以暴露漏声明的依赖、不可导入的入口点和只在开发目录可用的配置。
+1. **创建独立环境并安装 Wheel**：
+   ```bash
+   uv venv .test-env && source .test-env/bin/activate
+   uv pip install dist/*.whl
+   ```
+   务必从打包生成的 wheel 安装，而不是直接在开发源码目录下运行。
+
+2. **验证插件与 Hooks 加载**：
+   ```bash
+   my-bub hooks
+   ```
+   检查终端输出中是否正确列出了你的插件标识，确认入口点加载成功且没有弃用警告或导入异常。
+
+3. **验证技能发现**：
+   ```bash
+   my-bub run ",skill"
+   ```
+   确认分发的技能（如 `repo-reviewer`）出现在已发现列表中，并使用 `my-bub run ",skill name=repo-reviewer"` 检查变量插值与正文展开是否正常。
+
+4. **验证自有命令与交互链路**：
+   ```bash
+   my-bub run "测试模型与自定义工具调用"
+   my-bub chat
+   ```
+   验证模型交互、自定义工具执行、内部命令调度以及会话历史持久化。
+
+5. **验证网关与宿主集成（如适用）**：
+   若该发行包提供了渠道扩展或被宿主系统集成，按[部署](/zh-cn/docs/app/deploy/)与[复用 Bub 应用](/zh-cn/docs/sdk/reuse-app/)接入宿主服务，验证并发、关闭流和退出清理。
+
+</Steps>

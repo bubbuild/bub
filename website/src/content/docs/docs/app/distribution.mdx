@@ -1,58 +1,161 @@
 ---
 title: Packaging and distribution
-description: Package the Bub app, plugins, and skills into an installable distribution, and publish your own command.
+description: Package Bub apps, your own commands, plugins, and skills into standard Python distributions, and verify them before release.
 ---
 
-This page covers packaging and publishing only. To reuse Bub's configuration, plugins, and complete Turns inside an existing service, see [Reuse the Bub app](/docs/sdk/reuse-app/).
+import { Steps, Aside } from '@astrojs/starlight/components';
 
-This path requires the [application dependencies](/docs/getting-started/install/#app-install).
+When you build custom tools, channel plugins, or workflow-specific skills on top of Bub, or even want to ship a branded CLI of your own, you can package them as standard Python distributions (wheels) and publish them to PyPI or a private index for your team and users to install.
+
+In Bub, packaging and distribution usually falls into one of three shapes:
+
+| Shape | Deliverable | When to use it |
+| --- | --- | --- |
+| **Capability extension** | Plugin entry point + skill namespace | Contribute custom tools, long-running services, or specialized skills to the existing Bub ecosystem |
+| **Dedicated business CLI** | Your own command script (for example `my-bub`) | Wrap Bub as an agent for one business scenario, pinning the workspace or baking in default settings |
+| **All-in-one suite** | Own commands + plugins + skills | Deliver a complete vertical-domain agent that works as soon as users install it |
+
+<Aside type="note">
+This page focuses on **building and distributing a standalone installable package**. If you are integrating Bub as code into an existing web framework or backend service, see [Reuse the Bub app](/docs/sdk/reuse-app/).
+</Aside>
 
 ## Publish your own command {#publish-a-command}
 
-A distribution package can provide its own command name and call the Bub entry point internally:
+A distribution can provide its own command name and call Bub's CLI entry point internally. This lets you give the agent its own brand or fix its default behavior:
 
 ```python
 # src/my_bub/cli.py
-def main() -> None:
-    from bub.__main__ import main as bub_main
+from pathlib import Path
+import os
+from bub.__main__ import main as bub_main
 
+
+def main() -> None:
+    # Optional: pin a default workspace. Bub's workspace defaults to the current
+    # directory and has no BUB_* environment variable, so change directory before
+    # calling bub_main(); a user-supplied --workspace still overrides it.
+    if workspace := os.getenv("MY_BUB_WORKSPACE"):
+        os.chdir(Path(workspace).expanduser())
+
+    # Call Bub's CLI dispatcher; chat, run, gateway, and the other subcommands work unchanged
     bub_main()
 ```
+
+Register the command in `pyproject.toml` with `[project.scripts]`:
 
 ```toml
 [project.scripts]
 my-bub = "my_bub.cli:main"
 ```
 
-After installation, users can run `my-bub chat` or `my-bub gateway`. Declare `dependencies = ["bub[app]"]`, and follow the package restructuring described in the [0.6 migration notes](/docs/migration/v0-6/).
+After installation, users can run `my-bub chat`, `my-bub gateway`, or `my-bub run` directly. Bub's Typer CLI mounts every native subcommand, and standard arguments such as `--workspace` keep working.
 
-To pin a workspace, change the current directory before calling Bub, or let users pass `--workspace`.
+## Distribute plugins and skills {#bundle-plugins-and-skills}
 
-## Bundle plugins and skills {#bundle-plugins-and-skills}
+A single wheel can provide plugin entry points, a standard skill namespace package, and custom CLI commands together:
 
-One wheel can provide multiple entry points and skill directories:
+```text
+my-bub/
+├── pyproject.toml
+└── src/
+    ├── my_bub/
+    │   ├── __init__.py
+    │   ├── cli.py             # Your CLI entry point
+    │   ├── plugin.py          # Plugin and hook implementations
+    │   └── tools.py           # Custom tools
+    └── skills/                # Skill namespace package (never add __init__.py)
+        └── repo-reviewer/
+            ├── SKILL.md
+            └── references/
+                └── guidelines.md
+```
+
+<Aside type="caution" title="Namespace package rules">
+Ship `src/skills/` as a **PEP 420 implicit namespace package**, and **never** create `__init__.py` inside `src/skills/`. Only the namespace layout lets the package's skills merge with Bub's bundled skills and the skills of other extension packages in `skills.__path__` once users install it. For how to write skills, see [Skills](/docs/app/skills/).
+</Aside>
+
+### Configure pyproject.toml and Hatch {#configure-packaging}
+
+Set up the entry points and Hatch build includes in `pyproject.toml`:
 
 ```toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "my-bub"
+version = "0.1.0"
+description = "My Custom Bub Agent Distribution"
+requires-python = ">=3.12"
+dependencies = [
+    "bub[app]>=0.6.0",         # Required for the CLI, plugin loading, and the skill runtime
+]
+
+[project.scripts]
+my-bub = "my_bub.cli:main"
+
 [project.entry-points."bub"]
-models = "my_bub.models"
-channels = "my_bub.channels:ChannelPlugin"
+my_plugin = "my_bub.plugin:plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/my_bub", "src/skills"]
 ```
 
-Entry points follow the [plugin registration rules](/docs/app/plugins/#entry-point-forms). For the skill directory layout, see [Distribute skills with a Python package](/docs/app/skills/#include-skills-in-a-wheel).
+#### Key settings
 
-Plugin dependencies should be declared in the distribution package. To install a plugin into the separate project that Bub manages, use [`bub install`](/docs/reference/cli/#bub-install).
+1. **Dependencies**: Always declare `bub[app]`. Since 0.6.0 the core `bub` package holds only the lightweight kernel; the CLI, plugin loading, and the skill runtime all come from the `app` extra, following the package restructuring described in the [0.6 migration notes](/docs/migration/v0-6/). Declare third-party libraries your plugins depend on (such as `httpx` or `pydantic`) in the distribution's `dependencies` as well.
+2. **Entry point format**: The entry point group must be `"bub"`. See the [plugin registration rules](/docs/app/plugins/#entry-point-forms) for the exact syntax.
+3. **Packaging scope**: Explicitly include `"src/skills"` in `packages` under `[tool.hatch.build.targets.wheel]` so skill assets ship in the wheel and install into `site-packages/skills/`.
+
+## Build and distribute {#build-and-distribute}
+
+[`uv`](/docs/getting-started/install/) builds a standard wheel and source distribution quickly:
+
+```bash
+uv build
+```
+
+The artifacts land in `dist/` (for example `my_bub-0.1.0-py3-none-any.whl`). Publish them to PyPI, or distribute them inside your organization through a private index.
+
+For downstream users:
+
+- **Install as a global CLI**: `uv tool install my-bub`.
+- **Install as a managed plugin**: to install the package into the separate project or container environment that Bub manages, use [`bub install`](/docs/reference/cli/#bub-install).
 
 ## Verify before release {#verify-a-release}
 
-Run the following checks in a separate virtual environment:
+Before publishing publicly or to production, **verify the release in a brand-new clean virtual environment**. A clean environment exposes undeclared dependencies, entry points that cannot be imported, and configuration with relative paths that only resolve in your development directory.
 
-1. Install from the wheel instead of running from the source directory.
-2. Run `bub hooks` and confirm that the entry points load without deprecation warnings.
-3. Run `bub run` to verify the model, tools, and state.
-4. Run `bub chat` to verify skills, commands, and lifecycle channels.
-5. Embed it into a host service as described in [Reuse the Bub app](/docs/sdk/reuse-app/), and verify concurrency, stream closure, and shutdown cleanup.
+<Steps>
 
-A clean environment exposes undeclared dependencies, entry points that cannot be imported, and configuration that only works in the development directory.
+1. **Create an isolated environment and install the wheel**:
+   ```bash
+   uv venv .test-env && source .test-env/bin/activate
+   uv pip install dist/*.whl
+   ```
+   Always install from the built wheel rather than running from the development source directory.
+
+2. **Verify plugin and hook loading**:
+   ```bash
+   my-bub hooks
+   ```
+   Check that the output lists your plugin identifier, confirming the entry point loaded with no deprecation warnings or import errors.
+
+3. **Verify skill discovery**:
+   ```bash
+   my-bub run ",skill"
+   ```
+   Confirm that the distributed skill (such as `repo-reviewer`) appears in the discovered list, then run `my-bub run ",skill name=repo-reviewer"` to check that variable interpolation and body expansion work.
+
+4. **Verify your command and the interaction path**:
+   ```bash
+   my-bub run "Test model and custom tool calls"
+   my-bub chat
+   ```
+   Confirm model interaction, custom tool execution, internal command dispatch, and session history persistence.
+
+5. **Verify the gateway and host integration (if applicable)**:
+   If the distribution provides channel extensions or is embedded in a host system, follow [Deploy](/docs/app/deploy/) and [Reuse the Bub app](/docs/sdk/reuse-app/) to wire it into the host service, and verify concurrency, stream closure, and shutdown cleanup.
+
+</Steps>

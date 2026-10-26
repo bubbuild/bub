@@ -163,12 +163,12 @@ export default defineConfig({
               ],
             },
             {
-              label: 'Deploy and distribute',
-              translations: { 'zh-CN': '部署与分发' },
+              label: 'Distribute and deploy',
+              translations: { 'zh-CN': '分发与部署' },
               collapsed: false,
               items: [
-                'docs/app/deploy',
                 'docs/app/distribution',
+                'docs/app/deploy',
               ],
             },
           ],
