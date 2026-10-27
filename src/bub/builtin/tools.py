@@ -107,8 +107,10 @@ def render_deferred_tools_prompt(tools: Iterable[Tool]) -> str:
         return ""
     return (
         "<deferred_tools>\n"
-        f"These tools are not loaded yet. Call {_to_model_name(TOOL_DESCRIBE_TOOL_NAME)} with their names to load "
-        "their definitions; loaded tools become callable from the next step.\n"
+        f"These tools are loaded on demand: call {_to_model_name(TOOL_DESCRIBE_TOOL_NAME)} with their names to load "
+        "their definitions. This list does not change as tools load. A tool stays loaded for the session once it "
+        f"appears in your tool list or {_to_model_name(TOOL_DESCRIBE_TOOL_NAME)} has returned its definition; call it "
+        "directly by name and do not load it again.\n"
         f"{names}\n</deferred_tools>"
     )
 
@@ -197,6 +199,8 @@ class ToolDefinition(TypedDict):
 class ToolDescriptions(TypedDict):
     tools: list[ToolDefinition]
     unknown: list[str]
+    already_loaded: list[str]
+    """Deferred tools loaded earlier in the session, left out of ``tools``; the model calls them directly."""
 
 
 class TapeInfoResult(TypedDict):
@@ -392,7 +396,10 @@ def skill_describe(name: str | None = None, *, context: ToolContext) -> SkillLis
 
 @tool(context=True, name=TOOL_DESCRIBE_TOOL_NAME, exposure="direct")
 async def tool_describe(names: list[str], *, context: ToolContext) -> ToolDescriptions:
-    """Load tools by name and return their definitions. Deferred tools become callable from the next step."""
+    """Load tools by name and return their definitions. Deferred tools become callable from the next step.
+
+    Deferred tools loaded earlier in the session are listed under ``already_loaded`` instead of being described again.
+    """
     agent = _get_agent(context)
     allowed_tools = context.state.get(ALLOWED_TOOLS_STATE_KEY)
     available = {
@@ -404,6 +411,7 @@ async def tool_describe(names: list[str], *, context: ToolContext) -> ToolDescri
     loaded = set(await loaded_tool_names(context.tape))
     definitions: list[ToolDefinition] = []
     unknown: list[str] = []
+    already_loaded: list[str] = []
     newly_loaded: list[str] = []
     for name in names:
         resolved = index.get(name.strip().casefold())
@@ -411,6 +419,10 @@ async def tool_describe(names: list[str], *, context: ToolContext) -> ToolDescri
             unknown.append(name)
             continue
         tool_item = available[resolved]
+        if tool_item.deferred and resolved in loaded:
+            if resolved not in newly_loaded and (model_name := _to_model_name(resolved)) not in already_loaded:
+                already_loaded.append(model_name)
+            continue
         definitions.append({
             "name": _to_model_name(resolved),
             "description": tool_item.description,
@@ -421,7 +433,7 @@ async def tool_describe(names: list[str], *, context: ToolContext) -> ToolDescri
             newly_loaded.append(resolved)
     if newly_loaded:
         await context.tape.append_event(TOOL_LOADED_EVENT, {"names": newly_loaded})
-    return {"tools": definitions, "unknown": unknown}
+    return {"tools": definitions, "unknown": unknown, "already_loaded": already_loaded}
 
 
 @tool(context=True, name="tape.info", renderer=_render_tape_info)

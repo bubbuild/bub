@@ -89,6 +89,32 @@ async def test_deferred_tool_is_loaded_through_tool_describe_and_persists_on_tap
 
 
 @pytest.mark.asyncio
+async def test_tool_describe_reports_already_loaded_deferred_tools(
+    framework: BubFramework, provider_transport: ProviderService
+) -> None:
+    supplied = Tool.from_callable(lambda: "lookup", name="provider.lookup", deferred=True)
+    other = Tool.from_callable(lambda: "other", name="other", deferred=True)
+    requests = _scripted_provider(
+        provider_transport,
+        [
+            _tool_call("first", "tool_describe", {"names": ["provider_lookup"]}),
+            _tool_call("again", "tool_describe", {"names": ["provider.lookup", "other"]}),
+            {"role": "assistant", "content": "done"},
+        ],
+    )
+    agent = BubAgent(framework, tools=[supplied, other], skill_dirs=[])
+
+    stream = await agent.run_stream(session_id="reload", prompt="Load.", model="openrouter:test-model")
+    _ = [event async for event in stream]
+
+    results = [json.loads(message["content"]) for message in requests.body(2)["messages"] if message["role"] == "tool"]
+    assert [tool["name"] for tool in results[0]["tools"]] == ["provider_lookup"]
+    assert results[0]["already_loaded"] == []
+    assert [tool["name"] for tool in results[1]["tools"]] == ["other"]
+    assert results[1]["already_loaded"] == ["provider_lookup"]
+
+
+@pytest.mark.asyncio
 async def test_allowed_tools_filter_covers_direct_and_deferred_tools(
     framework: BubFramework, provider_transport: ProviderService
 ) -> None:
@@ -240,4 +266,4 @@ async def test_tool_describe_does_not_describe_code_exposure_tools(
     _ = [event async for event in stream]
 
     describe_result = next(message for message in requests.body(1)["messages"] if message["role"] == "tool")
-    assert json.loads(describe_result["content"]) == {"tools": [], "unknown": ["secret"]}
+    assert json.loads(describe_result["content"]) == {"tools": [], "unknown": ["secret"], "already_loaded": []}
