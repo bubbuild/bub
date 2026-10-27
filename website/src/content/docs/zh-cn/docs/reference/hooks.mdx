@@ -219,4 +219,3 @@ Bub 用 pluggy 注册实现，再用 `HookRuntime` 统一调用。
 | 执行顺序 | 由 pluggy 优先级决定 | 按处理器注册顺序 |
 
 `PluginAgentHooks.subscribe(events)` 会把适配器接到现有总线或新总线。`AgentPlugins.attach(agent)` 会自动订阅，并把 `continue_prompt`、引导收件箱（`SteeringInbox`）和系统提示词接入 Agent。
-

@@ -301,7 +301,7 @@ class SpillSettings(Settings):
 | --- | --- | --- | --- |
 | `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | Estimated token limit at four characters per token; `0` disables new spills |
 
-Tool results above the threshold, including failures, are written to the `spill` sidecar, and the model receives a preview and read handle. Negative values violate `ge=0` and fail configuration validation. Preview length, chunk size, and similar values are implementation constants, not settings.
+Rendered results of successful tool calls above the threshold are written to the `spill` sidecar, and the model receives a preview and read handle. Negative values violate `ge=0` and fail configuration validation. Preview length, chunk size, and similar values are implementation constants, not settings.
 
 | Situation | Behavior |
 | --- | --- |

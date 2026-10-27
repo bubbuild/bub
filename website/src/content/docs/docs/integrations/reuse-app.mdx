@@ -131,7 +131,7 @@ Compared with a complete Turn, this direct entry point:
 - does not coordinate same-session concurrency;
 - does not close the stream for you, and the first `final` ends only one Step.
 
-Builtin system instructions may ask the model to reply through channel tools. A host returning raw model text should deliberately reconcile that policy. Replacing `agent.system_prompt` wholesale also removes prompt sections for plugins, skills, deferred tools, and Code Mode.
+Builtin system instructions do not ask the model to reply through channel skills. The channel manager behind `bub gateway` and `bub chat` registers a `system_prompt` hook that adds that instruction only to the Turns it runs. A service calling `process_inbound()` itself can register its own hook to describe how replies are delivered. Replacing `agent.system_prompt` wholesale also removes prompt sections for plugins, skills, deferred tools, and Code Mode.
 
 <a id="run-stream-options"></a>
 

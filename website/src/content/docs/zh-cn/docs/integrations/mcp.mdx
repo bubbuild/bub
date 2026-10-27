@@ -61,7 +61,7 @@ flowchart LR
    }
    EOF
    ```
-   
+
    填写说明：
 
     - 对于本地命令行服务（stdio），只需填写 `command` 和可选的 `args` / `env`。
@@ -85,7 +85,7 @@ flowchart LR
    ```
 
    注意：
-    
+
     - 每个 MCP 工具都会以 `mcp.<server>_<tool>` 命名并注入 Bub。
     - 为了节约提示词 token，Bub 默认采用**延迟加载**策略（模型在需要时通过 `tool.describe` 获取详细模式）。如果希望完整模式直接进入系统提示词，可设置环境变量 `BUB_MCP_DEFERRED_TOOLS=false`。
 

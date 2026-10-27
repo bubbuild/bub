@@ -44,7 +44,7 @@ Agent(
 | `model` | `None` | 默认模型：Republic chat model（`republic.ChatModel`）或 `ModelClient`；也可在每次 `run` 时传入 |
 | `store` | 新的 `InMemoryTapeStore` | 同步 `TapeStore` 或 `AsyncTapeStore` |
 | `tools` | `()` | 初始 `Tool` 对象，以及 `republic.tools.WebSearch()` 等提供商执行的工具；同名后者覆盖前者 |
-| `system_prompt` | `()` | 文本、`PromptSection` 或 `SystemPrompt`；每个 Step 重新渲染 |
+| `system_prompt` | `()` | 文本、`PromptSection` 或 `SystemPrompt`；每次 Run 在第一个模型 Step 前渲染一次，后续 Step 复用 |
 | `context` | `default_tape_context()` | Tape 条目到模型消息的选择策略 |
 | `sidecars` | `()` | 随 Tape 挂载的 sidecar |
 | `max_steps` | `sys.maxsize` | 一次 Run 的模型 Step 上限 |
@@ -64,7 +64,7 @@ Agent(
 | `run_on(tape, prompt, ...)` | 在已打开的 Tape 上运行 |
 | `run_once(...)` | 只执行一个模型 Step 及其工具调用 |
 | `run_command(tape, line)` | 直接执行命令，不调用模型 |
-| `prepare_tools(tape, prompt)` | 子类可覆写，决定当前 Step 提供的工具 |
+| `prepare_tools(tape, prompt)` | 子类可覆写，在每次 Run 开始时选择一次工具；后续 Step 复用，调用不在其中的工具时通过新的 `prepare_tools(tape, None)` 解析 |
 
 `run` / `start` 共用参数：`prompt`、`model`、`options`（外部 `republic.ChatOptions`）、必填 `tape` 名、`state`、`merge_back`、`metadata`。fork / 合并见 [Tape](/zh-cn/docs/concepts/tape/#forks)。
 
@@ -104,7 +104,7 @@ from bub.core import SystemPrompt, PromptSection, PromptContext
 
 - `PromptSection`：固定文本，或 `(PromptContext) -> str | None`（可 async）
 - `SystemPrompt`：有序 section；`add` / `remove` / `render`
-- `PromptContext`：当前 Step 的 `agent`、`tape`、`prompt`、`tools`、`model`
+- `PromptContext`：当前 Run 的 `agent`、`tape`、`prompt`、`tools`、`model`
 
 ### Prompt 内容 {#prompt}
 
@@ -171,7 +171,7 @@ from bub.core import EventBus, ToolCallStarted, ToolCallFinished
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
-`StreamEvent.kind`：`text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error`、`final`。`AsyncStreamEvents` 是带 `aclose()` / `error` / `usage` 的异步迭代器。消费约定见 [SDK 输出流](/zh-cn/docs/sdk/#stream-lifecycle)。
+`StreamEvent.kind`：`text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error`、`final`。`tool_result` 事件包含 `data["tool_results"]`，与本 Step 的工具调用一一对应；失败调用对应的项是它的 `BubError`，Tape 和模型收到的是它的字典形式。`AsyncStreamEvents` 是带 `aclose()` / `error` / `usage` 的异步迭代器。消费约定见 [SDK 输出流](/zh-cn/docs/sdk/#stream-lifecycle)。
 
 ### Errors {#errors}
 

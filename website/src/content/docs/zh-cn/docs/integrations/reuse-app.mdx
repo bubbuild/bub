@@ -131,7 +131,7 @@ if __name__ == "__main__":
 - 不协调同会话并发；
 - 不负责替你关闭流，第一个 `final` 也只表示一个 Step 结束。
 
-内置系统提示可能要求通过渠道工具回复。直接返回模型文本的宿主应核对自己的提示词策略；整体替换 `agent.system_prompt` 也会移除插件、技能、延迟工具和 Code Mode 的提示片段。
+内置系统提示不会要求模型通过 channel skill 回复；`bub gateway` 和 `bub chat` 背后的渠道管理器会注册一个 `system_prompt` Hook，只在它运行的 Turn 中加入这条指令。自己调用 `process_inbound()` 的服务可以注册自己的 Hook，说明回复如何送达。整体替换 `agent.system_prompt` 也会移除插件、技能、延迟工具和 Code Mode 的提示片段。
 
 <a id="run-stream-options"></a>
 

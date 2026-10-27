@@ -14,9 +14,12 @@ bub [OPTIONS] COMMAND [ARGS]...
 | 选项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `--workspace`, `-w` | 路径 | 当前工作目录 | 设置 `BubFramework.workspace` |
+| `--version`, `-V` | 开关 | — | 显示已安装的 Bub 版本并退出 |
 | `--help` | 开关 | — | 显示帮助 |
 
 `--workspace` 影响工具的工作目录、技能发现和相对路径解析。它不会改变 `BUB_HOME` 或配置文件位置。
+
+不带命令运行 `bub` 时，会以默认参数执行 `BubFramework.default_command`。内置插件把它设为 `chat`，因此 `bub` 和 `bub -w PATH` 会启动聊天 REPL。插件可以在 `register_cli_commands` Hook 中设置 `default_command` 来改用其他命令；只有在没有插件设置时，内置插件才会填入 `chat`。
 
 命令在加载 CLI 之前先检查 `app` 可选依赖。缺少时，进程打印缺少的包和安装命令后退出，不会进入 Typer 帮助页。
 
@@ -313,6 +316,21 @@ export BUB_MODEL=codex:<model>
 ```
 
 不要同时设置 `BUB_API_KEY`。失败时输出 `login: failed: ...` 并以退出码 `1` 结束。凭据通常写入 `$CODEX_HOME/auth.json` 或 `~/.codex/auth.json`。
+
+## `bub plugins` {#bub-plugins}
+
+打印每个已发现的插件，以及提供它的包和版本号。
+
+```text
+bub plugins [OPTIONS] [NAMES]...
+```
+
+| 选项 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `NAMES` | 文本 | 全部插件 | 在 `bub` entry-point 组中注册的插件名 |
+| `--version-only` | 开关 | 关闭 | 每行只输出一个插件的版本号 |
+
+输出每行一个插件：`name  distribution version`。内置 Hook 显示为 `builtin`，由 `bub` 提供。加载或初始化失败的插件会附带 `(failed: <error>)`。名称不存在时以退出码 `1` 结束。使用 `--version-only` 时每行只输出版本号（插件没有包元数据时输出 `-`），例如 `bub plugins my-plugin --version-only`。
 
 ## `bub hooks` {#bub-hooks}
 

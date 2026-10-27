@@ -14,9 +14,12 @@ bub [OPTIONS] COMMAND [ARGS]...
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--workspace`, `-w` | path | current working directory | Sets `BubFramework.workspace` |
+| `--version`, `-V` | flag | — | Show the installed Bub version and exit |
 | `--help` | flag | — | Show help |
 
 `--workspace` affects tools' working directory, skill discovery, and relative-path resolution. It does not change `BUB_HOME` or the location of the configuration file.
+
+Running `bub` without a command runs `BubFramework.default_command` with its defaults. The builtin plugin sets it to `chat`, so `bub` and `bub -w PATH` start the chat REPL. A plugin can choose another command by setting `default_command` in its `register_cli_commands` hook; the builtin only fills it when no plugin has.
 
 Before loading the CLI, the command checks for the `app` optional dependency. If it is missing, the process prints the missing package and the install command, then exits without reaching the Typer help page.
 
@@ -307,6 +310,21 @@ export BUB_MODEL=codex:<model>
 ```
 
 Do not set `BUB_API_KEY` at the same time. On failure it prints `login: failed: ...` and exits with code `1`. Credentials are usually written to `$CODEX_HOME/auth.json` or `~/.codex/auth.json`.
+
+## `bub plugins` {#bub-plugins}
+
+Prints each discovered plugin with the package and version that provide it.
+
+```text
+bub plugins [OPTIONS] [NAMES]...
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `NAMES` | text | all plugins | Plugin names registered in the `bub` entry-point group |
+| `--version-only` | flag | off | Print only each plugin's version, one per line |
+
+Output is one line per plugin: `name  distribution version`. The builtin hooks are listed as `builtin`, provided by `bub`. Plugins that failed to load or initialize are listed with `(failed: <error>)`. An unknown name exits with code `1`. With `--version-only`, each line holds only the version (`-` when the plugin has no package metadata), for example `bub plugins my-plugin --version-only`.
 
 ## `bub hooks` {#bub-hooks}
 

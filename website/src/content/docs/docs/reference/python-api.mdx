@@ -44,7 +44,7 @@ Agent(
 | `model` | `None` | Default model: a Republic chat model (`republic.ChatModel`) or `ModelClient`; can also be supplied for each `run` |
 | `store` | New `InMemoryTapeStore` | Synchronous `TapeStore` or `AsyncTapeStore` |
 | `tools` | `()` | Initial `Tool` objects and provider-executed tools such as `republic.tools.WebSearch()`; later entries override earlier entries with the same name |
-| `system_prompt` | `()` | Text, `PromptSection`, or `SystemPrompt`; rendered again for every Step |
+| `system_prompt` | `()` | Text, `PromptSection`, or `SystemPrompt`; rendered once per Run before the first model Step, then reused by later Steps |
 | `context` | `default_tape_context()` | Strategy for selecting Tape entries as model messages |
 | `sidecars` | `()` | Sidecars mounted with the Tape |
 | `max_steps` | `sys.maxsize` | Maximum model Steps per Run |
@@ -64,7 +64,7 @@ Main entry points:
 | `run_on(tape, prompt, ...)` | Runs on an already opened Tape |
 | `run_once(...)` | Executes only one model Step and its tool calls |
 | `run_command(tape, line)` | Executes a command directly without calling the model |
-| `prepare_tools(tape, prompt)` | Subclasses can override this to choose tools for the current Step |
+| `prepare_tools(tape, prompt)` | Subclasses can override this to choose tools once per Run; later Steps reuse them, and calls outside the prepared set use a fresh `prepare_tools(tape, None)` lookup |
 
 `run` / `start` share these parameters: `prompt`, `model`, `options` (external `republic.ChatOptions`), required `tape` name, `state`, `merge_back`, and `metadata`. See [Tape](/docs/concepts/tape/#forks) for forks and merges.
 
@@ -104,7 +104,7 @@ from bub.core import SystemPrompt, PromptSection, PromptContext
 
 - `PromptSection`: Fixed text, or `(PromptContext) -> str | None` (may be async)
 - `SystemPrompt`: Ordered sections; `add` / `remove` / `render`
-- `PromptContext`: Current Step's `agent`, `tape`, `prompt`, `tools`, and `model`
+- `PromptContext`: Current Run's `agent`, `tape`, `prompt`, `tools`, and `model`
 
 ### Prompt content {#prompt}
 
@@ -171,7 +171,7 @@ Interception payloads (`LLMCallRequest`, `LLMCallDecision`, `ToolCall`, `ToolCal
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
-`StreamEvent.kind`: `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, and `final`. `AsyncStreamEvents` is an async iterator with `aclose()` / `error` / `usage`. See [SDK output streams](/docs/sdk/#stream-lifecycle) for consumption conventions.
+`StreamEvent.kind`: `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, and `final`. A `tool_result` event carries `data["tool_results"]`, one entry per tool call in the Step; a failed call's entry is its `BubError`, which the Tape and model receive as a dictionary. `AsyncStreamEvents` is an async iterator with `aclose()` / `error` / `usage`. See [SDK output streams](/docs/sdk/#stream-lifecycle) for consumption conventions.
 
 ### Errors {#errors}
 

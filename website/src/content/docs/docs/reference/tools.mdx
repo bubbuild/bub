@@ -103,7 +103,7 @@ Without `name`, list skills available in the current context. With a name, retur
 tool.describe(names)
 ```
 
-`names` is a list of runtime names or model aliases. The result contains each tool's name, description, and parameter schema, with unrecognized names under `unknown`. Deferred definitions become callable from the next Step; their loading is recorded in the current Tape.
+`names` is a list of runtime names or model aliases. The result contains each tool's name, description, and parameter schema, with unrecognized names under `unknown`. Deferred definitions become callable from the next Step, and later Turns offer loaded tools directly until the Tape is reset. Loading is recorded in the current Tape. Requesting a tool that is already loaded returns its name under `already_loaded` instead of its definition.
 
 ## Tape {#tape}
 

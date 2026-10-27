@@ -103,7 +103,7 @@ skill(name=None)
 tool.describe(names)
 ```
 
-`names` 是运行时名称或模型别名组成的列表。返回每个工具的名称、描述和参数 schema，并用 `unknown` 列出未知名称。延迟工具的定义会从下一个 Step 起可调用；加载记录保存在当前 Tape 中。
+`names` 是运行时名称或模型别名组成的列表。返回每个工具的名称、描述和参数 schema，并用 `unknown` 列出未知名称。延迟工具的定义会从下一个 Step 起可调用，之后的 Turn 会直接提供已加载的工具，直到 Tape 被重置；加载记录保存在当前 Tape 中。请求已加载的工具时，它的名字会出现在 `already_loaded` 中，不再返回定义。
 
 ## Tape {#tape}
 

@@ -301,7 +301,7 @@ class SpillSettings(Settings):
 | --- | --- | --- | --- |
 | `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | 估算 token 上限，按 4 字符/token 计算；`0` 关闭新 spill |
 
-超过阈值的工具结果（包括失败结果）写入 `spill` sidecar，模型收到预览和读取句柄。负数不符合 `ge=0`，配置校验会失败。预览长度、分段大小等是实现常量，不是本配置项。
+成功工具调用的渲染结果超过阈值时写入 `spill` sidecar，模型收到预览和读取句柄。负数不符合 `ge=0`，配置校验会失败。预览长度、分段大小等是实现常量，不是本配置项。
 
 | 情形 | 行为 |
 | --- | --- |
@@ -417,4 +417,3 @@ telegram:
 | 插件项目目录 | 命令参数 `--project` | `BUB_PROJECT` |
 | Codex 登录目录 | 第三方 CLI | `CODEX_HOME` |
 | 会话级 `model` / `reasoning_effort` / `code_mode` | 写入会话 Tape，用命令切换 | — |
-
