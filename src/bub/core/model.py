@@ -10,7 +10,7 @@ from typing import Any, Protocol
 import republic
 
 CONTEXT_LENGTH_PATTERNS = re.compile(
-    r"context.{0,20}(?:length|window)|maximum.{0,20}context|token.{0,10}limit|prompt.{0,10}too long|tokens? > \d+ maximum",
+    r"context.{0,20}(?:length|window|size)|maximum.{0,20}context|token.{0,10}limit|prompt.{0,10}too long|tokens? > \d+ maximum",
     re.IGNORECASE,
 )
 
