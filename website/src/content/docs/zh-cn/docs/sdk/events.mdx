@@ -1,15 +1,15 @@
 ---
 title: 事件
-description: 用 AgentEvent 观察订单助手，并在工具副作用发生前拒绝或替换调用。
+description: 用独立的订单场景学习 AgentEvent、审计日志与工具执行前拦截。
 ---
 
-`agent.events` 是同步派发、可等待的 EventBus。它既能为宿主提供审计与指标，也能在模型或工具调用前修改请求、拒绝执行或替换结果。
+`agent.events` 是同步派发、可等待的 EventBus。宿主可以用它记录审计与指标，也能在模型或工具调用前修改请求、拒绝执行或替换结果。
 
-本章给订单助手增加一条明确策略：**查询订单允许执行，退款必须得到当前 Run 的授权。**
+本节使用一个**独立的订单场景**：查询订单允许执行，退款必须得到当前 Run 的授权。重点不是退款业务，而是如何在副作用发生前真正阻止工具函数。
 
-## 审计与退款拦截的完整示例 {#complete-example}
+## 完整示例：审计与退款拦截 {#complete-example}
 
-将 `main.py` 改为：
+创建 `main.py`：
 
 ```python
 import asyncio
@@ -75,8 +75,8 @@ async def main() -> None:
         async with agent.run(
             prompt,
             model=model,
-            tape="customer-42",
-            state={"session_id": "customer-42", "allow_refunds": False},
+            tape="events-demo",
+            state={"session_id": "events-demo", "allow_refunds": False},
         ) as stream:
             async for event in stream:
                 if event.kind == "text":
@@ -161,4 +161,4 @@ EventBus 的派发规则直接影响可靠性：
 
 完整事件字段见[事件核心概念](/zh-cn/docs/concepts/events/)和 [Python API](/zh-cn/docs/reference/python-api/)。要把策略封装成可安装插件，见[使用 Agent Plugins](/zh-cn/docs/integrations/agent-plugins/)。
 
-下一步把循环、工具、Tape 和事件组装成完整服务：[综合案例：FastAPI 服务](/zh-cn/docs/sdk/web-service/)。
+接下来把这些能力组装成一个完整的后端服务：[FastAPI Todo 后端](/zh-cn/docs/sdk/web-service/)。

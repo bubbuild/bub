@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bub Todo Agent</title>
+  <style>
+    [x-cloak] { display: none !important; }
+    *, *::before, *::after { box-sizing: border-box; border-width: 0; border-style: solid; }
+    html { color-scheme: light; }
+    body { margin: 0; }
+    button, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; }
+    @keyframes rise-in {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: none; }
+    }
+    .animate-rise { animation: rise-in 0.18s ease-out both; }
+    .shadow-panel {
+      box-shadow:
+        0 1px 2px rgb(0 0 0 / 0.04),
+        0 16px 40px -28px rgb(0 0 0 / 0.35);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .animate-rise { animation: none; }
+    }
+  </style>
+  <script src="/static/uno.global.js"></script>
+</head>
+<body class="bg-zinc-100 font-sans text-zinc-950 antialiased" x-data="todoApp()" x-init="loadConfig(); resetTasks()" x-cloak>
+  <main class="mx-auto flex h-screen w-full max-w-6xl flex-col p-4 sm:p-6 lg:p-8">
+    <div class="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-5">
+      <section class="flex min-h-[620px] min-w-0 flex-1 flex-col overflow-hidden rounded-3xl bg-white shadow-panel ring-[0.5px] ring-zinc-950/10 lg:min-h-0" aria-label="Bub Todo Agent chat panel">
+        <header class="flex h-16 shrink-0 items-center justify-between border-b border-zinc-200/70 px-5 sm:px-6">
+          <div class="flex min-w-0 items-center gap-3">
+            <img src="/static/bub-logo.png" alt="Bub" class="size-8 shrink-0" width="32" height="32">
+            <h1 class="min-w-0 truncate text-[15px] font-semibold tracking-tight">Bub Todo Agent</h1>
+          </div>
+          <button
+            class="flex size-9 shrink-0 items-center justify-center rounded-xl border-[0.5px] border-zinc-300/70 bg-white text-zinc-500 shadow-sm transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+            :class="sidebarOpen ? 'bg-zinc-100 text-zinc-900' : ''"
+            type="button"
+            @click="sidebarOpen = !sidebarOpen"
+            :aria-expanded="sidebarOpen"
+            aria-controls="todo-panel"
+            :aria-label="sidebarOpen ? 'Hide todo panel' : 'Show todo panel'"
+            :title="sidebarOpen ? 'Hide todo panel' : 'Show todo panel'"
+          >
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+              <path d="M15 3v18M7 9l2 2-2 2"></path>
+            </svg>
+          </button>
+        </header>
+
+        <div class="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8" x-ref="messages">
+          <div class="mx-auto flex h-full max-w-md flex-col items-center justify-center text-center" x-show="messages.length === 0">
+            <div class="mb-4 flex size-12 items-center justify-center rounded-2xl border-[0.5px] border-zinc-300/70 bg-white text-zinc-700">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                <path d="M9 11l3 3L22 4"></path>
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+              </svg>
+            </div>
+            <h2 class="text-xl font-semibold tracking-tight">What are you working on?</h2>
+            <p class="mt-2 text-sm leading-6 text-zinc-500">Tell me your plan. I will use tools to add, look up, and complete todos for you.</p>
+            <div class="mt-6 flex flex-wrap justify-center gap-2">
+              <button class="h-8 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-3.5 text-xs text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50 hover:text-zinc-900" type="button" @click="ask('Add a todo: read for 30 minutes at 8 PM.')">Add a reading todo</button>
+              <button class="h-8 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-3.5 text-xs text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50 hover:text-zinc-900" type="button" @click="ask('List all pending todos.')">Show open todos</button>
+              <button class="h-8 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-3.5 text-xs text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50 hover:text-zinc-900" type="button" @click="ask('Mark the weekly report as complete.')">Complete “Write the weekly report”</button>
+            </div>
+          </div>
+
+          <div class="mx-auto flex w-full max-w-xl flex-col gap-5">
+            <template x-for="(message, index) in messages" :key="index">
+              <div class="flex animate-rise flex-col" :class="message.role === 'user' ? 'items-end' : 'items-start'">
+                <span class="mb-1.5 px-1 text-[11px] font-medium text-zinc-400" x-text="message.role === 'user' ? 'You' : message.role === 'error' ? 'Error' : 'Agent'"></span>
+                <div
+                  class="max-w-[85%] whitespace-pre-wrap break-words text-sm leading-6 sm:max-w-[80%]"
+                  :class="{
+                    'px-1 py-0.5 text-zinc-900': message.role === 'user',
+                    'rounded-3xl bg-zinc-100 px-4 py-2.5 text-zinc-800': message.role === 'assistant',
+                    'rounded-3xl bg-red-50 px-4 py-2.5 text-red-700 ring-1 ring-red-200': message.role === 'error'
+                  }"
+                  x-text="message.text || (message.role === 'assistant' ? 'Thinking…' : '')"
+                ></div>
+              </div>
+            </template>
+
+            <div class="flex items-start" x-show="toolStatus" x-transition.opacity.duration.150ms>
+              <div class="flex items-center gap-2 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-3.5 py-2 text-xs text-zinc-500 shadow-sm">
+                <svg class="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.56"></path></svg>
+                <span x-text="toolStatus"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- The delete_task event hook pauses the run until this prompt answers POST /chat/confirm. -->
+        <div class="shrink-0 px-4 pb-2 sm:px-6" x-show="confirmPrompt" @keydown.escape.window="answerConfirm(false)">
+          <div
+            class="mx-auto flex w-full max-w-xl animate-rise flex-col gap-2.5 rounded-2xl border-[0.5px] border-red-200 bg-white px-3.5 py-3 shadow-panel ring-[0.5px] ring-red-100 sm:flex-row sm:items-center"
+            role="alertdialog"
+            aria-labelledby="confirm-title"
+            x-effect="confirmPrompt && $nextTick(() => $refs.confirmCancel?.focus())"
+          >
+            <div class="flex min-w-0 flex-1 items-start gap-2.5">
+              <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600 ring-[0.5px] ring-red-200">
+                <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                  <path d="M10 11v6M14 11v6"></path>
+                </svg>
+              </span>
+              <p class="min-w-0 text-xs leading-5 text-zinc-500">
+                <span id="confirm-title" class="font-semibold text-zinc-900">Delete “<span class="break-all" x-text="confirmPrompt?.title || confirmPrompt?.task_id"></span>”?</span>
+                This cannot be undone.
+              </p>
+            </div>
+            <div class="flex shrink-0 justify-end gap-1.5">
+              <button
+                class="h-8 rounded-full border-[0.5px] border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20 disabled:opacity-50"
+                type="button"
+                x-ref="confirmCancel"
+                :disabled="confirmBusy"
+                @click="answerConfirm(false)"
+              >Cancel</button>
+              <button
+                class="h-8 rounded-full border-0 bg-red-600 px-3 text-xs font-medium text-white shadow-sm transition-colors hover:bg-red-500 disabled:opacity-50"
+                type="button"
+                :disabled="confirmBusy"
+                @click="answerConfirm(true)"
+              >Delete</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="shrink-0 px-4 pb-4 sm:px-6 sm:pb-6">
+          <form class="mx-auto w-full max-w-xl overflow-hidden rounded-3xl border-[0.5px] border-zinc-300 bg-white shadow-sm transition focus-within:border-zinc-400 focus-within:ring-4 focus-within:ring-zinc-900/5" @submit.prevent="send()">
+            <div class="flex items-end gap-2 p-2 pl-4">
+              <textarea
+                class="min-h-[44px] flex-1 resize-none self-center border-0 bg-transparent py-3 pr-1 text-sm leading-6 outline-none placeholder:text-zinc-400 disabled:opacity-50"
+                x-model="input"
+                @keydown.enter="handleEnter($event)"
+                :disabled="sending"
+                placeholder="Message the agent…"
+                aria-label="Message"
+                rows="1"
+              ></textarea>
+              <button
+                class="flex size-9 shrink-0 items-center justify-center rounded-full border-0 bg-zinc-900 text-white shadow-sm transition-colors hover:bg-zinc-700 disabled:pointer-events-none disabled:bg-zinc-100 disabled:text-zinc-400"
+                type="submit"
+                :disabled="sending || !input.trim()"
+                :aria-label="sending ? 'Running' : 'Send'"
+              >
+                <svg x-show="sending" class="size-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.56"></path></svg>
+                <svg x-show="!sending" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+              </button>
+            </div>
+            <div class="flex min-h-10 flex-wrap items-center gap-2 border-t border-zinc-200/70 bg-zinc-50 px-3 py-2">
+              <div class="flex h-7 min-w-0 items-center gap-1.5 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-2.5 text-[11px] text-zinc-600 shadow-sm" :title="`${baseUrl} · ${apiKeyConfigured ? 'API key configured' : 'API key missing'}`">
+                <svg class="size-3 shrink-0 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect width="16" height="16" x="4" y="4" rx="2"></rect><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"></path></svg>
+                <span class="max-w-[200px] truncate font-mono" x-text="model"></span>
+              </div>
+              <label class="flex h-7 items-center gap-1.5 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-2.5 text-[11px] text-zinc-600 shadow-sm" title="Reasoning effort depends on the model; Auto sends no reasoning_effort">
+                <svg class="size-3 shrink-0 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"></path></svg>
+                <span>Think level</span>
+                <select class="cursor-pointer border-0 bg-transparent p-0 pr-1 text-[11px] font-medium text-zinc-800 outline-none" x-model="thinkLevel" :disabled="sending" aria-label="Reasoning effort">
+                  <option value="auto">Auto</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </label>
+              <span class="ml-auto hidden shrink-0 text-[10px] text-zinc-400 sm:inline"> Enter to send · Shift + Enter for a new line</span>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <aside
+        id="todo-panel"
+        class="flex max-h-[560px] shrink-0 flex-col overflow-hidden rounded-3xl bg-white shadow-panel ring-[0.5px] ring-zinc-950/10 lg:max-h-none lg:w-[320px]"
+        x-show="sidebarOpen"
+        x-transition.opacity.duration.150ms
+        aria-label="Todo panel"
+      >
+        <header class="flex h-16 shrink-0 items-center justify-between border-b border-zinc-200/70 px-5">
+          <div class="flex items-center gap-2.5">
+            <span class="flex size-8 items-center justify-center rounded-xl border-[0.5px] border-zinc-300/70 bg-white text-zinc-600">
+              <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+            </span>
+            <h2 class="text-[15px] font-semibold tracking-tight">Todo</h2>
+          </div>
+          <span
+            class="rounded-full border-[0.5px] border-zinc-300/70 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-500"
+            x-text="`${filteredTasks.length} ${filteredTasks.length === 1 ? 'item' : 'items'}`"
+          ></span>
+        </header>
+
+        <div class="shrink-0 px-4 pb-2 pt-4">
+          <div class="grid grid-cols-3 gap-1 rounded-xl bg-zinc-100 p-1 ring-[0.5px] ring-zinc-950/10" aria-label="Filter todos">
+            <button class="h-7 rounded-lg border-0 text-xs text-zinc-500 transition-all duration-150" :class="filter === 'all' ? 'bg-white text-zinc-900 shadow-sm ring-[0.5px] ring-zinc-950/10' : 'hover:text-zinc-800'" type="button" @click="filter = 'all'" :aria-pressed="filter === 'all'">All</button>
+            <button class="h-7 rounded-lg border-0 text-xs text-zinc-500 transition-all duration-150" :class="filter === 'pending' ? 'bg-white text-zinc-900 shadow-sm ring-[0.5px] ring-zinc-950/10' : 'hover:text-zinc-800'" type="button" @click="filter = 'pending'" :aria-pressed="filter === 'pending'">Open</button>
+            <button class="h-7 rounded-lg border-0 text-xs text-zinc-500 transition-all duration-150" :class="filter === 'completed' ? 'bg-white text-zinc-900 shadow-sm ring-[0.5px] ring-zinc-950/10' : 'hover:text-zinc-800'" type="button" @click="filter = 'completed'" :aria-pressed="filter === 'completed'">Done</button>
+          </div>
+        </div>
+
+        <div
+          class="min-h-0 flex-1 overflow-y-auto px-4 pb-4 transition-opacity duration-150"
+          :class="sending ? 'pointer-events-none opacity-60' : ''"
+          :aria-busy="sending"
+        >
+          <p
+            class="mb-2 rounded-xl bg-red-50 px-3 py-2 text-[11px] leading-4 text-red-700 ring-[0.5px] ring-red-200"
+            x-show="tasksError"
+            x-text="tasksError"
+          ></p>
+          <ul class="m-0 flex list-none flex-col gap-2 p-0">
+            <template x-for="task in filteredTasks" :key="task.task_id">
+              <li class="animate-rise">
+                <button
+                  type="button"
+                  role="checkbox"
+                  :aria-checked="task.completed ? 'true' : 'false'"
+                  :aria-label="`${task.completed ? 'Mark as open' : 'Mark as done'}：${task.title}`"
+                  :disabled="sending || pendingTaskIds.includes(task.task_id)"
+                  class="flex w-full items-start gap-3 rounded-2xl border-[0.5px] border-zinc-300/70 bg-white px-3 py-3 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20"
+                  :class="sending ? 'opacity-60' : 'hover:border-zinc-400 hover:bg-zinc-50'"
+                  @click="toggleTask(task)"
+                >
+                  <span
+                    class="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors"
+                    :class="task.completed ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-300 bg-white'"
+                  >
+                    <svg x-show="task.completed" class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg>
+                  </span>
+                  <span class="block min-w-0 flex-1">
+                    <span class="block break-words text-sm leading-5 transition-colors" :class="task.completed ? 'text-zinc-400 line-through' : 'text-zinc-700'" x-text="task.title"></span>
+                    <span class="mt-1 block text-[11px] leading-4 text-zinc-400" x-show="taskTimeLabel(task)" x-text="taskTimeLabel(task)"></span>
+                  </span>
+                </button>
+              </li>
+            </template>
+          </ul>
+          <div class="flex h-full min-h-32 flex-col items-center justify-center px-4 text-center" x-show="filteredTasks.length === 0">
+            <svg class="mb-2 size-5 text-zinc-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+            <p class="m-0 text-xs leading-5 text-zinc-400">No todos in this view.</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    function todoApp() {
+      return {
+        sessionId: 'demo-user',
+        model: 'Loading config…',
+        baseUrl: '',
+        apiKeyConfigured: false,
+        thinkLevel: 'auto',
+        sidebarOpen: true,
+        input: '',
+        messages: [],
+        tasks: [],
+        filter: 'all',
+        tasksError: '',
+        toolStatus: '',
+        sending: false,
+        pendingTaskIds: [],
+        confirmPrompt: null,
+        confirmBusy: false,
+
+        get filteredTasks() {
+          if (this.filter === 'pending') return this.tasks.filter(task => !task.completed)
+          if (this.filter === 'completed') return this.tasks.filter(task => task.completed)
+          return this.tasks
+        },
+
+        formatRelative(iso) {
+          if (!iso) return ''
+          const time = new Date(iso).getTime()
+          if (Number.isNaN(time)) return ''
+          const seconds = Math.round((Date.now() - time) / 1000)
+          if (seconds < 60) return 'just now'
+          const minutes = Math.floor(seconds / 60)
+          if (minutes < 60) return `${minutes} min ago`
+          const hours = Math.floor(minutes / 60)
+          if (hours < 24) return `${hours} hr ago`
+          const days = Math.floor(hours / 24)
+          if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`
+          return new Date(iso).toLocaleDateString('en-US')
+        },
+
+        taskTimeLabel(task) {
+          if (task.completed && task.completed_at) return `Completed ${this.formatRelative(task.completed_at)}`
+          if (task.created_at) return `Created ${this.formatRelative(task.created_at)}`
+          return ''
+        },
+
+        async loadConfig() {
+          try {
+            const response = await fetch('/config')
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            const config = await response.json()
+            this.model = config.model
+            this.baseUrl = config.base_url
+            this.apiKeyConfigured = config.api_key_configured
+          } catch {
+            this.model = 'Config unavailable'
+          }
+        },
+
+        async loadTasks() {
+          try {
+            const response = await fetch('/tasks')
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            this.tasks = (await response.json()).tasks
+            this.tasksError = ''
+          } catch {
+            this.tasksError = 'Could not load todos. Check the server logs.'
+          }
+        },
+
+        // Reset demo data on load so a refresh never carries over old checkmarks.
+        async resetTasks() {
+          try {
+            await fetch('/tasks/reset', { method: 'POST' })
+          } catch {
+            // Servers without /tasks/reset still fall through to a plain read.
+          }
+          await this.loadTasks()
+        },
+
+        // Manual toggle. The whole list is locked while an agent run is in flight,
+        // so manual edits cannot race with tool writes.
+        async toggleTask(task) {
+          if (this.sending || this.pendingTaskIds.includes(task.task_id)) return
+
+          this.pendingTaskIds.push(task.task_id)
+          this.tasksError = ''
+          try {
+            const response = await fetch(`/tasks/${encodeURIComponent(task.task_id)}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ completed: !task.completed }),
+            })
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            const updated = await response.json()
+            const index = this.tasks.findIndex(item => item.task_id === updated.task_id)
+            if (index !== -1) this.tasks[index] = updated
+          } catch (error) {
+            this.tasksError = `Could not update the todo: ${error.message}`
+          } finally {
+            this.pendingTaskIds = this.pendingTaskIds.filter(id => id !== task.task_id)
+          }
+        },
+
+        // Answer the paused delete_task call; the stream resumes either way.
+        async answerConfirm(approved) {
+          const prompt = this.confirmPrompt
+          if (!prompt || this.confirmBusy) return
+
+          this.confirmBusy = true
+          try {
+            const response = await fetch('/chat/confirm', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ request_id: prompt.request_id, approved }),
+            })
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          } catch (error) {
+            this.messages.push({
+              role: 'error',
+              text: `Could not answer the confirmation: ${error.message}`,
+            })
+          } finally {
+            this.confirmBusy = false
+            this.confirmPrompt = null
+          }
+        },
+
+        ask(prompt) {
+          if (this.sending) return
+          this.input = prompt
+          this.send()
+        },
+
+        // Enter sends, Shift+Enter inserts a newline, and IME composition never sends.
+        handleEnter(event) {
+          if (event.isComposing || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return
+          event.preventDefault()
+          this.send()
+        },
+
+        async send() {
+          const prompt = this.input.trim()
+          if (!prompt || this.sending) return
+
+          this.sending = true
+          this.input = ''
+          this.toolStatus = ''
+          this.messages.push({ role: 'user', text: prompt })
+          this.messages.push({ role: 'assistant', text: '' })
+          // Read the reactive proxy back out of the array; mutating the raw object
+          // pushed above would not trigger Alpine updates.
+          const assistant = this.messages[this.messages.length - 1]
+          this.scrollToBottom()
+
+          try {
+            const response = await fetch('/chat/stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                session_id: this.sessionId,
+                prompt,
+                think_level: this.thinkLevel,
+              }),
+            })
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            if (!response.body) throw new Error('This browser cannot stream responses')
+
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              buffer += decoder.decode(value, { stream: true })
+              const frames = buffer.split('\n\n')
+              buffer = frames.pop()
+              for (const frame of frames) this.consumeFrame(frame, assistant)
+            }
+
+            buffer += decoder.decode()
+            if (buffer.trim()) this.consumeFrame(buffer, assistant)
+          } catch (error) {
+            // Drop the empty assistant placeholder so it does not sit on "Thinking…".
+            if (!assistant.text) this.messages = this.messages.filter(item => item !== assistant)
+            this.messages.push({
+              role: 'error',
+              text: `Request failed: ${error.message}. Check the server logs.`,
+            })
+          } finally {
+            this.sending = false
+            this.toolStatus = ''
+            this.confirmPrompt = null
+            await this.loadTasks()
+            this.scrollToBottom()
+          }
+        },
+
+        consumeFrame(frame, assistant) {
+          let event = 'message'
+          const dataLines = []
+
+          for (const line of frame.replaceAll('\r', '').split('\n')) {
+            if (line.startsWith('event:')) event = line.slice(6).trim()
+            if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
+          }
+          if (dataLines.length === 0) return
+
+          const data = JSON.parse(dataLines.join('\n'))
+          if (event === 'message') {
+            this.toolStatus = ''
+            assistant.text += data.delta
+            this.scrollToBottom()
+          } else if (event === 'tool') {
+            const labels = {
+              list_tasks: 'Looking up todos',
+              add_task: 'Adding a todo',
+              complete_task: 'Updating a todo',
+              delete_task: 'Waiting for your confirmation',
+            }
+            this.toolStatus = data.names.map(name => labels[name] || `Calling ${name}`).join(', ')
+          } else if (event === 'confirm') {
+            this.toolStatus = ''
+            this.confirmPrompt = data
+          } else if (event === 'error') {
+            throw new Error(data.message)
+          }
+        },
+
+        scrollToBottom() {
+          this.$nextTick(() => {
+            const element = this.$refs.messages
+            element.scrollTop = element.scrollHeight
+          })
+        },
+      }
+    }
+  </script>
+  <script defer src="/static/alpine.min.js"></script>
+</body>
+</html>

@@ -1,15 +1,15 @@
 ---
 title: 记忆与 Tape
-description: 为订单助手持久化会话，区分历史与模型上下文，并正确使用分支合并和存储。
+description: 用两轮简短对话理解会话持久化、历史与模型上下文，以及 Tape 分支合并。
 ---
 
 Agent 的多轮记忆不是简单复用一个 `messages` 列表。Bub 用 **Tape** 保存对话、工具往返和运行记录，再用 **TapeContext** 把其中一部分投影成下一次模型输入。
 
-正常执行只追加记录；`reset()` 等显式操作仍可清空 Tape，因此不要把它理解为不可变的合规审计日志。
+本节只做一个简单的实验：告诉助手一个回答偏好，再在下一轮询问它。两个 Run 彼此独立，但使用同一个 Tape。
 
-## 跨请求保留订单会话 {#complete-example}
+## 让第二轮对话记得第一轮 {#complete-example}
 
-下面的例子沿用上一章的 `get_order`，并使用 `FileTapeStore` 把记录写入 `./sessions`。完整的 `main.py` 如下：
+创建 `main.py`：
 
 ```python
 import asyncio
@@ -19,16 +19,6 @@ import republic
 
 from bub.core import Agent
 from bub.core.store import FileTapeStore
-from bub.core.tools import tool
-
-
-@tool
-async def get_order(order_id: str) -> dict[str, str]:
-    """按订单号查询订单状态。"""
-    await asyncio.sleep(0.1)
-    if order_id == "A123":
-        return {"order_id": "A123", "status": "shipped"}
-    return {"order_id": order_id, "error": "order_not_found"}
 
 
 async def run_turn(agent: Agent, model, prompt: str) -> None:
@@ -36,8 +26,8 @@ async def run_turn(agent: Agent, model, prompt: str) -> None:
     async with agent.run(
         prompt,
         model=model,
-        tape="customer-42",
-        state={"session_id": "customer-42"},
+        tape="demo-user",
+        state={"session_id": "demo-user"},
     ) as stream:
         async for event in stream:
             if event.kind == "text":
@@ -48,14 +38,13 @@ async def run_turn(agent: Agent, model, prompt: str) -> None:
 async def main() -> None:
     agent = Agent(
         store=FileTapeStore(Path("sessions")),
-        tools=[get_order],
-        system_prompt="你是订单客服助手。查询订单使用工具，并记住用户提供的配送偏好。",
+        system_prompt="你是一个简洁的助手，并记住用户明确提出的回答偏好。",
         max_steps=6,
     )
 
     async with republic.get_model("openai:gpt-5-mini") as model:
-        await run_turn(agent, model, "我的订单是 A123，配送时请放在前台。")
-        await run_turn(agent, model, "我刚才留了哪条配送备注？")
+        await run_turn(agent, model, "以后请用简短的编号清单回答。记住了吗？")
+        await run_turn(agent, model, "我偏好什么回答格式？")
 
 
 if __name__ == "__main__":
@@ -68,10 +57,10 @@ if __name__ == "__main__":
 uv run python main.py
 ```
 
-两个 Run 使用同一个 `tape="customer-42"`，第二个 Run 会读取第一个 Run 已合并的对话。记录保存在：
+两个 Run 都使用 `tape="demo-user"`，所以第二个 Run 能读取第一个 Run 已合并的对话。记录保存在：
 
 ```text
-sessions/customer-42.jsonl
+sessions/demo-user.jsonl
 ```
 
 进程重启后，只要新 Agent 使用同一个存储目录和 Tape 名称，就能继续这段会话。
@@ -82,7 +71,7 @@ sessions/customer-42.jsonl
 
 ## 历史记录不等于模型上下文 {#history-and-context}
 
-Tape 中有两类读取视图：
+“保存了什么”和“模型这次能看到什么”是两个问题。Tape 提供不同的读取视图：
 
 | 视图 | 读取方式 | 回答的问题 |
 | --- | --- | --- |
@@ -92,7 +81,7 @@ Tape 中有两类读取视图：
 在两个 Run 后检查这两种视图：
 
 ```python
-tape = agent.tape("customer-42")
+tape = agent.tape("demo-user")
 entries = list(await tape.store.fetch_all(tape.query()))
 messages = await tape.read_messages()
 
@@ -104,6 +93,8 @@ print("模型消息角色：", [message.role for message in messages])
 
 `agent.session()` 和 `agent.start()` 会为新会话创建 `session/start` anchor。显式 `handoff()` 会移动默认上下文起点，但不会删除此前历史，也不会自动生成摘要。完整选择策略见 [Tape 核心概念](/zh-cn/docs/concepts/tape/#context)。
 
+正常执行只追加记录；`reset()` 等显式操作仍可清空 Tape，因此不要把它理解为不可变的合规审计日志。
+
 ## `state`、`metadata` 与 Tape 的分工 {#state-and-metadata}
 
 这三个入口都可能携带“本次请求的数据”，但用途不同：
@@ -114,7 +105,7 @@ print("模型消息角色：", [message.role for message in messages])
 | `metadata={...}` | Run 级观测信息，进入 `RunStarted` 及对应 Tape 记录；不会自动成为模型提示 |
 | Tape 条目 | 持久保存的对话、工具往返或显式业务事实；是否进入模型输入由 `TapeContext` 决定 |
 
-例如，请求 ID 适合放入 `state` 和可观测元数据；需要事后查询的订单备注可显式 `append_event()`；需要下次 Run 自动看到的对话则依赖消息记录与上下文投影。
+例如，请求 ID 适合放入 `state` 和可观测元数据；需要事后查询的会话备注可显式 `append_event()`；需要下次 Run 自动看到的对话则依赖消息记录与上下文投影。
 
 ## 分支关闭时默认合并 {#forks-and-merges}
 
@@ -138,7 +129,7 @@ sequenceDiagram
 这意味着：
 
 - 网络异常或提前取消后，已经记录的部分对话和错误信息仍可能进入主 Tape。
-- `RunFinished` 可以显示 `ok`、`error` 或 `cancelled`；不要把这些状态误认为数据库事务的提交或回滚。
+- `RunFinished` 可以显示 `ok`、`error` 或 `cancelled`；这些状态不是数据库事务的提交或回滚。
 - 工具已经产生的外部副作用始终由业务层负责，Tape 是否合并都不会撤销它们。
 
 如果本次 Run 的记录不应保留，必须显式关闭合并：
@@ -147,7 +138,7 @@ sequenceDiagram
 async with agent.run(
     prompt,
     model=model,
-    tape="preview-42",
+    tape="preview-demo",
     merge_back=False,
 ) as stream:
     async for event in stream:
@@ -178,4 +169,4 @@ async with agent.run(
 - 同一会话的后续请求若依赖前一次结果，应按会话串行化。
 - `asyncio.Lock` 只能协调单进程；`FileTapeStore` 不提供跨 worker 或跨实例锁。
 
-[FastAPI 综合案例](/zh-cn/docs/sdk/web-service/)会演示单进程的会话锁及其边界。下一步先给订单助手增加审计与退款拦截：[事件](/zh-cn/docs/sdk/events/)。
+[FastAPI 综合案例](/zh-cn/docs/sdk/web-service/)会演示单进程的会话锁及其边界。下一节先用独立的退款场景看看事件如何拦截工具：[事件](/zh-cn/docs/sdk/events/)。

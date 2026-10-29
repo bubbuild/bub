@@ -1,15 +1,15 @@
 ---
 title: 工具
-description: 为订单助手定义可靠的工具契约，处理校验、结果、错误、上下文与并发。
+description: 用独立的订单查询场景理解工具契约、返回值、错误、上下文与并发。
 ---
 
 工具让模型能够查询事实或执行动作。`@tool` 把带类型标注的 Python 函数转换成 `Tool`：函数名、类型注解和 docstring 共同构成模型可见的调用契约。
 
-本章给订单助手增加 `get_order`，重点不只是“让工具跑起来”，而是明确模型看到什么、错误如何返回，以及副作用由谁负责。
+本节使用一个**独立的订单查询场景**。重点不是订单业务，而是弄清楚三件事：模型看到什么、工具结果如何回到循环、发生错误时由谁处理。
 
-## 查询订单的完整示例 {#complete-example}
+## 给 Agent 加一个查询工具 {#complete-example}
 
-将 `main.py` 改为：
+创建一个新的 `main.py`：
 
 ```python
 import asyncio
@@ -51,7 +51,7 @@ async def main() -> None:
         async with agent.run(
             "帮我查一下订单 A123 现在是什么状态。",
             model=model,
-            tape="customer-42",
+            tape="tools-demo",
         ) as stream:
             async for event in stream:
                 if event.kind == "tool_call":
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-沿用上一章设置的 `REPUBLIC_OPENAI_API_KEY`，运行：
+设置 `REPUBLIC_OPENAI_API_KEY` 后运行：
 
 ```bash
 uv run python main.py
@@ -77,11 +77,13 @@ uv run python main.py
 一次典型运行包含两个 Step：
 
 1. 模型请求 `get_order(order_id="A123")`，Bub 执行函数并产生 `tool_result`。
-2. 下一 Step 把订单结果交给模型，模型根据真实结果生成回答。
+2. 下一 Step 把结果交给模型，模型根据真实结果生成回答。
 
-模型是否调用工具仍由模型决定。系统提示可以引导行为，但订单状态必须来自工具结果，不能把提示词当作数据正确性的保证。
+模型是否调用工具仍由模型决定。系统提示可以引导行为，但提示词本身不能保证数据正确；订单状态必须来自工具结果。
 
-## 设计模型能理解的参数契约 {#schemas}
+可以继续尝试一个不存在的订单号，观察 `order_not_found` 如何返回给模型。
+
+## 把参数契约写清楚 {#schemas}
 
 ### 类型与描述属于模型接口
 
@@ -154,7 +156,7 @@ def get_invoice_preview(invoice_id: str) -> dict[str, object]:
 
 媒体结果用于当前模型输入，不等于媒体持久化方案。需要审计或重放时，由宿主保存文件并在业务记录中保存可解析的引用。
 
-## 注入本次 Run 的上下文 {#tool-context}
+## 给工具注入本次 Run 的上下文 {#tool-context}
 
 工具需要会话名、请求级权限或事件总线时，使用 `ToolContext`。它由 Bub 注入，不会出现在模型可见的参数 Schema 中：
 
@@ -178,8 +180,8 @@ async def add_order_note(note: str, *, context: ToolContext) -> str:
 async with agent.run(
     prompt,
     model=model,
-    tape="customer-42",
-    state={"session_id": "customer-42", "request_id": "req-01"},
+    tape="tools-demo",
+    state={"session_id": "tools-demo", "request_id": "req-01"},
 ) as stream:
     ...
 ```
@@ -210,7 +212,7 @@ async def export_order_report(order_id: str) -> str:
 ```python
 agent = Agent(tools=[get_order], command_prefix=",")
 
-async with agent.run(",get_order A123", model=model, tape="customer-42") as stream:
+async with agent.run(",get_order A123", model=model, tape="tools-demo") as stream:
     async for event in stream:
         if event.kind == "text":
             print(event.data["delta"], end="")
@@ -251,4 +253,4 @@ print(order)
 **独立进程不等于安全沙箱。** 不要把不可信模型代码的宿主执行误认为安全边界；需要隔离时配置具备文件系统、网络和权限限制的 `Environment`，完整协议见 [Python API](/zh-cn/docs/reference/python-api/)。
 :::
 
-下一步，将订单助手的对话保存下来：[记忆与 Tape](/zh-cn/docs/sdk/tape/)。
+下一节换一个更小的对话场景，看看多轮记忆如何工作：[记忆与 Tape](/zh-cn/docs/sdk/tape/)。
