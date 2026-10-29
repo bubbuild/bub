@@ -1,34 +1,26 @@
 ---
 title: 记忆与 Tape
-description: 用两轮简短对话理解会话持久化、历史与模型上下文，以及 Tape 分支合并。
+description: 让 Agent 在多轮对话中保留信息，并理解历史记录、模型上下文与 Tape 存储。
 ---
 
-Agent 的多轮记忆不是简单复用一个 `messages` 列表。Bub 用 **Tape** 保存对话、工具往返和运行记录，再用 **TapeContext** 把其中一部分投影成下一次模型输入。
+如果每次请求都只把当前消息交给模型，Agent 就无法接续之前的对话。要让它记得用户刚才说过什么，需要保存运行记录，并在下一轮把相关历史交给模型。
 
-本节只做一个简单的实验：告诉助手一个回答偏好，再在下一轮询问它。两个 Run 彼此独立，但使用同一个 Tape。
+Bub 用 **Tape** 保存对话、工具往返和运行记录，再用 **TapeContext** 决定哪些记录进入下一次模型输入。可以把 Tape 想成 Agent 的记忆库：它保存经历；TapeContext 则挑选这次回答需要回想的内容。
 
-## 让第二轮对话记得第一轮 {#complete-example}
+## 让 Agent 记住上一轮对话 {#remember-previous-turn}
 
-创建 `main.py`：
+先让用户告诉 Agent 一个回答偏好，再在下一轮询问它。关键是两次 `agent.run()` 使用同一个 Tape 名称：
 
 ```python
 import asyncio
-from pathlib import Path
 
 import republic
 
 from bub.core import Agent
-from bub.core.store import FileTapeStore
 
 
 async def run_turn(agent: Agent, model, prompt: str) -> None:
-    print(f"\n用户：{prompt}\n助手：", end="", flush=True)
-    async with agent.run(
-        prompt,
-        model=model,
-        tape="demo-user",
-        state={"session_id": "demo-user"},
-    ) as stream:
+    async with agent.run(prompt, model=model, tape="demo-user") as stream:
         async for event in stream:
             if event.kind == "text":
                 print(event.data["delta"], end="", flush=True)
@@ -37,7 +29,6 @@ async def run_turn(agent: Agent, model, prompt: str) -> None:
 
 async def main() -> None:
     agent = Agent(
-        store=FileTapeStore(Path("sessions")),
         system_prompt="你是一个简洁的助手，并记住用户明确提出的回答偏好。",
         max_steps=6,
     )
@@ -51,88 +42,105 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-运行：
+两个 Run 都使用 `tape="demo-user"`，所以第二轮可以接续第一轮的对话。这里使用默认的 `InMemoryTapeStore`：它能在同一个 Agent 实例的多个 Run 之间保留记录，但进程退出后就会丢失。如果每个请求都重新创建 Agent，即使 Tape 名称相同，也不会共享默认的内存历史。
 
-```bash
-uv run python main.py
+## 保存记忆，让进程重启后也能继续 {#persist-memory}
+
+要在进程退出后保留对话，可以给 Agent 配置 `FileTapeStore`：
+
+```python
+from pathlib import Path
+
+from bub.core import Agent
+from bub.core.store import FileTapeStore
+
+
+agent = Agent(
+    store=FileTapeStore(Path("sessions")),
+    system_prompt="你是一个简洁的助手，并记住用户明确提出的回答偏好。",
+)
 ```
 
-两个 Run 都使用 `tape="demo-user"`，所以第二个 Run 能读取第一个 Run 已合并的对话。记录保存在：
+再次运行程序时，使用同一个存储目录和 Tape 名称即可读取先前记录。上面的会话会保存在 `sessions/demo-user.jsonl`。
 
-```text
-sessions/demo-user.jsonl
-```
+`InMemoryTapeStore` 适合测试和临时脚本；`FileTapeStore` 适合单机开发和单节点服务；需要数据库或分布式存储时，可以实现自定义存储。存储的完整接口和数据库示例见[存储集成](/zh-cn/docs/integrations/storage/)。
 
-进程重启后，只要新 Agent 使用同一个存储目录和 Tape 名称，就能继续这段会话。
+## Tape 保存历史，TapeContext 决定模型能看到什么 {#history-and-context}
 
-:::note
-默认 `InMemoryTapeStore` 也能在同一个 Agent 实例的多个 Run 之间保留记忆，但进程退出即丢失。如果每个请求都重新创建 Agent，即使 Tape 名称相同，也不会共享默认内存历史。
-:::
+保存下来的所有记录不一定都会放进下一次模型请求。Tape 有两个常用的读取视图：
 
-## 历史记录不等于模型上下文 {#history-and-context}
-
-“保存了什么”和“模型这次能看到什么”是两个问题。Tape 提供不同的读取视图：
-
-| 视图 | 读取方式 | 回答的问题 |
+| 你想了解什么 | 读取方式 | 含义 |
 | --- | --- | --- |
-| 原始历史 | `tape.query()` / `store.fetch_all()` | 实际记录了哪些消息、工具调用、anchor 和运行事件？ |
-| 模型上下文 | `tape.read_messages()` | 下一次模型调用能看到哪些消息？ |
+| Tape 里记录了什么 | `tape.query()` / `store.fetch_all()` | 原始历史，包括消息、工具往返、anchor 和运行事件 |
+| 下一次模型能看到什么 | `tape.read_messages()` | TapeContext 投影出来的模型上下文 |
 
-在两个 Run 后检查这两种视图：
+可以在两轮对话后分别查看它们：
 
 ```python
 tape = agent.tape("demo-user")
 entries = list(await tape.store.fetch_all(tape.query()))
 messages = await tape.read_messages()
 
-print("条目类型：", [entry.kind for entry in entries])
-print("模型消息角色：", [message.role for message in messages])
+print("历史条目：", [entry.kind for entry in entries])
+print("模型消息：", [message.role for message in messages])
 ```
 
-`default_tape_context()` 默认选择最近一个 anchor 之后的对话和工具往返，过滤普通运行事件。于是你可以把审计事实留在历史中，而不让它们自动占用上下文 token。
+默认的 `default_tape_context()` 会选择最近一个 anchor 之后的对话和工具往返，并过滤普通运行事件。因此，某条记录可以留在历史中供查询，却不会自动占用模型上下文。
 
-`agent.session()` 和 `agent.start()` 会为新会话创建 `session/start` anchor。显式 `handoff()` 会移动默认上下文起点，但不会删除此前历史，也不会自动生成摘要。完整选择策略见 [Tape 核心概念](/zh-cn/docs/concepts/tape/#context)。
+`agent.session()` 和 `agent.start()` 会为新会话创建 `session/start` anchor。显式调用 `handoff()` 会把默认上下文起点向前移动，但不会删除之前的历史，也不会自动生成摘要。需要调整历史选择方式时，见 [Tape 核心概念：上下文](/zh-cn/docs/concepts/tape/#context)。
 
-正常执行只追加记录；`reset()` 等显式操作仍可清空 Tape，因此不要把它理解为不可变的合规审计日志。
+## 本次运行的数据应该放在哪里 {#state-and-metadata}
 
-## `state`、`metadata` 与 Tape 的分工 {#state-and-metadata}
+`state`、`metadata` 和 Tape 都能关联运行数据，但生命周期和用途不同：
 
-这三个入口都可能携带“本次请求的数据”，但用途不同：
+| 数据 | 适合存什么 | 是否自动持久化或进入模型输入 |
+| --- | --- | --- |
+| `state={...}` | 本次 Run 内共享的请求数据、权限或回调 | 不会自动持久化，也不会自动恢复 |
+| `metadata={...}` | Run 级别的观测信息，例如请求标识 | 记录在运行信息中，但不会自动进入模型提示 |
+| Tape 条目 | 跨 Run 保存的对话、工具往返或业务事实 | 会保存；是否进入模型输入由 TapeContext 决定 |
 
-| 数据 | 生命周期与用途 |
-| --- | --- |
-| `state={...}` | 当前 Run 的可变字典，供工具和 Agent 事件共享；不会自动持久化或恢复 |
-| `metadata={...}` | Run 级观测信息，进入 `RunStarted` 及对应 Tape 记录；不会自动成为模型提示 |
-| Tape 条目 | 持久保存的对话、工具往返或显式业务事实；是否进入模型输入由 `TapeContext` 决定 |
+例如，请求 ID 可以放入 `state` 和观测元数据；需要稍后查询的订单备注可以显式追加到 Tape；希望模型在下一轮自然接续的对话，则依赖消息记录和上下文投影。
 
-例如，请求 ID 适合放入 `state` 和可观测元数据；需要事后查询的会话备注可显式 `append_event()`；需要下次 Run 自动看到的对话则依赖消息记录与上下文投影。
+如果工具需要读取本次 Run 的状态，可以用 `ToolContext`：
 
-## 分支关闭时默认合并 {#forks-and-merges}
+```python
+from bub.core.tools import ToolContext, tool
 
-每次 `agent.run()` 都在 Tape 分支上记录新条目，让本次 Run 的写入在关闭前与父 Tape 隔离。**默认行为是关闭时合并，而不是只有成功才合并：**
+
+@tool(context=True)
+async def add_order_note(note: str, *, context: ToolContext) -> str:
+    """向当前会话追加一条订单备注。"""
+    await context.tape.append_event(
+        "order.note",
+        {"text": note, "request_id": context.state.get("request_id")},
+    )
+    return "备注已记录。"
+```
+
+普通业务事件写入 Tape 后不会自动成为模型输入。如果希望模型在后续 Run 中看到这些数据，需要让 TapeContext 以合适的方式选入它们。工具如何取得 `ToolContext`，见[工具：给工具传入本次 Run 的数据](/zh-cn/docs/sdk/tools/#tool-context)。
+
+## Run 结束时，记录会怎样处理 {#forks-and-merges}
+
+每次 `agent.run()` 都会在 Tape 分支上记录本次运行的新条目。流关闭时，Bub 默认把已写入的记录合并回主 Tape：
 
 ```mermaid
 sequenceDiagram
-    participant Main as 父 Tape
-    participant Fork as Run 分支
     participant Host as 宿主
-    Host->>Fork: 进入 agent.run()
-    Host->>Fork: 消费文本、工具调用与运行记录
+    participant Fork as 本次 Run 的 Tape 分支
+    participant Main as 主 Tape
+    Host->>Fork: 进入 agent.run()，开始记录
+    Host->>Fork: 消费模型输出、工具往返和运行事件
     alt 正常消费完毕
-        Host->>Fork: 退出 async with
-    else 异常、取消或提前 break
+        Host->>Fork: 退出 async with，关闭流
+    else 异常、取消或提前退出
         Host->>Fork: 关闭未完成的流
     end
-    Fork->>Main: merge_back=True（默认）：合并已写入条目
+    Fork->>Main: 默认合并已写入的记录
 ```
 
-这意味着：
+默认合并发生在流关闭时，不要求 Run 成功完成。这意味着网络异常、任务取消或提前退出后，已经写入分支的部分对话和运行记录仍可能保留在主 Tape 中。`RunFinished` 的 `ok`、`error` 和 `cancelled` 描述 Run 的状态，不是数据库事务的提交或回滚。
 
-- 网络异常或提前取消后，已经记录的部分对话和错误信息仍可能进入主 Tape。
-- `RunFinished` 可以显示 `ok`、`error` 或 `cancelled`；这些状态不是数据库事务的提交或回滚。
-- 工具已经产生的外部副作用始终由业务层负责，Tape 是否合并都不会撤销它们。
-
-如果本次 Run 的记录不应保留，必须显式关闭合并：
+如果某次运行的记录不应保留，可以设置 `merge_back=False`：
 
 ```python
 async with agent.run(
@@ -145,11 +153,11 @@ async with agent.run(
         ...
 ```
 
-`merge_back=False` 丢弃的是该分支的 Tape 记录，不是外部世界的副作用，也不是模型或工具已经执行的事实。
+这只会丢弃本次 Run 的 Tape 分支记录，不会撤销已经执行的工具操作或其他外部副作用。工具写入、发送邮件等副作用仍由业务代码负责，见[工具：工具结果和错误会怎样处理](/zh-cn/docs/sdk/tools/#results-and-errors)。
 
-## 选择合适的存储 {#storage}
+## 选择记忆存储 {#storage}
 
-`Agent(store=...)` 决定 Tape 的保存位置：
+通过 `Agent(store=...)` 选择 Tape 的存储位置：
 
 | 存储 | 生命周期 | 适用场景 |
 | --- | --- | --- |
@@ -157,16 +165,16 @@ async with agent.run(
 | `FileTapeStore` | 每个 Tape 一个 `.jsonl` 文件 | 单机 CLI、开发环境、单节点服务 |
 | 自定义 `TapeStore` / `AsyncTapeStore` | 由宿主实现决定 | Redis、SQL、分布式存储 |
 
-自定义协议使用 `list_tapes`、`reset`、`fetch_all` 和 `append`，不是虚构的 `get` / `save` 接口。完整的数据库存储接入见[存储集成](/zh-cn/docs/integrations/storage/)。
+自定义存储协议提供 `list_tapes`、`reset`、`fetch_all` 和 `append` 等操作。完整协议见[Python API](/zh-cn/docs/reference/python-api/)；数据库接入示例见[存储集成](/zh-cn/docs/integrations/storage/)。
 
-`FileTapeStore` 会把 Tape 名称拼入文件名。Web 服务应使用服务端生成的安全标识，或严格限制名称字符与长度，并在多租户场景中把租户和用户纳入会话命名空间。
+`FileTapeStore` 会把 Tape 名称用于文件名。Web 服务应使用服务端生成的安全标识，或严格限制名称字符与长度；多租户服务还应把租户和用户身份纳入会话命名空间。
 
-## 同会话并发需要宿主协调 {#concurrency}
+## 同一会话的多个请求需要宿主协调 {#concurrency}
 
-两个 Run 同时使用同一个 Tape 名称时，会各自基于当时的历史创建分支。Bub 核心不会替应用决定这两个请求应该排队、覆盖还是允许交错。
+两个 Run 同时使用同一个 Tape 名称时，会各自基于启动时可见的历史创建分支。Bub Core 不会替应用决定这些请求应该排队、覆盖还是交错执行。
 
 - 不同会话通常可以并行。
-- 同一会话的后续请求若依赖前一次结果，应按会话串行化。
-- `asyncio.Lock` 只能协调单进程；`FileTapeStore` 不提供跨 worker 或跨实例锁。
+- 同一会话的后续请求如果依赖前一次结果，应由宿主按会话串行处理。
+- `asyncio.Lock` 只能协调单个进程；`FileTapeStore` 不提供跨 worker 或跨实例的锁。
 
-[FastAPI 综合案例](/zh-cn/docs/sdk/web-service/)会演示单进程的会话锁及其边界。下一节先用独立的退款场景看看事件如何拦截工具：[事件](/zh-cn/docs/sdk/events/)。
+[FastAPI 综合案例](/zh-cn/docs/sdk/web-service/)展示了单进程会话锁及其边界。下一节会介绍如何监听 Agent 运行过程，并在工具调用前后添加逻辑：[事件](/zh-cn/docs/sdk/events/)。

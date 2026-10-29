@@ -1,164 +1,227 @@
 ---
 title: 事件
-description: 用独立的订单场景学习 AgentEvent、审计日志与工具执行前拦截。
+description: 了解 SDK Agent 事件如何承载工具调用之外的逻辑，并用它记录、修改或拦截操作。
 ---
 
-`agent.events` 是同步派发、可等待的 EventBus。宿主可以用它记录审计与指标，也能在模型或工具调用前修改请求、拒绝执行或替换结果。
+工具负责完成具体操作，例如查询订单或更新任务。实际应用通常还需要在操作前后做其他事情：记录调用情况、整理参数、检查权限，或在调用结束后统计结果。
 
-本节使用一个**独立的订单场景**：查询订单允许执行，退款必须得到当前 Run 的授权。重点不是退款业务，而是如何在副作用发生前真正阻止工具函数。
+SDK Agent 事件提供了一个接入点，让这些额外逻辑能够在 Agent 运行过程中的特定时机执行。本节会从工具调用开始，逐步介绍如何监听事件，以及如何用事件扩展工具调用前后的行为。
 
-## 完整示例：审计与退款拦截 {#complete-example}
+## SDK Agent 事件和 Bub App Hooks {#events-and-app-hooks}
 
-创建 `main.py`：
+Bub 提供两种相关但用途不同的扩展机制：
+
+| 机制 | 作用范围 | 常见用途 |
+| --- | --- | --- |
+| SDK Agent 事件 | 核心 Agent 的运行过程 | 监听模型或工具调用、修改调用、记录 Run 状态 |
+| Bub App Hooks | Bub 应用的处理流程 | 构建提示词、提供工具、处理消息或扩展应用生命周期 |
+
+如果你直接使用 `bub.core.Agent`，并想在模型或工具调用的某个阶段添加逻辑，可以使用 `agent.events`。如果你要扩展 Bub 应用或编写应用插件，请看[插件与 Hooks](/zh-cn/docs/app/plugins/)。
+
+## 让额外逻辑接入工具调用 {#listen-to-tool-calls}
+
+下面先定义一个查询订单的工具，再监听它的调用。工具函数只负责查询；事件处理器则负责记录调用情况。
 
 ```python
-import asyncio
-
-import republic
-
 from bub.core import Agent
-from bub.core.events import (
-    LLMCallFinished,
-    RunFinished,
-    ToolCallDecision,
-    ToolCallFinished,
-    ToolCallStarted,
-)
+from bub.core.events import ToolCallFinished, ToolCallStarted
 from bub.core.tools import tool
 
 
 @tool
-async def get_order(order_id: str) -> dict[str, str]:
+def get_order(order_id: str) -> dict[str, str]:
     """按订单号查询订单状态。"""
-    await asyncio.sleep(0.1)
-    if order_id == "A123":
-        return {"order_id": "A123", "status": "shipped"}
-    return {"order_id": order_id, "error": "order_not_found"}
+    return {"order_id": order_id, "status": "shipped"}
 
 
-@tool
-def refund_order(order_id: str, reason: str) -> dict[str, str]:
-    """为订单申请退款。这是写操作，执行前必须检查权限。"""
-    return {"order_id": order_id, "status": "refund_requested", "reason": reason}
+agent = Agent(
+    tools=[get_order],
+    system_prompt="用户询问订单状态时，使用 get_order 工具查询。",
+)
+```
+
+使用 `agent.events.on(EventType)` 注册事件处理器。工具开始执行前，`ToolCallStarted` 会通知处理器：
+
+```python
+@agent.events.on(ToolCallStarted)
+def log_tool_start(event: ToolCallStarted) -> None:
+    print(f"开始调用：{event.call.tool}")
+    print(f"调用参数：{event.call.arguments}")
+```
+
+也可以把处理器作为参数传给 `on()`。这种写法便于之后按需移除：
+
+```python
+def record_tool_start(event: ToolCallStarted) -> None:
+    print(f"开始调用：{event.call.tool}")
 
 
-async def main() -> None:
-    agent = Agent(
-        tools=[get_order, refund_order],
-        system_prompt="你是订单客服助手。查询和退款必须使用对应工具，并尊重工具返回的拒绝原因。",
-        max_steps=6,
+agent.events.on(ToolCallStarted, record_tool_start)
+```
+
+不再需要时，使用同一个事件类型和处理器函数调用 `off()`：
+
+```python
+agent.events.off(ToolCallStarted, record_tool_start)
+```
+
+用装饰器注册时，处理器函数也可以直接传给 `off()`：
+
+```python
+agent.events.off(ToolCallStarted, log_tool_start)
+```
+
+工具调用结束后，`ToolCallFinished` 会提供结果、错误和耗时：
+
+```python
+@agent.events.on(ToolCallFinished)
+def log_tool_finish(event: ToolCallFinished) -> None:
+    status = "error" if event.result.error else "ok"
+    print(
+        f"调用结束：{event.result.tool}，"
+        f"{status}，耗时 {event.result.duration_ms}ms"
     )
-
-    @agent.events.on(ToolCallStarted)
-    def authorize_tool(event: ToolCallStarted) -> None:
-        print(f"[工具请求] {event.call.tool}，参数：{event.call.arguments}")
-        if event.call.tool == "refund_order" and not event.state.get("allow_refunds", False):
-            event.decision = ToolCallDecision.deny("当前会话没有退款权限，请联系人工客服。")
-
-    @agent.events.on(ToolCallFinished)
-    def audit_tool(event: ToolCallFinished) -> None:
-        status = "error" if event.result.error else "ok"
-        print(f"[工具审计] {event.result.tool}：{status}，{event.result.duration_ms}ms")
-
-    @agent.events.on(LLMCallFinished)
-    def record_usage(event: LLMCallFinished) -> None:
-        if event.result.error:
-            print(f"[模型失败] {event.result.error}")
-        else:
-            print(f"[模型用量] {event.result.usage}")
-
-    @agent.events.on(RunFinished)
-    def report_run(event: RunFinished) -> None:
-        print(f"[Run 结束] status={event.status}, steps={event.steps}")
-
-    async def run_turn(prompt: str, model) -> None:
-        async with agent.run(
-            prompt,
-            model=model,
-            tape="events-demo",
-            state={"session_id": "events-demo", "allow_refunds": False},
-        ) as stream:
-            async for event in stream:
-                if event.kind == "text":
-                    print(event.data["delta"], end="", flush=True)
-        print()
-
-    async with republic.get_model("openai:gpt-5-mini") as model:
-        await run_turn("查询订单 A123 的状态。", model)
-        await run_turn("我要给订单 A123 退款，原因是商品不合适。", model)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
 ```
 
-运行：
+这样，日志逻辑就不必写进每个工具函数。事件处理器可以集中处理多个工具调用；工具函数仍然只负责自己的业务操作。
 
-```bash
-uv run python main.py
+### 一次工具调用的顺序 {#tool-call-order}
+
+在模型循环中，工具调用前后的大致顺序如下：
+
+```mermaid
+flowchart TD
+    A[模型请求调用工具] --> B[发出 ToolCallStarted]
+    B --> C[按注册顺序运行 Started 处理器]
+    C --> D{处理器的决策}
+    D -->|继续| E[执行工具函数]
+    D -->|拒绝| F[跳过工具函数，生成工具错误]
+    D -->|替代| G[跳过工具函数，使用指定结果]
+    E --> H[发出 ToolCallFinished]
+    F --> H
+    G --> H
+    H --> I[工具结果交回模型循环]
+    I --> J{Run 是否结束？}
+    J -->|否| A
+    J -->|是| K[关闭流并发出 RunFinished]
 ```
 
-第二个场景中，`refund_order` 函数不会执行。Bub 仍会发出对应的 `ToolCallFinished`，并把拒绝原因作为工具错误交回模型，让模型解释为什么无法退款。
+`ToolCallStarted` 的处理器会在工具函数运行前完成。多个处理器按注册顺序执行；如果某个处理器设置了拒绝或替代决策，后续 `Started` 处理器不会收到这次事件。无论工具正常执行、被拒绝，还是使用替代结果，都会发出 `ToolCallFinished`，然后把结果或错误交回模型循环。
 
-`deny` 阻止的是这次工具副作用，不会自动终止整个 Run。如果业务需要立即中断，应由宿主根据异常或运行状态控制流程，而不是把 `deny` 当作异常机制。
+模型可能根据工具结果继续请求其他工具，也可能结束当前 Run。因此，一次工具调用结束不代表整个 Run 已结束；要观察 Run 的最终状态，应监听 `RunFinished`。
 
-## 三种事件不要混淆 {#three-channels}
+`event.call` 和 `event.result` 中包含更多信息，见[事件核心概念](/zh-cn/docs/concepts/events/)。
 
-一次运行会同时涉及三类“事件”，它们的方向和职责不同：
+## 在工具执行前整理参数 {#modify-tool-call}
 
-| 类型 | 获取方式 | 用途 |
-| --- | --- | --- |
-| `AgentEvent` | `agent.events.on(...)` | 观察生命周期，在特定调用前同步干预 |
-| `StreamEvent` | 迭代 `agent.run()` 的流 | 向调用方交付文本、工具进度、用量和 Step 汇总 |
-| `TapeEntry` | 查询 Tape | 保存对话、工具往返与运行记录，供以后读取和投影 |
-
-例如，`ToolCallStarted` 可以阻止工具执行；`tool_call` 流事件只是通知调用方模型请求了工具；Tape 中的工具条目用于后续历史与上下文。三者不能互相替代。
-
-## 在执行前控制工具调用 {#call-control}
-
-工具权限策略应注册在 `ToolCallStarted`，而不是监听 `ToolCallDecision`。后者是设置在 `event.decision` 上的决策对象：
-
-| 操作 | 原工具是否执行 | 模型看到的结果 | 后续同名事件处理器 |
-| --- | --- | --- | --- |
-| 保持默认 `proceed` | 是 | 实际结果或工具错误 | 继续 |
-| `ToolCallDecision.deny(message)` | 否 | 指定拒绝原因形成的工具错误 | 停止本次 Started 派发 |
-| `ToolCallDecision.replace(result)` | 否 | 指定替代结果 | 停止本次 Started 派发 |
-| 替换 `event.call` | 是，使用新调用 | 新调用的实际结果 | 继续 |
-
-被拒绝或被替换的调用仍会产生 `ToolCallFinished`。权限拒绝不等于只给模型一句自然语言提醒：它确实跳过了工具函数。
-
-`ToolCall` 是 frozen dataclass。需要规范化参数时，用 `dataclasses.replace()` 替换整个调用，不要原地修改字段：
+除了观察调用，事件处理器也可以在工具执行前修改调用。例如，清理订单号中的空格并统一字母大小写：
 
 ```python
 from dataclasses import replace
 
+from bub.core.events import ToolCallStarted
+
 
 @agent.events.on(ToolCallStarted)
 def normalize_order_id(event: ToolCallStarted) -> None:
-    if event.call.tool == "get_order":
-        arguments = {
-            **event.call.arguments,
-            "order_id": event.call.arguments["order_id"].strip().upper(),
-        }
-        event.call = replace(event.call, arguments=arguments)
+    if event.call.tool != "get_order":
+        return
+
+    arguments = {
+        **event.call.arguments,
+        "order_id": event.call.arguments["order_id"].strip().upper(),
+    }
+    event.call = replace(event.call, arguments=arguments)
 ```
 
-`LLMCallStarted` 提供对应的模型调用前控制，可以替换 `event.request`，或设置 `LLMCallDecision.finish(text)` 跳过提供商调用。
+`ToolCall` 是不可变对象，不能直接修改它的字段。用 `dataclasses.replace()` 创建新的调用对象，再赋给 `event.call`。之后 Agent 执行的是修改后的调用。
 
-## 处理器会阻塞派发，异常会传播 {#delivery}
+## 在工具执行前检查并决定是否继续 {#control-tool-call}
 
-EventBus 的派发规则直接影响可靠性：
+有些操作不能只做参数整理，还需要在执行前检查是否允许调用。下面的处理器会拒绝查询订单 `A123`：
 
-1. 处理器按注册顺序执行，基类处理器也能接收子类事件。
-2. 返回 awaitable 时，总线会等待它完成，再调用下一个处理器。
-3. 普通返回值会被忽略；要控制运行，应修改事件字段或设置 `decision`。
-4. 处理器异常会传播给发布方，可能使整个 Run 失败。
-5. `decision` 使 `event.stopped` 为真后，本次事件不再派发给后续处理器。
+```python
+from bub.core.events import ToolCallDecision, ToolCallStarted
 
-因此，非关键日志、指标或通知处理器应自行捕获异常，避免可观测性故障中断业务 Run。需要移除长期注册时，使用 `agent.events.off(EventType, handler)`。
 
-每个已开始的 Run 在流关闭时都会发出 `RunFinished`，包括提前取消，因此端到端统计应优先使用它。模型与工具的 Finished 事件不保证覆盖所有取消路径，不能只靠它们做清理或计费。
+@agent.events.on(ToolCallStarted)
+def check_order_access(event: ToolCallStarted) -> None:
+    if (
+        event.call.tool == "get_order"
+        and event.call.arguments.get("order_id") == "A123"
+    ):
+        event.decision = ToolCallDecision.deny("当前不允许查询这个订单。")
+```
 
-完整事件字段见[事件核心概念](/zh-cn/docs/concepts/events/)和 [Python API](/zh-cn/docs/reference/python-api/)。要把策略封装成可安装插件，见[使用 Agent Plugins](/zh-cn/docs/integrations/agent-plugins/)。
+设置 `ToolCallDecision.deny(...)` 后，原工具函数不会执行。拒绝原因会作为工具错误交回模型；这次调用结束时，`ToolCallFinished` 仍会触发。
 
-接下来把这些能力组装成一个完整的后端服务：[FastAPI Todo 后端](/zh-cn/docs/sdk/web-service/)。
+如果已经有可用结果，也可以跳过原工具函数，直接将替代结果交给模型：
+
+```python
+from bub.core.events import ToolCallDecision, ToolCallStarted
+
+
+@agent.events.on(ToolCallStarted)
+def use_cached_order(event: ToolCallStarted) -> None:
+    if (
+        event.call.tool == "get_order"
+        and event.call.arguments.get("order_id") == "A123"
+    ):
+        event.decision = ToolCallDecision.replace(
+            {"order_id": "A123", "status": "shipped"}
+        )
+```
+
+工具调用前的几种处理方式有不同结果：
+
+| 处理方式 | 原工具是否执行 | 模型收到什么 |
+| --- | --- | --- |
+| 不设置决策 | 是 | 工具实际返回的结果或错误 |
+| 替换 `event.call` | 是，执行替换后的调用 | 新调用的结果或错误 |
+| `ToolCallDecision.deny(message)` | 否 | 拒绝原因，作为工具错误 |
+| `ToolCallDecision.replace(result)` | 否 | 指定的替代结果 |
+
+拒绝或替代结果只影响当前工具调用，不会自动结束整个 Run。完整决策行为见[事件核心概念：调用前控制](/zh-cn/docs/concepts/events/#call-control)。
+
+## 监听模型调用和 Run {#other-events}
+
+工具调用之外，SDK Agent 也会在模型调用和 Run 生命周期的关键时刻发出事件。
+
+例如，可以用 `LLMCallFinished` 记录模型用量或错误：
+
+```python
+from bub.core.events import LLMCallFinished
+
+
+@agent.events.on(LLMCallFinished)
+def log_model_result(event: LLMCallFinished) -> None:
+    if event.result.error:
+        print(f"模型调用失败：{event.result.error}")
+    else:
+        print(f"模型用量：{event.result.usage}")
+```
+
+也可以用 `RunFinished` 查看一次 Run 的最终状态：
+
+```python
+from bub.core.events import RunFinished
+
+
+@agent.events.on(RunFinished)
+def log_run_result(event: RunFinished) -> None:
+    print(f"Run 结束：status={event.status}，steps={event.steps}")
+```
+
+`RunFinished` 在 Run 的事件流关闭时触发，包括提前取消的情况。模型和工具的 `Finished` 事件不一定覆盖所有取消路径，因此统计 Run 的最终状态时，可以使用 `RunFinished`。
+
+SDK 还提供了 `LLMCallStarted`、`RunStarted`、`StepStarted`、`StepFinished` 和 `MessagesPending` 等事件。完整列表和各事件的字段见[事件核心概念](/zh-cn/docs/concepts/events/)。
+
+## 处理器如何运行 {#handler-behavior}
+
+同一次事件派发中，处理器按注册顺序运行。如果处理器是异步函数，Bub 会等待它完成后再运行下一个处理器。
+
+处理器的返回值会被忽略。要影响 Agent 的运行，应修改事件对象支持修改的字段，例如替换 `event.call` 或设置 `event.decision`。
+
+处理器抛出的异常会传回发布事件的一方，并可能导致 Run 失败。只用于日志或指标的处理器如果不应影响主流程，应自行捕获异常。完整的派发规则见[事件核心概念：处理器](/zh-cn/docs/concepts/events/#handlers)。
+
+同一事件可以注册多个处理器。它们按注册顺序运行；如果某个调用前决策停止了事件派发，后续处理器就不会收到这次事件。更多事件字段和派发细节见[事件核心概念](/zh-cn/docs/concepts/events/)。
