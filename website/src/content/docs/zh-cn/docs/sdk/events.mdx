@@ -215,13 +215,3 @@ def log_run_result(event: RunFinished) -> None:
 `RunFinished` 在 Run 的事件流关闭时触发，包括提前取消的情况。模型和工具的 `Finished` 事件不一定覆盖所有取消路径，因此统计 Run 的最终状态时，可以使用 `RunFinished`。
 
 SDK 还提供了 `LLMCallStarted`、`RunStarted`、`StepStarted`、`StepFinished` 和 `MessagesPending` 等事件。完整列表和各事件的字段见[事件核心概念](/zh-cn/docs/concepts/events/)。
-
-## 处理器如何运行 {#handler-behavior}
-
-同一次事件派发中，处理器按注册顺序运行。如果处理器是异步函数，Bub 会等待它完成后再运行下一个处理器。
-
-处理器的返回值会被忽略。要影响 Agent 的运行，应修改事件对象支持修改的字段，例如替换 `event.call` 或设置 `event.decision`。
-
-处理器抛出的异常会传回发布事件的一方，并可能导致 Run 失败。只用于日志或指标的处理器如果不应影响主流程，应自行捕获异常。完整的派发规则见[事件核心概念：处理器](/zh-cn/docs/concepts/events/#handlers)。
-
-同一事件可以注册多个处理器。它们按注册顺序运行；如果某个调用前决策停止了事件派发，后续处理器就不会收到这次事件。更多事件字段和派发细节见[事件核心概念](/zh-cn/docs/concepts/events/)。

@@ -9,7 +9,7 @@ description: 运行一个最小 Agent，理解 Run、Step、流式事件与资�
 
 1. **Agent 循环**：运行最小助手，理解事件流。
 2. **[工具](/zh-cn/docs/sdk/tools/)**：通过独立的订单查询场景，学习工具契约与错误处理。
-3. **[记忆与 Tape](/zh-cn/docs/sdk/tape/)**：用两轮简短对话理解历史、上下文和持久化。
+3. **[Tape 与记忆](/zh-cn/docs/sdk/tape/)**：用两轮简短对话理解历史、上下文和持久化。
 4. **[事件](/zh-cn/docs/sdk/events/)**：通过独立的退款场景，学习审计与执行前拦截。
 5. **[综合案例：FastAPI Todo 后端](/zh-cn/docs/sdk/web-service/)**：把前面的能力组装成一个完整的 FastAPI 后端服务。
 
@@ -103,7 +103,7 @@ async with agent.run(prompt, model=model, tape="quickstart") as stream:
         ...
 ```
 
-这样即使提前 `break`、发生异常或任务被取消，流也会被关闭。未正常跑完的 Run 以 `cancelled` 结束。关闭时，已经写入分支的记录默认仍会合并回主 Tape；这不是事务回滚，详见[记忆与 Tape](/zh-cn/docs/sdk/tape/#forks-and-merges)。
+这样即使提前 `break`、发生异常或任务被取消，流也会被关闭。未正常跑完的 Run 以 `cancelled` 结束。关闭时，已经写入分支的记录默认仍会合并回主 Tape；这不是事务回滚，详见[Tape 与记忆](/zh-cn/docs/sdk/tape/#forks-and-merges)。
 
 ### 不要在第一个 `final` 处结束响应 {#final-event}
 

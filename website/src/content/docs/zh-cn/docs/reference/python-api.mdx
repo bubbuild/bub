@@ -118,42 +118,118 @@ from bub.prompt import UserContent
 
 ```python
 from bub.core import Tape, TapeContext, default_tape_context, session_tape_name
-from bub.core.store import FileTapeStore, InMemoryTapeStore, TapeQuery
-from bub.core.tape import TapeEntry
+from bub.core.store import (
+    AsyncTapeStore,
+    AsyncTapeStoreAdapter,
+    FileTapeStore,
+    InMemoryQueryMixin,
+    InMemoryTapeStore,
+    TapeQuery,
+    TapeStore,
+    is_async_tape_store,
+)
+from bub.core.tape import AnchorSummary, TapeEntry, TapeInfo
 ```
 
-常用方法：`query`、`info`、`anchors`、`search`、`handoff`、`read_messages`、`reset`、`record_chat`、`scoped`、`with_context`、`fork_tape`。
+`Tape` 是命名 Tape 的读写视图，由三部分组成：`store`（`AsyncTapeStore`，负责保存条目）、`context`（`TapeContext`，决定 `read_messages()` 选取哪些条目）和 `sidecars`（随 Tape 挂载的附属 Tape）。直接构造时需要先用 `scoped(name)` 绑定名称：
+
+```python
+tape = Tape(
+    store=AsyncTapeStoreAdapter(InMemoryTapeStore()),
+    context=default_tape_context(),
+).scoped("demo")
+```
+
+| 成员 | 说明 |
+| --- | --- |
+| `name` | 当前 Tape 名称；未 `scoped` 时访问会抛 `ValueError` |
+| `query()` | 返回绑定该 Tape 和 store 的 `TapeQuery` |
+| `read_messages()` | 按 `TapeContext` 选出条目并转为模型消息；`meta["context"] is False` 的条目会跳过 |
+| `handoff(name=..., state=...)` | 写入 `anchor` 和 `handoff` 事件，把默认上下文起点前移 |
+| `reset(*, state=None, keep_sidecars=())` | 清空 Tape 后写入新的 `session/start` anchor；默认同时重置已挂载的 sidecar |
+| `info()` / `anchors(limit=20)` | 返回 `TapeInfo`（条目数、anchor 数、最近 token 用量等）和 `AnchorSummary(name, state)` 列表 |
+| `search(query)` | 执行给定 `TapeQuery` 并返回条目列表 |
+| `append_event(name, payload, **meta)` | 追加一条 `event` 条目 |
+| `scoped(name)` / `with_context(context)` | 返回绑定名称或替换上下文后的新 `Tape` |
+| `fork_tape(merge_back=True)` | 异步上下文管理器：在分支上读写，退出时默认合并回主 Tape |
 
 `TapeContext`：`anchor`、`select`、`state`。完整对话重放用 `default_tape_context()`；直接 `TapeContext()` 只重放普通 `message`。
 
-公开 store：`InMemoryTapeStore`、`FileTapeStore`；同步 `TapeStore` 会通过 `AsyncTapeStoreAdapter` 接入 Agent。概念见 [Tape](/zh-cn/docs/concepts/tape/)。
+`session_tape_name(session_id, workspace)` 生成 `<workspace hash>__<session hash>` 形式的物理 Tape 名称，供框架把同一会话映射到同一个 Tape；SDK 中也可以直接使用自己的名称。
 
-自定义后端只需实现四个操作；`AsyncTapeStore` 使用相同签名的异步版本：
+#### `TapeEntry` {#tapeentry}
+
+`append(tape, entry)` 接收的条目类型：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | `int` | 由 store 分配的顺序 ID；新建条目为 `0`，在 `append` 时改写 |
+| `kind` | `str` | 常用取值：`message`、`system`、`anchor`、`tool_call`、`tool_result`、`error`、`event` |
+| `payload` | `dict[str, Any]` | 条目内容 |
+| `meta` | `dict[str, Any]` | 运行元信息；`context=False` 表示不进入模型上下文 |
+| `date` | `str` | ISO 时间，默认当前 UTC 时间 |
+
+工厂方法：`TapeEntry.message(...)`、`system(content)`、`anchor(name, state=None)`、`tool_call(calls, content="")`、`tool_result(results)`、`error(error)`、`event(name, data=None)`。通过 `Tape` 写入时通常不需要手动构造。
+
+#### Store 协议 {#tape-store}
+
+```python
+class TapeStore(Protocol):
+    def list_tapes(self) -> list[str]: ...
+    def reset(self, tape: str) -> None: ...
+    def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
+    def append(self, tape: str, entry: TapeEntry) -> None: ...
+
+class AsyncTapeStore(Protocol):
+    async def list_tapes(self) -> list[str]: ...
+    async def reset(self, tape: str) -> None: ...
+    async def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
+    async def append(self, tape: str, entry: TapeEntry) -> None: ...
+```
 
 | 方法 | 契约 |
 | --- | --- |
-| `list_tapes()` | 返回已存在的 Tape 名称 |
-| `append(tape, entry)` | 追加条目，并为该 Tape 分配单调递增的 `entry_id` |
-| `fetch_all(query)` | 按记录顺序返回满足 `TapeQuery` 的条目 |
-| `reset(tape)` | 删除该 Tape 的记录及其 ID 进度 |
+| `list_tapes()` | 返回已存在的 Tape 名称；不需要列出 sidecar 等内部物理 Tape |
+| `append(tape, entry)` | 追加条目，并为该 Tape 分配从 `1` 开始、单调递增的 `id`；不要依赖调用方传入的 `entry.id` |
+| `fetch_all(query)` | 按记录顺序返回满足 `TapeQuery` 的条目；异步版本仍是 `async def` 返回 `Iterable`，不是异步迭代器 |
+| `reset(tape)` | 删除该 Tape 的记录及其 ID 进度，之后的 `append` 重新从 `1` 开始 |
 
-同步实现的这些方法会通过 `asyncio.to_thread()` 调用，避免阻塞事件循环；数据库连接和事务仍由实现者管理。`InMemoryQueryMixin` 可以为只实现 `read()` 的简单后端提供内存查询，数据库后端通常应把过滤条件下推。找不到指定 anchor 时，查询以 `BubError(kind=NOT_FOUND)` 失败。
+`Agent(store=...)` 同时接受同步和异步实现；同步实现会通过 `AsyncTapeStoreAdapter` 用 `asyncio.to_thread()` 调用，避免阻塞事件循环。`is_async_tape_store(store)` 按 `append` 是否为协程函数判断类型。数据库连接和事务仍由实现者管理。
 
-`TapeQuery` 使用链式过滤，调用 `all()` 执行：
+#### `TapeQuery` {#tapequery}
+
+`TapeQuery(tape, store)` 是不可变的链式过滤器；每个方法返回新对象，`all()` 执行查询：
 
 | 方法 | 过滤条件 |
 | --- | --- |
 | `query(value)` | 条目 kind、date、payload、meta 的 JSON 文本包含指定值，不区分大小写 |
 | `after_anchor(name)` / `last_anchor()` | 指定或最近 anchor 之后 |
 | `between_anchors(start, end)` | 两个 anchor 之间，不包含边界 |
-| `between_dates(start, end)` | ISO 日期或时间范围，包含边界 |
+| `between_dates(start, end)` | ISO 日期或时间范围，包含边界；只给日期时按整天计算 |
 | `kinds(*kinds)` | 指定条目类型 |
-| `limit(value)` | 最多返回的条目数 |
+| `limit(value)` | 最多返回的条目数；在其余过滤之后应用 |
+
+多个条件按 AND 组合。找不到指定 anchor 时，查询以 `BubError(kind=NOT_FOUND)` 失败；日期格式错误以 `INVALID_INPUT` 失败。
+
+同步 store 的 `all()` 直接返回 `Iterable`；异步 store 需要 `await`。通过 `Tape.query()` 得到的查询总是绑定 `AsyncTapeStore`：
 
 ```python
 query = tape.query().query("error").kinds("event", "error").limit(20)
 entries = list(await query.all())
 ```
+
+`InMemoryQueryMixin` 可以为只实现 `read(tape) -> list[TapeEntry] | None` 的简单后端提供上述过滤；数据库后端通常应把过滤条件下推到查询语句中。
+
+#### 内置 store {#builtin-stores}
+
+| 类 | 构造 | 行为 |
+| --- | --- | --- |
+| `InMemoryTapeStore` | `InMemoryTapeStore()` | 进程内字典；`read()` 返回条目副本；进程退出即丢失 |
+| `FileTapeStore` | `FileTapeStore(directory: Path)` | 每个 Tape 一个 `<tape>.jsonl`；构造时创建目录；每个文件一个线程锁；`list_tapes()` 只返回名称中恰好有一个 `__` 的文件（框架会话命名），会排除 sidecar 与未限定名称；不提供跨进程锁 |
+| `AsyncTapeStoreAdapter` | `AsyncTapeStoreAdapter(store)` | 把同步 `TapeStore` 适配为 `AsyncTapeStore` |
+| `InMemoryQueryMixin` | 混入类 | 为只实现 `read()` 的 store 提供内存过滤 |
+
+`FileTapeStore` 会把 Tape 名称直接用于文件名，因此名称必须适合作为路径；多租户或 Web 服务应使用受控标识，见[Tape 与记忆](/zh-cn/docs/sdk/tape/#storage)。
 
 ### Events {#events}
 
