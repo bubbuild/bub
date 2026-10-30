@@ -184,8 +184,8 @@ export default defineConfig({
           items: [
             'docs/sdk',
             'docs/sdk/tools',
-            'docs/sdk/tape',
             'docs/sdk/events',
+            'docs/sdk/tape',
             'docs/sdk/web-service',
           ],
         },

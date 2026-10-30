@@ -209,7 +209,7 @@ history = list(await tape.query().all())
 
 ## Where should data live? {#state-and-metadata}
 
-The tools chapter showed how to pass data temporarily with `state`; here the Tape provides persistent memory. Bub also offers `metadata` for observability data such as request identifiers and trace correlation.
+The [tools chapter](/docs/sdk/tools/#tool-context) showed how to pass data temporarily with `state`; here the Tape provides persistent memory. Bub also offers `metadata` for observability data such as request identifiers and trace correlation.
 
 These inputs can all carry run data, but their lifetimes and purposes differ:
 
@@ -274,3 +274,5 @@ This discards the Tape fork records for this call, but it does not undo **tool o
 ## Session limits {#concurrency}
 
 When two different Agents use the same Tape name at the same time, each creates a fork from the history visible at its start. Bub does not decide whether these requests should queue, overwrite, or interleave. For the same session Tape, if a later request depends on the previous result, the host should serialize requests per session; for concurrency or cross-worker or cross-instance calls, consider session locking.
+
+Next, assemble the loop, tools, events, and Tape into a complete service: [Capstone: FastAPI Service](/docs/sdk/web-service/).

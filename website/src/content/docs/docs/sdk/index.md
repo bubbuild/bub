@@ -9,8 +9,8 @@ This tutorial builds the same **order assistant** chapter by chapter, ending wit
 
 1. **The Agent loop**: run a minimal assistant and understand its event stream.
 2. **[Tools](/docs/sdk/tools/)**: query orders and handle arguments, results, and tool errors.
-3. **[Tape & Memory](/docs/sdk/tape/)**: persist conversations and distinguish history from model context.
-4. **[Events](/docs/sdk/events/)**: add audit logs and enforce a permission policy before refunds.
+3. **[Events](/docs/sdk/events/)**: add audit logs and enforce a permission policy before refunds.
+4. **[Tape & Memory](/docs/sdk/tape/)**: persist conversations and distinguish history from model context.
 5. **[Capstone: FastAPI Service](/docs/sdk/web-service/)**: manage application lifetime, per-session concurrency, and streaming output.
 
 If you would rather reuse the app's configuration, skills, plugins, or complete Turn pipeline than assemble these components yourself, see [Reuse the Bub app](/docs/integrations/reuse-app/).

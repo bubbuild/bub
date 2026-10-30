@@ -9,8 +9,8 @@ description: 运行一个最小 Agent，理解 Run、Step、流式事件与资�
 
 1. **Agent 循环**：运行最小助手，理解事件流。
 2. **[工具](/zh-cn/docs/sdk/tools/)**：通过独立的订单查询场景，学习工具契约与错误处理。
-3. **[Tape 与记忆](/zh-cn/docs/sdk/tape/)**：用两轮简短对话理解历史、上下文和持久化。
-4. **[事件](/zh-cn/docs/sdk/events/)**：通过独立的退款场景，学习审计与执行前拦截。
+3. **[事件](/zh-cn/docs/sdk/events/)**：通过独立的退款场景，学习审计与执行前拦截。
+4. **[Tape 与记忆](/zh-cn/docs/sdk/tape/)**：用两轮简短对话理解历史、上下文和持久化。
 5. **[综合案例：FastAPI Todo 后端](/zh-cn/docs/sdk/web-service/)**：把前面的能力组装成一个完整的 FastAPI 后端服务。
 
 前几节的小例子彼此独立，不需要保留上一节的代码。最后的综合案例会把这些知识串起来。如果你不想自行组装这些组件，而是希望复用 Bub 应用的配置、技能、插件或完整 Turn，请直接阅读[复用 Bub 应用](/zh-cn/docs/integrations/reuse-app/)。

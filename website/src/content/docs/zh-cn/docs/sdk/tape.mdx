@@ -216,7 +216,7 @@ history = list(await tape.query().all())
 
 ## 数据应该放在哪 {#state-and-metadata}
 
-在前一节对工具的介绍中我们有展示过如何通过 `state` 临时传递数据，而本节的 Tape 则用于进行持久化记忆。此外，Bub 还提供了 `metadata` 这么一个参数入口，方便设置某些观测数据或请求标识以满足链路追踪等需要。
+在[工具](/zh-cn/docs/sdk/tools/#tool-context)一节中，我们展示过如何通过 `state` 临时传递数据；而本节的 Tape 用于持久化记忆。此外，Bub 还提供了 `metadata` 这么一个参数入口，方便设置某些观测数据或请求标识以满足链路追踪等需要。
 
 所以它们能持有运行数据，但生命周期和用途不同：
 
