@@ -50,7 +50,7 @@ flowchart TD
 | `render_outbound` | 把输出转换为渠道消息 | 把模型文本渲染为出站回复 |
 | `dispatch_outbound` | 投递回复 | 把每条消息交给对应渠道 |
 
-每个阶段都有对应的 hook。插件可以补充默认行为，也可以按照 hook 契约替换结果。这样既能定制管道，又不会让执行顺序变得隐式。签名、返回值和优先级见 [Hooks 参考](/zh-cn/docs/reference/hooks/#turn-hooks)。
+每个阶段都有对应的 hook。插件可以补充默认行为，也可以按照 hook 契约替换结果。这样既能定制管道，又不会让执行顺序变得隐式。签名见 [Hooks 参考](/zh-cn/docs/reference/hooks/#turn-hooks)。
 
 ### TurnState 天然是临时的 {#state}
 

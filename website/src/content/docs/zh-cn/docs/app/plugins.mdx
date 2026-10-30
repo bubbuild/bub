@@ -149,11 +149,11 @@ uv run bub run "hello from my plugin"
 
 1. **检查运行环境**：确认执行 `bub` 命令行时所在的 Python 环境与插件安装环境完全一致；
 2. **重新同步元数据**：若修改了 `pyproject.toml` 中的入口点配置，必须重新执行 `uv sync`（或 `pip install -e .`）刷新包的 Entry Points 元数据；
-3. **排查 Hook 执行顺序与优先级**：Bub 遵循 Pluggy 规范，先注册内置实现，再加载入口点插件。在相同优先级下，**后注册的插件优先执行**（LIFO 策略）。若需要显式调整执行先后，可在装饰器中指定 `@hookimpl(tryfirst=True)`（尽可能最先执行）或 `@hookimpl(trylast=True)`（尽可能最后执行），详见 [Hook 优先级与调度](/zh-cn/docs/reference/hooks/#priority-and-dispatch)。
+3. **排查 Hook 执行顺序与优先级**：Bub 遵循 Pluggy 规范，先注册内置实现，再加载入口点插件。在相同优先级下，**后注册的插件优先执行**（LIFO 策略）。若需要显式调整执行先后，可在装饰器中指定 `@hookimpl(tryfirst=True)`（尽可能最先执行）或 `@hookimpl(trylast=True)`（尽可能最后执行）。
 
 ## 进阶：通过 Hooks 定制行为 {#advanced-hooks}
 
-Bub 提供了涵盖入站解析、模型调用、工具拦截、状态与生命周期的全套扩展点（完整签名与生命周期契约见 [Hooks 参考手册](/zh-cn/docs/reference/hooks/)）。在实际业务场景中，最常用的定制需求可分为以下四类：
+Bub 提供了涵盖入站解析、模型调用、工具拦截、状态与生命周期的全套扩展点（签名见 [Hooks 参考手册](/zh-cn/docs/reference/hooks/)）。在实际业务场景中，最常用的定制需求可分为以下四类：
 
 ### 1. 提供工具 {#provide-tools}
 

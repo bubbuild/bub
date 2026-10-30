@@ -138,7 +138,7 @@ No parameters. List anchor names in recording order, or return `(no anchors)`.
 tape.handoff(name="handoff", summary="")
 ```
 
-Write an anchor that moves the default context start to this point. `summary` is stored only in the anchor's `state.summary`; Bub does not generate a summary or inject it into later prompts. Earlier entries remain in storage.
+Write an anchor that moves the default context start to this point. Earlier entries remain in storage. Bub does not generate a summary. The default context converts the anchor into the assistant message `[Anchor created: <name>]: <state JSON>`, so the anchor name and `state`, including `summary`, enter later model context.
 
 ### `tape.reset` {#tape-reset}
 
@@ -212,6 +212,18 @@ run_code(code, timeout_seconds=120)
 ```
 
 Execute Python in code mode. Call tools with `await tools.<name>(key=value)` using keyword arguments. Only printed output and explicitly attached media enter the result. See [Custom tools and code mode](/docs/sdk/tools/) for complete usage.
+
+### `attach_image` / `attach_audio` / `attach_video` {#attach-media}
+
+```text
+attach_image(image)
+attach_audio(audio)
+attach_video(video)
+```
+
+Attach an image, audio clip, or video to the current `run_code` result. The corresponding parameter accepts a `republic.Image`, `republic.Audio`, or `republic.Video` object, or a string containing a file path in the current `Environment`, an `http(s)` or `gs` URL, or a data URL. Local files are resolved and read through the current environment.
+
+These tools have `exposure="code"` and can only be called inside `run_code`. Each call appends the media to the result and returns a confirmation string.
 
 ### `spill.read` {#spill-read}
 
