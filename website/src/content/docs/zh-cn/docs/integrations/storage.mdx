@@ -103,7 +103,7 @@ sqlite3 "$PWD/bub-tapes.db" \
    ```
 2. **配置连接串**：
    ```bash
-   export BUB_TAPESTORE_SQLALCHEMY_URL="postgresql+psycopg://user:password@localhost:5432/bub_db"
+   export BUB_TAPESTORE_SQLALCHEMY_URL="postgresql+psycopg://user:YOUR_DB_PASSWORD@localhost:5432/bub_db"
    ```
 
 生产环境中建议提前测试并发写入与连接池超时配置，保证服务稳定。

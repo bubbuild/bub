@@ -50,9 +50,9 @@ Agent(
 | `max_steps` | `sys.maxsize` | Maximum model Steps per Run |
 | `max_tool_concurrency` | `None` | Tool concurrency limit within one model response; `1` executes tools sequentially |
 | `name` | `"agent"` | Name of the Agent trace span |
-| `command_prefix` | `None` | `None` disables commands; otherwise must be non-empty with no whitespace, and enables direct tool commands |
+| `command_prefix` | `None` | `None` disables commands; otherwise it must be non-empty and contain no whitespace, and once set it allows calling tools directly |
 
-`agent.tools` stores `Tool` objects by name, while `agent.builtin_tools` stores provider tools. `max_tool_concurrency` does not coordinate concurrency between different Runs; the host must do that. Construction attaches `TapeRecorder` to `events`. See [Run an agent in Python](/docs/sdk/) for a complete example.
+`agent.tools` stores `Tool` objects by name, while `agent.builtin_tools` stores provider tools. `max_tool_concurrency` does not coordinate concurrency between different Runs; the host must do that. Construction attaches `TapeRecorder` to `events`. See [Run an Agent in Python](/docs/sdk/) for a complete example.
 
 Main entry points:
 
@@ -229,7 +229,7 @@ entries = list(await query.all())
 | `AsyncTapeStoreAdapter` | `AsyncTapeStoreAdapter(store)` | Adapts a synchronous `TapeStore` to `AsyncTapeStore` |
 | `InMemoryQueryMixin` | Mixin | Provides in-memory filtering for a store that implements only `read()` |
 
-`FileTapeStore` uses the Tape name directly as a file name, so names must be safe as paths; multi-tenant or web services should use controlled identifiers. See [Memory and Tape](/docs/sdk/tape/#storage).
+`FileTapeStore` uses the Tape name directly as a file name, so names must be safe as paths; multi-tenant or web services should use controlled identifiers. See [Tape and memory](/docs/sdk/tape/#storage).
 
 ### Events {#events}
 
@@ -265,7 +265,7 @@ from bub.core.codemode import CodeMode
 
 `CodeMode(tools, *, environment=None, models=None, ...)` provides the model-facing `run_code` tool and a `prompt` section describing callable tools. See [Custom tools and code mode](/docs/sdk/tools/) for usage.
 
-### Execution environment {#environment}
+### Environment {#environment}
 
 ```python
 from bub.environment import (
@@ -288,7 +288,7 @@ Paths passed to an environment are paths **inside** that environment: relative p
 | --- | --- | --- |
 | `workspace` | `str \| None` | Working directory inside the environment; relative paths are rejected when `None` |
 | `python` | `str` | Python executable inside the environment, `"python3"` by default; `LocalEnvironment` uses the current `sys.executable` |
-| `spawn` | `async (command, *, cwd=None, env=None) -> Process` | Abstract. A string runs through the shell, a sequence runs as an argument vector; `cwd` defaults to `workspace`, `env` adds to the environment's default variables |
+| `spawn` | `async (command, *, cwd=None, env=None) -> Process` | Abstract. A string runs through the shell, a sequence runs as an argument vector; `cwd` defaults to `workspace`, `env` is layered over the environment's default variables |
 | `read_text` | `async (path) -> str` | Abstract. Read a UTF-8 text file |
 | `read_bytes` | `async (path) -> bytes` | Read bytes. The default reads the file with `python` inside the environment; implementations with direct filesystem access should override it |
 | `write_text` | `async (path, content) -> None` | Abstract. Write a UTF-8 text file, creating missing parent directories |
@@ -309,8 +309,8 @@ A custom environment must implement at least `spawn`, `read_text`, `write_text`,
 | `await wait()` | Wait for exit and return the exit code |
 | `await write_stdin(data)` | Write to standard input and wait until flushed |
 | `close_stdin()` | Close standard input |
-| `signal(*, kill)` | Ask the process and its descendants to stop, or kill them when `kill=True`; must not raise once exited |
-| `is_running()` | Whether the process or its descendants are alive; the default checks only the process itself |
+| `signal(*, kill)` | Ask the process and its descendants to exit, or force them to end when `kill=True`; must not raise once the process has exited |
+| `is_running()` | Whether the process or its descendants are still alive; the default checks only the process itself |
 
 `LocalProcess` is the implementation used by `LocalEnvironment`: on POSIX the process runs in its own session, and `signal` targets the whole process group.
 
@@ -330,14 +330,14 @@ async def run_code(
 - `code` may use top-level `await`.
 - Each name in `tools` appears in the code as `tools.<name>(**kwargs)`; calls forward to `await call_tool(name, kwargs)`, and exceptions from `call_tool` surface in the code as exceptions.
 - The code may also call `call_tool` with names prefixed `republic.` for media loading and model calls.
-- Everything the code writes to standard output must be passed to `write` as it happens, so output survives a timeout.
-- Raise `CodeFailed` when the code itself raises; any other exception reports that the runtime failed. When cancelled (for example on timeout), stop the code before returning.
+- Everything the code writes to standard output must be passed to `write` as soon as it is produced, so output that has already been produced survives a timeout.
+- Raise `CodeFailed` when the code itself raises; any other exception indicates a runtime failure. When cancelled (for example on timeout), stop the code before returning.
 
 `LocalEnvironment.run_code` uses `bub.core.codemode.runner.run_code_in_subprocess(self, ...)`: it runs the code in a Python process started with `spawn`, then terminates that process and everything it started. Custom environments with a Python interpreter can reuse it directly.
 
 #### `CodeFailed` {#codefailed}
 
-`CodeFailed(error, traceback="")`: `error` is `"<Type>: <message>"`, and `traceback` is a formatted traceback limited to frames of the code itself. Code mode turns it into a tool error for the model.
+`CodeFailed(error, traceback="")`: `error` is `"<Type>: <message>"`, and `traceback` is a formatted traceback containing only the code's own stack frames. Code mode turns it into a tool error for the model.
 
 #### Where the environment comes from {#provide-an-environment}
 
@@ -399,7 +399,7 @@ from bub.turn import TurnResult, TurnState
 from bub.model_selection import ModelChoice, ModelOptions
 ```
 
-`ModelChoice`: required `id`, optional `name` / `description` / `meta`. `ModelOptions`: `models` and `current_model`. `BubFramework.get_model_options` combines results from each `provide_model_options` implementation.
+`ModelChoice`: required `id`, optional `name` / `description` / `meta`. `ModelOptions`: `models` and `current_model`. `BubFramework.get_model_options` merges the results of each `provide_model_options` implementation.
 
 ### Channels {#channels}
 
@@ -415,7 +415,7 @@ from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 
 `ChannelRouter`: `dispatch_output`, `wrap_stream`, `quit`, and `admit_channel_message`. `ChannelManager` implements this protocol and is bound through `bind_channel_router`.
 
-Admission types: `AdmitDecision(action, reason=None)` (`process` / `drop` / `follow_up` / `steer`), `TurnSnapshot`, and `SteeringInbox`. `follow_up` means queueing, and `steer` means steering; see the [Hooks reference](/docs/reference/hooks/#application-hook-details) and [Turn](/docs/concepts/turn/) for complete behavior.
+Admission types: `AdmitDecision(action, reason=None)` (`process` / `drop` / `follow_up` / `steer`), `TurnSnapshot`, and `SteeringInbox`. `follow_up` means queueing (Queue up), and `steer` means steering (Steering); see the [Hooks reference](/docs/reference/hooks/#application-hooks) and [Turn](/docs/concepts/turn/) for complete behavior.
 
 ### Hooks {#hooks}
 
@@ -449,12 +449,4 @@ They are suitable for status bars and external UIs and do not carry detailed mod
 from bub.inquirer import ask_checkbox, ask_confirm, ask_fuzzy, ask_secret, ask_select, ask_text
 ```
 
-These synchronous functions collect multi-select, confirmation, fuzzy single-select, secret, ordinary single-select, and text input for plugin CLIs and `onboard_config`. When called through the Bub CLI, they publish `PromptChanged`; user cancellation raises `typer.Abort`. See [Plugins](/docs/app/plugins/) for usage.
-
-## Related references {#related}
-
-- [Tape and context](/docs/concepts/tape/)
-- [Events](/docs/concepts/events/)
-- [Extension points](/docs/concepts/extension-points/)
-- [Hooks](/docs/reference/hooks/)
-- [Tools](/docs/sdk/tools/)
+These synchronous functions collect multi-select, confirmation, fuzzy single-select, secret, ordinary single-select, and text input for plugin CLIs and `onboard_config`. When called through the Bub CLI, they publish `PromptChanged`; user cancellation raises `typer.Abort`. See [Collect interactive input](/docs/app/plugins/#prompt-for-input) for usage.

@@ -1,6 +1,6 @@
 ---
 title: Connect MCP servers
-description: Install the bub-mcp plugin, register a time MCP server, and call its tools from a Bub turn.
+description: Install the bub-mcp plugin, configure stdio or HTTP/SSE MCP servers, and call external tools from a Bub conversation.
 sidebar:
   badge: { text: 'App', variant: 'note' }
 ---
@@ -9,22 +9,30 @@ import { Steps } from '@astrojs/starlight/components';
 
 [Model Context Protocol](https://modelcontextprotocol.io/), or **MCP**, is an open protocol that lets Agents securely and consistently call external tools and data sources, whether local or remote.
 
-By installing the [bub-mcp](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp) plugin, you can seamlessly connect tools from across the MCP ecosystem to the Bub application.
+By installing the [bub-mcp](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp) plugin, you can seamlessly bring tools from across the MCP ecosystem into the Bub application.
+
+```mermaid
+flowchart LR
+    User["User / client"] --> Bub["Bub Agent runtime"]
+    Bub --> Plugin["bub-mcp plugin"]
+    Plugin -->|"stdio (child process)"| LocalServer["Local MCP server\n(e.g. filesystem / time)"]
+    Plugin -->|"HTTP / SSE (remote)"| RemoteServer["Remote MCP server\n(e.g. enterprise API / database)"]
+```
 
 ## Get started {#get-started}
 
-Before you start, [install the Bub application](/docs/getting-started/install/#app-install) and make sure [`uvx`](https://docs.astral.sh/uv/) is on `PATH`, since it launches [`mcp-server-time`](https://pypi.org/project/mcp-server-time/).
+Before you start, make sure you have [installed the Bub application](/docs/getting-started/install/#app-install) and that [`uvx`](https://docs.astral.sh/uv/) is installed on your system (it launches the example tool without installation).
 
 <Steps>
 
-1. **Install the plugin**
+1. **Install the plugin and verify the environment**
 
    ```bash
    bub install bub-mcp@main
    bub hooks
    ```
 
-   `bub install` resolves `bub-mcp@main` from [`bub-contrib`](https://github.com/bubbuild/bub-contrib). `bub hooks` should show:
+   `bub install` resolves and installs `bub-mcp` from [`bub-contrib`](https://github.com/bubbuild/bub-contrib). Run `bub hooks` to check whether the plugin is mounted correctly:
 
    ```text
    load_state: builtin, mcp
@@ -32,11 +40,13 @@ Before you start, [install the Bub application](/docs/getting-started/install/#a
    register_cli_commands: builtin, mcp
    ```
 
-   If `mcp` is missing, check whether the plugin was installed into the environment used by the current `bub`.
+   :::note
+   If `mcp` does not appear in the list, the plugin was installed into a different Python environment. Confirm that the path of the `bub` you are running (visible via `command -v bub`) matches the environment where it was installed.
+   :::
 
-2. **Register the time server**
+2. **Configure an MCP server**
 
-   `bub-mcp` reads server definitions from `~/.bub/mcp.json`; when `BUB_HOME` is set, it reads `$BUB_HOME/mcp.json` instead.
+   `bub-mcp` reads `~/.bub/mcp.json` by default (or `$BUB_HOME/mcp.json` when `BUB_HOME` is defined). This example uses the official time tool [`mcp-server-time`](https://pypi.org/project/mcp-server-time/):
 
    ```bash
    mkdir -p ~/.bub
@@ -54,16 +64,18 @@ Before you start, [install the Bub application](/docs/getting-started/install/#a
 
    Configuration notes:
 
-   - For local command-line servers (stdio), provide `command` and, optionally, `args` and `env`.
-   - A configuration containing `command` automatically uses stdio, so no `transport` field is needed.
+    - For local command-line servers (stdio), provide `command` and, optionally, `args` / `env`.
+    - A configuration containing `command` automatically uses the stdio transport, so no explicit `transport` is needed.
 
-3. **Verify the connection**
+3. **Test the connection and tool discovery**
+
+   Run `bub mcp list` to check whether the configuration takes effect:
 
    ```bash
    bub mcp list
    ```
 
-   Expected output:
+   Normally, the output shows the connection is ready and lists the discovered tools:
 
    ```text
    🔌 MCP Tools
@@ -72,42 +84,43 @@ Before you start, [install the Bub application](/docs/getting-started/install/#a
      Tools: mcp.time_get_current_time, mcp.time_convert_time
    ```
 
-   Note:
+   Notes:
 
-   - Each MCP tool is exposed to Bub as `mcp.<server>_<tool>`.
-   - To reduce prompt token usage, Bub lazily loads full tool definitions by default. The model calls `tool.describe` to fetch a definition when needed. Set `BUB_MCP_DEFERRED_TOOLS=false` to include all definitions directly in the system prompt.
+    - Each MCP tool is named `mcp.<server>_<tool>` and injected into Bub.
+    - To save prompt tokens, Bub uses a **deferred loading** strategy by default (the model fetches the detailed schema via `tool.describe` when needed). If you want full schemas to go directly into the system prompt, set the environment variable `BUB_MCP_DEFERRED_TOOLS=false`.
 
-   If you see `Status: Disconnected`, first run `uvx mcp-server-time` outside Bub to diagnose startup problems, then press `Ctrl-C` to stop it.
+4. **Call a tool in a conversation**
 
-4. **Call a tool in a turn**
-
-   MCP tools are kept connected by `mcp.lifecycle`. `bub chat` and `bub gateway` start it; `bub run` does not.
+   MCP tools are kept connected by the background lifecycle channel `mcp.lifecycle`. Therefore, run in long-connection mode:
 
    ```bash
    bub chat
    ```
 
-   Wait a few seconds for the MCP handshake to complete, then enter:
+   Ask directly in the interactive interface:
 
    ```text
    What time is it in UTC right now?
    ```
 
-   The model should call `mcp.time_get_current_time`. You can also call the tool directly without going through the model:
+   The model automatically infers and calls the `mcp.time_get_current_time` tool to answer.
 
+   :::tip[Direct testing without a model]
+   If you want to test tool connectivity directly, you can skip model inference and execute a tool command in `bub chat` using a leading comma:
    ```text
    ,mcp.time_get_current_time timezone=UTC
    ```
-
-   The first turn may begin before the tools are ready. If the model does not call the tool, check the connection with `bub mcp list`, then ask it explicitly to use the time tool.
+   :::
 
 </Steps>
 
-For long-running deployments, use the [gateway](/docs/app/gateway/) or a [container](/docs/app/deploy/). For example, `bub gateway --enable-channel telegram` still starts `mcp.lifecycle` automatically unless `!mcp.lifecycle` is passed explicitly.
-
 ## Add other servers {#add-servers}
 
-Append additional entries under `mcpServers`. HTTP and SSE use `url`, with optional `headers`:
+You can add multiple servers to the `mcpServers` dictionary in `~/.bub/mcp.json`.
+
+### Remote servers (HTTP/SSE) {#remote-http-sse}
+
+If the tool runs as a microservice on a remote server or in a local container, configure it with `url` and `transport`:
 
 ```json
 {
@@ -116,60 +129,64 @@ Append additional entries under `mcpServers`. HTTP and SSE use `url`, with optio
       "url": "https://weather.example.com/mcp",
       "transport": "http"
     },
-    "events": {
-      "url": "https://events.example.com/mcp",
+    "internal_crm": {
+      "url": "https://crm.corp.internal/mcp",
       "transport": "sse",
-      "headers": { "Authorization": "Bearer token" }
+      "headers": {
+        "Authorization": "Bearer YOUR_SECRET_TOKEN"
+      }
     }
   }
 }
 ```
 
-Another stdio example, launching a filesystem server through `npx`:
+### Local servers (filesystem) {#local-filesystem}
+
+For local tools with permission restrictions, you can limit their operating directory through `args`:
 
 ```json
 {
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/bub-sandbox"]
     }
   }
 }
 ```
 
-Put the allowed directories in `args` and pass credentials through `env`. After saving, run `bub mcp list` to check the connection.
-
 ### Manage with the CLI {#manage-cli}
 
-You can also modify the same configuration with `bub mcp add`:
+Besides editing the JSON file directly, you can also use the `bub mcp` CLI to register or remove servers quickly:
 
 ```bash
-# stdio
+# Register a local stdio tool
 bub mcp add --transport stdio time -- uvx mcp-server-time
-bub mcp add --transport stdio --env API_KEY=secret example -- node ./my-server.js
+bub mcp add --transport stdio --env API_KEY=secret custom -- node ./my-server.js
 
-# HTTP / SSE
+# Register a remote HTTP or SSE server (with an auth header)
 bub mcp add --transport http weather https://weather.example.com/mcp
-bub mcp add --transport sse --header "Authorization: Bearer token" \
-  events https://events.example.com/mcp
+bub mcp add --transport sse --header "Authorization: Bearer token" events https://events.example.com/mcp
 
-# remove
+# Remove a server
 bub mcp remove time
 ```
 
-`--env` is only for stdio, and `--header` is only for HTTP or SSE.
+## Use with Agent Plugins {#with-agent-plugins}
 
-## Use with portable plugins {#with-agent-plugins}
+Bub also supports standard [Agent Plugins](/docs/integrations/agent-plugins/). MCP servers from the two sources have separate lifecycle channels and tool namespaces, so they can run seamlessly at the same time:
 
-[Agent Plugins](/docs/integrations/agent-plugins/) can also carry MCP servers. The two configurations use separate lifecycle channels and tool names, so they can run at the same time without affecting each other.
+| Source | Configuration file | Runtime channel | Tool name prefix |
+|---|---|---|---|
+| Global MCP | `~/.bub/mcp.json` | `mcp.lifecycle` | `mcp.<server>_<tool>` |
+| Agent Plugin | `<plugin>/mcp.json` | `agent-plugins.mcp` | `mcp.<plugin>.<server>_<tool>` |
 
 ## Troubleshooting {#troubleshooting}
 
-| Symptom | What to check |
-| --- | --- |
-| `mcp` is absent from `bub hooks` | Reinstall the plugin in the environment where the current `bub` lives |
-| `Status: Disconnected` | Run the `command` directly outside Bub, or access the `url` |
-| `bub mcp add` prints `CancelledError` after writing | The entry may already be saved; verify with `bub mcp list` |
-| The tool does not appear during a turn | Use `bub chat` or `bub gateway`, and confirm that `mcp.lifecycle` is not excluded |
-| Permission denied on `mcp.json` | Confirm that `~/.bub/` is writable, or set `BUB_HOME` to a directory owned by the current user |
+| Symptom | Possible cause | Solution |
+| --- | --- | --- |
+| `mcp` is missing from `bub hooks` | The plugin was not installed into the Python environment currently in use | Run `command -v bub`, confirm the current execution environment, then run `bub install bub-mcp@main` again. |
+| `bub mcp list` shows `Status: Disconnected` | The external service is not running or the command cannot execute | Run `uvx mcp-server-time` separately in a terminal, or access the `url` with `curl`, to confirm it responds correctly. |
+| MCP tools cannot be called in `bub run "..."` | `bub run` is a one-shot task and does not start the background lifecycle channel | For long-running use, use `bub chat` or `bub gateway`; for a one-off call, use `,mcp.<tool>` in the interactive session. |
+| `bub mcp add` prints `CancelledError` when saving | The process exits early, but the configuration is usually already persisted | Run `bub mcp list` to confirm whether the entry was written to `mcp.json`. |
+| `Permission denied` when writing the configuration | The owner permissions of the `~/.bub/` directory do not match | Check the permissions of the `~/.bub` directory, or set `BUB_HOME` to a path the current user can write to. |

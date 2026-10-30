@@ -35,7 +35,7 @@ bub onboard
 model: openrouter:openrouter/free
 api_key: sk-or-...
 telegram:
-  token: "123456:abcdef..."
+  token: "123456789:your-telegram-bot-token"
   allow_users: "123456789,your_username"
 ```
 
@@ -75,7 +75,7 @@ fallback_models:
 如果你打算把 Bub 当做一个 Telegram 机器人来使用，可以使用内置的 Telegram 渠道，配置示例如下：
 
 ```bash
-BUB_TELEGRAM_TOKEN=123456:abcdef...
+BUB_TELEGRAM_TOKEN=123456789:your-telegram-bot-token
 BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
 BUB_TELEGRAM_ALLOW_CHATS=-1001234567890
 BUB_TELEGRAM_PROXY=http://127.0.0.1:7890   # 可选

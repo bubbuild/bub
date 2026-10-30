@@ -35,7 +35,7 @@ Now check whether `~/.bub/config.yml` contains the content described in the [ful
 model: openrouter:openrouter/free
 api_key: sk-or-...
 telegram:
-  token: "123456:abcdef..."
+  token: "123456789:your-telegram-bot-token"
   allow_users: "123456789,your_username"
 ```
 
@@ -75,7 +75,7 @@ Each candidate provider needs its own valid credentials. Fallbacks only cover fa
 If you want to use Bub as a Telegram bot, use the built-in Telegram channel. Example configuration:
 
 ```bash
-BUB_TELEGRAM_TOKEN=123456:abcdef...
+BUB_TELEGRAM_TOKEN=123456789:your-telegram-bot-token
 BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
 BUB_TELEGRAM_ALLOW_CHATS=-1001234567890
 BUB_TELEGRAM_PROXY=http://127.0.0.1:7890   # optional

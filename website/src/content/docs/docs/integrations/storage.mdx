@@ -1,78 +1,72 @@
 ---
-title: Store conversation history in SQLite
-description: Move Bub's Tapes from files to SQLite with a SQLAlchemy tape store plugin.
+title: Store conversation history in a database
+description: Use the SQLAlchemy tape store plugin to save Bub's Tape conversation history to SQLite or another relational database.
 ---
 
-By default, Bub stores Tapes as JSONL files.
+By default, Bub persists conversation Tapes as local JSONL files.
 
-With [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy), the application can use SQLite or another SQLAlchemy database instead; `,tape.info`, `,tape.search`, Tape branching, and sidecars keep the same behavior.
+By installing the [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy) plugin, you can switch the application to SQLite, PostgreSQL, or any relational database supported by SQLAlchemy, while keeping `,tape.info`, `,tape.search`, session branching, and Sidecar behavior exactly the same.
 
-This guide configures the global store used by the CLI. You can also construct `SQLAlchemyTapeStore` in your own Python program and pass it to `core.Agent`; see [Reuse the Bub app](/docs/integrations/reuse-app/).
-
-:::caution[Existing history]
-Switching storage does not migrate existing JSONL Tapes. After moving to a new database, old sessions do not appear in `tape.search` or the session list, though the original files remain in the `tapes/` directory under Bub home. If you need the old history, back it up and complete the migration before switching.
+:::caution[Existing data]
+Changing the storage backend **does not** migrate existing JSONL files automatically. After switching to the new database, old sessions will not appear in the new database's `tape.search`, and the original files remain under `tapes/` in the Bub directory.
 :::
 
-## Before you begin {#before-you-start}
+## Before you start {#before-you-start}
 
 - You have [installed the Bub application](/docs/getting-started/install/#app-install) and configured a working model.
-- Optional: the `sqlite3` command line for inspecting the database.
-- Confirm that the current `BUB_HOME` points to the directory where you want to keep the database:
-
-```bash
-printf '%s\n' "${BUB_HOME:-$HOME/.bub}"
-```
+- (Optional) Install the `sqlite3` command line tool for querying and inspecting tables directly.
+- Confirm the current Bub home path:
+  ```bash
+  printf '%s\n' "${BUB_HOME:-$HOME/.bub}"
+  ```
 
 ## 1. Install the plugin {#install}
+
+Install the store plugin in the environment where Bub runs:
 
 ```bash
 bub install bub-tapestore-sqlalchemy@main
 bub hooks
 ```
 
-Confirm in the output that the plugin loaded:
+Run `bub hooks` to check that the extension point is mounted:
 
 ```text
 provide_tape_store: tapestore-sqlalchemy, builtin
 ```
 
-Higher-priority implementations come first. Seeing `tapestore-sqlalchemy` means the plugin overrides the built-in file store; if only `builtin` appears, check whether the plugin was installed into the same environment that runs `bub`.
+Higher-priority implementations are listed first. Seeing `tapestore-sqlalchemy` means the plugin is active and will override the built-in file store.
 
 ## 2. Configure the database {#configure}
 
-The plugin uses this by default:
-
-```text
-<BUB_HOME>/tapes.db
-```
-
-This tutorial uses a file in the current directory instead, so it is easy to inspect and clean up:
+The plugin uses `<BUB_HOME>/tapes.db` by default. To make demonstration and verification easier, this guide points it at the current working directory:
 
 ```bash
 export BUB_TAPESTORE_SQLALCHEMY_URL="sqlite+pysqlite:///$PWD/bub-tapes.db"
 ```
 
-`sqlite+pysqlite` uses the SQLite driver from Python's standard library, so no extra driver is required. The URL must use SQLAlchemy's format; relative paths resolve against the process's current directory, which is why this uses `$PWD` to build an absolute path.
+- `sqlite+pysqlite` uses the SQLite driver built into the Python standard library, with no extra dependencies.
+- The URL must follow standard SQLAlchemy connection string conventions; here `$PWD` is used to build an absolute path.
 
-Optional settings:
+### Optional settings {#optional-settings}
 
-| Variable | Default | Description |
+| Environment variable | Default | Description |
 | --- | --- | --- |
-| `BUB_TAPESTORE_SQLALCHEMY_ECHO` | `false` | Print SQL for debugging |
-| `BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS` | `{}` | JSON object passed to `create_engine(connect_args=...)` |
+| `BUB_TAPESTORE_SQLALCHEMY_ECHO` | `false` | Set to `true` to print executed SQL statements for development and debugging. |
+| `BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS` | `{}` | JSON object passed to `create_engine(connect_args=...)` (for example, timeout settings). |
 
-Putting these variables in the workspace `.env` lets `bub` read them on every start. The plugin creates tables the first time it opens a database; if an existing database has an incompatible schema, it reports a clear error instead of attempting a migration.
+To make the settings persist, add the variables to a `.env` file at the workspace root. The plugin initializes the required table schema automatically on first connection.
 
-## 3. Write and check the Tape {#verify}
+## 3. Verify writes and reads {#verify}
 
-Run a turn, then inspect the current Tape:
+Run one session, then use the built-in command to check whether the Tape was written to the database:
 
 ```bash
-bub run "Reply with one short sentence: hello from SQLite."
+bub run "Say hello in one sentence and indicate that this turn of the conversation is stored in the database."
 bub run ",tape.info"
 ```
 
-The output should include the Tape name, entry count, anchors, and token usage:
+The output should include the Tape name, entry count, and anchor status for this session:
 
 ```text
 name: 86774b31b96845a4__0b871d5e50e7c192
@@ -82,44 +76,52 @@ last_anchor: session/start
 entries_since_last_anchor: 8
 ```
 
-The name and counts depend on your workspace and model. The key point is that `,tape.info` can read the session you just created, which shows that both writes and reads go through the new store.
-
-Inspect the Tapes in the database:
+Use `sqlite3` to inspect the physical records in the database:
 
 ```bash
+# Query the Tape session list
 sqlite3 "$PWD/bub-tapes.db" \
   "SELECT name, last_entry_id FROM tapes ORDER BY name;"
 ```
 
-Inspect the anchors:
-
 ```bash
+# Query anchor records
 sqlite3 "$PWD/bub-tapes.db" \
   "SELECT entry_id, anchor_name, entry_date FROM tape_entries WHERE kind = 'anchor';"
 ```
 
-`last_entry_id` is the highest entry ID allocated for each Tape. `tape_entries.payload` and `meta` store JSON; editing these columns directly bypasses Bub's Tape invariants and is not recommended.
+The `tapes` table maintains metadata for all sessions; the `tape_entries` table records the specific content of each Turn, model answer, and tool call entry by entry.
 
-## 4. Use another database {#other-databases}
+## 4. Connect another database {#other-databases}
 
-The same plugin accepts any SQLAlchemy URL, but the environment that runs `bub` must have the corresponding dialect and driver installed. PostgreSQL, for example, requires an additional driver, and a remote database also needs connection parameters and network security configuration.
+The plugin is built on SQLAlchemy and supports connecting to relational databases such as PostgreSQL and MySQL:
 
-Validate a non-SQLite backend first with `,tape.info`, `,tape.search`, and a multi-step tool task:
+1. **Install the driver** (install the corresponding database driver in the environment where `bub` runs):
+   ```bash
+   # For example, PostgreSQL
+   uv add "psycopg[binary]"
+   ```
+2. **Configure the connection string**:
+   ```bash
+   export BUB_TAPESTORE_SQLALCHEMY_URL="postgresql+psycopg://user:YOUR_DB_PASSWORD@localhost:5432/bub_db"
+   ```
 
-- Whether entry IDs increase monotonically;
-- Whether anchor queries return the correct rows;
-- Whether concurrent writes conflict;
-- Whether the Tape remains readable after a reconnect.
+In production, test concurrent writes and connection pool timeout settings in advance to keep the service stable.
 
-Default SQLite connections enable foreign key constraints and a 30-second busy timeout. The behavior of other drivers depends on the driver itself.
+## Troubleshooting {#troubleshooting}
 
-If you need dedicated SQLite vector search, see [`bub-tapestore-sqlite`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlite).
+| Common issue | Possible cause | Solution |
+| --- | --- | --- |
+| `tapestore-sqlalchemy` is missing from `bub hooks` | The plugin was installed into a different Python environment | Check `command -v bub` and make sure `bub install` ran in the virtual environment you are using. |
+| SQLite reports that the database is locked (Database is locked) | Concurrent writes from multiple processes exceed what SQLite can handle | Configure a busy timeout, or switch to a relational database better suited to high concurrency, such as PostgreSQL. |
+| Connecting to PostgreSQL raises `ModuleNotFoundError` | The corresponding database driver is not installed | Run `uv add "psycopg[binary]"` in the Bub environment to install the driver. |
+| Tables cannot be created, or permission is denied | The target path or remote database user lacks permission to create tables | Confirm that the file directory is writable by the current user, or grant the database user `CREATE TABLE` permission. |
 
 ## Cleanup {#cleanup}
+
+To restore Bub's default file storage mode, clear the environment variables and delete the test database:
 
 ```bash
 unset BUB_TAPESTORE_SQLALCHEMY_URL BUB_TAPESTORE_SQLALCHEMY_ECHO BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS
 rm -f "$PWD/bub-tapes.db"
 ```
-
-Deleting the database permanently loses the conversation history it contains. After removing the plugin or clearing `BUB_TAPESTORE_SQLALCHEMY_URL`, Bub returns to the default file store but does not automatically import the SQLite data.
