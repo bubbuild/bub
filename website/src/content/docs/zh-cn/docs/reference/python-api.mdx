@@ -189,13 +189,97 @@ from bub.core.codemode import CodeMode
 
 `CodeMode(tools, *, environment=None, models=None, ...)` 提供模型侧的 `run_code` 工具，以及描述可调用工具的 `prompt` section。用法见[自定义工具与 code mode](/zh-cn/docs/sdk/tools/)。
 
-### 执行环境 {#environment}
+### Environment {#environment}
 
 ```python
-from bub.environment import Environment, LocalEnvironment, Process
+from bub.environment import (
+    ENVIRONMENT_STATE_KEY,
+    CallTool,
+    CodeFailed,
+    Environment,
+    LocalEnvironment,
+    Process,
+)
 ```
 
-`Environment` 定义 `spawn`、`read_text`、`read_bytes`、`write_text`、`resolve_path`、`run_code` 和 `close()`。`LocalEnvironment` 直接在宿主执行，不提供安全沙箱；远程或隔离环境需要自行实现。完整契约见[执行环境](/zh-cn/docs/sdk/tools/#choose-an-execution-environment)。
+`Environment` 是工具执行进程、读写文件的抽象边界。内置的 `bash`、`fs.read` / `fs.write` / `fs.edit`，以及 code mode 的 `run_code` 都通过它执行。默认实现 `LocalEnvironment` 直接在宿主上运行，不做隔离。
+
+传给环境的路径是**环境内**的路径：相对路径以 `workspace` 为基准，不一定对应宿主路径。
+
+#### 成员 {#environment-members}
+
+| 成员 | 签名 | 说明 |
+| --- | --- | --- |
+| `workspace` | `str \| None` | 环境内的工作目录；为 `None` 时不接受相对路径 |
+| `python` | `str` | 环境内的 Python 解释器，默认 `"python3"`；`LocalEnvironment` 使用当前 `sys.executable` |
+| `spawn` | `async (command, *, cwd=None, env=None) -> Process` | 抽象。字符串交给 shell，序列按参数向量执行；`cwd` 默认 `workspace`，`env` 叠加在环境默认变量上 |
+| `read_text` | `async (path) -> str` | 抽象。读取 UTF-8 文本 |
+| `read_bytes` | `async (path) -> bytes` | 读取字节。默认在环境内用 `python` 读取文件，可直接访问文件系统的实现应覆盖它 |
+| `write_text` | `async (path, content) -> None` | 抽象。写入 UTF-8 文本，并创建缺失的父目录 |
+| `resolve_path` | `(path) -> str` | 把相对路径解析到 `workspace`；没有 `workspace` 时抛 `ValueError`。基类按 POSIX 规则处理，`LocalEnvironment` 还会展开 `~` 并解析绝对路径 |
+| `run_code` | `async (code, *, tools, call_tool, write) -> None` | 抽象。执行模型编写的 Python 代码，契约见下 |
+| `close` | `async () -> None` | 释放环境资源；`framework.running()` 退出时调用 |
+
+自定义环境至少要实现 `spawn`、`read_text`、`write_text` 和 `run_code`；其余成员都有默认实现。
+
+#### `Process` {#process}
+
+`spawn` 返回 `Process`，以流的方式暴露进程：
+
+| 成员 | 说明 |
+| --- | --- |
+| `stdout` / `stderr` | `asyncio.StreamReader` |
+| `returncode` | 退出码；运行中为 `None` |
+| `await wait()` | 等待退出并返回退出码 |
+| `await write_stdin(data)` | 写入标准输入并等待刷新 |
+| `close_stdin()` | 关闭标准输入 |
+| `signal(*, kill)` | 请求进程及其子孙退出，`kill=True` 时强制结束；进程已退出时不得抛异常 |
+| `is_running()` | 进程或其子孙是否仍存活；默认只检查进程本身 |
+
+`LocalProcess` 是 `LocalEnvironment` 使用的实现：POSIX 下进程运行在独立会话中，`signal` 作用于整个进程组。
+
+#### `run_code` 契约 {#run-code-contract}
+
+```python
+async def run_code(
+    self,
+    code: str,
+    *,
+    tools: Sequence[str],
+    call_tool: CallTool,
+    write: Callable[[str], None],
+) -> None:
+```
+
+- `code` 可以使用顶层 `await`。
+- `tools` 中的每个名字在代码中以 `tools.<name>(**kwargs)` 出现；调用转发为 `await call_tool(name, kwargs)`，`call_tool` 抛出的异常在代码中表现为异常。
+- 代码也可以通过 `call_tool` 调用 `republic.` 前缀的名字，用于媒体加载和模型调用。
+- 代码写到标准输出的内容必须在产生时立即传给 `write`，这样超时后仍能保留已产生的输出。
+- 代码自身抛出异常时抛 `CodeFailed`；其他异常表示运行时故障。被取消时（例如超时），应在返回前停止代码。
+
+`LocalEnvironment.run_code` 通过 `bub.core.codemode.runner.run_code_in_subprocess(self, ...)` 实现：在 `spawn` 出来的 Python 进程中执行代码，结束后连同它启动的子孙进程一起终止。有 Python 解释器的自定义环境可以直接复用这个函数。
+
+#### `CodeFailed` {#codefailed}
+
+`CodeFailed(error, traceback="")`：`error` 是 `"<类型>: <消息>"`，`traceback` 是仅包含代码自身栈帧的格式化回溯。code mode 会把它转换为工具错误交回模型。
+
+#### 环境从哪里来 {#provide-an-environment}
+
+应用层通过 `provide_environment` hook 为每个会话提供环境（取首个结果）：
+
+```python
+def provide_environment(self, session_id: str, workspace: Path) -> Environment | None:
+```
+
+框架按会话缓存返回值，并在 `framework.running()` 退出时调用 `Environment.close()`。内置实现返回 `LocalEnvironment(workspace)`；优先级更高的插件可以替换它。
+
+环境会写入 Turn 状态 `ENVIRONMENT_STATE_KEY`（`"_runtime_environment"`），内置工具通过 `bub.builtin.environment.environment_from_state` 读取；状态中没有环境时（例如直接用 SDK 的 `Agent`），回退为基于 `_runtime_workspace` 的 `LocalEnvironment`。没有工作区时，相对路径会抛 `ValueError`。
+
+SDK 中直接构造 `CodeMode` 不会读取 Turn 状态中的环境：`CodeMode(tools, environment=...)` 接受 `Environment` 或 `(TurnState) -> Environment`，默认是当前工作目录的 `LocalEnvironment()`。内置 code mode 已把它接到 `environment_from_state`。
+
+:::caution
+`LocalEnvironment` 直接在宿主上执行，**单独的进程不是安全沙箱**。执行不受信任的模型代码时，应实现带文件系统、网络和权限限制的环境。
+:::
 
 ## 应用层 {#application}
 

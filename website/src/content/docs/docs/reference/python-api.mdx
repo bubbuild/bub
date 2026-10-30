@@ -192,10 +192,94 @@ from bub.core.codemode import CodeMode
 ### Execution environment {#environment}
 
 ```python
-from bub.environment import Environment, LocalEnvironment, Process
+from bub.environment import (
+    ENVIRONMENT_STATE_KEY,
+    CallTool,
+    CodeFailed,
+    Environment,
+    LocalEnvironment,
+    Process,
+)
 ```
 
-`Environment` defines `spawn`, `read_text`, `read_bytes`, `write_text`, `resolve_path`, `run_code`, and `close()`. `LocalEnvironment` executes directly on the host and is not a security sandbox; implement your own remote or isolated environment when needed. See [Execution environment](/docs/sdk/tools/#choose-an-execution-environment) for the complete contract.
+`Environment` is the abstraction through which tools run processes and read or write files. The built-in `bash`, `fs.read` / `fs.write` / `fs.edit`, and code mode's `run_code` all execute through it. The default implementation, `LocalEnvironment`, runs everything directly on the host without isolation.
+
+Paths passed to an environment are paths **inside** that environment: relative paths resolve against `workspace`, which need not be a host path.
+
+#### Members {#environment-members}
+
+| Member | Signature | Description |
+| --- | --- | --- |
+| `workspace` | `str \| None` | Working directory inside the environment; relative paths are rejected when `None` |
+| `python` | `str` | Python executable inside the environment, `"python3"` by default; `LocalEnvironment` uses the current `sys.executable` |
+| `spawn` | `async (command, *, cwd=None, env=None) -> Process` | Abstract. A string runs through the shell, a sequence runs as an argument vector; `cwd` defaults to `workspace`, `env` adds to the environment's default variables |
+| `read_text` | `async (path) -> str` | Abstract. Read a UTF-8 text file |
+| `read_bytes` | `async (path) -> bytes` | Read bytes. The default reads the file with `python` inside the environment; implementations with direct filesystem access should override it |
+| `write_text` | `async (path, content) -> None` | Abstract. Write a UTF-8 text file, creating missing parent directories |
+| `resolve_path` | `(path) -> str` | Resolve a relative path against `workspace`; raises `ValueError` without a workspace. The base class uses POSIX rules; `LocalEnvironment` also expands `~` and resolves absolute paths |
+| `run_code` | `async (code, *, tools, call_tool, write) -> None` | Abstract. Run model-written Python code; contract below |
+| `close` | `async () -> None` | Release the environment's resources; called when `framework.running()` exits |
+
+A custom environment must implement at least `spawn`, `read_text`, `write_text`, and `run_code`; the other members have defaults.
+
+#### `Process` {#process}
+
+`spawn` returns a `Process`, which exposes the process as streams:
+
+| Member | Description |
+| --- | --- |
+| `stdout` / `stderr` | `asyncio.StreamReader` |
+| `returncode` | Exit code, or `None` while running |
+| `await wait()` | Wait for exit and return the exit code |
+| `await write_stdin(data)` | Write to standard input and wait until flushed |
+| `close_stdin()` | Close standard input |
+| `signal(*, kill)` | Ask the process and its descendants to stop, or kill them when `kill=True`; must not raise once exited |
+| `is_running()` | Whether the process or its descendants are alive; the default checks only the process itself |
+
+`LocalProcess` is the implementation used by `LocalEnvironment`: on POSIX the process runs in its own session, and `signal` targets the whole process group.
+
+#### `run_code` contract {#run-code-contract}
+
+```python
+async def run_code(
+    self,
+    code: str,
+    *,
+    tools: Sequence[str],
+    call_tool: CallTool,
+    write: Callable[[str], None],
+) -> None:
+```
+
+- `code` may use top-level `await`.
+- Each name in `tools` appears in the code as `tools.<name>(**kwargs)`; calls forward to `await call_tool(name, kwargs)`, and exceptions from `call_tool` surface in the code as exceptions.
+- The code may also call `call_tool` with names prefixed `republic.` for media loading and model calls.
+- Everything the code writes to standard output must be passed to `write` as it happens, so output survives a timeout.
+- Raise `CodeFailed` when the code itself raises; any other exception reports that the runtime failed. When cancelled (for example on timeout), stop the code before returning.
+
+`LocalEnvironment.run_code` uses `bub.core.codemode.runner.run_code_in_subprocess(self, ...)`: it runs the code in a Python process started with `spawn`, then terminates that process and everything it started. Custom environments with a Python interpreter can reuse it directly.
+
+#### `CodeFailed` {#codefailed}
+
+`CodeFailed(error, traceback="")`: `error` is `"<Type>: <message>"`, and `traceback` is a formatted traceback limited to frames of the code itself. Code mode turns it into a tool error for the model.
+
+#### Where the environment comes from {#provide-an-environment}
+
+The application layer provides one environment per session through the `provide_environment` hook (first result wins):
+
+```python
+def provide_environment(self, session_id: str, workspace: Path) -> Environment | None:
+```
+
+The framework caches the returned environment per session and calls `Environment.close()` when `framework.running()` exits. The builtin implementation returns `LocalEnvironment(workspace)`; a higher-priority plugin can replace it.
+
+The environment is written to Turn state under `ENVIRONMENT_STATE_KEY` (`"_runtime_environment"`), and builtin tools read it through `bub.builtin.environment.environment_from_state`. When the state has no environment (for example when using an SDK `Agent` directly), the fallback is a `LocalEnvironment` based on `_runtime_workspace`. Without a workspace, relative paths raise `ValueError`.
+
+Constructing `CodeMode` directly in the SDK does not read the environment from Turn state: `CodeMode(tools, environment=...)` accepts an `Environment` or `(TurnState) -> Environment`, and defaults to a `LocalEnvironment()` in the current working directory. The builtin code mode already wires it to `environment_from_state`.
+
+:::caution
+`LocalEnvironment` executes directly on the host, and **a separate process is not a security sandbox**. When running untrusted model code, implement an environment with filesystem, network, and permission isolation.
+:::
 
 ## Application {#application}
 
