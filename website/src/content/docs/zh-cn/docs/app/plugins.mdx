@@ -16,7 +16,7 @@ import { FileTree } from '@astrojs/starlight/components';
 
 在深入各类复杂能力之前，我们先通过一个无需外部模型凭据的插件示例来初步建立起 Bub 的插件认知。
 
-### 初始化插件项目
+### 初始化插件项目 {#initialize-project}
 
 使用 [uv](https://docs.astral.sh/uv/) 快速脚手架初始化一个 Python 库项目，并进入项目目录：
 
@@ -38,7 +38,7 @@ cd bub-echo-plugin
 
 </FileTree>
 
-### 声明入口点
+### 声明入口点 {#declare-entry-point}
 
 在 `pyproject.toml` 中，通过 `[project.entry-points."bub"]` 将插件对象暴露给 Bub：
 
@@ -62,7 +62,7 @@ echo = "bub_echo_plugin.plugin:echo_plugin"
 - **`entry-points` 命名**：必须为 `"bub"`，Bub 启动时会自动扫描该命名空间下的所有插件；
 - **插件标识与路径**：键名 `echo` 为插件的全局唯一标识；值指向待加载的模块、实例或工厂类。
 
-### 实现 Hook 逻辑
+### 实现 Hook 逻辑 {#implement-hooks}
 
 在模块中编写插件逻辑时，需使用 `@hookimpl` 装饰器标记具体的 Hook 实现：
 
@@ -111,7 +111,7 @@ class MyPlugin:
 
 编写完插件后，需要将其安装到 Bub 所在的运行环境中，并验证 Hook 的加载与执行顺序。
 
-### 本地开发安装
+### 本地开发安装 {#local-install}
 
 在插件项目根目录下执行同步，以可编辑模式（Editable Mode）将其安装至当前虚拟环境：
 
@@ -119,7 +119,7 @@ class MyPlugin:
 uv sync
 ```
 
-### 检查 Hook 注册状态
+### 检查 Hook 注册状态 {#check-hook-registration}
 
 使用 `bub hooks` 命令检查插件是否已被正确识别：
 
@@ -129,7 +129,7 @@ uv run bub hooks
 
 在终端输出的 Hook 清单中，`run_model` 下应正确列出已注册的 `echo` 插件。
 
-### 运行测试
+### 运行测试 {#run-tests}
 
 向应用发送一条测试指令，检验插件的实际生效情况：
 
@@ -143,7 +143,7 @@ uv run bub run "hello from my plugin"
 [echo:cli:local] hello from my plugin
 ```
 
-### 排错与调度机制
+### 排错与调度机制 {#troubleshooting-and-dispatch}
 
 若插件未按预期加载或执行，可依据以下原则排查：
 
@@ -176,7 +176,7 @@ class OrdersPlugin:
         return [get_order]
 ```
 
-#### 延迟加载
+#### 延迟加载 {#deferred-loading}
 
 当插件提供了大量工具时，将所有工具的完整 Schema 一次性注入系统提示词会严重消耗上下文窗口。可以在装饰器中启用延迟加载：
 
@@ -192,7 +192,7 @@ def export_orders(format: str) -> str:
 - **延迟机制**：带有 `deferred=True` 的工具默认只向系统提示词提供工具名称与简要描述；
 - **动态展开**：当模型判断需要调用该工具时，会自动通过内置的 `tool.describe` 临时加载其完整定义，并从下一步开始执行调用。
 
-### 2. 流程改写与拦截
+### 2. 流程改写与拦截 {#rewrite-and-intercept}
 
 #### 改写提示词 {#change-the-prompt}
 
@@ -299,7 +299,7 @@ class TurnCounter:
 turn_counter = TurnCounter()
 ```
 
-### 3. 服务与资源挂载
+### 3. 服务与资源挂载 {#services-and-resources}
 
 #### 常驻服务 {#lifecycle}
 
@@ -386,7 +386,7 @@ if ask_confirm("确认继续执行？", kind="permission"):
 
 ## 分发与扩展 {#share-a-plugin}
 
-### 打包分发
+### 打包分发 {#package-and-distribute}
 
 开发完成的插件可以打包为标准 Python Wheel 进行分发。一个发行包可以同时包含插件入口点、技能命名空间包以及自定义 CLI 命令，具体打包配置与发布前验证见[打包与分发](/zh-cn/docs/app/distribution/)。跨语言生态包规范见[加载 Agent Plugins](/zh-cn/docs/integrations/agent-plugins/)。
 

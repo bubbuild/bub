@@ -18,7 +18,7 @@ Fields not declared in the configuration use the settings class defaults. See th
 
 :::
 
-## 1. Finish the initial setup
+## 1. Finish the initial setup {#initial-setup}
 
 Run the following command in your terminal to start the interactive setup. When it finishes, it writes the result to `~/.bub/config.yml`.
 
@@ -26,7 +26,7 @@ Run the following command in your terminal to start the interactive setup. When 
 bub onboard
 ```
 
-## 2. Check the config file
+## 2. Check the config file {#check-the-config}
 
 Now check whether `~/.bub/config.yml` contains the content described in the [full example](/docs/reference/settings/#example). Here is an example:
 
@@ -43,7 +43,7 @@ telegram:
 **By default, your keys are written directly to the config file in plain text.** If you need stronger security and want to avoid storing model provider API keys locally in plain text, pass environment variables when running Bub to set or override them instead.
 :::
 
-## 3. Override with environment variables
+## 3. Override with environment variables {#environment-variables}
 
 Commonly used environment variables include:
 
@@ -58,7 +58,7 @@ Commonly used environment variables include:
 
 See the [settings reference](/docs/reference/settings/) for the full table.
 
-## 4. Configure the model and fallback models
+## 4. Configure the model and fallback models {#configure-models}
 
 The `model` setting uses the `provider:model` format. To try fallback models in order when the primary model is unavailable, configure them in `~/.bub/config.yml`:
 
@@ -70,7 +70,7 @@ fallback_models:
 
 Each candidate provider needs its own valid credentials. Fallbacks only cover failures while creating a client and opening a request; errors after the message stream has started are not retried with another model, to avoid duplicate side effects. See [Models and fallback](/docs/reference/settings/#model-routing) for the full rules.
 
-## 5. Configure the Telegram channel (optional)
+## 5. Configure the Telegram channel (optional) {#telegram-channel}
 
 If you want to use Bub as a Telegram bot, use the built-in Telegram channel. Example configuration:
 
@@ -83,7 +83,7 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:7890   # optional
 
 See [Telegram channel](/docs/app/gateway/#telegram) for more configuration options.
 
-## 6. Verify
+## 6. Verify {#verify}
 
 Now try talking to Bub:
 

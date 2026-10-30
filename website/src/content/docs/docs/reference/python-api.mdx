@@ -247,7 +247,7 @@ Interception payloads (`LLMCallRequest`, `LLMCallDecision`, `ToolCall`, `ToolCal
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
-`StreamEvent.kind`: `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, and `final`. A `tool_result` event carries `data["tool_results"]`, one entry per tool call in the Step; a failed call's entry is its `BubError`, which the Tape and model receive as a dictionary. `AsyncStreamEvents` is an async iterator with `aclose()` / `error` / `usage`. See [SDK output streams](/docs/sdk/#stream-lifecycle) for consumption conventions.
+`StreamEvent.kind`: `text`, `reasoning`, `tool_call`, `tool_result`, `usage`, `error`, and `final`. A `tool_result` event carries `data["tool_results"]`, one entry per tool call in the Step; a failed call's entry is its `BubError`, which the Tape and model receive as a dictionary. `AsyncStreamEvents` is an async iterator with `aclose()` / `error` / `usage`. See [SDK output streams](/docs/sdk/#consume-the-stream) for consumption conventions.
 
 ### Errors {#errors}
 
@@ -449,7 +449,7 @@ They are suitable for status bars and external UIs and do not carry detailed mod
 from bub.inquirer import ask_checkbox, ask_confirm, ask_fuzzy, ask_secret, ask_select, ask_text
 ```
 
-These synchronous functions collect multi-select, confirmation, fuzzy single-select, secret, ordinary single-select, and text input for plugin CLIs and `onboard_config`. When called through the Bub CLI, they publish `PromptChanged`; user cancellation raises `typer.Abort`. See [Collect interactive input](/docs/app/hooks/#prompt-for-input) for usage.
+These synchronous functions collect multi-select, confirmation, fuzzy single-select, secret, ordinary single-select, and text input for plugin CLIs and `onboard_config`. When called through the Bub CLI, they publish `PromptChanged`; user cancellation raises `typer.Abort`. See [Plugins](/docs/app/plugins/) for usage.
 
 ## Related references {#related}
 

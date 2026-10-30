@@ -25,7 +25,7 @@ flowchart TD
 
 [bub-agent-plugins](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-agent-plugins) 插件让 Bub 原生支持这一规范，自动识别并加载插件包中的技能与工具。
 
-## 如何接入
+## 如何接入 {#get-started}
 
 开始前，请先[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并确保系统中安装了 [`uvx`](https://docs.astral.sh/uv/)。
 
@@ -133,7 +133,7 @@ flowchart TD
 
 </Steps>
 
-## 与全局 MCP 协同
+## 与全局 MCP 协同 {#with-mcp}
 
 Agent Plugins 内部声明的 MCP 服务与全局配置 `~/.bub/mcp.json` 是相互隔离的，双方拥有独立的作用域和生命周期通道：
 
@@ -145,7 +145,7 @@ Agent Plugins 内部声明的 MCP 服务与全局配置 `~/.bub/mcp.json` 是相
 这意味着你可以在两个配置中同时声明名为 `time` 的服务，而绝不会产生命名冲突。
 `bub mcp list` / `add` 仅用于管理全局配置；插件内部的服务会在插件加载时由 `agent-plugins.mcp` 自动维系。
 
-## 配置发现路径
+## 配置发现路径 {#discovery-paths}
 
 Bub 默认会自动扫描以下两处目录的直接子文件夹：
 1. **工作区目录**：`<workspace>/.agents/plugins/`（针对当前项目生效）

@@ -53,9 +53,9 @@ First make sure the Bub application is installed and configured correctly, and g
 
 Bub requires at least one enabled channel to run as a gateway. The Telegram channel is enabled whenever `BUB_TELEGRAM_TOKEN` is non-empty.
 
-## Configure Telegram
+## Configure Telegram {#configure-telegram}
 
-### Restrict access
+### Restrict access {#restrict-access}
 
 Set `BUB_TELEGRAM_ALLOW_USERS` to restrict which users can access the bot, and `BUB_TELEGRAM_ALLOW_CHATS` to restrict which chats can access it.
 
@@ -98,7 +98,7 @@ The model output for an ordinary message is not sent to Telegram automatically; 
 
 When a comma command's output is JSON with a `message` field, only that field is sent; other non-empty output is sent as-is, and empty output is dropped.
 
-### Merge consecutive messages
+### Merge consecutive messages {#merge-consecutive-messages}
 
 Telegram merges consecutive messages sent within a short period into one Turn. You can adjust the merging strategy with the following environment variables:
 
@@ -119,7 +119,7 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
 # socks5://<user>:<password>@host:port is also supported
 ```
 
-## Connect other platforms
+## Connect other platforms {#other-platforms}
 
 Although Bub ships with only the Telegram channel, the community provides a variety of [plugins](https://hub.bub.build/) for connecting other platforms.
 
@@ -210,7 +210,7 @@ def provide_channels(message_handler):
 
 After installing the plugin, run the corresponding channel with `bub gateway --enable-channel myapp`.
 
-## Run as a daemon
+## Run as a daemon {#daemon}
 
 To keep Bub running as a system service, configure it with the following commands:
 

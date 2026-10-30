@@ -99,6 +99,12 @@ export function formatPostDate(date: Date, locale: Locale, month: PostDateLength
 export function getAlternateLocaleHref(pathname: string, currentLocale: Locale): string {
   const otherLocale = getLocales().find((locale) => locale !== currentLocale) ?? defaultLang;
 
+  // Only one 404 route is generated, so the language switcher cannot map `/404/`
+  // to a localized 404 page. Send readers to the other locale's home page instead.
+  if (pathname === '/404' || pathname === '/404/') {
+    return getLocalizedPath('/', otherLocale);
+  }
+
   if (currentLocale === defaultLang) {
     return getLocalizedPath(pathname, otherLocale);
   }

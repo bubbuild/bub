@@ -199,7 +199,7 @@ The tool returns `session_id`, collected text `output`, and `errors`:
 }
 ```
 
-`output` collects only text deltas; other stream events remain observable through events and tracing. The subagent shares its `BubAgent`, plugin hooks, model credentials, workspace, `Environment`, files, and external systems with the parent Agent. Turn state is a shallow copy, so nested mutable objects may still be shared. A temporary session isolates **conversation records and model context**, not file, network, or process side effects; using `temp` does not roll back those effects. To isolate execution, provide a separate [execution environment](/docs/app/tools/#environment); for approval, use [tool interception hooks](/docs/app/hooks/#control-a-model-or-tool-call).
+`output` collects only text deltas; other stream events remain observable through events and tracing. The subagent shares its `BubAgent`, plugin hooks, model credentials, workspace, `Environment`, files, and external systems with the parent Agent. Turn state is a shallow copy, so nested mutable objects may still be shared. A temporary session isolates **conversation records and model context**, not file, network, or process side effects; using `temp` does not roll back those effects. To isolate execution, provide a separate [execution environment](/docs/app/tools/#environment); for approval, use [tool interception](/docs/sdk/events/#control-tool-call).
 
 See [Subagents](/docs/app/subagents/) for complete usage examples.
 

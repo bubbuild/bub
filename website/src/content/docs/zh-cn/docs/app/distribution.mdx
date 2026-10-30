@@ -103,7 +103,7 @@ my_plugin = "my_bub.plugin:plugin"
 packages = ["src/my_bub", "src/skills"]
 ```
 
-#### 配置要点
+#### 配置要点 {#key-settings}
 
 1. **依赖声明**：务必声明 `bub[app]`。自 0.6.0 起，核心包 `bub` 仅包含轻量内核，CLI、插件装载与技能运行时均由 `app` 额外依赖提供，遵循 [0.6 迁移说明](/zh-cn/docs/migration/v0-6/) 中的包结构调整。插件所依赖的三方库（如 `httpx`、`pydantic` 等）也应一并声明在发行包的 `dependencies` 中。
 2. **入口点格式**：插件入口点组必须为 `"bub"`，具体语法参见[插件注册规则](/zh-cn/docs/app/plugins/#entry-point-forms)。

@@ -17,7 +17,7 @@ uv add "bub[app]"
 
 <a id="choose-a-depth"></a>
 
-## 先选择复用层级
+## 先选择复用层级 {#choose-a-reuse-layer}
 
 | 需要复用的能力 | 入口 | 宿主仍负责 |
 | --- | --- | --- |
@@ -35,7 +35,7 @@ uv add "bub[app]"
 
 <a id="process-inbound"></a>
 
-## 推荐起点：执行完整 Turn
+## 推荐起点：执行完整 Turn {#run-a-complete-turn}
 
 `process_inbound()` 适合希望 Bub 负责会话解析、初始提示词、模型阶段、状态保存和出站消息组装的宿主。
 
@@ -83,7 +83,7 @@ uv run python embedded.py
 
 <a id="reuse-bubagent"></a>
 
-## 只复用模型阶段：BubAgent.run_stream
+## 只复用模型阶段：BubAgent.run_stream {#model-stage}
 
 需要 Bub 的配置、技能、工具策略和命令，但希望自己处理事件流时，使用 `BubAgent.run_stream()`。
 
@@ -135,7 +135,7 @@ if __name__ == "__main__":
 
 <a id="run-stream-options"></a>
 
-### 按调用收窄工具和技能
+### 按调用收窄工具和技能 {#narrow-tools-and-skills}
 
 ```python
 import asyncio
@@ -190,9 +190,9 @@ if __name__ == "__main__":
 
 <a id="components"></a>
 
-## 只复用工具或 Agent hooks
+## 只复用工具或 Agent hooks {#reuse-tools-or-hooks}
 
-### 工具实现
+### 工具实现 {#tool-implementations}
 
 已有 `core.Agent` 时，可以直接导入内置工具或插件提供的公开构造函数。下面用 `bub-web-search` 演示只复用搜索工具。先安装依赖并配置搜索与模型凭据：
 
@@ -252,7 +252,7 @@ if __name__ == "__main__":
 
 <a id="other-hooks"></a>
 
-### Agent 循环 hooks
+### Agent 循环 hooks {#agent-loop-hooks}
 
 `AgentPlugins` 把插件 hooks 接到核心 Agent 的事件、提示词、工具和运行状态上：
 
@@ -313,7 +313,7 @@ MCP 等需要常驻连接的插件还有独立生命周期；`attach()` 不能�
 
 <a id="bind-a-router"></a>
 
-## 需要渠道投递时绑定 Router
+## 需要渠道投递时绑定 Router {#bind-a-router}
 
 宿主已有发送逻辑时，直接使用 `TurnResult.outbounds` 即可。需要 Bub 渠道负责出站和流包装时，实现并绑定 `ChannelRouter`：
 
@@ -325,7 +325,7 @@ MCP 等需要常驻连接的插件还有独立生命周期；`attach()` 不能�
 
 <a id="lifecycle-and-concurrency"></a>
 
-## 生命周期、异常与并发清单
+## 生命周期、异常与并发清单 {#lifecycle-failure-concurrency}
 
 无论选择哪个应用层入口，都应检查：
 
@@ -339,6 +339,6 @@ MCP 等需要常驻连接的插件还有独立生命周期；`attach()` 不能�
 
 <a id="cli"></a>
 
-## 直接运行或发布命令行
+## 直接运行或发布命令行 {#run-or-publish-cli}
 
 不需要嵌入代码时，直接使用 `bub run`、`bub chat` 或 `bub gateway`。需要自己的命令名时，在发行包中声明 `[project.scripts]` 调用 Bub 入口，并随包分发插件和技能；完整流程见[打包与分发](/zh-cn/docs/app/distribution/)。

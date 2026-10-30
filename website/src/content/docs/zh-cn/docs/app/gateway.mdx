@@ -53,9 +53,9 @@ Bub 最初的灵感就是来源于 Openclaw、nanobot 这样的常驻型 Agent�
 
 Bub 作为网关运行要求至少已启用一个渠道。当 `BUB_TELEGRAM_TOKEN` 非空时，Telegram 渠道即为启用状态。
 
-## 配置 Telegram
+## 配置 Telegram {#configure-telegram}
 
-### 限制访问
+### 限制访问 {#restrict-access}
 
 设置 `BUB_TELEGRAM_ALLOW_USERS` 限制可访问用户，设置 `BUB_TELEGRAM_ALLOW_CHATS` 限制可访问的聊天会话。
 
@@ -98,7 +98,7 @@ BUB_TELEGRAM_ALLOW_CHATS=-1001234567890,-1009876543210
 
 逗号命令输出为含 `message` 字段的 JSON 时，只发该字段；其他非空输出原样发送，空输出丢弃。
 
-### 合并连续消息
+### 合并连续消息 {#merge-consecutive-messages}
 
 Telegram 会把短时间内的连续消息合并进一个 Turn，你可以通过以下环境变量调整合并策略：
 
@@ -119,7 +119,7 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
 # 也支持 socks5://<user>:<password>@host:port
 ```
 
-## 接入其他平台
+## 接入其他平台 {#other-platforms}
 
 尽管 Bub 只内置了 Telegram 渠道，但社区提供了多种 [插件](https://hub.bub.build/) 以接入其他平台。
 
@@ -210,7 +210,7 @@ def provide_channels(message_handler):
 
 安装插件后运行对应渠道 `bub gateway --enable-channel myapp`。
 
-## 以 Daemon 方式运行
+## 以 Daemon 方式运行 {#daemon}
 
 如果想 Bub 常驻系统运行，可按如下命令进行配置：
 

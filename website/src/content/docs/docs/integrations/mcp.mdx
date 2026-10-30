@@ -11,7 +11,7 @@ import { Steps } from '@astrojs/starlight/components';
 
 By installing the [bub-mcp](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp) plugin, you can seamlessly connect tools from across the MCP ecosystem to the Bub application.
 
-## Get started
+## Get started {#get-started}
 
 Before you start, [install the Bub application](/docs/getting-started/install/#app-install) and make sure [`uvx`](https://docs.astral.sh/uv/) is on `PATH`, since it launches [`mcp-server-time`](https://pypi.org/project/mcp-server-time/).
 
@@ -105,7 +105,7 @@ Before you start, [install the Bub application](/docs/getting-started/install/#a
 
 For long-running deployments, use the [gateway](/docs/app/gateway/) or a [container](/docs/app/deploy/). For example, `bub gateway --enable-channel telegram` still starts `mcp.lifecycle` automatically unless `!mcp.lifecycle` is passed explicitly.
 
-## Add other servers
+## Add other servers {#add-servers}
 
 Append additional entries under `mcpServers`. HTTP and SSE use `url`, with optional `headers`:
 
@@ -140,7 +140,7 @@ Another stdio example, launching a filesystem server through `npx`:
 
 Put the allowed directories in `args` and pass credentials through `env`. After saving, run `bub mcp list` to check the connection.
 
-### Manage with the CLI
+### Manage with the CLI {#manage-cli}
 
 You can also modify the same configuration with `bub mcp add`:
 
@@ -160,11 +160,11 @@ bub mcp remove time
 
 `--env` is only for stdio, and `--header` is only for HTTP or SSE.
 
-## Use with portable plugins
+## Use with portable plugins {#with-agent-plugins}
 
 [Agent Plugins](/docs/integrations/agent-plugins/) can also carry MCP servers. The two configurations use separate lifecycle channels and tool names, so they can run at the same time without affecting each other.
 
-## Troubleshooting
+## Troubleshooting {#troubleshooting}
 
 | Symptom | What to check |
 | --- | --- |

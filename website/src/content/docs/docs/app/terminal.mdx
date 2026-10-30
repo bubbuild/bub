@@ -8,7 +8,7 @@ The Bub application provides two ways to interact in the terminal: `bub run` and
 - `bub run` handles a single message and is suitable for one-off tasks;
 - `bub chat` keeps the session open for continuous conversation.
 
-## Start an interactive session
+## Start an interactive session {#start-session}
 
 Run the following command in your terminal to start an interactive session. You can then type a message and press Enter to send it:
 
@@ -49,7 +49,7 @@ By default, the Bub app steers ordinary input while a run is in progress; there 
 
 To stop the task in the current session, use `,quit`; it clears pending messages and cancels running tasks.
 
-## View the reasoning process
+## View the reasoning process {#reasoning}
 
 Enter `,thinking` to expand or collapse the model's reasoning process:
 
@@ -65,7 +65,7 @@ It only controls whether the terminal displays the `reasoning` deltas returned b
 
 The available values depend on the model provider. The setting takes effect from the next Turn and is saved in the current session's Tape.
 
-## Choose a session
+## Choose a session {#choose-session}
 
 `bub run` uses `cli:local` as its default session ID, while `bub chat` uses `cli_session`. Specify the same session ID explicitly to continue history between the two entry points:
 

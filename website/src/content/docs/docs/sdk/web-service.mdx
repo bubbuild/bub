@@ -1,62 +1,71 @@
 ---
-title: "Capstone: FastAPI Service"
-description: Assemble the loop, tools, Tape, and events into an order service with durable sessions, authorization, and SSE.
+title: Integrating a Bub Agent with FastAPI
+description: Build a Todo Agent with the Bub SDK and integrate it with FastAPI.
 sidebar:
-  label: FastAPI Capstone
+  label: Capstone
 ---
 
-This chapter assembles the previous four chapters into an order service. FastAPI is only the host; the focus is the **lifetime, concurrency, and failure boundaries** of Bub components in a real application.
+import { FileTree, Steps } from '@astrojs/starlight/components';
 
-The final service provides:
+With the basics of the Bub SDK behind us, this section introduces no new concepts. Instead, it ties everything together in one complete example that builds a working Agent demo application.
 
-- `POST /chat`: return a complete answer as JSON;
-- `POST /chat/stream`: stream text and tool status over SSE;
-- `FileTapeStore`: preserve multi-turn conversations by `session_id`;
-- Tool events: audit calls and deny unauthorized refunds;
-- Session locks: serialize each `session_id` within one process.
+:::tip[Ask when something is unclear]
+This section covers only the backend logic; the frontend UI is not discussed. If you run into a concept, a piece of code, or an error you do not understand, ask Bub directly, or ask the Agent tool you are using to explain it using this tutorial and the current code.
+:::
 
-## Install and create the project {#setup}
+The complete example lives in [bub-todo-agent](https://github.com/bubbuild/bub/blob/main/website/public/examples/bub-todo-agent/). You can download it and modify it yourself, or build along with the tutorial. The core files are laid out like this:
 
-```bash
-uv init bub-order-service
-cd bub-order-service
-uv add bub fastapi uvicorn
-export REPUBLIC_OPENAI_API_KEY=sk-...
-```
+<FileTree>
 
-## Make three design decisions first {#design}
+- bub-todo-agent/
+  - main.py # the focus of this chapter
+  - index.html # demo UI, not covered here
+  - static/
+    - uno.global.js
+    - alpine.min.js
+  - sessions/ # created automatically at runtime
 
-### 1. Model and Agent live for the application lifetime
+</FileTree>
 
-Do not recreate the model connection and Agent for every request. FastAPI's `lifespan` assembles them at startup and releases them at shutdown, allowing components and file storage to be shared across requests.
 
-### 2. Serialize one session while allowing different sessions in parallel
+:::caution
+This project is for demonstration and teaching only. It is not production-ready; do not expose it to the public internet.
+:::
 
-Multiple Runs on one Tape do not automatically become an ordered conversation. This example uses one `asyncio.Lock` per `session_id`:
+## 1. Configure the Agent and start the FastAPI service {#lifespan}
 
-- different sessions can still run in parallel;
-- a session waits until its previous Run closes and merges;
-- these locks are local to one Python process and are not distributed consistency.
+First, let's set up the application skeleton: configure the Bub Agent and create it when FastAPI starts. That means:
 
-### 3. SSE is an application protocol, not a raw Bub event forwarder
-
-Send only the text and tool names the browser needs. Keep tool arguments, results, reasoning, and internal exceptions on the server by default. `final` ends only one Step, so `done` must be sent after the entire event stream finishes.
-
-## Complete `app.py` {#complete-app}
+1. Import the dependencies and load configuration into variables.
+2. Customize FastAPI's [lifespan](https://fastapi.tiangolo.com/advanced/events/#lifespan) logic so the Bub Agent is configured at startup.
 
 ```python
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#   "bub @ git+https://github.com/bubbuild/bub@main",
+#   "fastapi>=0.135",
+#   "python-dotenv",
+#   "uvicorn",
+# ]
+# ///
+
 import asyncio
-import json
 import logging
+import os
 from collections import defaultdict
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterable, Awaitable, Callable
+from contextlib import asynccontextmanager, suppress
+from itertools import count
 from pathlib import Path
-from typing import Any
+from typing import Literal
+from uuid import uuid4
 
 import republic
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
 
 from bub.core import Agent
@@ -66,38 +75,198 @@ from bub.core.tools import tool
 
 
 logger = logging.getLogger(__name__)
+BASE_DIR = Path(__file__).resolve().parent
 
+load_dotenv()
 
-@tool
-async def get_order(order_id: str) -> dict[str, str]:
-    """Look up an order's status by ID."""
-    await asyncio.sleep(0.1)
-    if order_id == "A123":
-        return {"order_id": "A123", "status": "shipped"}
-    return {"order_id": order_id, "error": "order_not_found"}
-
-
-@tool
-def refund_order(order_id: str, reason: str) -> dict[str, str]:
-    """Request an order refund. Authorization must run first."""
-    return {"order_id": order_id, "status": "refund_requested", "reason": reason}
+# ===== Override with environment variables or .env, or edit these defaults directly =====
+MODEL = os.getenv("BUB_MODEL", "openai:gpt-4o-mini")
+BASE_URL = os.getenv("BUB_API_BASE", "https://api.openai.com/v1")
+API_KEY = os.getenv("BUB_API_KEY") or os.getenv("REPUBLIC_OPENAI_API_KEY")
+HOST = os.getenv("BUB_HOST", "127.0.0.1")
+PORT = int(os.getenv("BUB_PORT", "8000"))
+# ==========================================================
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with republic.get_model("openai:gpt-5-mini") as model:
+    async with republic.get_model(MODEL, api_base=BASE_URL, api_key=API_KEY) as model:
         agent = Agent(
-            store=FileTapeStore(Path("sessions")),
-            tools=[get_order, refund_order],
-            system_prompt="You are an order support assistant. Use tools and respect their denial reasons.",
+            store=FileTapeStore(BASE_DIR / "sessions"),
+            system_prompt=(
+                "You are a personal todo assistant. Always use tools to read or change todos; "
+                "never guess task state. If a request is ambiguous, look it up or ask the user "
+                "first, and respect tool errors and denial reasons."
+            ),
+            max_steps=6,
+        )
+
+        app.state.model = model
+        app.state.agent = agent
+        app.state.session_locks = defaultdict(asyncio.Lock)
+        # request_id -> future; the delete hook waits here, and POST /chat/confirm wakes it.
+        app.state.pending_confirms = {}
+        yield
+
+
+app = FastAPI(title="Bub Todo Agent", lifespan=lifespan)
+```
+
+Notes:
+
+- To avoid creating the Agent repeatedly and to share one instance, mount the created Agent and its related attributes on FastAPI's state object, `app.state`.
+- `max_steps` caps how many steps a single Run can take, preventing the model from looping forever.
+- The `store` parameter gives the Agent Tape capabilities, so it can remember the conversation across turns.
+
+For now this is still a very basic setup: the model can only answer. Next we'll give it the ability to do real work.
+
+## 2. Give it business capabilities through tools {#tools}
+
+Now that the Agent is in place, let's make it actually useful: every Todo operation becomes a Python function wrapped as a tool that the Agent can call. That means:
+
+- Store task data in a Python dictionary.
+- Provide the usual create, read, update, and delete operations so the Agent can view, add, complete, and delete tasks.
+
+```python
+# ...
+
+from itertools import count
+
+from pydantic import BaseModel, Field
+
+from bub.core.tools import tool
+
+TASKS: dict[str, dict[str, object]] = {}
+TASK_IDS = count(3)
+
+
+@tool
+def list_tasks() -> list[dict[str, object]]:
+    """List every todo with its task ID, title, and completion state."""
+    return [dict(task) for task in TASKS.values()]
+
+
+class AddTaskInput(BaseModel):
+    title: str = Field(min_length=1, max_length=100, description="Short, specific todo title")
+
+
+@tool(name="add_task", model=AddTaskInput)
+def add_task(param: AddTaskInput) -> dict[str, object]:
+    """Add a new incomplete todo."""
+    task_id = f"task-{next(TASK_IDS)}"
+    task = {"task_id": task_id, "title": param.title, "completed": False}
+    TASKS[task_id] = task
+    return dict(task)
+
+
+@tool
+def complete_task(task_id: str) -> dict[str, object]:
+    """Mark a todo complete by task ID. Call list_tasks first if the ID is unknown."""
+    if task := TASKS.get(task_id):
+        task["completed"] = True
+        return dict(task)
+    return {"task_id": task_id, "error": "task_not_found"}
+
+
+@tool
+def delete_task(task_id: str) -> dict[str, object]:
+    """Permanently delete a todo by task ID. The host must authorize it first."""
+    if task := TASKS.pop(task_id, None):
+        return {"task_id": task_id, "status": "deleted", "title": task["title"]}
+    return {"task_id": task_id, "error": "task_not_found"}
+```
+
+The code above is fairly basic Python, so we won't go through it line by line. In short:
+
+- The function's docstring and type annotations become the tool schema. The Agent reads them before deciding whether to call the tool.
+- Return values must be JSON-serializable. Return `{"error": ...}` for business failures; don't throw exceptions and abort the whole flow for every failure.
+- `delete_task` is irreversible, so we'll add an interception event later to require a second confirmation.
+
+Now update the Agent configuration:
+
+```python
+
+# Code snippet..
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    # ...
+
+    async with republic.get_model(MODEL, api_base=BASE_URL, api_key=API_KEY) as model:
+        agent = Agent(
+            store=FileTapeStore(BASE_DIR / "sessions"),
+            tools=[list_tasks, add_task, complete_task, delete_task],
+            system_prompt=(
+                "You are a personal todo assistant. Always use tools to read or change todos; "
+                "never guess task state. If a request is ambiguous, look it up or ask the user "
+                "first, and respect tool errors and denial reasons."
+            ),
             max_steps=6,
             max_tool_concurrency=2,
         )
+```
 
-        @agent.events.on(ToolCallStarted)
-        def authorize_tool(event: ToolCallStarted) -> None:
-            if event.call.tool == "refund_order" and not event.state.get("allow_refunds", False):
-                event.decision = ToolCallDecision.deny("This session cannot issue refunds.")
+Here we pass all task tools in `tools` and set `max_tool_concurrency` to cap how many tools can run at once.
+
+## 3. Wrap Agent calls {#tape}
+
+The Bub Agent now has tools — its "hands and feet" — and can interact with the user.
+
+Before calling it, we may want to do some light argument handling so each Run receives correct arguments. Our logic here is simple:
+
+```python
+ConfirmDelete = Callable[[dict[str, object]], Awaitable[bool]]
+
+
+class ChatRequest(BaseModel):
+    session_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    prompt: str = Field(min_length=1, max_length=10_000)
+    think_level: Literal["auto", "low", "medium", "high"] = "auto"
+
+
+def run_agent(agent: Agent, model, req: ChatRequest, confirm_delete: ConfirmDelete):
+    options = None if req.think_level == "auto" else {"reasoning_effort": req.think_level}
+    return agent.run(
+        req.prompt,
+        model=model,
+        options=options,
+        tape=req.session_id,
+        state={"session_id": req.session_id, "confirm_delete": confirm_delete},
+    )
+```
+
+Notes:
+
+- `tape=req.session_id` shares history within one session; a new `session_id` starts a new conversation.
+- `state` holds temporary per-call data shared with the event hooks that follow.
+
+## 4. Register event hooks {#events}
+
+Bub offers several hook points, which we can use to customize specific stages: for example, logging tool calls or intercepting delete commands that have not been confirmed.
+
+The core logic:
+
+1. On `ToolCallFinished`, record the tool name, status, and duration.
+2. On `ToolCallStarted`, intercept `delete_task` first.
+3. Read the confirmation callback from `state`; deny if there is none.
+4. If the user declines, set `deny` and tell the model what to do instead.
+
+So, after creating the Agent, add the following inside FastAPI's `lifespan`:
+
+```python
+# ...
+
+from bub.core.events import ToolCallDecision, ToolCallFinished, ToolCallStarted
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with republic.get_model(MODEL, api_base=BASE_URL, api_key=API_KEY) as model:
+
+
+        # ...
+
 
         @agent.events.on(ToolCallFinished)
         def audit_tool(event: ToolCallFinished) -> None:
@@ -108,161 +277,228 @@ async def lifespan(app: FastAPI):
                 event.result.duration_ms,
             )
 
-        app.state.model = model
-        app.state.agent = agent
-        app.state.session_locks = defaultdict(asyncio.Lock)
-        yield
+
+        @agent.events.on(ToolCallStarted)
+        async def authorize_tool(event: ToolCallStarted) -> None:
+            # Async handlers are awaited, so the Run can pause here until the user answers in the UI.
+            # If nobody answers, denying by default is the safer failure mode.
+            if event.call.tool != "delete_task":
+                return
+            confirm: ConfirmDelete | None = event.state.get("confirm_delete")
+            if confirm is None or not await confirm(event.call.arguments):
+                event.decision = ToolCallDecision.deny(
+                    "The user did not approve deleting this todo. Do not retry; offer to mark "
+                    "the todo complete instead."
+                )
+```
+
+Notes:
+
+- An async handler pauses the current Agent call until the user answers.
+- `deny` skips only this tool call; it does not stop the whole flow. The model receives the denial reason and adjusts its answer.
+
+## 5. Session locks and confirmations {#concurrency}
+
+The previous section pauses the flow before deleting a task, but two pieces are still missing for that pause to actually work:
+
+1. Requests for the same session must queue, so the Tape session is not taken over by another request while one is waiting.
+2. The user's answer about the deletion must reach the paused hook.
+
+So we need a "lock" that ensures only one request holds a given Tape record at a time. Both pieces of state are initialized in `lifespan`:
+
+```python
+app.state.session_locks = defaultdict(asyncio.Lock)
+# request_id -> future; the delete hook waits here, and POST /chat/confirm wakes it.
+app.state.pending_confirms = {}
+```
+
+Then, at the request entry point, take the lock by `session_id`, so requests in the same session run one after another:
+
+```python
+lock: asyncio.Lock = state.session_locks[req.session_id]
+```
+
+For the confirmation interaction, use a separate endpoint:
+
+```python
+class Confirmation(BaseModel):
+    request_id: str
+    approved: bool
 
 
-app = FastAPI(title="Bub Order Service", lifespan=lifespan)
+@app.post("/chat/confirm")
+async def confirm_tool_call(req: Confirmation, request: Request):
+    future = request.app.state.pending_confirms.pop(req.request_id, None)
+    if future is None or future.done():
+        raise HTTPException(status_code=404, detail="confirmation_not_found")
+    future.set_result(req.approved)
+    return {"approved": req.approved}
+```
+
+Now let's do the final piece.
+
+## 6. Build the API and stream over SSE {#sse}
+
+With locks and confirmations in place, we can wire them into the Agent conversation:
+
+1. The frontend makes an HTTP request to `/chat/stream`.
+2. FastAPI handles the request and uses the Agent to generate content.
+3. FastAPI serializes the Agent's output as [SSE](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/) events and returns them to the frontend.
+4. The frontend handles and displays each event by type.
+
+Here is the complete code:
+
+```python
+import asyncio
+from collections.abc import AsyncIterable
+from contextlib import suppress
+from uuid import uuid4
+
+from fastapi import Request
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 
-class ChatRequest(BaseModel):
-    # Tape names enter filenames; production should also namespace by tenant and user.
-    session_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
-    prompt: str = Field(min_length=1, max_length=10_000)
-
-
-def agent_run(agent: Agent, model, req: ChatRequest):
-    return agent.run(
-        req.prompt,
-        model=model,
-        tape=req.session_id,
-        state={"session_id": req.session_id, "allow_refunds": False},
-    )
-
-
-@app.post("/chat")
-async def chat(req: ChatRequest, request: Request):
+@app.post("/chat/stream", response_class=EventSourceResponse)
+async def chat_stream(req: ChatRequest, request: Request) -> AsyncIterable[ServerSentEvent]:
     state = request.app.state
     lock: asyncio.Lock = state.session_locks[req.session_id]
-    reply_parts: list[str] = []
+    # Advance the Run in a background task so hooks can also push frames onto the queue;
+    # hooks run inside the Agent event stream, where the response generator cannot yield directly.
+    queue: asyncio.Queue[ServerSentEvent | None] = asyncio.Queue()
 
-    try:
-        async with lock:
-            async with agent_run(state.agent, state.model, req) as stream:
+    async def confirm_delete(arguments: dict[str, object]) -> bool:
+        task_id = str(arguments.get("task_id", ""))
+        request_id = uuid4().hex
+        future = asyncio.get_running_loop().create_future()
+        state.pending_confirms[request_id] = future
+        queue.put_nowait(
+            ServerSentEvent(
+                data={
+                    "request_id": request_id,
+                    "task_id": task_id,
+                    "title": (TASKS.get(task_id) or {}).get("title"),
+                },
+                event="confirm",
+            )
+        )
+        try:
+            # Fail closed: if there is no answer within two minutes, or the client disconnects,
+            # do not delete.
+            return await asyncio.wait_for(future, timeout=120)
+        except TimeoutError:
+            return False
+        finally:
+            state.pending_confirms.pop(request_id, None)
+
+    async def chat() -> None:
+        try:
+            async with lock, run_agent(state.agent, state.model, req, confirm_delete) as stream:
                 async for event in stream:
                     if event.kind == "text":
-                        reply_parts.append(event.data["delta"])
-    except Exception:
-        logger.exception("Agent run failed: session=%s", req.session_id)
-        raise HTTPException(status_code=500, detail="Agent run failed") from None
+                        queue.put_nowait(
+                            ServerSentEvent(data={"delta": event.data["delta"]}, event="message")
+                        )
+                    elif event.kind == "tool_call":
+                        names = [call["name"] for call in event.data["tool_calls"]]
+                        queue.put_nowait(ServerSentEvent(data={"names": names}, event="tool"))
 
-    return {"session_id": req.session_id, "reply": "".join(reply_parts)}
-
-
-def sse(event: str, data: dict[str, Any]) -> str:
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
-@app.post("/chat/stream")
-async def chat_stream(req: ChatRequest, request: Request):
-    state = request.app.state
-    lock: asyncio.Lock = state.session_locks[req.session_id]
-
-    async def generate() -> AsyncGenerator[str, None]:
-        try:
-            async with lock:
-                async with agent_run(state.agent, state.model, req) as stream:
-                    async for event in stream:
-                        if event.kind == "text":
-                            yield sse("message", {"delta": event.data["delta"]})
-                        elif event.kind == "tool_call":
-                            names = [call["name"] for call in event.data["tool_calls"]]
-                            yield sse("tool", {"names": names})
-
-                    # The whole Run has finished; usage belongs to the last model Step.
-                    yield sse("done", {"last_step_usage": stream.usage})
+                # Send done only after the whole Run ends; final marks the end of just one Step.
+                queue.put_nowait(
+                    ServerSentEvent(data={"last_step_usage": stream.usage}, event="done")
+                )
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Streaming agent run failed: session=%s", req.session_id)
-            yield sse("error", {"message": "Agent run failed"})
+            queue.put_nowait(ServerSentEvent(data={"message": "Agent run failed"}, event="error"))
+        finally:
+            queue.put_nowait(None)
 
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    task = asyncio.create_task(chat())
+    try:
+        while (frame := await queue.get()) is not None:
+            yield frame
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 ```
 
-The shared model remains owned by `lifespan` and is passed explicitly to each Run. Request-scoped `state` contains only session policy and identity; it is not a place to store the model connection.
+## Full walkthrough: one interaction {#wiring}
 
-Start the single-process development service:
+Let's quickly recap the chapter. A complete interaction in this demo looks like this:
 
-```bash
-uv run uvicorn app:app --port 8000
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as /chat/stream
+    participant A as Agent
+    participant H as Event hooks
+    participant K as /chat/confirm
+
+    C->>S: POST {session_id, prompt}
+    S->>S: Lock by session_id
+    S->>A: agent.run(...)
+    A->>A: Call the model and run tools as needed
+    A-->>S: text / tool_call events
+    S-->>C: SSE message / tool frames
+
+    opt delete_task needs confirmation
+        A->>H: ToolCallStarted
+        H->>S: Request user confirmation
+        S-->>C: SSE confirm frame (request_id)
+        C->>K: POST {request_id, approved}
+        K->>H: Return the confirmation result
+        H-->>A: Allow or deny
+    end
+
+    A-->>S: Event stream ends
+    S-->>C: SSE done frame
 ```
 
-## Verify JSON, memory, and SSE {#verify}
+In summary, the demo has three parts:
 
-### JSON endpoint and multi-turn memory
+- **Configuration and integration**: configure the Bub Agent and integrate it with FastAPI.
+- **Custom logic through tools and events**: wrap the actual operations as tools the Agent can call, then customize what happens at specific event stages during tool calls.
+- **Interaction over HTTP**: expose an HTTP endpoint that combines these parts and completes the interaction.
 
-Send two requests with the same `session_id`:
+## Run and try it {#run}
 
-```bash
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"session_id":"customer-42","prompt":"My order is A123. Leave delivery at the front desk."}'
-```
+Your complete demo is now ready. You can run the whole service from [bub-todo-agent](https://github.com/bubbuild/bub/blob/main/website/public/examples/bub-todo-agent/) and try it in the browser:
 
-```bash
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"session_id":"customer-42","prompt":"What delivery note did I just leave?"}'
-```
+<Steps>
 
-The second request reads the history already merged into `sessions/customer-42.jsonl`.
+1. Rename `.env.example` to `.env` and fill in the model settings or port:
 
-### SSE and tool progress
+    ```
+    BUB_MODEL=openai:gpt-4o-mini
+    BUB_API_BASE=https://api.openai.com/v1
 
-```bash
-curl -N -X POST http://localhost:8000/chat/stream \
-  -H "Content-Type: application/json" \
-  -d '{"session_id":"customer-42","prompt":"Look up the status of order A123."}'
-```
+    BUB_API_KEY=sk-...
 
-The client receives frames like:
+    BUB_HOST=127.0.0.1
+    BUB_PORT=8000
+    ```
 
-```text
-event: tool
-data: {"names": ["get_order"]}
+2. Run `main.py` with uv:
 
-event: message
-data: {"delta": "Order"}
+    ```shell
+    uv run main.py
+    ```
 
-event: message
-data: {"delta": " A123"}
+3. When the logs appear, click or copy the URL and open the page in your browser:
 
-event: done
-data: {"last_step_usage": {"input_tokens": 0}}
-```
+    ```
+    $ uv run main.py
+    INFO:     Started server process [85377]
+    INFO:     Waiting for application startup.
+    INFO:     Application startup complete.
+    INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+    ```
 
-Actual text and token values depend on the model. For a refund request, `authorize_tool` skips the function and the model explains the denial returned as a tool error.
+    ![Bub Todo Agent Screenshot](/docs/sdk/bub-todo-agent-screenshot.png)
 
-## Streaming failures and disconnects {#streaming-failures}
+</Steps>
 
-The JSON endpoint can return HTTP 500 when the Agent fails. Once an SSE response starts, its HTTP status is usually already 200 and cannot be changed to 500. The example therefore emits an `error` frame and does not emit `done`. Clients should treat both `error` and `done` as terminal signals.
 
-When a browser disconnects or cancels a request, FastAPI/ASGI closes or cancels the response generator, and the nested `async with` blocks close the Agent stream:
-
-- the unfinished Run ends as `cancelled`;
-- records already written to the fork still merge by default;
-- external side effects from completed tools do not roll back;
-- if cancellation must discard the run's records, use `merge_back=False` explicitly and assess tool side effects separately.
-
-Production deployments also need to consider SSE heartbeats, proxy buffering, client reconnection, and request timeouts. `X-Accel-Buffering: no` is a hint for compatible proxies, not a universal fix for intermediate buffering.
-
-## This is not a distributed deployment recipe {#production-boundaries}
-
-| Concern | What this example guarantees | What production still needs |
-| --- | --- | --- |
-| Same-session concurrency | Serialization by `session_id` in one process | Multi-worker/multi-instance locks, queues, or an explicit concurrency policy |
-| Lock dictionary | Simple process-local locks | Lock reclamation so the dictionary does not grow forever |
-| Session identity | Restricted name characters and length | Authentication, authorization, and tenant namespaces; never trust clients to select other users' sessions |
-| File storage | Single-machine JSONL persistence | Backups, concurrent-write policy, or a database Store |
-| Tool side effects | Event interception before refunds | Real authorization, idempotency, business compensation, and durable audit |
-| Usage | `done` carries the last Step's usage | Aggregate by Step in the host when totals are required |
-| Errors | JSON 500 or SSE `error` frame | Stable error codes, retry policy, timeouts, alerts, and sensitive-log governance |
-
-If you do not want to own this assembly and Turn orchestration, use the app layer instead: [Reuse the Bub app](/docs/integrations/reuse-app/). See the [Python API](/docs/reference/python-api/) for complete constructor parameters.
+Enjoy!

@@ -1,101 +1,68 @@
 ---
 title: Agent 循环
-description: 运行一个最小 Agent，理解 Run、Step、流式事件与资源所有权。
+description: 了解 bub.core.Agent 核心循环机制，掌握 Run、Step、流式事件与 Tape 记忆管理。
 ---
 
-`bub.core.Agent` 是可以嵌入宿主程序的 Agent 内核。它负责驱动模型与工具循环，但不替你管理 Web 框架、配置文件或渠道生命周期。
+`bub.core.Agent` 是 `bub` 的最小内核，负责驱动大模型与本地工具之间的交互循环。你可以直接将它嵌入任何 Python 服务、后端框架或自定义脚本中。
 
-这组文档分为两部分：
+在 [快速上手](/zh-cn/docs/getting-started/quickstart/) 中我们已经体验过如何初始化并运行一个 Agent：
 
-1. **Agent 循环**：运行最小助手，理解事件流。
-2. **[工具](/zh-cn/docs/sdk/tools/)**：通过独立的订单查询场景，学习工具契约与错误处理。
-3. **[事件](/zh-cn/docs/sdk/events/)**：通过独立的退款场景，学习审计与执行前拦截。
-4. **[Tape 与记忆](/zh-cn/docs/sdk/tape/)**：用两轮简短对话理解历史、上下文和持久化。
-5. **[综合案例：FastAPI Todo 后端](/zh-cn/docs/sdk/web-service/)**：把前面的能力组装成一个完整的 FastAPI 后端服务。
-
-前几节的小例子彼此独立，不需要保留上一节的代码。最后的综合案例会把这些知识串起来。如果你不想自行组装这些组件，而是希望复用 Bub 应用的配置、技能、插件或完整 Turn，请直接阅读[复用 Bub 应用](/zh-cn/docs/integrations/reuse-app/)。
-
-## 运行第一个 Agent {#quickstart}
-
-安装核心包。`bub` 已包含 `republic`，这里用它创建模型连接：
-
-```bash
-uv init bub-first-agent
-cd bub-first-agent
-uv add bub
-```
-
-创建 `main.py`：
-
-```python
+```py
 import asyncio
-
 import republic
-
 from bub.core import Agent
 
 
 async def main() -> None:
-    agent = Agent(
-        system_prompt="你是一个简洁、可靠的助手。不确定时直接说明，不要编造事实。",
-        max_steps=6,
-    )
+    # 初始化核心 Agent，指定系统提示词
+    agent = Agent(system_prompt="Be concise.")
 
+    # 使用 republic 获取底层大模型连接
     async with republic.get_model("openai:gpt-5-mini") as model:
-        async with agent.run(
-            "用三句话解释：为什么 Agent 有时需要调用工具？",
-            model=model,
-            tape="quickstart",
-            options={"max_tokens": 512},
-            state={"session_id": "quickstart"},
-        ) as stream:
+        # 启动一次 Run，指定对话 Tape 名称
+        async with agent.run("What can you do?", model=model, tape="demo") as stream:
             async for event in stream:
                 if event.kind == "text":
-                    print(event.data["delta"], end="", flush=True)
-        print()
+                    print(event.data.get("delta", ""), end="", flush=True)
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
-设置模型凭据并运行：
+本文将为你介绍 `bub.core.Agent` 背后的一些细节。
 
-```bash
-export REPUBLIC_OPENAI_API_KEY=sk-...
-uv run python main.py
-```
+## 1. Run 与 Step {#run-and-step}
 
-你会看到回答逐段打印，而不是等整段生成完后一次出现。
+与传统的单次 API 请求不同，Agent 的本质是一个**多步交互循环**（Loop）：它接收用户输入向模型发问，如果模型请求调用工具，Agent 会在本地执行工具，并将结果打包带回给模型，直到模型吐出最终答复。
 
-`options` 会传给本次 Run 的每次模型调用。模型连接由宿主的 `async with` 管理；退出 Run 时，Agent 不会替你关闭它。
+为了精确掌控这个过程，`bub` 在架构上明确区分了两个层级：
 
-## Run 和 Step 有什么区别 {#run-and-step}
+- **Run**：一次完整的用户交互任务（由 `agent.run(...)` 触发）。
+- **Step**：Run 内部的单轮迭代。**一个 Run 包含一个或多个 Step**。
 
-一次 `agent.run()` 是一个 **Run**，也就是一次完整的用户请求。
-
-一个 Run 包含一个或多个 **Step**。每个 Step 调用一次模型；如果模型请求工具，Bub 执行工具，再带着工具结果进入下一 Step：
+下面是一次带有工具调用的多步循环流程：
 
 ```mermaid
 flowchart TD
-    Start["进入 agent.run()，准备 Tape 分支"] --> Consume["调用方迭代事件流"]
-    Consume --> Step["Step：调用模型"]
+    Start["进入 agent.run()，初始化 Tape 分支"] --> Consume["调用方通过 async for 迭代事件流"]
+    Start --> RunStarted["发出 RunStarted"]
+    Consume --> Step["Step 启动：向模型发送上下文"]
     Step --> Output["产出 reasoning / text / usage"]
-    Output --> Decision{"模型请求工具？"}
-    Decision -->|"是"| Call["产出 tool_call，并执行本地工具"]
-    Call --> Result["产出 tool_result 与 final"]
+    Output --> Decision{"模型是否请求工具？"}
+    Decision -->|"是"| Call["产出 tool_call，执行本地工具函数"]
+    Call --> Result["产出 tool_result 与单步 final"]
     Result --> Step
-    Decision -->|"否"| Final["产出 final，结束 Run"]
+    Decision -->|"否"| Final["产出最终文本与 final"]
     Final --> Close["关闭流，发出 RunFinished，合并 Tape 分支"]
 ```
 
-当前例子没有工具，通常只需要一个 Step。下一节加入工具后，就能看到多个 Step 如何衔接。
+在上面的最小示例中，由于没有挂载工具，模型直接生成文本，整个 Run 仅需 1 个 Step 即可结束。当引入工具后，多个 Step 会在底层自动串联。
 
-## 消费事件流，Agent 才会继续工作 {#consume-the-stream}
+---
 
-进入 `agent.run()` 后，Bub 会准备会话并发出 `RunStarted`。但模型与工具循环是由 `async for` 按需推进的：只创建流、不消费它，Agent 不会自己跑完。
+## 2. 消费事件流 {#consume-the-stream}
 
-始终使用 `async with`：
+进入 `agent.run()` 后，`bub` 会初始化会话并发出 `RunStarted`，但底层的模型与工具循环采用了**惰性求值（Lazy Evaluation）**设计：只有当你通过消费事件流时，Agent 才会真正开始步进和工作。仅仅创建上下文而不消费流，任务将不会执行。下面是一个简单的例子：
 
 ```python
 async with agent.run(prompt, model=model, tape="quickstart") as stream:
@@ -103,64 +70,46 @@ async with agent.run(prompt, model=model, tape="quickstart") as stream:
         ...
 ```
 
-这样即使提前 `break`、发生异常或任务被取消，流也会被关闭。未正常跑完的 Run 以 `cancelled` 结束。关闭时，已经写入分支的记录默认仍会合并回主 Tape；这不是事务回滚，详见[Tape 与记忆](/zh-cn/docs/sdk/tape/#forks-and-merges)。
+始终建议将 `agent.run()` 放在 `async with` 上下文管理器中，这样可以确保无论是因为正常跑完、中途异常退出还是被外部取消，底层连接和流都能被安全清理。未正常跑完的 Run 会以 `cancelled` 状态收尾。
 
-### 不要在第一个 `final` 处结束响应 {#final-event}
+所有事件你均可以通过 `event.kind` 来获取。
 
-`final` 表示**当前 Step 结束**，不一定是整个 Run 结束。工具调用后也会产生 `final`，随后可能还有下一 Step。
+:::caution
+当出现 `final` 事件时，仅表示**当前 Step 的结束**，而不是整个 Run 的终点。
+如果模型在当前轮次请求调用了工具，工具执行完毕后，Agent 必然会带着工具结果进入下一轮 Step，并产生新的事件。因此，无论你是向客户端返回流式响应，还是统计任务完成状态，都必须**等待整个 `async for event in stream` 循环完整结束**才开始执行。
+:::
 
-因此，无论返回 HTTP 响应还是通知前端“全部完成”，都应等待事件流迭代结束。
+## 3. 事件类型与数据 {#stream-events}
 
-## 按事件类型读取数据 {#stream-events}
+在迭代 `stream` 时，你会收到不同 `kind` 的事件。每个事件的 `event.data` 数据结构如下：
 
-不同 `kind` 的 `event.data` 结构不同：
-
-| `kind` | 关键载荷 | 含义 |
+| 事件类型 | `event.data` 示例 | 说明 |
 | --- | --- | --- |
-| `reasoning` | `{"delta": "..."}` | 模型提供的推理增量 |
-| `text` | `{"delta": "..."}` | 面向用户的文本增量 |
-| `tool_call` | `{"tool_calls": [{"id", "name", "arguments"}, ...]}` | 一次模型响应请求的工具调用；`arguments` 是 JSON 字符串 |
-| `tool_result` | `{"tool_results": [...]}` | 与工具调用顺序对应的结果；一般工具错误也在这里返回给模型 |
-| `usage` | `{"usage": {...}, "elapsed_seconds": ...}` | 当前 Step 的模型用量 |
-| `final` | `{"ok": True, "text": ...}` 或工具调用与结果 | 当前 Step 的汇总 |
+| `reasoning` | `{"delta": "..."}` | 模型思考过程（Chain of Thought / Reasoning）的文本增量 |
+| `text` | `{"delta": "..."}` | 面向用户的正式回复文本增量 |
+| `tool_call` | `{"tool_calls": [{"id", "name", "arguments"}, ...]}` | 模型请求调用的工具列表（`arguments` 为 JSON 字符串） |
+| `tool_result` | `{"tool_results": [...]}` | 与工具调用顺序对应的执行结果，异常信息也在此回传给模型 |
+| `usage` | `{"usage": {...}, "elapsed_seconds": ...}` | 当前 Step 的模型 Token 消耗量与耗时统计 |
+| `final` | `{"ok": True, "text": ...}` 或工具汇总 | 当前 Step 的汇总结果 |
 
-例如，只打印文本和工具名称：
+因为，在宿主程序中，通常需要根据 `event.kind` 分流处理，这也就是为什么叫 Agent 循环，因为本质上就是在一个循环中不断分流处理事件：
 
 ```python
 async for event in stream:
     if event.kind == "tool_call":
         for call in event.data["tool_calls"]:
-            print(f"模型请求调用：{call['name']}")
+            print(f"[{event.step_index}] 模型请求调用工具：{call['name']}")
     elif event.kind == "text":
         print(event.data["delta"], end="", flush=True)
 ```
 
-工具事件包含列表，不是单个 `name` 和 `args`。是否把 `reasoning`、工具参数或工具结果转发给终端用户，是宿主的产品与安全决策；不要默认把所有事件原样暴露出去。
+## 4. Tape 与记忆分支管理 {#tape-management}
 
-## 异常和资源由谁负责 {#stream-lifecycle}
+细心的你会发现在开头的示例中传入了 `tape="demo"`。
 
-模型、存储和事件处理器的异常可能直接从事件迭代中抛出。**不要只等待一个 `error` 事件来代替异常处理**：
+在 Bub 的架构设计中，**Tape** 是核心的对话历史与状态存储载体，它可以：
 
-```python
-try:
-    async with agent.run(prompt, model=model, tape="quickstart") as stream:
-        async for event in stream:
-            ...
-except Exception as exc:
-    # 记录服务端异常，并向调用方返回稳定的错误响应。
-    report_error(exc)
-```
+- **基于记录恢复上下文**：不同于传统的内存会话状态（容易由于大模型上下文膨胀或丢失导致幻觉），`bub` 的上下文由 append-only 的 Tape 记录按需重构。
+- **分支机制**：`tape="demo"` 允许本次运行挂载在特定的磁带分支上。流正常关闭时，分支中的记录默认会自动合并回主 Tape；若配置了参数丢弃分支记录，则不会污染主历史。
 
-工具参数校验失败或普通工具异常通常会转换成工具结果，让模型看到失败并调整后续回答；这与中断整个 Run 的异常不同。
-
-组装应用前，先明确每类资源由谁负责：
-
-| 资源 | 所有者与结束时机 |
-| --- | --- |
-| 模型连接 | 宿主创建并关闭，通常覆盖整个应用生命周期 |
-| Run 事件流 | `async with agent.run(...)`，退出时关闭 |
-| 单次 Run 的 `state` | 本次 Run 内共享，不会自动持久化 |
-| Tape 分支记录 | 流关闭时默认合并；`merge_back=False` 可丢弃记录 |
-| 工具产生的外部副作用 | 业务代码负责；关闭流或丢弃 Tape 都不会回滚 |
-
-下一节用一个独立的订单查询例子，看看工具如何进入这个循环：[工具](/zh-cn/docs/sdk/tools/)。
+借助于 Tape 可以让我们 Agent 循环具备记忆和连续对话能力，当然在后面我们会单独对其进行[介绍](/zh-cn/docs/sdk/tape/#forks-and-merges)。

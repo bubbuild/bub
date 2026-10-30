@@ -17,7 +17,7 @@ If you only need the model loop, tools, and Tape, start with the [core SDK](/doc
 
 <a id="choose-a-depth"></a>
 
-## Choose a reuse layer
+## Choose a reuse layer {#choose-a-reuse-layer}
 
 | Capability to reuse | Entry point | What the host still owns |
 | --- | --- | --- |
@@ -35,7 +35,7 @@ Installing a plugin package does not mean every entry point executes all its cap
 
 <a id="process-inbound"></a>
 
-## Recommended starting point: run a complete Turn
+## Recommended starting point: run a complete Turn {#run-a-complete-turn}
 
 Use `process_inbound()` when Bub should own session resolution, the initial prompt, model stage, state saving, and outbound-message assembly.
 
@@ -83,7 +83,7 @@ Call `load_hooks()` once at startup to load builtin implementations and installe
 
 <a id="reuse-bubagent"></a>
 
-## Reuse only the model stage: BubAgent.run_stream
+## Reuse only the model stage: BubAgent.run_stream {#model-stage}
 
 Use `BubAgent.run_stream()` when you want Bub's configuration, skills, tool policies, and commands but prefer to handle the event stream yourself.
 
@@ -135,7 +135,7 @@ Builtin system instructions do not ask the model to reply through channel skills
 
 <a id="run-stream-options"></a>
 
-### Narrow tools and skills per call
+### Narrow tools and skills per call {#narrow-tools-and-skills}
 
 ```python
 import asyncio
@@ -190,9 +190,9 @@ Passing `state` explicitly skips `load_state` hooks. When you need normal sessio
 
 <a id="components"></a>
 
-## Reuse only tools or Agent hooks
+## Reuse only tools or Agent hooks {#reuse-tools-or-hooks}
 
-### Tool implementations
+### Tool implementations {#tool-implementations}
 
 An existing `core.Agent` can import builtin tools or public constructors supplied by plugins. The example below reuses only the search tool from `bub-web-search`. Install the dependencies and configure search and model credentials first:
 
@@ -252,7 +252,7 @@ Run `uv run python search_agent.py` to record the session in `sessions/`. This r
 
 <a id="other-hooks"></a>
 
-### Agent-loop hooks
+### Agent-loop hooks {#agent-loop-hooks}
 
 `AgentPlugins` connects plugin hooks to a core Agent's events, prompts, tools, and run state:
 
@@ -313,7 +313,7 @@ Plugins such as MCP that hold persistent connections have an independent lifecyc
 
 <a id="bind-a-router"></a>
 
-## Bind a Router for channel delivery
+## Bind a Router for channel delivery {#bind-a-router}
 
 If the host already has sending logic, use `TurnResult.outbounds` directly. Implement and bind a `ChannelRouter` when Bub channels should own outbound delivery and stream wrapping:
 
@@ -325,7 +325,7 @@ See the [Python API](/docs/reference/python-api/#framework) and [Turn concepts](
 
 <a id="lifecycle-and-concurrency"></a>
 
-## Lifecycle, failure, and concurrency checklist
+## Lifecycle, failure, and concurrency checklist {#lifecycle-failure-concurrency}
 
 Whichever app-layer entry point you choose, verify these boundaries:
 
@@ -339,6 +339,6 @@ Whichever app-layer entry point you choose, verify these boundaries:
 
 <a id="cli"></a>
 
-## Run or publish the CLI
+## Run or publish the CLI {#run-or-publish-cli}
 
 If you do not need embedded code, use `bub run`, `bub chat`, or `bub gateway` directly. To own the command name, declare `[project.scripts]` that calls the Bub entry point and ship plugins and skills in the same distribution. See [Packaging and distribution](/docs/app/distribution/).

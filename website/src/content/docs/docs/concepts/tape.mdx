@@ -135,7 +135,7 @@ The Bub app uses a spill sidecar for large tool results. The main conversation r
 
 Model requests can contain images, audio, and video, but Tape is not a media file store. When a Run's fork writes records, it strips non-text content blocks from the prompt and keeps only text, avoiding inline media in JSONL history.
 
-For later replay or audit, the host stores media in object storage or a filesystem and records a resolvable reference in text. To return media to the current model call from a tool, use [`content_result()`](/docs/sdk/tools/#media-results).
+For later replay or audit, the host stores media in object storage or a filesystem and records a resolvable reference in text. To return media to the current model call from a tool, use [`content_result()`](/docs/reference/python-api/#tools).
 
 ## Choose storage for the record {#storage}
 

@@ -11,7 +11,7 @@ import { FileTree, Steps } from '@astrojs/starlight/components';
 
 The [bub-agent-plugins](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-agent-plugins) plugin gives Bub native support for this specification, automatically discovering and loading the skills and tools in each plugin package.
 
-## Get started
+## Get started {#get-started}
 
 Below you will create a plugin package containing a summary skill and a time server. The verification commands call the skill and tool directly and do not require a model API key.
 
@@ -120,7 +120,7 @@ Before you start, [install the Bub application](/docs/getting-started/install/#a
 
 Once you have [configured a model](/docs/app/configure/), you can also let the model call the time tool, or use `$plugin-summary` to summarize notes.
 
-## Use it alongside existing MCP servers
+## Use it alongside existing MCP servers {#with-mcp}
 
 The two kinds of configuration are managed separately and do not affect each other:
 
@@ -133,7 +133,7 @@ Both can therefore have a server named `time`. `bub mcp add`, `remove`, and `lis
 
 `bub chat` and `bub gateway` start the enabled lifecycle channels; `bub run` does not. When using `BUB_ENABLED_CHANNELS`, check whether `agent-plugins.mcp` or `mcp.lifecycle` is excluded.
 
-## Configure discovery paths and components
+## Configure discovery paths and components {#discovery-paths}
 
 By default, Bub scans the immediate child directories of `<workspace>/.agents/plugins/` and `~/.agents/plugins/`. To use other locations, configure them in `~/.bub/config.yml`:
 
@@ -174,7 +174,7 @@ Stdio servers receive `PLUGIN_ROOT` and `PLUGIN_DATA` as absolute paths, and the
 
 `PLUGIN_DATA` points to a persistent directory named after the plugin under `data_root`. After downloading or updating a plugin package, restart Bub to load the new content.
 
-## Troubleshooting
+## Troubleshooting {#troubleshooting}
 
 | Symptom | What to check |
 | --- | --- |

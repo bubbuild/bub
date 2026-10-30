@@ -1,21 +1,17 @@
 ---
 title: Tools
-description: Define reliable tool contracts for the order assistant, including validation, results, errors, context, and concurrency.
+description: Give the Agent lookup and action capabilities, and learn about tool arguments, results, errors, and run context.
 ---
 
-Tools let the model query facts or perform actions. `@tool` converts a typed Python function into a `Tool`: its name, type annotations, and docstring together form the contract visible to the model.
+An Agent can understand a user's request, but to query real data or perform actions it needs a way to call external capabilities. Tools are the Agent's **hands and feet**: you can wrap any piece of processing logic as a tool, and the Agent then decides from the user's request whether to call it.
 
-This chapter adds `get_order` to the order assistant. The goal is not merely to invoke a function, but to define what the model sees, how failures come back, and who owns side effects.
+This section starts with an order-lookup example and then walks through how to define a tool, how the model calls it, and how to handle arguments, results, and runtime data.
 
-## Complete order-query example {#complete-example}
+## Add a custom tool {#add-a-tool}
 
-Replace `main.py` with:
+Suppose we already have a Python function that looks up orders. For the Agent to call it, mark the function with the `@tool` decorator from the Bub SDK and pass it when creating the Agent:
 
 ```python
-import asyncio
-
-import republic
-
 from bub.core import Agent
 from bub.core.tools import tool
 
@@ -31,70 +27,66 @@ ORDERS = {
 
 
 @tool
-async def get_order(order_id: str) -> dict[str, str | float]:
-    """Look up an order's status, item, and amount. Return error when it does not exist."""
-    await asyncio.sleep(0.1)  # Simulate non-blocking database I/O
+def get_order(order_id: str) -> dict[str, str | float]:
+    """Look up an order's status, item, and amount by order ID."""
     if order := ORDERS.get(order_id):
         return order
     return {"order_id": order_id, "error": "order_not_found"}
 
 
-async def main() -> None:
-    agent = Agent(
-        tools=[get_order],
-        system_prompt="You are an order support assistant. Always use the tool for order lookups; never guess order status.",
-        max_steps=6,
-        max_tool_concurrency=2,
-    )
-
-    async with republic.get_model("openai:gpt-5-mini") as model:
-        async with agent.run(
-            "What is the current status of order A123?",
-            model=model,
-            tape="customer-42",
-        ) as stream:
-            async for event in stream:
-                if event.kind == "tool_call":
-                    for call in event.data["tool_calls"]:
-                        print(f"\n[Tool requested] {call['name']} {call['arguments']}")
-                elif event.kind == "tool_result":
-                    print(f"[Tool results] {event.data['tool_results']}")
-                elif event.kind == "text":
-                    print(event.data["delta"], end="", flush=True)
-        print()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+agent = Agent(
+    tools=[get_order],
+    system_prompt="When the user asks about an order, use the tool; never guess order status.",
+)
 ```
 
-Using the `REPUBLIC_OPENAI_API_KEY` from the previous chapter, run:
+The `@tool` decorator turns a type-annotated Python function into a tool the Agent can use. The function contains the actual business logic; the tool name, argument types, and description help the model decide when and how to call it.
 
-```bash
-uv run python main.py
+## Tool call flow {#tool-call-flow}
+
+The model never executes Python directly. It first requests a tool call; Bub then validates the arguments and runs the matching function; finally, the result goes back to the model:
+
+```mermaid
+flowchart LR
+    A[User makes a request] --> B[Model decides to call a tool]
+    B --> C[Bub validates arguments and runs the function]
+    C --> D[Tool result goes back to the model]
+    D --> E[Model continues and answers]
 ```
 
-A typical run has two Steps:
+So when we call `agent.run()`, the stream shows both the calls the model requested and the results the tools returned:
 
-1. The model requests `get_order(order_id="A123")`; Bub executes it and yields `tool_result`.
-2. The next Step gives that result to the model, which answers from the returned data.
+```python
+async with agent.run(prompt, model=model, tape="tools-demo") as stream:
+    async for event in stream:
+        if event.kind == "tool_call":
+            for call in event.data["tool_calls"]:
+                print(f"Model requested: {call['name']}, arguments: {call['arguments']}")
+        elif event.kind == "tool_result":
+            print(f"Tool result: {event.data['tool_results']}")
+        elif event.kind == "text":
+            print(event.data["delta"], end="", flush=True)
+```
 
-The model still decides whether to call a tool. System prompts guide behavior, but order status must come from tool results; a prompt is not a data-correctness guarantee.
+A tool call takes two Steps:
 
-## Design an argument contract the model can use {#schemas}
+1. The model requests the `get_order` tool; Bub runs the function and returns the result to the model.
+2. The model uses that result to produce its answer.
 
-### Types and descriptions are model-facing API
+Whether to call a tool is still up to the model.
 
-Parameter types become JSON Schema and the docstring becomes the tool description. Explain business meaning and constraints instead of repeating parameter names:
+## Tool descriptions and constraints {#tool-schema}
+
+For a Python function marked with `@tool`, the argument types become a JSON Schema and the [docstring](https://peps.python.org/pep-0257/) becomes the tool's description. Parameter names and descriptions are therefore part of the tool's interface. Write an accurate signature and description so the model can call it correctly.
 
 ```python
 @tool
-async def get_order(order_id: str) -> dict[str, str | float]:
-    """Look up an order. order_id is the complete customer-provided ID, such as A123."""
+def get_order(order_id: str) -> dict[str, str | float]:
+    """Look up an order by ID. order_id is the complete customer-provided ID, such as A123."""
     ...
 ```
 
-For larger inputs or additional validation, use a Pydantic model:
+When the input has many parameters or needs constraints such as ranges and lengths, a validation library such as [Pydantic](https://pydantic.dev/) can help. Pass the model to the `@tool` decorator's `model` argument:
 
 ```python
 from pydantic import BaseModel, Field
@@ -105,12 +97,12 @@ from bub.core.tools import tool
 class RefundInput(BaseModel):
     order_id: str = Field(description="Complete order ID, such as A123")
     amount: float = Field(gt=0, description="Refund amount; must be greater than zero")
-    reason: str = Field(min_length=1, description="Customer-provided refund reason")
+    reason: str = Field(min_length=1, description="Refund reason supplied by the user")
 
 
 @tool(name="refund_order", model=RefundInput)
 def refund_order(param: RefundInput) -> dict[str, str | float]:
-    """Request a refund for a paid order; authorization must run before execution."""
+    """Request a refund for a paid order; run the authorization check before executing."""
     return {
         "order_id": param.order_id,
         "amount": param.amount,
@@ -118,45 +110,22 @@ def refund_order(param: RefundInput) -> dict[str, str | float]:
     }
 ```
 
-Validation failures become tool errors in `tool_result`, so the model can correct its arguments and retry, although a successful retry is not guaranteed. Domain states such as “order not found” can use stable structured error objects so the model and caller can distinguish them.
+During execution, if an argument has the wrong type or fails Pydantic validation, Bub returns the error to the model as a tool error. The model can correct the arguments and try again, though a successful retry is not guaranteed.
 
-## Results, exceptions, and side effects {#results-and-errors}
-
-Ordinary return values pass through `Tool.render()` to become model-facing text: strings stay unchanged, while Pydantic models, dictionaries, and other structured values are serialized as JSON by default. Pass a `renderer` to control that representation. Never include credentials or host-only internal fields in a tool result.
+When writing the actual business function, distinguish a business outcome from an execution error:
 
 | Situation | Default behavior |
 | --- | --- |
-| Arguments fail types or Pydantic constraints | Converted to a validation tool error returned to the model |
-| Tool raises an ordinary exception | Converted to a tool error returned to the model |
-| Tool returns a domain error object | Returned to the model as a normal tool result |
-| Storage, model, or event handler aborts the Run | Exception may propagate from stream iteration to the host |
+| An argument does not match its type or a Pydantic constraint | Converted to a validation tool error and returned to the model |
+| The tool raises an ordinary exception | Converted to a tool error and returned to the model |
+| The tool returns a business error object, such as `order_not_found` | Returned to the model as a normal tool result |
+| Storage, the model, or an event handler interrupts the call | The exception may propagate from stream iteration; handle it in the integration layer |
 
-**Tool side effects are outside the Tape transaction boundary.** A refund, sent email, or changed file is not rolled back by a later model failure, client cancellation, or `merge_back=False`. Writes need authorization, idempotency keys, and business compensation where necessary; do not rely on a prompt asking the model not to repeat a call.
+A business error object is not a Python exception. Returning a stable structured result lets both the model and the caller recognize business states such as "order not found".
 
-### Return images and other media {#media-results}
+## Inject context into a tool {#tool-context}
 
-Use `content_result()` to return media to the current model call instead of embedding binary data in JSON:
-
-```python
-import republic
-
-from bub.core.tools import content_result, tool
-
-
-@tool
-def get_invoice_preview(invoice_id: str) -> dict[str, object]:
-    """Return an invoice description and preview image."""
-    return content_result([
-        f"Preview for invoice {invoice_id}",
-        republic.Image("image/png", url="https://example.test/invoice.png"),
-    ])
-```
-
-Media results feed the current model input; they are not a media persistence solution. For audit or replay, the host stores the file and records a resolvable reference in its business records.
-
-## Inject per-Run context {#tool-context}
-
-Use `ToolContext` when a tool needs the session name, request-scoped permissions, or event bus. Bub injects it, and it is excluded from the model-visible argument Schema:
+Sometimes a tool needs the current session, request-scoped permissions, or the event bus. The `ToolContext` object injected by Bub provides them:
 
 ```python
 from bub.core.tools import ToolContext, tool
@@ -169,58 +138,96 @@ async def add_order_note(note: str, *, context: ToolContext) -> str:
         "order.note",
         {"text": note, "request_id": context.state.get("request_id")},
     )
-    return f"Note recorded in session {context.tape.name}"
+    return f"Note written to session {context.tape.name}"
 ```
 
-Pass the state for this Run:
+Pass `state` when calling the Agent, and the tool can read it through `context.state`:
 
 ```python
 async with agent.run(
     prompt,
     model=model,
-    tape="customer-42",
-    state={"session_id": "customer-42", "request_id": "req-01"},
+    tape="tools-demo",
+    state={"session_id": "tools-demo", "request_id": "req-01"},
 ) as stream:
     ...
 ```
 
-`context.state` is shared only within the current Run and is not restored automatically. `append_event()` appends a historical record, but ordinary business events are not included in the next model input by default; include them deliberately through context projection when the model needs them.
+:::tip
+Bub injects the `context` argument, so it does not appear in the argument Schema the model sees. `context.state` is shared only within the current call and is not persisted or restored automatically.
+:::
 
-## Sync functions, async functions, and concurrency {#concurrency}
+## Async and concurrent calls {#concurrency}
 
-A model can request several tools in one response. `Agent(max_tool_concurrency=...)` limits concurrency for **that batch of calls**: `None` is unlimited and `1` executes in order. It is not an application-wide rate limiter.
-
-Synchronous tool functions run directly on the current event loop. Wrap blocking database drivers, file processing, or third-party clients in a thread so they do not stall unrelated requests:
+The `@tool` decorator works with plain functions and with async functions. In general, any logic that might block the program should run as an async function, and should be moved to a separate thread when necessary:
 
 ```python
+import time
+import asyncio
+
+def build_report_blocking(order_id: str) -> None:
+    time.sleep(3)
+
 @tool
 async def export_order_report(order_id: str) -> str:
     """Build an order report and return its download URL."""
     return await asyncio.to_thread(build_report_blocking, order_id)
 ```
 
-`async def` does not make blocking code non-blocking; use genuinely asynchronous I/O or explicitly offload the work.
+The model may request several tools in a single response. To avoid hitting the host's own resource limits, Bub lets you cap this with the `max_tool_concurrency` argument:
 
-`Agent(tools=[...])` also accepts provider tools such as `republic.tools.WebSearch()`. The model provider executes those tools without the local `ToolExecutor`, so local `max_tool_concurrency` does not limit them.
+```python
+from bub.core import Agent
+from bub.core.tools import tool
 
-## Call a tool without a model {#call-a-tool-without-a-model}
 
-For a deterministic command entry point, set `command_prefix` on the Agent. Commands use the same tool implementation and argument validation without calling the model:
+ORDERS = {
+    "A123": {
+        "order_id": "A123",
+        "status": "shipped",
+        "item": "Mechanical keyboard",
+        "amount": 399.0,
+    }
+}
+
+
+@tool
+def get_order(order_id: str) -> dict[str, str | float]:
+    """Look up an order's status, item, and amount by order ID."""
+    if order := ORDERS.get(order_id):
+        return order
+    return {"order_id": order_id, "error": "order_not_found"}
+
+
+agent = Agent(
+    tools=[get_order],
+    system_prompt="When the user asks about an order, use the tool; never guess order status.",
+    max_tool_concurrency=2,
+)
+
+```
+
+`Agent(tools=[...])` also accepts tools from other libraries, such as `republic.tools.WebSearch()`. The model provider runs those tools, so they bypass the local `ToolExecutor` and are not subject to the local `max_tool_concurrency` limit.
+
+
+## Call a tool directly {#call-a-tool-without-a-model}
+
+If you have a clear idea of which command you want to run, set a `command_prefix` on the Agent. Commands use the same tool implementations and argument validation, but skip the model:
 
 ```python
 agent = Agent(tools=[get_order], command_prefix=",")
 
-async with agent.run(",get_order A123", model=model, tape="customer-42") as stream:
+async with agent.run(",get_order A123", model=model, tape="tools-demo") as stream:
     async for event in stream:
         if event.kind == "text":
             print(event.data["delta"], end="")
 ```
 
-Direct commands emit `CommandFinished` and a text result, not `RunStarted` / `RunFinished`. Command errors go directly to the caller instead of back to a model for self-correction. Permission policies that must cover command paths still belong in `ToolCallStarted`.
+The difference from an ordinary function call is that a direct command emits Bub-defined events, so your existing Agent flow can handle it the same way. If the command fails, however, the error is not sent back to the model for correction the way a model tool error is.
 
-## Advanced: compose tools with Code Mode {#compose-tools-with-codemode}
+## Code Mode {#compose-tools-with-codemode}
 
-With many tools or a piece of conditional logic, the model can use `run_code` to write Python that composes several tools in one execution:
+When there are many tools or the task needs conditional logic, let the model write Python through the `run_code` tool. This gives it more flexibility and lets it compose several tools in one execution:
 
 ```python
 from bub.core.codemode import CodeMode
@@ -230,25 +237,21 @@ code_mode = CodeMode([get_order])
 agent = Agent(
     tools=[code_mode.run_code],
     system_prompt=[
-        "Use the available tools; you can write Python that calls tools.*.",
+        "Use the available tools to complete the task; you can write Python that calls tools.*.",
         code_mode.prompt,
     ],
 )
 ```
 
-Model-written code can then call:
+The model then generates and runs Python such as:
 
 ```python
 order = await tools.get_order(order_id="A123")
 print(order)
 ```
 
-### Choose an execution environment {#choose-an-execution-environment}
+## Secure and isolated execution environments {#choose-an-execution-environment}
 
-`Environment` defines contracts for process creation, file access, code execution, and shutdown. The default `LocalEnvironment` starts a Python process on the host; remote or isolated environments can provide different filesystem, network, and permission boundaries.
+By default, every tool or piece of code used by the Agent runs on the host machine executing the Python process. That is not an isolated or secure sandbox. When necessary, isolate execution and configure limits for the filesystem, network, and permissions.
 
-:::caution
-**A separate process is not a security sandbox.** Do not treat host execution of untrusted model code as a security boundary. Configure an `Environment` with explicit filesystem, network, and permission isolation when required; see the [Python API](/docs/reference/python-api/) for the complete protocol.
-:::
-
-Next, add audit logs and enforce a permission policy before refunds: [Events](/docs/sdk/events/).
+Bub lets you use a remote or isolated environment as the execution container by providing a custom `Environment`. See [Environment](/docs/reference/python-api/#environment) for the complete protocol.

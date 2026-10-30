@@ -47,7 +47,7 @@ last_token_cache_hit_rate: 72.50%
 
 ![展示 Bub task run 之后 tape.info 输出的终端截图](/docs/observability/tape-info.png)
 
-### 核心指标解读
+### 核心指标解读 {#core-metrics}
 
 | 字段 | 含义与排查意义 |
 |---|---|
@@ -57,7 +57,7 @@ last_token_cache_hit_rate: 72.50%
 | `last_token_usage` | 最近一次大模型调用的 Token 总消耗量。 |
 | `last_token_cache_hit_rate` | 提示词缓存（Prompt Cache）命中率。命中率高代表响应更快且成本更低。 |
 
-### 快速检索历史事件
+### 快速检索历史事件 {#search-events}
 
 当需要排查工具调用是否成功或查找特定步骤时，无需手动翻看完整日志，使用 `,tape.search`：
 
@@ -70,7 +70,7 @@ bub run ",tape.search query=loop.step"
 
 当需要分析大模型延迟、工具执行耗时与异常报错时，可通过 OpenTelemetry（OTLP）将调用链导出到专业的分析面板。
 
-### Arize Phoenix（本地部署）
+### Arize Phoenix（本地部署） {#arize-phoenix}
 
 [Arize Phoenix](https://github.com/Arize-ai/phoenix) 是一款出色的开源 AI 遥测工具，通过 Docker 一键即可启动：
 
@@ -106,7 +106,7 @@ bub run "请使用工具列出当前工作区的文件。"
 
 ![展示 Bub GenAI 遥测通过 OTLP 导出到 Phoenix 的截图](/docs/observability/phoenix-otel.png)
 
-### Pydantic Logfire
+### Pydantic Logfire {#pydantic-logfire}
 
 如果你不想在本地维护 Docker 容器，可以使用 [Pydantic Logfire](https://logfire.pydantic.dev/)：
 
@@ -127,7 +127,7 @@ bub run "检查这个仓库并总结它的目录结构。"
 
 登录 Logfire Web 控制台，在 Agents 页面下即可实时查看 Bub 的运行调用栈与子 Agent 链路。
 
-### Python 代码配置
+### Python 代码配置 {#python-config}
 
 如果你正在通过 Python SDK 复用 Bub，也可以在程序初始化时显式启动遥测：
 

@@ -104,7 +104,7 @@ my_plugin = "my_bub.plugin:plugin"
 packages = ["src/my_bub", "src/skills"]
 ```
 
-#### Key settings
+#### Key settings {#key-settings}
 
 1. **Dependencies**: Always declare `bub[app]`. Since 0.6.0 the core `bub` package holds only the lightweight kernel; the CLI, plugin loading, and the skill runtime all come from the `app` extra, following the package restructuring described in the [0.6 migration notes](/docs/migration/v0-6/). Declare third-party libraries your plugins depend on (such as `httpx` or `pydantic`) in the distribution's `dependencies` as well.
 2. **Entry point format**: The entry point group must be `"bub"`. See the [plugin registration rules](/docs/app/plugins/#entry-point-forms) for the exact syntax.

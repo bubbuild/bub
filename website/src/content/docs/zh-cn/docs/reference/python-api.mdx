@@ -247,7 +247,7 @@ from bub.core import EventBus, ToolCallStarted, ToolCallFinished
 from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 ```
 
-`StreamEvent.kind`：`text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error`、`final`。`tool_result` 事件包含 `data["tool_results"]`，与本 Step 的工具调用一一对应；失败调用对应的项是它的 `BubError`，Tape 和模型收到的是它的字典形式。`AsyncStreamEvents` 是带 `aclose()` / `error` / `usage` 的异步迭代器。消费约定见 [SDK 输出流](/zh-cn/docs/sdk/#stream-lifecycle)。
+`StreamEvent.kind`：`text`、`reasoning`、`tool_call`、`tool_result`、`usage`、`error`、`final`。`tool_result` 事件包含 `data["tool_results"]`，与本 Step 的工具调用一一对应；失败调用对应的项是它的 `BubError`，Tape 和模型收到的是它的字典形式。`AsyncStreamEvents` 是带 `aclose()` / `error` / `usage` 的异步迭代器。消费约定见 [SDK 输出流](/zh-cn/docs/sdk/#consume-the-stream)。
 
 ### Errors {#errors}
 
@@ -415,7 +415,7 @@ from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 
 `ChannelRouter`：`dispatch_output`、`wrap_stream`、`quit`、`admit_channel_message`。`ChannelManager` 实现该协议，经 `bind_channel_router` 绑定。
 
-准入类型：`AdmitDecision(action, reason=None)`（`process` / `drop` / `follow_up` / `steer`）、`TurnSnapshot`、`SteeringInbox`。`follow_up` 表示排队（Queue up），`steer` 表示引导（Steering）；完整行为见 [Hooks 参考](/zh-cn/docs/reference/hooks/#application-hook-details)与 [Turn](/zh-cn/docs/concepts/turn/)。
+准入类型：`AdmitDecision(action, reason=None)`（`process` / `drop` / `follow_up` / `steer`）、`TurnSnapshot`、`SteeringInbox`。`follow_up` 表示排队（Queue up），`steer` 表示引导（Steering）；完整行为见 [Hooks 参考](/zh-cn/docs/reference/hooks/#application-hooks)与 [Turn](/zh-cn/docs/concepts/turn/)。
 
 ### Hooks {#hooks}
 

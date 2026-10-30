@@ -151,7 +151,7 @@ def normalize_order_id(event: ToolCallStarted) -> None:
 | `ToolCallDecision.replace(result)` | 否 | 指定的替代结果 |
 
 
-### 1. 拒绝调用
+### 1. 拒绝调用 {#deny-a-call}
 
 如果需要根据参数拦截某些操作（如禁止查询特例订单）：
 
@@ -171,7 +171,7 @@ def check_order_access(event: ToolCallStarted) -> None:
 
 设置 `ToolCallDecision.deny(...)` 后，原工具函数不会执行，拒绝原因会作为工具错误返回给模型。
 
-### 2. 使用替代结果
+### 2. 使用替代结果 {#replacement-result}
 
 如果有直接可用的数据（如命中缓存），可以跳过工具函数并返回替代结果：
 
@@ -192,7 +192,7 @@ def use_cached_order(event: ToolCallStarted) -> None:
 
 因为 Agent 的完整运行由模型交互（LLM）、单步执行（Step）和全局运行（Run）共同组成。因此除了工具层外，你还可以监听其他生命周期事件来实现如指标监控、用量统计和日志审计等逻辑。
 
-### 1. 模型调用
+### 1. 模型调用 {#model-calls}
 
 在每次向大模型发起请求和收到响应时触发，常用于追踪 Token 用量、耗时或捕获大模型侧的异常：
 
@@ -214,7 +214,7 @@ def log_llm_finish(event: LLMCallFinished) -> None:
 
 ```
 
-### 2. 单步执行事件
+### 2. 单步执行事件 {#step-events}
 
 Agent 的一次任务（Run）通常包含多个循环步骤。一个步骤内可能包含「模型思考 → 决定调用工具 → 工具返回」多轮迭代。因此你可以通过 `StepStarted` 和 `StepFinished` 追踪 Agent 执行了多少轮迭代：
 
@@ -233,7 +233,7 @@ def log_step_finish(event: StepFinished) -> None:
 
 ```
 
-### 3. 全局运行事件
+### 3. 全局运行事件 {#run-events}
 
 `RunStarted` 和 `RunFinished` 用于掌控整个对话任务的起止。特别需要注意的是 `RunFinished`，它在整场运行的事件流关闭时触发（包括正常完成、异常中断或提前取消）。
 

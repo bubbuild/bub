@@ -5,7 +5,7 @@ description: Inspect session Tapes and export model and tool call traces to Phoe
 
 Keep two things separate: use the Tape commands to see **what a session remembered**, and use OTLP / Logfire to see **how a turn ran**. Even without an external tracing backend, the agent still saves the selected conversation and run records. See [Events](/docs/concepts/events/) for the distinction between events, output streams, and persisted records.
 
-## Prerequisites
+## Prerequisites {#prerequisites}
 
 - You have [installed the Bub application](/docs/getting-started/install/#app-install) and configured a working model.
 - Docker or Podman is required to run Phoenix locally.
@@ -58,7 +58,7 @@ See [Tape](/docs/concepts/tape/) for persistence and context selection rules.
 
 Export traces when you need to see model and tool timing, concurrency relationships, and error paths. Tape and telemetry are independent of each other.
 
-### Arize Phoenix (local deployment)
+### Arize Phoenix (local deployment) {#arize-phoenix}
 
 ```bash
 docker run --rm --name bub-phoenix \
@@ -95,7 +95,7 @@ In Phoenix, open the default project, then the most recent trace, and look for `
 
 ![A screenshot showing Bub GenAI telemetry exported to Phoenix through OTLP](/docs/observability/phoenix-otel.png)
 
-### Pydantic Logfire
+### Pydantic Logfire {#pydantic-logfire}
 
 When no explicit OTLP endpoint is set, the Bub CLI configures Logfire at startup (the `logfire` optional dependency must be installed).
 
@@ -115,7 +115,7 @@ bub run "Inspect this repository and summarize its structure."
 
 Set `LOGFIRE_TOKEN` in deployments. Look for `bub` on the Logfire Agents page. Subagents are nested under the tool span that launched them; runs in the same session are correlated through `gen_ai.conversation.id`.
 
-### Embedding and span contents
+### Embedding and span contents {#trace-contents}
 
 Spans record model inputs and outputs, tool arguments and final results (after the result hook / spill), token usage, and errors; inline media is not uploaded. Model fallback updates the model attributes and records failed attempts as events. Token usage is written only on model spans.
 
@@ -131,7 +131,7 @@ When these optional dependencies are missing, tracing is skipped. When you stop 
 
 Native spans provide the OpenInference classification and standard `gen_ai.*` attributes that Phoenix needs. If you still need to project **stored** Tape entries into spans, use the contrib [`bub-tapestore-otel`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-otel); when migrating, install this page's `trace` or `logfire` optional dependency, set `BUB_TAPESTORE_OTEL_ENABLED=false`, and keep your existing Tape storage.
 
-## Clean up
+## Clean up {#cleanup}
 
 Use `Ctrl+C` for a foreground Phoenix. If it is detached:
 

@@ -53,7 +53,7 @@ Usage: bub acp [OPTIONS]
 
 在 Zed 中使用快捷键 `Cmd+Shift+P`（macOS）或 `Ctrl+Shift+P`（Linux/Windows）打开命令面板，输入并执行 `zed: open settings`，在打开的 `settings.json` 中添加 `agent_servers` 配置。
 
-### 方案 A：全局安装
+### 方案 A：全局安装 {#global-install}
 
 如果 `bub` 位于系统全局 `PATH` 中，且不需要额外加载特定项目的 `.env` 文件，可直接配置：
 
@@ -72,7 +72,7 @@ Usage: bub acp [OPTIONS]
 
 *如果 Zed 报错找不到 `bub`，请将 `"command"` 替换为前面通过 `command -v bub` 获取到的绝对路径。*
 
-### 方案 B：使用包装脚本
+### 方案 B：使用包装脚本 {#wrapper-script}
 
 如果你的项目依赖特定的 Python 虚拟环境，或者模型 API Key 保存在工作区根目录的 `.env` 中，强烈建议编写一个启动包装脚本（例如 `~/.bub/bub-acp-wrapper`）：
 
@@ -142,7 +142,7 @@ Zed 支持让 Agent 借助编辑器的文件系统和终端执行操作。当 Ze
 
 在大多数本地开发场景中，默认的 `stdio` 是最轻量且低开销的选择。如果你把 Bub 部署在云端开发机（Remote Server）或 Docker 容器内，需要供本地开发机上的编辑器远程调用，可以使用 HTTP/WebSocket 服务模式。
 
-### 方式 1：独立启动服务
+### 方式 1：独立启动服务 {#standalone-service}
 
 ```bash
 # 启动 HTTP 服务
@@ -154,7 +154,7 @@ bub acp --transport websocket
 
 默认监听地址为 `127.0.0.1:28200`（HTTP 端点为 `http://127.0.0.1:28200/acp`，WebSocket 端点为 `ws://127.0.0.1:28200/acp`）。
 
-### 方式 2：作为 Bub Gateway 渠道长驻运行
+### 方式 2：作为 Bub Gateway 渠道长驻运行 {#gateway-channel}
 
 通过网关模式可以同时维护会话池与后台连接：
 

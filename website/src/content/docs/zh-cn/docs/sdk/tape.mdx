@@ -101,7 +101,7 @@ print("大模型看到的角色：", [message.role for message in messages])
 
 ```
 
-### 默认上下文与自定义
+### 默认上下文与自定义 {#default-context}
 
 每个 Agent 都绑定了一个 `context`（默认是 `default_tape_context()`）。上面的 `agent` 等价于：
 
@@ -115,7 +115,7 @@ agent = Agent(
 
 ```
 
-### TapeContext 的构成
+### TapeContext 的构成 {#tape-context-fields}
 
 `TapeContext` 是一个数据类，控制着上下文的裁剪与转换行为。其核心字段包括：
 
@@ -143,7 +143,7 @@ agent = Agent(
 
 :::
 
-### 临时切换读取模式
+### 临时切换读取模式 {#read-with-another-context}
 
 如果你不想修改 Agent 默认的上下文配置，只是想在某次读取时换一种视角（例如临时跳过 anchor 限制查看全量对话），可以使用 `tape.with_context()`：
 
@@ -177,7 +177,7 @@ Handoff 不是自动摘要器。它不会主动删除旧消息或自动生成摘
 * 当调用 `agent.run()`、`agent.start()` 或 `agent.session()` 开启新会话时，如果 Tape 中尚无 anchor，系统会自动写入一个名为 `session/start` 的初始 anchor。
 * 仅仅调用 `agent.tape(name)` 获取引用不会自动创建 anchor。如果一个手动初始化的空 Tape 没有任何 anchor，直接用默认的 `LAST_ANCHOR` 读取会抛出错误。对于完全空白的 Tape，要么先执行一次 `run()`，要么显式调用 `handoff()`，或者在读取时使用 `TapeContext(anchor=None)`。
 
-### 手动执行 Handoff
+### 手动执行 Handoff {#manual-handoff}
 
 你可以在业务逻辑的关键节点（如订单确认、步骤切换）手动写入 anchor：
 
@@ -205,7 +205,7 @@ history = list(await tape.query().all())
 
 ```
 
-### 该怎么使用它们？
+### 该怎么使用它们？ {#when-to-use-anchors}
 
 | 需求场景 | 推荐做法 |
 | --- | --- |
