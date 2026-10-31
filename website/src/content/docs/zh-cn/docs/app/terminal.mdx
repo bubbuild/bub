@@ -30,7 +30,7 @@ bub chat "Inspect this repository and suggest a first task."
 
 在等待模型回复期间，如果发现模型的输出偏离了你的预期，或者你想补充一些约束条件，可以在界面中直接输入新指令以引导 Agent 的行为。
 
-**引导**（Steering）用于在当前对话轮次尚未结束时补充指令，让 Agent 调整正在执行的任务。生成过程中不必等待回复结束，直接输入并回车即可：
+**引导**（Steering）用于在当前 Turn 尚未结束时补充指令，让 Agent 调整正在执行的任务。生成过程中不必等待回复结束，直接输入并回车即可：
 
 ```text
 先不要修改文件，只列出问题和建议。
@@ -38,14 +38,14 @@ bub chat "Inspect this repository and suggest a first task."
 
 Bub 应用会把消息放到引导收件箱中。Agent 在后续构建模型请求时读取它，正在执行的模型或工具调用不会被强制中断。
 
-除了引导之外，也许在其他工具中你也会看到「排队」（Queue up）的概念。引导与排队的区别在于消息何时生效：
+Bub 的准入动作称为 `steer` 和 `follow_up`，区别在于消息何时生效：
 
 | 方式 | 处理方式 | 适合什么 |
 | --- | --- | --- |
 | 引导（Steering） | 注入当前对话的后续模型请求；来不及消费时转为待处理消息 | 纠正方向、补充约束、提供与当前任务有关的新信息 |
-| 排队（Queue up） | 等当前结束后，再作为后续任务处理 | 追加另一项任务、按顺序执行多个需求 |
+| 后续处理（Follow up） | 等当前 Turn 结束后，再作为后续任务处理 | 追加另一项任务、按顺序执行多个需求 |
 
-默认情况下，Bub 应用对运行期间的普通输入使用引导，没有单独的排队快捷键。未被当前消费的引导消息会自动进入待处理队列，不会直接丢失。
+默认情况下，Bub 应用对运行期间的普通输入使用引导，没有单独的后续处理快捷键。未被当前消费的引导消息会自动进入待处理队列，不会直接丢失。
 
 需要停止当前会话的任务时，使用 `,quit`；它会清理待处理消息并取消运行中的任务。
 
@@ -89,7 +89,7 @@ bub run ",fs.read path=README.md"
 | --- | --- |
 | `,model openai:gpt-5-mini` | 切换当前会话的模型 |
 | `,reasoning_effort high` | 设置当前会话的推理力度 |
-| `,code_mode enable=true` | 开启 code mode |
+| `,code_mode enable=true` | 开启代码模式 |
 | `,tape.info` | 查看条目、anchor 和 token 用量 |
 | `,tape.search query=error` | 搜索当前会话记录 |
 | `,tape.anchors` | 列出上下文分界点 |
@@ -100,7 +100,7 @@ bub run ",fs.read path=README.md"
 注意：
 
 - `,tape.reset archive=true` 会把主 Tape 和 sidecar 备份到 `<BUB_HOME>/tapes/`，文件名带有 UTC 时间戳和 `.bak` 后缀。使用 `archive=false` 或直接 `,tape.reset` 则不备份。重置后会产生新的 `session/start` anchor，旧文件不会被自动恢复。
-- `handoff` 不会自动生成或注入摘要。`summary` 保存在 anchor 的 `state` 中；后续是否读取它，取决于提示词或上下文策略。详见 [Tape](/zh-cn/docs/concepts/tape/#anchors)。
+- 交接（handoff）不会自动生成或注入摘要。`summary` 保存在 anchor 的 `state` 中；后续是否读取它，取决于提示词或上下文策略。详见 [Tape](/zh-cn/docs/concepts/tape/#anchors)。
 
 :::caution
 未注册的命令会交给 `bash` 执行。输入未知命令前，确认它确实是你允许运行的 Shell 命令。

@@ -129,12 +129,10 @@ export default defineConfig({
           label: 'Concepts',
           translations: { 'zh-CN': '核心概念' },
           items: [
-            'docs/concepts',
             'docs/concepts/agent',
             'docs/concepts/turn',
             'docs/concepts/tape',
             'docs/concepts/events',
-            'docs/concepts/extension-points',
           ],
         },
         {

@@ -66,7 +66,7 @@ bub run "用一句话打个招呼，表明这是通过数据库存储的一轮�
 bub run ",tape.info"
 ```
 
-输出应包含本次会话的 Tape 名称、条目数量与锚点状态：
+输出应包含本次会话的 Tape 名称、条目数量与 anchor 状态：
 
 ```text
 name: 86774b31b96845a4__0b871d5e50e7c192
@@ -85,7 +85,7 @@ sqlite3 "$PWD/bub-tapes.db" \
 ```
 
 ```bash
-# 查询锚点记录
+# 查询anchor记录
 sqlite3 "$PWD/bub-tapes.db" \
   "SELECT entry_id, anchor_name, entry_date FROM tape_entries WHERE kind = 'anchor';"
 ```
@@ -107,6 +107,32 @@ sqlite3 "$PWD/bub-tapes.db" \
    ```
 
 生产环境中建议提前测试并发写入与连接池超时配置，保证服务稳定。
+
+## 实现自己的存储后端 {#custom-store}
+
+`core.Agent` 与内置应用只依赖存储协议，实现协议即可把它换成任意后端。需要区分「Tape 保存历史」与「TapeContext 投影上下文」时，见 [Tape 与模型上下文](/zh-cn/docs/concepts/tape/#history-and-context)。
+
+| 协议 | 使用位置 |
+| --- | --- |
+| `bub.core.store.TapeStore` | 同步实现，传给 `Agent(store=...)` |
+| `bub.core.store.AsyncTapeStore` | 异步实现，推荐用于数据库与远程存储 |
+| `provide_tape_store` | 应用层替换，内置应用默认返回 `FuzzyFileTapeStore` |
+
+完整方法签名见 [Python API](/zh-cn/docs/reference/python-api/#tape-store)。实现时至少要保证：按 Tape 名称隔离条目、保持追加顺序、支持 `reset()`，并能让 `TapeQuery` 的 anchor 过滤生效。分支由 `ForkTapeStore` 在现有存储之上构建，后端不需要自行实现。
+
+## 内置应用的存储 {#app-storage}
+
+内置应用通过 `provide_tape_store` 提供 `FuzzyFileTapeStore`，默认目录为 `~/.bub/tapes/`。Tape 名称由工作区路径与会话 ID 共同生成，因此不同工作区中的同名会话不会共享历史。
+
+`BubAgent` 按以下顺序选择存储：
+
+1. 显式传入的 `tape_store`；
+2. 创建 Agent 时 `framework.get_tape_store()` 返回的存储；
+3. 两者都没有时，使用内存存储。
+
+需要使用 `framework.running()` 提供的存储时，在该作用域内创建 `BubAgent`。替换存储使用 `provide_tape_store`，替换投影策略使用 `build_tape_context`。
+
+内置应用会从 Tape 恢复模型、推理力度和 代码模式 等会话设置，其他应用状态需要显式持久化。
 
 ## 故障排查 {#troubleshooting}
 

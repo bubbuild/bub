@@ -7,7 +7,7 @@ description: Bub 应用内置工具与文本命令的参数、默认值和结果
 
 文本命令支持位置值和 `key=value`；布尔值使用 `true` / `false`，列表使用 JSON 字符串，含空格的值使用引号。
 
-文件、Shell 和 code mode 操作使用当前会话的 `Environment`，默认直接在宿主机执行，而非安全沙箱中。
+文件、Shell 和 代码模式 操作使用当前会话的 `Environment`，默认直接在宿主机执行，而非安全沙箱中。
 
 ## 进程 {#processes}
 
@@ -161,7 +161,7 @@ tape.handoff(name="handoff", summary="")
 | `name` | `str` | anchor 名称 |
 | `summary` | `str` | 保存到 `state.summary` 的文本 |
 
-写入 anchor 并移动默认上下文起点，旧记录仍保留。不会自动生成摘要；默认上下文会将 anchor 转为 assistant 消息 `[Anchor created: <name>]: <state JSON>`，因此 anchor 名称和 `state`（包括 `summary`）会进入后续模型上下文。
+写入 anchor 并移动默认上下文起点，旧记录仍保留。不会自动生成摘要；默认上下文在 anchor 之后读取，边界 anchor 本身不进入模型输入；以 `anchor=None` 读取时，默认选择器会把 anchor 转为 assistant 消息 `[Anchor created: <name>]: <state JSON>`。
 
 ### `tape.reset` {#tape-reset}
 
@@ -207,7 +207,7 @@ subagent(prompt, model=None, session="temp", allowed_tools=None, allowed_skills=
 
 `output` 只汇总文本增量。`temp` 只隔离对话记录和模型上下文，不隔离文件、网络或进程副作用。
 
-## code mode 与 spill {#code-and-spill}
+## 代码模式 与 spill {#code-and-spill}
 
 ### `run_code` {#run-code}
 
@@ -215,7 +215,7 @@ subagent(prompt, model=None, session="temp", allowed_tools=None, allowed_skills=
 run_code(code, timeout_seconds=120)
 ```
 
-在 code mode 中执行 Python。使用 `await tools.<name>(key=value)` 调用工具；只有 `print()` 输出和显式附加的媒体进入结果。
+在 代码模式 中执行 Python。使用 `await tools.<name>(key=value)` 调用工具；只有 `print()` 输出和显式附加的媒体进入结果。
 
 ### `attach_image` / `attach_audio` / `attach_video` {#attach-media}
 
@@ -246,6 +246,8 @@ spill.read(handle, cursor=0, count=1, from_end=False)
 
 spill 只在当前工具集包含 `spill.read` 时创建。阈值由 [`BUB_SPILL_THRESHOLD`](/zh-cn/docs/reference/settings/#spill-settings) 控制；设为 `0` 时停止创建新 spill，已有结果仍可读取。
 
+超出阈值的大型工具结果写入 `spill` sidecar，主对话只保留预览和句柄。Sidecar 是与会话 Tape 配套的另一份 Tape：随主 Tape 一起分支、合并和重置，但它的条目不会进入主上下文。概念见 [Sidecar](/zh-cn/docs/sdk/tape/#sidecars)。
+
 ## 会话命令 {#session-commands}
 
 这些工具的 `exposure` 为 `command`，只能通过文本命令调用：
@@ -255,7 +257,7 @@ spill 只在当前工具集包含 `spill.read` 时创建。阈值由 [`BUB_SPILL
 | `,help` | 无 | 列出内部命令和命令前缀 |
 | `,model` | `model_id` | 切换当前会话模型 |
 | `,reasoning_effort` | `reasoning_effort` | 设置当前会话推理力度 |
-| `,code_mode` | `enable=true` / `false` | 开关当前会话的 code mode |
+| `,code_mode` | `enable=true` / `false` | 开关当前会话的 代码模式 |
 | `,quit` | 无 | 清理待处理消息、运行中任务和后台 Shell |
 
 命令前缀由 `BUB_COMMAND_PREFIX` 决定。会话设置从下一次 Turn 起生效，并持久化在会话 Tape 中。

@@ -131,7 +131,7 @@ Compared with a complete Turn, this direct entry point:
 - does not coordinate same-session concurrency;
 - does not close the stream for you, and the first `final` ends only one Step.
 
-Builtin system instructions do not ask the model to reply through channel skills. The channel manager behind `bub gateway` and `bub chat` registers a `system_prompt` hook that adds that instruction only to the Turns it runs. A service calling `process_inbound()` itself can register its own hook to describe how replies are delivered. Replacing `agent.system_prompt` wholesale also removes prompt sections for plugins, skills, deferred tools, and Code Mode.
+Builtin system instructions do not ask the model to reply through channel skills. The channel manager behind `bub gateway` and `bub chat` registers a `system_prompt` hook that adds that instruction only to the Turns it runs. A service calling `process_inbound()` itself can register its own hook to describe how replies are delivered. Replacing `agent.system_prompt` wholesale also removes prompt sections for plugins, skills, deferred tools, and code mode.
 
 <a id="run-stream-options"></a>
 
@@ -182,7 +182,7 @@ if __name__ == "__main__":
 | `allowed_tools` | Every tool on the instance | No tools |
 | `allowed_skills` | Default skill discovery | Skill discovery disabled |
 
-Unknown names raise `ValueError`. Filtering covers direct model calls and Code Mode, but comma commands use the Agent instance's tools and are not limited by `allowed_tools`; enforce permissions in `before_tool_call` when every execution path must be constrained.
+Unknown names raise `ValueError`. Filtering covers direct model calls and code mode, but comma commands use the Agent instance's tools and are not limited by `allowed_tools`; enforce permissions in `before_tool_call` when every execution path must be constrained.
 
 These restrictions are reliable only when host code chooses the arguments. Letting the model generate a subagent's allowlist is not a security boundary.
 
@@ -297,7 +297,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-`PlainTextPlugin` is a minimal custom plugin: its `system_prompt` hook adds an instruction to the Agent. `AgentPlugins(plugins=[...])` registers only the plugins listed; it does not load Bub's builtin hooks or installed plugins. To load those, create a `BubFramework`, call `load_hooks()`, and pass it to `AgentPlugins`.
+`PlainTextPlugin` is a minimal custom plugin: its `system_prompt` hook adds an instruction to the Agent. `AgentPlugins(plugins=[...])` registers only the plugins listed; it does not load Bub's builtin hooks or installed plugins. To load those, create a `BubFramework`, call `load_hooks()`, and pass it to `AgentPlugins`. The mechanisms behind these hooks are described in [Agent events](/docs/concepts/events/#app-hooks).
 
 Run it with `uv run python agent_hooks.py`.
 

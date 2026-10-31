@@ -1,6 +1,6 @@
 ---
 title: 工具
-description: 了解 Bub 应用内置工具、工具调用方式以及如何配置 Code Mode 与扩展。
+description: 了解 Bub 应用内置工具、工具调用方式以及如何配置 代码模式 与扩展。
 ---
 
 工具（Tool）为 Bub 应用执行具体的外部动作，负责实际执行（如读写文件、运行命令、管理会话等）。
@@ -21,7 +21,7 @@ description: 了解 Bub 应用内置工具、工具调用方式以及如何配�
 | | `tape.handoff`、`tape.reset` | 移动上下文起点以压缩会话，或归档并重置上下文 |
 | | `spill.read` | 分块读取超出上下文上限的大型工具输出 |
 | **多任务协作**| [`subagent`](/zh-cn/docs/app/subagents/) | 启动子 Agent 在独立会话中并行处理任务 |
-| **代码模式** | `run_code` | 在 Code Mode 开启时通过 Python 组合多个工具 |
+| **代码模式** | `run_code` | 在 代码模式 开启时通过 Python 组合多个工具 |
 
 内置工具的详细参数及默认值见 [工具参考](/zh-cn/docs/reference/tools/)。
 
@@ -39,9 +39,9 @@ description: 了解 Bub 应用内置工具、工具调用方式以及如何配�
 - **全局约定**：在项目根目录的 `AGENTS.md` 中编写通用约束；
 - **任务流程**：将多步骤操作封装为 [技能](/zh-cn/docs/app/skills/)，指引模型按顺序调用对应工具。
 
-## 开启 Code Mode {#code-mode}
+## 开启 代码模式 {#code-mode}
 
-当需要处理复杂逻辑或批量处理数据时，模型多次往返调用工具会消耗大量上下文。启用 Code Mode 后，模型会直接编写 Python 代码（通过 `run_code` 工具执行）一次性组合多个工具：
+当需要处理复杂逻辑或批量处理数据时，模型多次往返调用工具会消耗大量上下文。启用 代码模式 后，模型会直接编写 Python 代码（通过 `run_code` 工具执行）一次性组合多个工具：
 
 ```text
 ,code_mode enable=true
@@ -51,7 +51,7 @@ description: 了解 Bub 应用内置工具、工具调用方式以及如何配�
 
 - 该设置在下一轮对话生效，并持久化保存在当前会话记录中。
 - 使用 `,code_mode enable=false` 可以关闭并恢复默认模式。
-- 关于在代码模式下调用工具的 Python 语法，见[组合工具与 code mode](/zh-cn/docs/sdk/tools/#compose-tools-with-codemode)。
+- 关于在代码模式下调用工具的 Python 语法，见[`run_code` 参考](/zh-cn/docs/reference/tools/#run-code)。
 
 ## 执行环境与安全 {#environment}
 
@@ -59,7 +59,7 @@ description: 了解 Bub 应用内置工具、工具调用方式以及如何配�
 
 - **非安全隔离**：默认环境不是隔离沙箱，模型执行的命令会**对本地系统产生真实的读写和进程副作用**。
 - **权限与拦截**：如需在执行高危命令前进行人工审批或条件限制，可使用[工具拦截 Hooks](/zh-cn/docs/app/plugins/#control-a-model-or-tool-call)。
-- **容器与隔离环境**：如需隔离执行，可通过插件提供独立的[执行环境](/zh-cn/docs/sdk/tools/#choose-an-execution-environment)。
+- **容器与隔离环境**：如需隔离执行，可通过插件提供独立的[执行环境](/zh-cn/docs/reference/hooks/#provide_environment)。
 
 ## 集成与扩展工具 {#provide-tools}
 

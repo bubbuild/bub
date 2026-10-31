@@ -245,13 +245,7 @@ def export_orders(format: str) -> str:
       return None
   ```
 
-`ToolCallDecision` 有以下几种可选情况：
-
-| `ToolCallDecision` 返回值 | 行为效果 |
-| --- | --- |
-| `None` 或 `proceed()` | 放行执行（可选择性替换参数） |
-| `replace(result)` | 跳过实际工具执行，直接将指定结果返回给模型 |
-| `deny(message)` | 拒绝执行，并将拒绝原因作为工具执行错误返回 |
+放行、改写、拒绝与替代的语义见[决策先于副作用](/zh-cn/docs/concepts/events/#call-control)；完整返回类型见 [Hooks 参考](/zh-cn/docs/reference/hooks/#toolcalldecision)。
 
 #### 调用审计 {#observe-completed-calls}
 
@@ -273,7 +267,7 @@ def after_tool_call(call, result, state):
 
 #### 状态持久化 {#keep-application-state-across-turns}
 
-Framework 为每个入站消息创建独立的 `TurnState`。通过实现 `load_state` 与 `save_state`，可以在多轮对话之间存取自定义状态：
+下面通过 `load_state` 与 `save_state` 在多个 Turn 之间保存计数。`TurnState` 的生命周期与数据归属见 [Turn](/zh-cn/docs/concepts/turn/#state) 和[数据应该放在哪里](/zh-cn/docs/concepts/tape/#state)。
 
 ```python
 import asyncio
@@ -369,7 +363,7 @@ from bub import hookimpl
 def register_cli_commands(app: typer.Typer):
     @app.command()
     def my_cmd(name: str = "world") -> None:
-        typer.echo(f"执行成功: {name}")
+        typer.echo(f"执行成功：{name}")
 ```
 
 #### 交互式输入 {#prompt-for-input}

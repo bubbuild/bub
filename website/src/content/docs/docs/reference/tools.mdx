@@ -138,7 +138,7 @@ No parameters. List anchor names in recording order, or return `(no anchors)`.
 tape.handoff(name="handoff", summary="")
 ```
 
-Write an anchor that moves the default context start to this point. Earlier entries remain in storage. Bub does not generate a summary. The default context converts the anchor into the assistant message `[Anchor created: <name>]: <state JSON>`, so the anchor name and `state`, including `summary`, enter later model context.
+Write an anchor that moves the default context start to this point. Earlier entries remain in storage. Bub does not generate a summary. The default context reads after the anchor, so the boundary anchor itself does not enter model input; when reading with `anchor=None`, the default selector converts it into the assistant message `[Anchor created: <name>]: <state JSON>`.
 
 ### `tape.reset` {#tape-reset}
 
@@ -234,6 +234,8 @@ spill.read(handle, cursor=0, count=1, from_end=false)
 Read a large tool result moved into the spill sidecar. `handle` comes from the original tool output, `cursor` is the chunk position, and `count` can read at most four chunks per call. With `from_end=true`, read backward from the end. Use `next_cursor` for the following page; `complete=true` marks the boundary in that direction.
 
 New spills are created only when the current model tools include `spill.read`. Configure the threshold with [`BUB_SPILL_THRESHOLD`](/docs/reference/settings/#spill-settings). Setting it to `0` stops new spills but leaves existing results readable.
+
+Results above the threshold are written to the `spill` sidecar, and the main conversation keeps only a preview and a handle. A sidecar is a separate Tape paired with the session Tape: it forks, merges, and resets with it, but its entries never enter the main context. See [Sidecars](/docs/sdk/tape/#sidecars) for the concept.
 
 ## Session commands {#session-commands}
 

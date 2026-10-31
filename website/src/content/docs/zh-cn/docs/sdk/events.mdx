@@ -1,27 +1,42 @@
 ---
 title: 事件
-description: 了解如何利用 Agent 事件监听运行状态、修改参数以及控制工具与模型的执行流程。
+description: 注册与注销 Agent 事件处理器，修改参数、拒绝或替代工具调用，并发布自定义事件。
 ---
 
 工具负责具体的业务逻辑（如查询订单或更新状态）。但在实际开发中，我们经常需要在调用前后补充额外逻辑，例如记录日志、清洗输入参数、校验权限或统计耗时。
 
-Agent 事件提供了这些运行阶段的钩子。通过监听和处理事件，你可以在不修改工具本身的前提下，扩展 Agent 的行为。
-
-本节将主要介绍如何监听事件并实现自定义逻辑。
+Agent 事件提供了这些运行阶段的钩子。通过监听和处理事件，你可以在不修改工具本身的前提下，扩展 Agent 的行为。三类数据如何分工、同步分发有哪些规则，见 [Agent 事件](/zh-cn/docs/concepts/events/#three-kinds)。
 
 ## Agent 事件与 App Hooks 的区别 {#events-and-app-hooks}
 
-在开始前，先明确 Bub 中的两种扩展机制：
+两者的职责边界见[与 App Hooks 的分工](/zh-cn/docs/concepts/events/#app-hooks)。在 SDK 中，通过 `agent.events` 在模型或工具调用阶段添加逻辑。
 
-| 机制 | 作用范围 | 常见用途 |
-| --- | --- | --- |
-| **Agent 事件** | 核心 Agent 的运行过程 | 监听模型或工具调用、修改参数、记录 Run 状态 |
-| **Bub App Hooks** | Bub 应用的处理流程 | 构建提示词、提供工具、处理消息或扩展应用生命周期 |
+## 注册与注销 {#register}
 
-简单来说：
+`EventBus.on()` 既可以直接注册，也可以作为装饰器；`off()` 移除处理器：
 
-* 如果你使用 `bub.core.Agent` 并想在模型或工具调用的某个阶段添加逻辑，请使用 `agent.events`。
-* 如果你要编写应用插件，请参考[插件与 Hooks](/zh-cn/docs/app/plugins/)。
+```python
+from bub.core.events import StepFinished, ToolCallStarted
+
+
+def record_tool_start(event: ToolCallStarted) -> None:
+    print(f"开始调用：{event.call.tool}")
+
+
+# 注册
+agent.events.on(ToolCallStarted, record_tool_start)
+
+# 装饰器写法等价
+@agent.events.on(ToolCallStarted)
+def log_tool_start(event: ToolCallStarted) -> None:
+    print(f"调用参数：{event.call.arguments}")
+
+
+# 注销
+agent.events.off(ToolCallStarted, record_tool_start)
+```
+
+注册到基类的处理器也会接收子类事件：监听 `AgentEvent` 可以统一处理所有事件，监听 `TapeEvent` 则能拿到 `event.tape`。处理器可以是同步函数，也可以是 `async def`。
 
 ## 监听工具调用 {#listen-to-tool-calls}
 
@@ -29,7 +44,7 @@ Agent 事件提供了这些运行阶段的钩子。通过监听和处理事件�
 
 ```python
 from bub.core import Agent
-from bub.core.events import ToolCallFinished, ToolCallStarted
+from bub.core.events import ToolCallStarted
 from bub.core.tools import tool
 
 
@@ -46,34 +61,7 @@ agent = Agent(
 
 ```
 
-使用 `agent.events.on(EventType)` 注册事件处理器。比如我们现在希望在工具执行前记录，那么就需要监听并处理 `ToolCallStarted` 事件：
-
-```python
-from bub.core.events import ToolCallStarted
-
-@agent.events.on(ToolCallStarted)
-def log_tool_start(event: ToolCallStarted) -> None:
-    print(f"开始调用：{event.call.tool}")
-    print(f"调用参数：{event.call.arguments}")
-
-```
-
-如果之后需要动态移除，可以将处理器作为函数传给 `on()` 和 `off()`：
-
-```python
-def record_tool_start(event: ToolCallStarted) -> None:
-    print(f"开始调用：{event.call.tool}")
-
-
-# 注册
-agent.events.on(ToolCallStarted, record_tool_start)
-
-# 注销
-agent.events.off(ToolCallStarted, record_tool_start)
-
-```
-
-工具执行结束后，`ToolCallFinished` 会提供结果、错误信息及耗时，所以我们一样：
+工具执行结束后，`ToolCallFinished` 提供结果、错误信息及耗时：
 
 ```python
 from bub.core.events import ToolCallFinished
@@ -114,7 +102,7 @@ flowchart TD
 
 无论工具正常执行、被拒绝还是被替代，都会发出 `ToolCallFinished`。注意，一次工具调用结束并不代表整个 Agent 调用的结束；若需判断最终状态，请监听 `RunFinished` 事件。
 
-
+通过 代码模式 的 `tools.<name>()` 和文本命令发起的工具调用同样发出这两个事件。
 
 ## 在工具执行前修改参数 {#modify-tool-call}
 
@@ -141,15 +129,7 @@ def normalize_order_id(event: ToolCallStarted) -> None:
 
 ## 检查权限与决策控制 {#control-tool-call}
 
-通过设置 `event.decision`，你可以在工具执行前决定是继续、拒绝还是使用替代结果。所以 Bub 有如下处理方式：
-
-| 处理方式 | 原工具是否执行 | 模型收到的内容 |
-| --- | --- | --- |
-| 不设置决策（默认） | 是 | 工具实际返回的结果或错误 |
-| 替换 `event.call` | 是 | 新调用的执行结果或错误 |
-| `ToolCallDecision.deny(message)` | 否 | 拒绝原因（作为工具错误） |
-| `ToolCallDecision.replace(result)` | 否 | 指定的替代结果 |
-
+通过设置 `event.decision`，可以在工具执行前继续、拒绝或使用替代结果。四种处理的语义见[决策先于副作用](/zh-cn/docs/concepts/events/#call-control)，下面展示具体写法。
 
 ### 1. 拒绝调用 {#deny-a-call}
 
@@ -169,7 +149,7 @@ def check_order_access(event: ToolCallStarted) -> None:
 
 ```
 
-设置 `ToolCallDecision.deny(...)` 后，原工具函数不会执行，拒绝原因会作为工具错误返回给模型。
+设置 `ToolCallDecision.deny(...)` 后，原工具函数不会执行。模型循环会把拒绝作为工具错误交回模型；直接命令没有模型可以接收这个错误，因此向调用方抛出该错误。
 
 ### 2. 使用替代结果 {#replacement-result}
 
@@ -188,13 +168,63 @@ def use_cached_order(event: ToolCallStarted) -> None:
 
 ```
 
+### 3. 修改模型调用 {#control-llm-call}
+
+`LLMCallStarted` 上可以替换整个请求，或直接产生输出而跳过供应商：
+
+```python
+from dataclasses import replace
+
+from bub.core.events import LLMCallDecision, LLMCallStarted
+
+
+@agent.events.on(LLMCallStarted)
+def guard_llm_call(event: LLMCallStarted) -> None:
+    if event.request.max_tokens and event.request.max_tokens > 8000:
+        event.request = replace(event.request, max_tokens=8000)
+    if event.state.get("offline"):
+        event.decision = LLMCallDecision.finish("当前处于离线演示模式。")
+```
+
+## 自定义事件 {#custom-events}
+
+事件对象是普通 dataclass，继承 `AgentEvent` 即可发布；需要携带当前 Tape 时继承 `TapeEvent`：
+
+```python
+from dataclasses import dataclass
+
+from bub.core.events import TapeEvent
+
+
+@dataclass(kw_only=True)
+class OrderReviewed(TapeEvent):
+    order_id: str
+
+
+@agent.events.on(OrderReviewed)
+async def record_review(event: OrderReviewed) -> None:
+    await event.tape.append_event("order.reviewed", {"order_id": event.order_id})
+
+
+async def mark_reviewed() -> None:
+    tape = agent.tape("customer-42")
+    await agent.events.emit(
+        OrderReviewed(state=tape.context.state, tape=tape, order_id="A123")
+    )
+```
+
+几点约定：
+
+- `TapeRecorder` 不会自动记录自定义事件，上例显式写入了一条。
+- Tracing 与 Tape 记录相互独立：关闭 tracing 不会停止 `TapeRecorder`，也不会禁用对话和工具往返的 Tape 记录。
+- 自定义事件没有内置的 `decision` 协议。需要返回数据时定义可变字段；需要让决策结束派发时覆写 `stopped` 属性。
+- 工具可以通过 `context.events` 发布事件。
+
 ## 监听模型调用、单步与 Run 事件 {#other-events}
 
-因为 Agent 的完整运行由模型交互（LLM）、单步执行（Step）和全局运行（Run）共同组成。因此除了工具层外，你还可以监听其他生命周期事件来实现如指标监控、用量统计和日志审计等逻辑。
+Agent 的执行有三个可观测粒度：模型调用（LLMCall）、Step 和 Run，可以分别监听来做指标、用量统计和日志审计。
 
 ### 1. 模型调用 {#model-calls}
-
-在每次向大模型发起请求和收到响应时触发，常用于追踪 Token 用量、耗时或捕获大模型侧的异常：
 
 ```python
 from bub.core.events import LLMCallFinished, LLMCallStarted
@@ -216,7 +246,7 @@ def log_llm_finish(event: LLMCallFinished) -> None:
 
 ### 2. 单步执行事件 {#step-events}
 
-Agent 的一次任务（Run）通常包含多个循环步骤。一个步骤内可能包含「模型思考 → 决定调用工具 → 工具返回」多轮迭代。因此你可以通过 `StepStarted` 和 `StepFinished` 追踪 Agent 执行了多少轮迭代：
+`StepFinished` 的 `status` 说明本步之后运行是否继续（`continue`）或结束（`ok`）：
 
 ```python
 from bub.core.events import StepFinished, StepStarted
@@ -229,13 +259,15 @@ def log_step_start(event: StepStarted) -> None:
 
 @agent.events.on(StepFinished)
 def log_step_finish(event: StepFinished) -> None:
-    print(f"--- 第 {event.step} 步完成 ---")
+    print(f"--- 第 {event.step} 步完成：{event.status}，{event.elapsed_ms}ms ---")
 
 ```
 
-### 3. 全局运行事件 {#run-events}
+设置 `StepFinished.next_prompt` 可以为继续 Run 的下一个 Step 提供一条用户消息；`MessagesPending` 处理器则通过 `event.messages` 补入 Run 期间到达的消息。
 
-`RunStarted` 和 `RunFinished` 用于掌控整个对话任务的起止。特别需要注意的是 `RunFinished`，它在整场运行的事件流关闭时触发（包括正常完成、异常中断或提前取消）。
+### 3. Run 事件 {#run-events}
+
+`RunStarted` 和 `RunFinished` 用于掌控整个任务的起止。特别需要注意的是 `RunFinished`，它在整场运行的事件流关闭时触发（包括正常完成、异常中断或提前取消）。尚未迭代就关闭的 Run 以 `cancelled` 结束，Step 数为零。
 
 ```python
 from bub.core.events import RunFinished, RunStarted
@@ -250,3 +282,5 @@ def log_run_start(event: RunStarted) -> None:
 def log_run_result(event: RunFinished) -> None:
     print(f"Agent 任务结束：status={event.status}，总步数={event.steps}")
 ```
+
+完整事件列表、字段与触发时机见 [Python API：事件](/zh-cn/docs/reference/python-api/#events)。

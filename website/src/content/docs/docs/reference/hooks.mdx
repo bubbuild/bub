@@ -593,6 +593,42 @@ class ToolCallResult:
     duration_ms: int = 0
 ```
 
+## App hooks and Agent events {#app-hooks}
+
+The concept page explains who intervenes in which direction; this section covers the adapter details. For the relationship between the three kinds of data and the decision semantics, see [Agent events](/docs/concepts/events/#three-kinds).
+
+### Event mapping {#event-mapping}
+
+`PluginAgentHooks` connects app hooks to Agent events:
+
+| App hook | Agent event | Notes |
+| --- | --- | --- |
+| `before_llm_call` | `LLMCallStarted` | Before every model call; may return a rewritten `LLMCallRequest` or an `LLMCallDecision` |
+| `after_llm_call` | `LLMCallFinished` | Once after success or ordinary failure |
+| `before_tool_call` | `ToolCallStarted` | Before every tool call; may `proceed(arguments)`, `replace(result)`, or `deny(message)` |
+| `after_tool_call` | `ToolCallFinished` | Fires on success, failure, denial, and replacement |
+| `continue_prompt` | `StepFinished` | Called only when `status == "continue"`; the result becomes `next_prompt` |
+| `provide_steering_inbox` | `MessagesPending` | Drains steering messages into the next step of the current Run |
+
+Model-visible tool calls, including built-in tools such as `.tape.handoff`, also pass through `ToolCallStarted` / `ToolCallFinished`.
+
+### How the two differ {#event-vs-hooks}
+
+| Aspect | Handling Agent events directly | App interception hooks |
+| --- | --- | --- |
+| Registration | `agent.events.on(Type, handler)` | `@hookimpl` in a plugin |
+| Order | Registration order | pluggy priority |
+| Argument changes | Replace `event.call` / `event.request` in place | Return `ToolCallDecision.proceed(arguments=...)` or a new `LLMCallRequest` |
+| Control | Set `event.decision` | Return a decision object |
+| Exceptions | Propagate to the `emit()` caller and may fail the Run | Logged and skipped; the Run continues |
+| Bad return type | Not applicable | Logged as a warning and skipped |
+
+A security policy written as a hook therefore cannot block a call by raising; it must return `deny(...)`.
+
+### How to subscribe {#subscribe}
+
+`PluginAgentHooks(runtime).subscribe(events)` attaches the four interception hooks to an existing or new event bus; `AgentPlugins.attach(agent)` subscribes automatically and also wires `continue_prompt`, the steering inbox, and the system prompt. For embedding and lifecycle requirements, see [Reusing Bub](/docs/integrations/reuse-app/#agent-loop-hooks).
+
 ### PluginAgentHooks {#pluginagenthooks}
 
 `PluginAgentHooks` converts Agent events into the hooks above:
@@ -613,3 +649,40 @@ The difference between listening on the EventBus directly and using interception
 | Execution order | Determined by pluggy priority | Handler registration order |
 
 `PluginAgentHooks.subscribe(events)` attaches the adapter to an existing event bus, or creates a new one. `AgentPlugins.attach(agent)` subscribes automatically and connects `continue_prompt`, the steering inbox (`SteeringInbox`), and system prompts to the Agent.
+
+## AgentPlugins {#agentplugins}
+
+### `AgentComponents` {#agentcomponents}
+
+```python
+class AgentComponents(TypedDict, total=False):
+    store: TapeStore | AsyncTapeStore
+    context: TapeContext
+    sidecars: Sequence[TapeSidecar]
+```
+
+### `AgentPlugins` {#agentplugins-class}
+
+```python
+class AgentPlugins:
+    def __init__(
+        self,
+        framework: BubFramework | None = None,
+        *,
+        plugins: Iterable[object] | None = None,
+    ) -> None: ...
+
+    def running(self) -> AbstractAsyncContextManager[AsyncExitStack]: ...
+
+    def components(self) -> AgentComponents: ...
+
+    def attach(self, agent: Agent, *, tools: bool = True) -> Agent: ...
+
+    async def build_state(
+        self,
+        session_id: str,
+        *,
+        message: Envelope | None = None,
+        agent: Agent | None = None,
+    ) -> TurnState: ...
+```

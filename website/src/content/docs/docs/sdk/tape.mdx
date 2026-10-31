@@ -5,7 +5,7 @@ description: Give an Agent memory across turns and understand history, model con
 
 If every request sends only the current message to the model, the Agent cannot continue a previous conversation. To remember what you said earlier, it must save the conversation and pass the relevant history to the model on the next turn.
 
-Bub uses a [Tape](/docs/concepts/tape/) to save conversations, tool inputs and outputs, and run records, giving your Agent memory and multi-turn continuity.
+Bub uses a Tape to save conversations, tool inputs and outputs, and run records, giving your Agent memory and multi-turn continuity. For why history and model context are separate, and where `TapeContext` starts reading, see [Tape and model context](/docs/concepts/tape/#history-and-context).
 
 ## Remember previous turns {#remember-previous-turn}
 
@@ -62,6 +62,12 @@ agent = Agent(
 
 Run the program again with the same storage directory and Tape name to read the history back. The conversation above is saved in `sessions/demo-user.jsonl`.
 
+### Tape names decide continuity {#tape-names}
+
+`agent.run(..., tape="customer-42")` selects a Tape by name. Reusing a name continues its record; different names stay independent. Naming is the caller's job: `core.Agent` adds no workspace, tenant, or user prefix.
+
+`FileTapeStore` uses the Tape name directly as a file name. Validate names that come from users or external identifiers — restrict characters and length, or use random identifiers — and include tenant and user identity in the session namespace for multi-tenant services.
+
 ### Which store should I use? {#storage}
 
 | Store | Lifetime | Best for |
@@ -76,27 +82,23 @@ Run the program again with the same storage directory and Tape name to read the 
 - For production, implement a custom Tape store. See the [Python API](/docs/reference/python-api/#tape) for the complete protocol, and [Storage integration](/docs/integrations/storage/) for a database example.
 :::
 
-## TapeContext {#history-and-context}
+### Inspect the record outside a Run {#inspect}
 
-In Bub, the **Tape** and the model context (messages) are strictly separate:
-
-- **Tape (complete log)**: an append-only event stream recording user input, model replies, tool calls, tool results, anchors, and custom business events.
-- **TapeContext (projection logic)**: decides how to select and convert Tape entries into the message list the model can consume directly.
-
-Use `agent.tape(name)` to get a Tape instance. You can inspect the raw log and the projected model messages separately:
+Outside a Run, `agent.tape(name)` returns the same record, and you can inspect both views:
 
 ```python
-tape = agent.tape("demo-user")
-
-# 1. Every raw entry recorded in the Tape
-entries = list(await tape.query().all())
-
-# 2. The messages the next model call can see after TapeContext projection
-messages = await tape.read_messages()
-
-print("Tape entry kinds:", [entry.kind for entry in entries])
-print("Model message roles:", [message.role for message in messages])
+async def inspect_history(agent: Agent) -> None:
+    tape = agent.tape("customer-42")
+    messages = await tape.read_messages()
+    entries = list(await tape.query().all())
+    print(f"model messages: {len(messages)}, stored entries: {len(entries)}")
 ```
+
+`read_messages()` applies the projection; `query()` returns raw entries.
+
+## TapeContext {#history-and-context}
+
+For the difference between the Tape and model context, and how to read raw entries and projected messages, see [One record, two views](/docs/concepts/tape/#history-and-context). The sections below explain how to customize the projection.
 
 ### Default context and customization {#default-context}
 
@@ -137,6 +139,55 @@ agent = Agent(
 ```
 :::
 
+### Choose another start point {#custom-anchors}
+
+`TapeContext.anchor` controls the query range:
+
+| Value | Query range |
+| --- | --- |
+| `LAST_ANCHOR` (default) | After the most recent anchor |
+| `"order-reviewed"` | After the anchor with that name |
+| `None` | No anchor filter |
+
+### Custom selectors {#custom-selectors}
+
+To change the projection, pass a function to `TapeContext(select=...)`. It receives the selected entries and the context, and returns Republic messages or an awaitable:
+
+```python
+from collections.abc import Iterable
+
+import republic
+
+from bub.core import Agent, TapeContext, default_tape_context
+from bub.core.tape import TapeEntry, build_messages
+
+
+def with_order_notes(
+    entries: Iterable[TapeEntry], _context: TapeContext
+) -> list[republic.Message]:
+    """Add order notes as a system reminder on top of the default projection."""
+    entries = list(entries)
+    messages = build_messages(entries, default_tape_context())
+    notes = [
+        entry.payload.get("data", {})
+        for entry in entries
+        if entry.kind == "event" and entry.payload.get("name") == "order.note"
+    ]
+    if notes:
+        messages.append(republic.system(f"Known order notes: {notes}"))
+    return messages
+
+
+agent = Agent(context=TapeContext(anchor=None, select=with_order_notes))
+```
+
+Two easy mistakes:
+
+- The `entries` you receive are an `Iterable` and may be a generator. Materialize them with `list()` before traversing, or a second pass sees nothing.
+- To reuse the default projection, pass a fresh `default_tape_context()` rather than the `context` holding the current selector; passing it back would make the selector call itself.
+
+A custom selector **replaces** the default one, so conversation messages, tool round-trips, anchors, and the business events you care about must all be composed deliberately. Entries with `context=False` are still filtered before your selector runs.
+
 ### Switch read mode temporarily {#read-with-another-context}
 
 If you do not want to change the Agent's default context and only want a different view for one read (for example, ignoring the anchor to see the full conversation), use `tape.with_context()`:
@@ -149,28 +200,17 @@ from bub.core import default_tape_context
 tape = agent.tape("demo-user")
 
 # Temporarily build a context with no anchor filter and the default conversion rules
-full_messages = await tape.with_context(
-    replace(default_tape_context(), anchor=None)
-).read_messages()
+full_messages = await tape.with_context(replace(default_tape_context(), anchor=None)).read_messages()
 ```
 
 This changes only this read; it does not modify the Tape's records or the context later Agent calls use.
 
 ### anchor and handoff {#anchors-and-handoff}
 
-As conversations grow, Tape records grow without bound, but the model's context window is finite. Bub uses **anchors** to move the model's reading start without discarding history.
+For the concepts and boundaries of anchors and handoffs, see [Tape and model context](/docs/concepts/tape/#anchors). Two initialization behaviors are worth noting when using them:
 
-- **Anchor**: a special boundary marker in the Tape with a name and optional `state`. With the default `TapeContext` and `anchor=LAST_ANCHOR`, only entries after the most recent anchor are projected to the model. Earlier history remains in the Tape and can be queried at any time with `tape.query().all()`.
-- **Handoff**: the operation that writes an anchor to the Tape. It means "the current phase is complete; begin the next one", after which the default context start moves forward.
-
-:::tip
-Handoff is not an automatic summarizer. It does not delete old messages or generate a summary. If you need a summary, generate it with the model before the handoff, then store it explicitly in the Tape or include it with the new prompt.
-:::
-
-Two things to note:
-
-- When `agent.run()`, `agent.start()`, or `agent.session()` starts a new session and the Tape has no anchor, the system writes an initial anchor named `session/start` automatically.
-- Calling `agent.tape(name)` only gets a reference and does not create an anchor. If a manually initialized empty Tape has no anchor, reading it with the default `LAST_ANCHOR` raises an error. For a completely blank Tape, either run once, call `handoff()` explicitly, or read with `TapeContext(anchor=None)`.
+- When `agent.run()`, `agent.start()`, or `agent.session()` starts a session and the Tape has no anchor, the system writes an initial anchor named `session/start` automatically.
+- Calling `agent.tape(name)` only gets a reference and does not create an anchor. If a manually initialized empty Tape has no anchor, reading it with the default `LAST_ANCHOR` raises `BubError [not_found]` (`No anchors found in tape`). For a completely blank Tape, either run once, call `handoff()` explicitly, or read with `TapeContext(anchor=None)`.
 
 ### Run handoff manually {#manual-handoff}
 
@@ -204,22 +244,29 @@ history = list(await tape.query().all())
 | --- | --- |
 | Business phase transition (for example, from tracking to after-sales) | Call `await tape.handoff(name="after-shipping")` when the current phase ends |
 | Resume context from a historical checkpoint | Configure `TapeContext(anchor="checkpoint-name")` |
-| Get the complete, god's-eye view of history | Configure `TapeContext(anchor=None)` |
-| Handle context-window overflow | When the model reports a length error, the system automatically performs one fallback `handoff(name="auto_handoff/context_overflow")` and retries |
+| Get the complete, unfiltered history | Configure `TapeContext(anchor=None)` |
+| Handle context-window overflow | When the model reports a length error, the Agent automatically writes `handoff(name="auto_handoff/context_overflow")` and retries the original prompt once |
+| Compress proactively by budget | Use the [`bub-context-budget` plugin](/docs/integrations/reuse-app/#agent-loop-hooks) to let the model call `tape.handoff` near the limit |
+
+## Sidecars keep parallel records out of context {#sidecars}
+
+A `TapeSidecar` is a capability backed by a sibling Tape mounted beside the session Tape. Mounted through `Agent(sidecars=...)`, it forks, merges, and resets with the main Tape, but its entries never enter the main Tape's model context.
+
+The Bub app uses a spill sidecar for large tool results. The main conversation retains a preview and a handle, and the model reads the full result in chunks through `spill.read`. [`BUB_SPILL_THRESHOLD`](/docs/reference/settings/#spill-settings) configures the trigger; see [code mode and spill](/docs/reference/tools/#code-and-spill) for behavior.
+
+A custom sidecar is provided by a plugin through `provide_tape_sidecar`; the protocol is in the [Hooks reference](/docs/reference/hooks/#provide_tape_sidecar).
+
+## Media has a separate storage boundary {#media}
+
+Model requests can contain images, audio, and video, but the Tape is not a media file store. When a normal Agent Run writes a record, it drops non-text blocks from the prompt's `content` / `prompt`, keeping only text, so inline media never reaches the stored history. Do not assume the original user media can be read back from the Tape later.
+
+When media must be replayed or audited, the host saves it to object storage or a filesystem and records a resolvable reference in text.
+
+To return media together with text to the current model call, a tool uses [`content_result()`](/docs/reference/python-api/#tools). Tool results follow a separate path from inbound prompt stripping: the media they return is recorded as a tool result and turned back into images, audio, or video by `result_content()` during projection.
 
 ## Where should data live? {#state-and-metadata}
 
-The [tools chapter](/docs/sdk/tools/#tool-context) showed how to pass data temporarily with `state`; here the Tape provides persistent memory. Bub also offers `metadata` for observability data such as request identifiers and trace correlation.
-
-These inputs can all carry run data, but their lifetimes and purposes differ:
-
-| Data | Best for | Constraint |
-| --- | --- | --- |
-| `state={...}` | Temporary data shared within a call | Never persisted or restored automatically |
-| `metadata={...}` | Call-level observability data, such as a request ID | Recorded in run information, but not automatically added to the model prompt |
-| Tape entries | Conversations and tool inputs/outputs across calls | Persisted; TapeContext decides whether they enter model input |
-
-For example, a request ID fits in `state` and observability metadata; an order note needed for later queries can be appended to the Tape explicitly; conversation that the next turn should continue naturally relies on message records and context projection.
+For the lifetimes and purposes of `state`, `metadata`, Tape entries, and anchor `state`, see [Where data belongs](/docs/concepts/tape/#state). The example below shows how to combine temporary data with a persistent record:
 
 ```python
 from bub.core.tools import ToolContext, tool
@@ -249,14 +296,14 @@ sequenceDiagram
     Host->>Fork: Enter agent.run(), start recording
     Host->>Fork: Model output, tool I/O, and run events
     alt Consumed normally
-        Host->>Fork: Exit async with, close the stream
+        Host->>Fork: Leave async with, close the stream
     else Exception, cancellation, or early exit
         Host->>Fork: Close the unfinished stream
     end
-    Fork->>Main: Merge written records by default
+    Fork->>Main: Merge the written records by default
 ```
 
-The default merge happens when the stream closes, not only when the call succeeds. This means after a network error, task cancellation, or early exit, part of the conversation and run records already written to the fork may remain in the main Tape. If you do not want to keep a run's records, set `merge_back=False`:
+The merge happens when the stream closes, not when the call succeeds. After a network error, cancellation, or early exit, the parts of the conversation and run record already written to the fork may still remain on the main Tape. To discard a Run's records, pass `merge_back=False`:
 
 ```python
 async with agent.run(
@@ -269,8 +316,14 @@ async with agent.run(
         ...
 ```
 
-This discards the Tape fork records for this call, but it does not undo **tool operations or other external side effects that already happened**.
+This discards the Run's fork records, but does **not** undo tool operations or other external side effects already performed. You can also manage the scope yourself with `agent.session(name, merge_back=...)` or `tape.fork_tape(merge_back=...)`.
 
-## Session limits {#concurrency}
+:::caution
+A fork is not a transaction over the outside world. Even with `merge_back=False`, tool changes to files, sent requests, and external writes are not rolled back.
+:::
 
-When two different Agents use the same Tape name at the same time, each creates a fork from the history visible at its start. Bub does not decide whether these requests should queue, overwrite, or interleave. For the same session Tape, if a later request depends on the previous result, the host should serialize requests per session; for concurrency or cross-worker or cross-instance calls, consider session locking.
+## Session constraints {#concurrency}
+
+When two different Agents use the same Tape name at the same time, each forks from the history it can see at start. Bub does not decide for you whether those requests should queue, overwrite, or interleave. If a later request in the same session depends on the result of an earlier one, the host should serialize work per session; across processes or workers, consider a session lock.
+
+`FileTapeStore` does not provide a cross-worker session lock; the [FastAPI example](/docs/sdk/web-service/) demonstrates locking within one process. When concurrent Runs need to consume one another's completed results, the application coordinates their order.

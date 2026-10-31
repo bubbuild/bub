@@ -1,0 +1,35 @@
+---
+title: The Agent loop
+description: What an Agent assembles, and how a Run advances through Steps of alternating model and tool calls.
+sidebar:
+  label: Agent loop
+---
+
+An Agent assembles a model, tools, the Tape, and a loop: the model decides the next move, the tools perform the actions, the Tape supplies the history, and the loop carries those steps through to a final answer.
+
+## The Agent loop {#loop}
+
+Each iteration advances like this:
+
+1. Read history through `TapeContext`, append the new user message, and call the model;
+2. If the model requests tools, execute them and hand the results back to the model;
+3. If the model answers directly, the Run ends.
+
+The loop works at two granularities:
+
+| Concept | Definition | Ends when |
+| --- | --- | --- |
+| **Run** | One complete Agent execution, which hands the caller a `StreamEvent` stream | The model requests no more tools, or the caller closes the stream |
+| **Step** | One model inference plus every tool call that response requested | Every tool call from this inference has been handled |
+
+Three boundaries are easy to miss:
+
+- **A Run is driven by its event stream.** The model and tool loop advances only while the stream is iterated; iterating is how a Run executes, not a second event mechanism.
+- **Model context comes from the Tape, not from the Run.** A Run keeps no separate message list: every model call projects the history through `TapeContext`. See [Tape](/docs/concepts/tape/).
+- **A Run is not a Turn.** A Run is one execution of an Agent; a Turn is the application layer handling one message, and a direct command can finish without a Run at all. See [Turn](/docs/concepts/turn/).
+
+## Core layer and application layer {#layers}
+
+`core.Agent` is Bub's microkernel: it owns the model and tool loop, events, and the Tape, and it takes no responsibility for session routing, configuration, plugin discovery, or message channels. The application layer adds those capabilities around the same loop instead of implementing a second Agent.
+
+When embedding Bub in an existing service, the host therefore supplies resources such as the model, tools, and storage explicitly; use the application layer when you need the complete message lifecycle. See the [SDK](/docs/sdk/) and [Reuse Bub in a service](/docs/integrations/reuse-app/) for the entry points.

@@ -1,6 +1,6 @@
 ---
 title: Agent 循环
-description: 了解 bub.core.Agent 核心循环机制，掌握 Run、Step、流式事件与 Tape 记忆管理。
+description: 在自己的代码中驱动 bub.core.Agent：消费运行流、读取流式事件，并管理 Tape 记忆。
 ---
 
 `bub.core.Agent` 是 `bub` 的最小内核，负责驱动大模型与本地工具之间的交互循环。你可以直接将它嵌入任何 Python 服务、后端框架或自定义脚本中。
@@ -29,18 +29,11 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-本文将为你介绍 `bub.core.Agent` 背后的一些细节。
+本文介绍如何消费运行流、处理流式事件并管理 Tape；Run、Step 与 Turn 的定义见 [Agent 循环](/zh-cn/docs/concepts/agent/#loop)。
 
-## 1. Run 与 Step {#run-and-step}
+## 1. 运行流程 {#run-and-step}
 
-与传统的单次 API 请求不同，Agent 的本质是一个**多步交互循环**（Loop）：它接收用户输入向模型发问，如果模型请求调用工具，Agent 会在本地执行工具，并将结果打包带回给模型，直到模型吐出最终答复。
-
-为了精确掌控这个过程，`bub` 在架构上明确区分了两个层级：
-
-- **Run**：一次完整的用户交互任务（由 `agent.run(...)` 触发）。
-- **Step**：Run 内部的单轮迭代。**一个 Run 包含一个或多个 Step**。
-
-下面是一次带有工具调用的多步循环流程：
+下面是一次包含工具调用的多步 Run：
 
 ```mermaid
 flowchart TD
@@ -55,10 +48,6 @@ flowchart TD
     Decision -->|"否"| Final["产出最终文本与 final"]
     Final --> Close["关闭流，发出 RunFinished，合并 Tape 分支"]
 ```
-
-在上面的最小示例中，由于没有挂载工具，模型直接生成文本，整个 Run 仅需 1 个 Step 即可结束。当引入工具后，多个 Step 会在底层自动串联。
-
----
 
 ## 2. 消费事件流 {#consume-the-stream}
 
@@ -76,7 +65,7 @@ async with agent.run(prompt, model=model, tape="quickstart") as stream:
 
 :::caution
 当出现 `final` 事件时，仅表示**当前 Step 的结束**，而不是整个 Run 的终点。
-如果模型在当前轮次请求调用了工具，工具执行完毕后，Agent 必然会带着工具结果进入下一轮 Step，并产生新的事件。因此，无论你是向客户端返回流式响应，还是统计任务完成状态，都必须**等待整个 `async for event in stream` 循环完整结束**才开始执行。
+如果模型在当前 Step 请求调用了工具，工具执行完毕后，Agent 必然会带着工具结果进入下一个 Step，并产生新的事件。因此，无论你是向客户端返回流式响应，还是统计任务完成状态，都必须**等待整个 `async for event in stream` 循环完整结束**才开始执行。
 :::
 
 ## 3. 事件类型与数据 {#stream-events}
@@ -105,11 +94,4 @@ async for event in stream:
 
 ## 4. Tape 与记忆分支管理 {#tape-management}
 
-细心的你会发现在开头的示例中传入了 `tape="demo"`。
-
-在 Bub 的架构设计中，**Tape** 是核心的对话历史与状态存储载体，它可以：
-
-- **基于记录恢复上下文**：不同于传统的内存会话状态（容易由于大模型上下文膨胀或丢失导致幻觉），`bub` 的上下文由 append-only 的 Tape 记录按需重构。
-- **分支机制**：`tape="demo"` 允许本次运行挂载在特定的磁带分支上。流正常关闭时，分支中的记录默认会自动合并回主 Tape；若配置了参数丢弃分支记录，则不会污染主历史。
-
-借助于 Tape 可以让我们 Agent 循环具备记忆和连续对话能力，当然在后面我们会单独对其进行[介绍](/zh-cn/docs/sdk/tape/#forks-and-merges)。
+示例中的 `tape="demo"` 指定本次 Run 使用的历史记录。连续对话、持久化以及分支合并的操作见 [SDK：Tape 与记忆](/zh-cn/docs/sdk/tape/)，历史与模型上下文的区别见 [Tape 概念](/zh-cn/docs/concepts/tape/)。

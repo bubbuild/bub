@@ -273,6 +273,42 @@ class ToolCallResult:
     duration_ms: int = 0
 ```
 
+## App Hooks 与 Agent 事件 {#app-hooks}
+
+概念页只说明「谁在什么方向介入」，这里给出适配细节。三种数据的关系与决策语义见 [Agent 事件](/zh-cn/docs/concepts/events/#three-kinds)。
+
+### 事件映射 {#event-mapping}
+
+`PluginAgentHooks` 把应用 hooks 接到 Agent 事件上：
+
+| 应用 hook | Agent 事件 | 说明 |
+| --- | --- | --- |
+| `before_llm_call` | `LLMCallStarted` | 每次模型调用前；可返回改写后的 `LLMCallRequest` 或 `LLMCallDecision` |
+| `after_llm_call` | `LLMCallFinished` | 调用成功或普通异常失败后各一次 |
+| `before_tool_call` | `ToolCallStarted` | 每次工具调用前；可 `proceed(arguments)`、`replace(result)` 或 `deny(message)` |
+| `after_tool_call` | `ToolCallFinished` | 成功、失败、拒绝与替代都会触发 |
+| `continue_prompt` | `StepFinished` | 仅在 `status == "continue"` 时调用，结果写入 `next_prompt` |
+| `provide_steering_inbox` | `MessagesPending` | 排出待注入的 steering 消息，加入当前 Run 的下一步 |
+
+模型可见的工具调用（包括 `.tape.handoff` 这类内置工具）同样经过 `ToolCallStarted` / `ToolCallFinished`。
+
+### 两种接入方式的差异 {#event-vs-hooks}
+
+| 对比项 | 直接处理 Agent 事件 | 应用拦截 hook |
+| --- | --- | --- |
+| 注册 | `agent.events.on(Type, handler)` | 插件中的 `@hookimpl` |
+| 执行顺序 | 注册顺序 | pluggy 优先级 |
+| 参数修改 | 原地替换 `event.call` / `event.request` | 返回 `ToolCallDecision.proceed(arguments=...)` 或新的 `LLMCallRequest` |
+| 控制 | 设置 `event.decision` | 返回 decision 对象 |
+| 异常 | 传播给 `emit()` 调用方，可能使 Run 失败 | 记录日志后跳过，不会中断 Run |
+| 返回值类型不符 | 不适用 | 记录警告并跳过该实现 |
+
+因此用 hook 实现的安全策略不能靠抛异常阻止调用，必须返回 `deny(...)`。
+
+### 订阅方式 {#subscribe}
+
+`PluginAgentHooks(runtime).subscribe(events)` 把四个拦截 hook 接到已有或新建的事件总线上；`AgentPlugins.attach(agent)` 会自动订阅，同时接上 `continue_prompt`、steering inbox 与系统提示词。嵌入方式与生命周期要求见[复用 Bub 应用](/zh-cn/docs/integrations/reuse-app/#agent-loop-hooks)。
+
 ## PluginAgentHooks {#pluginagenthooks}
 
 ```python

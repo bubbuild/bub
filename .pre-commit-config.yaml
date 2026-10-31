@@ -18,6 +18,15 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
 
+  - repo: local
+    hooks:
+      - id: autocorrect
+        name: Autocorrect Markdown
+        entry: autocorrect --fix
+        language: node
+        additional_dependencies: ["autocorrect-node@2.14.0"]
+        files: ^website/src/content/docs/.*\.(md|mdx)$
+
   - repo: https://github.com/jendrikseipp/vulture
     rev: "v2.14"
     hooks:

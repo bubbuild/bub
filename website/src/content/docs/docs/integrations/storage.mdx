@@ -108,6 +108,32 @@ The plugin is built on SQLAlchemy and supports connecting to relational database
 
 In production, test concurrent writes and connection pool timeout settings in advance to keep the service stable.
 
+## Implement your own store backend {#custom-store}
+
+`core.Agent` and the built-in app depend only on the store protocol, so implementing it swaps the backend entirely. For the difference between "the Tape keeps history" and "TapeContext projects context", see [Tape and model context](/docs/concepts/tape/#history-and-context).
+
+| Protocol | Where it is used |
+| --- | --- |
+| `bub.core.store.TapeStore` | Synchronous implementation passed to `Agent(store=...)` |
+| `bub.core.store.AsyncTapeStore` | Asynchronous implementation; recommended for databases and remote storage |
+| `provide_tape_store` | Application-level replacement; the built-in app returns `FuzzyFileTapeStore` |
+
+Full method signatures are in the [Python API](/docs/reference/python-api/#tape-store). At minimum a backend must isolate entries by Tape name, preserve append order, support `reset()`, and let `TapeQuery`'s anchor filters work. Forks are built on top of any store by `ForkTapeStore`, so the backend does not implement them.
+
+## Storage in the built-in app {#app-storage}
+
+The built-in app supplies `FuzzyFileTapeStore` through `provide_tape_store`, with `~/.bub/tapes/` as the default directory. It derives the Tape name from both workspace path and session ID, so same-named sessions in different workspaces do not share history.
+
+`BubAgent` chooses its store in this order:
+
+1. An explicitly supplied `tape_store`;
+2. The store returned by `framework.get_tape_store()` when the Agent is created;
+3. The in-memory store when neither is available.
+
+Create `BubAgent` inside `framework.running()` when it should use the store supplied by that scope. Replace storage with `provide_tape_store`, and replace the projection strategy with `build_tape_context`.
+
+The built-in app restores session settings such as model, reasoning effort, and code mode from the Tape. Persist any other application state explicitly.
+
 ## Troubleshooting {#troubleshooting}
 
 | Common issue | Possible cause | Solution |

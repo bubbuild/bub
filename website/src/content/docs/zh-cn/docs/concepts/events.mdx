@@ -1,182 +1,44 @@
 ---
-title: "事件：可观测与同步决策拦截总线"
-description: 使用 EventBus 不仅能观察 Agent 运行，还能在执行前拒绝、替换或改写调用。
+title: Agent 事件
+description: 分清 AgentEvent、StreamEvent 与 TapeEntry，理解同步分发如何在副作用发生前拦截执行。
 sidebar:
   label: 事件
 ---
 
-可观测性回答「发生了什么」，策略却常常需要回答一个更早的问题：「这件事应该发生吗？」工具写入生产环境后再产生一条日志当然有用，但日志无法阻止这次写入。
+Agent 事件不仅回答「发生了什么」，也能在副作用发生前决定「这件事是否应该发生」。每个 Agent 的 `EventBus` 都支持观察和同步干预。
 
-因此，每个 Agent 都有一条同时支持观察和**同步决策**的 `EventBus`。处理器可以检查生命周期事件，特定的调用前事件还允许它们在 Agent 继续执行前拒绝、替换或改写工作。
+## 三种数据 {#three-kinds}
 
-## 三种数据，三个方向 {#three-kinds}
+| 类型 | 用途 | 获取方式 | 能干预吗 |
+| --- | --- | --- | --- |
+| `AgentEvent` | 协调与干预当前执行 | `agent.events.on(...)` | 能：修改字段或设置 `decision` |
+| `StreamEvent` | 向调用方交付输出 | 迭代 `agent.run()` 的流 | 能：关闭流即结束 Run |
+| `TapeEntry` | 保存历史记录 | 查询 [Tape](/zh-cn/docs/concepts/tape/#history-and-context) | 不能：正常记录只追加 |
 
-Agent 事件、流式输出和 Tape 记录都在描述一次运行，因此很容易混淆，但它们的职责不同：
+三者不会自动互相转换：流式输出不会自行落盘，Tape 条目不会回灌进正在执行的 Step。只有被 `TapeContext` 选中的条目，才会成为后续模型输入。
 
-| 类型 | 用途 | 获取方式 |
-| --- | --- | --- |
-| `AgentEvent` | 观察生命周期，控制模型或工具调用 | `agent.events.on(...)` |
-| `StreamEvent` | 向调用方交付文本、工具进度、用量和错误 | 迭代 `agent.run()` 返回的流 |
-| `TapeEntry` | 保存对话和选定的运行记录 | 查询 [Tape](/zh-cn/docs/concepts/tape/) |
+## 同步分发 {#handlers}
 
-数据流向决定了它们各自能做什么：
+`emit()` 按注册顺序逐个调用匹配的处理器，并等待 async 处理器完成后再继续。需要记住四条规则：
 
-- `AgentEvent` 上的可变字段可以影响后续执行。
-- `StreamEvent` 是输出载荷。迭代事件流会驱动模型循环，关闭流会结束尚未完成的 Run。
-- `TapeEntry` 供后续查询，不会改变正在执行的 Step。只有被 `TapeContext` 选中的条目才会成为后续模型调用的输入。
-
-简而言之：事件协调现在，事件流通知调用方，Tape 保存过去并供未来投影。
-
-## 处理器组成有序、等待执行的链条 {#handlers}
-
-为关心的事件类型注册处理器：
-
-```python
-from bub.core.events import StepFinished, ToolCallFinished
-
-
-@agent.events.on(ToolCallFinished)
-async def report_tool(event: ToolCallFinished) -> None:
-    print(event.call.tool, event.result.duration_ms, "ms")
-
-
-def report_step(event: StepFinished) -> None:
-    print("step", event.step, event.status)
-
-
-agent.events.on(StepFinished, report_step)
-agent.events.off(StepFinished, report_step)  # 不再需要时移除
-```
-
-装饰器和直接注册等价。注册到基类的处理器也会接收子类事件；监听 `AgentEvent` 可以统一处理所有 Agent 事件。
-
-### 分发规则 {#delivery}
-
-1. 每次 `emit()` 按注册顺序调用匹配的处理器。
-2. 处理器返回 awaitable 时，总线等待它完成，再调用下一个处理器。
-3. 返回值会被忽略。要控制运行，应修改事件字段，而不是从函数返回 decision。
-4. 异常会传播给 `emit()` 的调用方，并可能使 Run 失败。
-5. 每个处理器运行前，总线检查 `event.stopped`；为 `True` 时结束本次派发。
-
-总线之所以等待，是因为策略必须先于动作完成。这项保证只作用于一次 `emit()`；并发工具调用或多个 Run 共享状态时，仍需应用层协调。只用于日志和指标的处理器如果不应影响主流程，就应自行捕获异常。
+1. 注册到基类的处理器也会收到子类事件。
+2. 返回值会被忽略；干预执行要修改事件字段或设置 `decision`。
+3. 异常会传播给发布方，可能导致整个 Run 失败。
+4. 每次调用处理器前都会检查 `event.stopped`，为 `True` 时停止本次派发。
 
 ## 决策先于副作用 {#call-control}
 
-调用前事件暴露可变请求和 `decision`。例如，订单更新工具可以只关注订单更新，会话策略则由独立处理器执行：
+调用前事件暴露可替换的请求和 `decision`。一次工具调用有四种结果：
 
-```python
-from dataclasses import replace
-
-from bub.core.events import ToolCallDecision, ToolCallStarted
-
-
-@agent.events.on(ToolCallStarted)
-def check_order_update(event: ToolCallStarted) -> None:
-    if event.call.tool != "update_order":
-        return
-    if not event.state.get("orders_writable"):
-        event.decision = ToolCallDecision.deny("当前会话不允许修改订单。")
-        return
-    if event.call.arguments.get("dry_run") is None:
-        event.call = replace(event.call, arguments={**event.call.arguments, "dry_run": False})
-```
-
-`ToolCallStarted` 支持三种控制方式：
-
-| 操作 | 原工具是否执行 | 结果 | 后续处理器 |
-| --- | --- | --- | --- |
-| `deny(message)` | 否 | 工具错误 | 停止派发 |
-| `replace(result)` | 否 | 指定结果 | 停止派发 |
-| 替换 `event.call` | 是，使用新调用 | 实际执行结果 | 继续派发 |
-
-被拒绝或替换的调用仍会发出 `ToolCallFinished`。模型循环会把拒绝作为工具错误交回模型，直接命令则向调用方抛出该错误。
-
-事件对象是可变 dataclass，但 `event.call` 和 `event.request` 等载荷是 frozen 对象。使用 `dataclasses.replace()` 创建替代载荷，不要原地修改其字段。
-
-在 `LLMCallStarted` 上设置 `event.decision = LLMCallDecision.finish(text)` 可以跳过模型提供商并直接产生文本。这种短路不会发出对应的 `LLMCallFinished`。
-
-## 不污染工具的跨切面策略 {#ioc}
-
-这是一条控制反转边界。Agent 循环负责调用工具，事件总线则让外围应用有机会先处理跨切面关注点：
-
-- 权限与准入检查；
-- 敏感操作前的人工批准；
-- 参数脱敏或规范化；
-- 预算控制、mock 和确定性测试替身；
-- 指标与审计通知。
-
-业务工具只保留一项职责：执行领域动作。可复用策略放在能够覆盖多个工具的监听器中。必须始终成立的领域不变量仍属于领域层或工具层；重点不是把所有规则都搬进事件，而是让共享策略拥有一个一致的家。
-
-## 记录与自定义事件 {#recording}
-
-Agent 会先注册 `TapeRecorder`，再注册你的处理器。记录器订阅 `RunStarted`、`RunFinished`、`StepStarted`、`StepFinished`、`ChatFinished` 和 `CommandFinished`。
-
-`ChatFinished` 记录对话和工具往返，后续模型调用从中构建上下文。Tracing 与 Tape 记录相互独立，关闭 tracing 不会停止 Tape 记录。
-
-自定义事件继承 `AgentEvent`，需要当前 Tape 时继承 `TapeEvent`：
-
-```python
-from dataclasses import dataclass
-
-from bub.core.events import TapeEvent
-
-
-@dataclass(kw_only=True)
-class OrderReviewed(TapeEvent):
-    order_id: str
-
-
-@agent.events.on(OrderReviewed)
-async def record_review(event: OrderReviewed) -> None:
-    await event.tape.append_event("order.reviewed", {"order_id": event.order_id})
-
-
-async def mark_reviewed() -> None:
-    tape = agent.tape("customer-42")
-    await agent.events.emit(
-        OrderReviewed(state=tape.context.state, tape=tape, order_id="A123")
-    )
-```
-
-`TapeRecorder` 不会自动记录自定义事件，上例显式写入了一条。自定义事件也没有内置的 `decision` 协议。需要返回数据时定义可变字段，需要让决策结束派发时覆写 `stopped` 属性。工具可以通过 `context.events` 发布事件。
-
-## 应用 hooks 建立在同一组事件之上 {#app-plugins}
-
-`AgentPlugins` 把应用 hooks 连接到 Agent 事件：
-
-| 应用 hook | Agent 事件 |
-| --- | --- |
-| `before_llm_call` / `after_llm_call` | `LLMCallStarted` / `LLMCallFinished` |
-| `before_tool_call` / `after_tool_call` | `ToolCallStarted` / `ToolCallFinished` |
-| `continue_prompt` | `StepFinished` |
-| `provide_steering_inbox` | `MessagesPending` |
-
-`MessagesPending` 为 steering 提供注入点：补充消息可以加入当前 Run 的后续模型请求。与等待当前 Turn 结束的 queue up 不同，steering 请求当前 Run 消费消息。当前 Turn 未消费的 steering 消息会回退到 pending queue。一般区别见 [Steering and queueing](https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/steering-and-queueing)；具体准入和 queue up 策略由渠道与应用决定。
-
-`BubAgent` 默认使用这个适配器，核心 Agent 也可以[显式接入](/zh-cn/docs/integrations/reuse-app/#other-hooks)。
-
-两种连接方式有不同的异常策略。直接 EventBus 处理器的异常向发布方传播，拦截 hook 的异常会被记录并跳过。需要拒绝调用时，返回对应 decision。完整签名见 [Hooks 参考](/zh-cn/docs/reference/hooks/#interception-through-pluginagenthooks)，示例见[应用插件](/zh-cn/docs/app/plugins/)。
-
-`framework.events` 是另一条独立总线，只发布应用层的 `CommandChanged`、`WorkChanged` 和 `PromptChanged`，不承载模型调用或渠道事件。
-
-## 事件参考 {#event-reference}
-
-| 事件 | 触发时机 | 处理器可读取或修改的内容 |
+| 操作 | 原工具执行吗 | 交给模型的结果 |
 | --- | --- | --- |
-| `RunStarted` | 模型 Run 开始 | `model`、`prompt`、`metadata` |
-| `RunFinished` | Run 的流关闭 | `status`、`steps`、耗时和错误 |
-| `StepStarted` | Step 开始 | `step`、可选的 `prompt` |
-| `StepFinished` | Step 结束 | 进度、用量；继续时设置 `next_prompt` |
-| `MessagesPending` | 构建请求时，或特定 Step 结束时 | 向 `messages` 追加用户内容 |
-| `LLMCallStarted` | 调用模型提供商之前 | 替换 `request`；设置 `LLMCallDecision.finish()` |
-| `LLMCallFinished` | 提供商调用成功或因普通异常失败 | `request` 和汇总后的 `result` |
-| `ToolCallStarted` | 工具执行之前 | 替换 `call`；设置 `deny` 或 `replace` |
-| `ToolCallFinished` | 工具成功、普通失败、被拒绝或被替换 | 给 `event.result.result` 赋值，替换面向模型的结果 |
-| `ChatFinished` | 当前 Step 的对话和工具往返可以记录时 | 消息、工具往返、用量和错误 |
-| `CommandFinished` | 直接命令成功或失败 | 命令、状态和输出 |
+| 不设置 `decision` | 是 | 实际结果 |
+| 替换 `event.call` | 是，用新调用 | 实际结果 |
+| `deny(message)` | 否 | 工具错误 |
+| `replace(result)` | 否 | 指定结果 |
 
-`RunFinished` 在流关闭时发出。尚未迭代就关闭的 Run 以 `cancelled` 结束，Step 数为零。模型和工具的 Finished 事件不保证覆盖取消路径，因此计费和清理不能只依赖它们。
+被拒绝或替换的调用仍会发出 `ToolCallFinished`，完成后的观察逻辑不会漏记。模型调用也遵循同样的调用前干预模型，例如 `LLMCallDecision.finish(text)` 可以跳过供应商直接产生文本。
 
-`StepFinished.next_prompt` 提供下一个 Step 的用户消息，`MessagesPending.messages` 接收 Run 期间到达的消息。达到 `BUB_MAX_STEPS` 时会抛出 `max_steps_reached` 错误。
+## 与 App Hooks 的分工 {#app-hooks}
 
-直接命令发出工具事件和 `CommandFinished`，但不发出 `RunStarted` 或 `RunFinished`。所有 Agent 事件都有 `state`，`TapeEvent` 子类还带有当前 `tape`。
+Agent 事件介入核心循环中的模型、工具、Step 与 Run；App hooks 面向 Turn 阶段、工具供给、存储和渠道等应用生命周期，并承担插件分发。应用拦截 hooks 可以通过适配器接入同一组 Agent 事件，但两者的参数返回方式与异常策略不同，详见 [Hooks 参考](/zh-cn/docs/reference/hooks/#event-mapping)。具体写法分别见 [SDK：事件](/zh-cn/docs/sdk/events/)与[应用插件：拦截调用](/zh-cn/docs/app/plugins/#control-a-model-or-tool-call)。

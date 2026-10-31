@@ -51,7 +51,7 @@ Note:
 
 - The setting takes effect from the next turn and is persisted in the current session record.
 - Use `,code_mode enable=false` to turn it off and return to the default mode.
-- For the Python syntax for calling tools in code mode, see [Compose tools with code mode](/docs/sdk/tools/#compose-tools-with-codemode).
+- For the Python syntax for calling tools in code mode, see the [`run_code` reference](/docs/reference/tools/#run-code).
 
 ## Execution environment and security {#environment}
 
@@ -59,7 +59,7 @@ Built-in tools such as Shell commands (`bash`), file access (`fs.*`), and code e
 
 - **Not securely isolated**: the default environment is not an isolated sandbox; commands the model runs have **real read/write and process side effects on the local system**.
 - **Permissions and interception**: use [tool interception hooks](/docs/reference/hooks/#interception-through-pluginagenthooks) when you need human approval or extra conditions before high-risk commands run.
-- **Containers and isolated environments**: provide a separate [execution environment](/docs/sdk/tools/#choose-an-execution-environment) through a plugin when you need isolated execution.
+- **Containers and isolated environments**: provide a separate [execution environment](/docs/reference/hooks/#provide_environment) through a plugin when you need isolated execution.
 
 ## Integrate and extend tools {#provide-tools}
 

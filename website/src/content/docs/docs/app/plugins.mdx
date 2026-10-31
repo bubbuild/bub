@@ -246,13 +246,7 @@ Interception hooks run before the actual call is triggered. Exceptions raised ar
       return None
   ```
 
-`ToolCallDecision` supports the following options:
-
-| `ToolCallDecision` return value | Effect |
-| --- | --- |
-| `None` or `proceed()` | Allow execution (parameters may optionally be replaced) |
-| `replace(result)` | Skip the actual tool execution and return the given result to the model directly |
-| `deny(message)` | Deny execution and return the denial reason as a tool execution error |
+For the semantics of proceeding, rewriting, denying, and replacing, see [Decisions come before side effects](/docs/concepts/events/#call-control); for the complete return types, see the [Hooks reference](/docs/reference/hooks/#toolcalldecision).
 
 #### Call auditing {#observe-completed-calls}
 
@@ -274,7 +268,7 @@ def after_tool_call(call, result, state):
 
 #### Persist state across turns {#keep-application-state-across-turns}
 
-The Framework creates an independent `TurnState` for each inbound message. By implementing `load_state` and `save_state`, you can store and retrieve custom state across turns:
+The example below uses `load_state` and `save_state` to keep a count across Turns. For the lifetime of `TurnState` and where data belongs, see [Turn](/docs/concepts/turn/#state) and [where data belongs](/docs/concepts/tape/#state).
 
 ```python
 import asyncio

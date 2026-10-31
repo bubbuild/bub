@@ -54,7 +54,7 @@ last_token_cache_hit_rate: 72.50%
 |---|---|
 | `entries` | Total number of events recorded in the session (including input, output, and tool calls). |
 | `anchors` / `last_anchor` | Number of history anchors and the latest context boundary. This determines the starting context for model calls. |
-| `entries_since_last_anchor` | Number of new entries since the last anchor; when this is too high, consider triggering a handoff to truncate excess history. |
+| `entries_since_last_anchor` | Number of new entries since the last anchor; when this is too high, consider a handoff to move the context start forward. |
 | `last_token_usage` | Total token consumption of the most recent model call. |
 | `last_token_cache_hit_rate` | Prompt cache hit rate. A high hit rate means faster responses and lower cost. |
 

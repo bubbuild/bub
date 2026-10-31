@@ -1,66 +1,24 @@
 ---
 title: Events
-description: Learn how to use Agent events to observe run state, modify arguments, and control tool and model execution.
+description: Register and remove Agent event handlers, modify arguments, deny or replace tool calls, and publish custom events.
 ---
 
 Tools hold the business logic, such as looking up an order or updating its status. Real applications often need extra logic around those calls: logging, sanitizing arguments, checking permissions, or measuring latency.
 
-Agent events provide hooks into these stages. By listening to and handling them, you can extend the Agent's behavior without changing the tools themselves.
-
-This section shows how to listen for events and implement custom logic.
+Agent events provide hooks into these stages. By listening to and handling them, you can extend the Agent's behavior without changing the tools themselves. For how the three kinds of data differ and which delivery rules apply, see [Agent events](/docs/concepts/events/#three-kinds).
 
 ## Agent events vs. App Hooks {#events-and-app-hooks}
 
-Before we start, here are the two extension mechanisms in Bub:
+For the division of responsibilities, see [Division of labor with App hooks](/docs/concepts/events/#app-hooks). In the SDK, use `agent.events` to add logic around model or tool calls.
 
-| Mechanism | Scope | Common uses |
-| --- | --- | --- |
-| **Agent events** | The core Agent's run | Observe model or tool calls, modify arguments, record Run state |
-| **Bub App Hooks** | The Bub app's processing pipeline | Build prompts, provide tools, handle messages, extend the app lifecycle |
+## Registering and removing handlers {#register}
 
-In short:
-
-* If you use `bub.core.Agent` and want to add logic at some stage of a model or tool call, use `agent.events`.
-* If you are writing an application plugin, see [Plugins and Hooks](/docs/app/plugins/).
-
-## Listen for tool calls {#listen-to-tool-calls}
-
-Using the order-lookup tool as an example, here is how to log calls. The tool function only performs the lookup; the event handler records the call.
+`EventBus.on()` both registers directly and works as a decorator; `off()` removes a handler:
 
 ```python
-from bub.core import Agent
-from bub.core.events import ToolCallFinished, ToolCallStarted
-from bub.core.tools import tool
+from bub.core.events import StepFinished, ToolCallStarted
 
 
-@tool
-def get_order(order_id: str) -> dict[str, str]:
-    """Look up an order's status by ID."""
-    return {"order_id": order_id, "status": "shipped"}
-
-
-agent = Agent(
-    tools=[get_order],
-    system_prompt="When the user asks about order status, use the get_order tool.",
-)
-
-```
-
-Register event handlers with `agent.events.on(EventType)`. To record something before a tool runs, listen for `ToolCallStarted`:
-
-```python
-from bub.core.events import ToolCallStarted
-
-@agent.events.on(ToolCallStarted)
-def log_tool_start(event: ToolCallStarted) -> None:
-    print(f"Calling: {event.call.tool}")
-    print(f"Arguments: {event.call.arguments}")
-
-```
-
-To remove a handler later, pass the function to both `on()` and `off()`:
-
-```python
 def record_tool_start(event: ToolCallStarted) -> None:
     print(f"Calling: {event.call.tool}")
 
@@ -68,12 +26,42 @@ def record_tool_start(event: ToolCallStarted) -> None:
 # Register
 agent.events.on(ToolCallStarted, record_tool_start)
 
-# Unregister
+# The decorator form is equivalent
+@agent.events.on(ToolCallStarted)
+def log_tool_start(event: ToolCallStarted) -> None:
+    print(f"Arguments: {event.call.arguments}")
+
+
+# Remove
 agent.events.off(ToolCallStarted, record_tool_start)
+```
+
+A handler registered for a base class also receives its subclasses: listening for `AgentEvent` covers everything, and `TapeEvent` gives you `event.tape`. Handlers may be plain functions or `async def`.
+
+## Listen for tool calls {#listen-to-tool-calls}
+
+Using the order-lookup tool as an example, here is how to log calls. The tool function only performs the lookup; the event handler records the call.
+
+```python
+from bub.core import Agent
+from bub.core.events import ToolCallStarted
+from bub.core.tools import tool
+
+
+@tool
+def get_order(order_id: str) -> dict[str, str]:
+    """Look up an order's status by its ID."""
+    return {"order_id": order_id, "status": "shipped"}
+
+
+agent = Agent(
+    tools=[get_order],
+    system_prompt="Use the get_order tool to answer order status questions.",
+)
 
 ```
 
-After a tool finishes, `ToolCallFinished` provides the result, error information, and duration:
+When the tool finishes, `ToolCallFinished` provides the result, any error, and the duration:
 
 ```python
 from bub.core.events import ToolCallFinished
@@ -90,35 +78,35 @@ def log_tool_finish(event: ToolCallFinished) -> None:
 
 ## Tool call flow {#tool-call-order}
 
-The basic flow of a tool call in the Agent loop is:
+In the Agent loop, a tool call follows this path:
 
 ```mermaid
 flowchart TD
-    A[Model requests a tool call] --> B[Emit ToolCallStarted]
-    B --> C[Run Started handlers in registration order]
-    C --> D{Handler decision}
+    A[The model requests a tool] --> B[ToolCallStarted is emitted]
+    B --> C[Started handlers run in registration order]
+    C --> D{Handler decisions}
     D -->|Proceed| E[Run the tool function]
-    D -->|Deny| F[Skip the tool function and produce a tool error]
-    D -->|Replace| G[Skip the tool function and use the supplied result]
-    E --> H[Emit ToolCallFinished]
+    D -->|Deny| F[Skip the tool; produce a tool error]
+    D -->|Replace| G[Skip the tool; use the given result]
+    E --> H[ToolCallFinished is emitted]
     F --> H
     G --> H
-    H --> I[Return the tool result to the model loop]
-    I --> J{Has the Run finished?}
+    H --> I[The result returns to the model loop]
+    I --> J{Does the Run end?}
     J -->|No| A
     J -->|Yes| K[Close the stream and emit RunFinished]
 
 ```
 
-`ToolCallStarted` handlers run before the tool. Handlers run in registration order; if one of them denies or replaces the call, the remaining handlers and the original tool function are skipped.
+`ToolCallStarted` handlers run before the tool does. Several handlers run in registration order; if one sets a deny or replace decision, the remaining handlers and the tool function are skipped.
 
-`ToolCallFinished` is emitted whether the tool runs normally, is denied, or is replaced. Note that one tool call finishing does not mean the whole Agent call is over; listen for `RunFinished` if you need the final status.
+`ToolCallFinished` is emitted whether the tool ran normally, was denied, or was replaced. A finished tool call does not end the Agent run; listen for `RunFinished` to judge the final state.
 
-
+Tool calls made through code mode's `tools.<name>()` and through text commands emit the same two events.
 
 ## Modify arguments before execution {#modify-tool-call}
 
-Besides observing calls, a handler can modify arguments before the tool runs. For example, strip whitespace from an order ID and normalize it to uppercase:
+Handlers can also change arguments before the tool runs. For example, strip whitespace from an order ID and uppercase it:
 
 ```python
 from dataclasses import replace
@@ -134,26 +122,18 @@ def normalize_order_id(event: ToolCallStarted) -> None:
         **event.call.arguments,
         "order_id": event.call.arguments["order_id"].strip().upper(),
     }
-    # ToolCall is immutable; create a new object with replace and assign it back
+    # ToolCall is immutable; build a new object with replace and reassign it
     event.call = replace(event.call, arguments=arguments)
 
 ```
 
-## Check permissions and control decisions {#control-tool-call}
+## Permission checks and decisions {#control-tool-call}
 
-By setting `event.decision`, you can decide before a tool runs whether to continue, deny the call, or supply a replacement result. Bub handles each case as follows:
-
-| Action | Does the original tool run? | What the model receives |
-| --- | --- | --- |
-| Leave the decision unset (default) | Yes | The tool's actual result or error |
-| Replace `event.call` | Yes | The new call's result or error |
-| `ToolCallDecision.deny(message)` | No | The denial reason (as a tool error) |
-| `ToolCallDecision.replace(result)` | No | The supplied replacement result |
-
+By setting `event.decision`, a handler can proceed, deny, or use a replacement result before execution. For the semantics of all four outcomes, see [Decisions come before side effects](/docs/concepts/events/#call-control); the examples below show how to write them.
 
 ### 1. Deny a call {#deny-a-call}
 
-To block an operation based on its arguments, for example to prevent lookups of a special order:
+To block certain operations by argument (for example, disallow a special order):
 
 ```python
 from bub.core.events import ToolCallDecision, ToolCallStarted
@@ -165,15 +145,15 @@ def check_order_access(event: ToolCallStarted) -> None:
         event.call.tool == "get_order"
         and event.call.arguments.get("order_id") == "A123"
     ):
-        event.decision = ToolCallDecision.deny("This order cannot be queried right now.")
+        event.decision = ToolCallDecision.deny("This order may not be looked up.")
 
 ```
 
-After you set `ToolCallDecision.deny(...)`, the original tool function does not run, and the denial reason is returned to the model as a tool error.
+After `ToolCallDecision.deny(...)`, the tool function does not run. The model loop hands the denial back to the model as a tool error; a direct command has no model to receive it, so the error is raised to the caller instead.
 
-### 2. Supply a replacement result {#replacement-result}
+### 2. Use a replacement result {#replacement-result}
 
-If the data is already available, such as a cache hit, skip the tool function and return a replacement result:
+When the data is already available (for example, a cache hit), skip the tool and return it:
 
 ```python
 @agent.events.on(ToolCallStarted)
@@ -188,13 +168,63 @@ def use_cached_order(event: ToolCallStarted) -> None:
 
 ```
 
-## Listen to model, Step, and Run events {#other-events}
+### 3. Change a model call {#control-llm-call}
 
-A full Agent run combines model interaction (LLM), Step execution, and the overall Run. Beyond the tool layer, you can listen to other lifecycle events to implement metrics, usage accounting, audit logging, and similar logic.
+`LLMCallStarted` supports replacing the whole request or producing output without calling the provider:
+
+```python
+from dataclasses import replace
+
+from bub.core.events import LLMCallDecision, LLMCallStarted
+
+
+@agent.events.on(LLMCallStarted)
+def guard_llm_call(event: LLMCallStarted) -> None:
+    if event.request.max_tokens and event.request.max_tokens > 8000:
+        event.request = replace(event.request, max_tokens=8000)
+    if event.state.get("offline"):
+        event.decision = LLMCallDecision.finish("Offline demo mode is active.")
+```
+
+## Custom events {#custom-events}
+
+Events are ordinary dataclasses: subclass `AgentEvent` to publish one, or `TapeEvent` when it needs the current Tape:
+
+```python
+from dataclasses import dataclass
+
+from bub.core.events import TapeEvent
+
+
+@dataclass(kw_only=True)
+class OrderReviewed(TapeEvent):
+    order_id: str
+
+
+@agent.events.on(OrderReviewed)
+async def record_review(event: OrderReviewed) -> None:
+    await event.tape.append_event("order.reviewed", {"order_id": event.order_id})
+
+
+async def mark_reviewed() -> None:
+    tape = agent.tape("customer-42")
+    await agent.events.emit(
+        OrderReviewed(state=tape.context.state, tape=tape, order_id="A123")
+    )
+```
+
+Conventions:
+
+- `TapeRecorder` does not record custom events automatically; the example writes one explicitly.
+- Tracing and Tape recording are independent: turning tracing off stops neither `TapeRecorder` nor the Tape records of conversation and tool round-trips.
+- Custom events have no built-in `decision` protocol. Define mutable fields to return data, and override the `stopped` property if a decision should end delivery.
+- Tools can emit events through `context.events`.
+
+## Model, Step, and Run events {#other-events}
+
+A run is made of three granularities — model calls (LLMCall), steps (Step), and the run itself (Run) — each worth listening to for metrics, usage statistics, and audit logs.
 
 ### 1. Model calls {#model-calls}
-
-These fire when a request is sent to the model and when the response arrives. They are commonly used to track token usage, latency, or model-side failures:
 
 ```python
 from bub.core.events import LLMCallFinished, LLMCallStarted
@@ -202,7 +232,7 @@ from bub.core.events import LLMCallFinished, LLMCallStarted
 
 @agent.events.on(LLMCallStarted)
 def log_llm_start(event: LLMCallStarted) -> None:
-    print(f"Requesting the model with {len(event.request.messages)} input messages")
+    print(f"Calling the model with {len(event.request.messages)} messages")
 
 
 @agent.events.on(LLMCallFinished)
@@ -210,13 +240,13 @@ def log_llm_finish(event: LLMCallFinished) -> None:
     if event.result.error:
         print(f"Model call failed: {event.result.error}")
     else:
-        print(f"Model call succeeded; token usage: {event.result.usage}")
+        print(f"Model call succeeded, token usage: {event.result.usage}")
 
 ```
 
 ### 2. Step events {#step-events}
 
-An Agent task (a Run) usually contains multiple loop iterations. One Step may contain several rounds of "model thinks → decides to call tools → tools return." Use `StepStarted` and `StepFinished` to track how many iterations the Agent executes:
+A Step is one model inference plus the tool calls it requested. `StepFinished.status` says whether the run continues after this step (`continue`) or ends (`ok`):
 
 ```python
 from bub.core.events import StepFinished, StepStarted
@@ -224,18 +254,20 @@ from bub.core.events import StepFinished, StepStarted
 
 @agent.events.on(StepStarted)
 def log_step_start(event: StepStarted) -> None:
-    print(f"--- Starting step {event.step} ---")
+    print(f"--- Step {event.step} started ---")
 
 
 @agent.events.on(StepFinished)
 def log_step_finish(event: StepFinished) -> None:
-    print(f"--- Step {event.step} finished ---")
+    print(f"--- Step {event.step} finished: {event.status}, {event.elapsed_ms}ms ---")
 
 ```
 
+Setting `StepFinished.next_prompt` gives the next step of a continuing run a user message; a `MessagesPending` handler adds messages that arrived during the run through `event.messages`.
+
 ### 3. Run events {#run-events}
 
-`RunStarted` and `RunFinished` bracket the whole conversation task. Pay particular attention to `RunFinished`: it fires when the entire run's event stream closes, including normal completion, an error, or early cancellation.
+`RunStarted` and `RunFinished` bracket the whole task. Note especially that `RunFinished` fires when the run's stream closes, including on normal completion, an exception, or an early cancel. A Run closed before it is iterated ends as `cancelled` with zero steps.
 
 ```python
 from bub.core.events import RunFinished, RunStarted
@@ -243,10 +275,12 @@ from bub.core.events import RunFinished, RunStarted
 
 @agent.events.on(RunStarted)
 def log_run_start(event: RunStarted) -> None:
-    print("Agent task started...")
+    print("Agent run started...")
 
 
 @agent.events.on(RunFinished)
 def log_run_result(event: RunFinished) -> None:
-    print(f"Agent task finished: status={event.status}, steps={event.steps}")
+    print(f"Agent run finished: status={event.status}, steps={event.steps}")
 ```
+
+The full event list, fields, and trigger points are in the [Python API: events](/docs/reference/python-api/#events).

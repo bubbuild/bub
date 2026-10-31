@@ -38,14 +38,14 @@ Do not modify files yet. List the problems and suggestions first.
 
 The Bub app places the message in the steering inbox. The agent reads it when building a later model request; a model or tool call already in progress is not forcibly interrupted.
 
-You may also encounter queueing in other tools. [Steering and queueing](https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/steering-and-queueing) differ in when the message takes effect:
+Bub's admission actions are `steer` and `follow_up`; they differ in when the message takes effect:
 
 | Approach | Handling | Use it for |
 | --- | --- | --- |
 | Steering | Injects into later model requests in the current turn; messages that cannot be consumed in time become pending messages | Correcting direction, adding constraints, and providing new information relevant to the current task |
-| Queue up | Processed as a follow-up task after the current turn ends | Adding another task or running several requests in order |
+| Follow up | Processed as a follow-up task after the current turn ends | Adding another task or running several requests in order |
 
-By default, the Bub app steers ordinary input while a run is in progress; there is no separate queueing shortcut. Steering messages that the current turn does not consume automatically enter the pending queue instead of being dropped.
+By default, the Bub app steers ordinary input while a run is in progress; there is no separate follow-up shortcut. Steering messages that the current turn does not consume automatically enter the pending queue instead of being dropped.
 
 To stop the task in the current session, use `,quit`; it clears pending messages and cancels running tasks.
 

@@ -52,8 +52,8 @@ last_token_cache_hit_rate: 72.50%
 | 字段 | 含义与排查意义 |
 |---|---|
 | `entries` | 会话中记录的事件总数（含输入、输出、工具调用）。 |
-| `anchors` / `last_anchor` | 历史锚点数量及最新上下文边界。决定了模型调用时的起始上下文起点。 |
-| `entries_since_last_anchor` | 自上个锚点以来的新条目数；数值过高时建议触发 handoff 截断多余历史。 |
+| `anchors` / `last_anchor` | 历史 anchor 数量及最新上下文边界，决定模型调用的上下文起点。 |
+| `entries_since_last_anchor` | 自上个 anchor 以来的新条目数；数值过高时建议通过交接（handoff）移动上下文起点。 |
 | `last_token_usage` | 最近一次大模型调用的 Token 总消耗量。 |
 | `last_token_cache_hit_rate` | 提示词缓存（Prompt Cache）命中率。命中率高代表响应更快且成本更低。 |
 

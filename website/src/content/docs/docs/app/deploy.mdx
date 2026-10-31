@@ -279,6 +279,6 @@ bub gateway --uninstall
 
 - **Strict allowlist**: configure `BUB_TELEGRAM_ALLOW_USERS` or `BUB_TELEGRAM_ALLOW_CHATS`; messages that fail validation are rejected or silently dropped.
 - **Minimize the workspace**: mount only the project directories you need into the workspace, and do not let the Agent access directories containing host keys or critical system paths.
-- **Step limit**: limit the maximum steps per task with `BUB_MAX_STEPS` (default 50) to guard against infinite loops and API quota consumption.
+- **Step limit**: cap the steps per task with `BUB_MAX_STEPS` to guard against infinite loops and API quota consumption. It is unlimited by default (`sys.maxsize`), so production deployments should set it explicitly, for example to 50.
 - **Credential security**: inject secrets through `.env` or environment variables, and never commit tokens to version control.
 - **Regular backups**: periodically archive and back up the Tape files in `~/.bub` (or the container's `/data`).

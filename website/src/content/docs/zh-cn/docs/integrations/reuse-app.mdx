@@ -131,7 +131,7 @@ if __name__ == "__main__":
 - 不协调同会话并发；
 - 不负责替你关闭流，第一个 `final` 也只表示一个 Step 结束。
 
-内置系统提示不会要求模型通过 channel skill 回复；`bub gateway` 和 `bub chat` 背后的渠道管理器会注册一个 `system_prompt` Hook，只在它运行的 Turn 中加入这条指令。自己调用 `process_inbound()` 的服务可以注册自己的 Hook，说明回复如何送达。整体替换 `agent.system_prompt` 也会移除插件、技能、延迟工具和 Code Mode 的提示片段。
+内置系统提示不会要求模型通过 channel skill 回复；`bub gateway` 和 `bub chat` 背后的渠道管理器会注册一个 `system_prompt` Hook，只在它运行的 Turn 中加入这条指令。自己调用 `process_inbound()` 的服务可以注册自己的 Hook，说明回复如何送达。整体替换 `agent.system_prompt` 也会移除插件、技能、延迟工具和 代码模式 的提示片段。
 
 <a id="run-stream-options"></a>
 
@@ -182,7 +182,7 @@ if __name__ == "__main__":
 | `allowed_tools` | 允许实例上的全部工具 | 不允许工具 |
 | `allowed_skills` | 使用默认技能发现结果 | 禁用技能发现 |
 
-未知名称会抛出 `ValueError`。筛选覆盖模型直接调用和 Code Mode，但逗号命令直接使用 Agent 实例的工具，不受 `allowed_tools` 限制；需要约束所有执行路径时，在 `before_tool_call` 中执行权限策略。
+未知名称会抛出 `ValueError`。筛选覆盖模型直接调用和 代码模式，但逗号命令直接使用 Agent 实例的工具，不受 `allowed_tools` 限制；需要约束所有执行路径时，在 `before_tool_call` 中执行权限策略。
 
 这些限制只有在宿主代码决定参数时才可靠。让模型自己生成子 Agent 的允许列表不构成安全边界。
 
@@ -254,7 +254,7 @@ if __name__ == "__main__":
 
 ### Agent 循环 hooks {#agent-loop-hooks}
 
-`AgentPlugins` 把插件 hooks 接到核心 Agent 的事件、提示词、工具和运行状态上：
+`AgentPlugins` 把插件 hooks 接到核心 Agent 的事件、提示词、工具和运行状态上。这些机制分别建立在哪种数据之上，见 [Agent 事件：事件与其他扩展机制](/zh-cn/docs/concepts/events/#app-hooks)。
 
 下面的 `PlainTextPlugin` 是一个完整的最小插件示例。将代码保存为 `agent_hooks.py`，并确保已安装 `bub[app]`、配置 `REPUBLIC_OPENAI_API_KEY`：
 

@@ -66,7 +66,7 @@ Main entry points:
 | `run_command(tape, line)` | Executes a command directly without calling the model |
 | `prepare_tools(tape, prompt)` | Subclasses can override this to choose tools once per Run; later Steps reuse them, and calls outside the prepared set use a fresh `prepare_tools(tape, None)` lookup |
 
-`run` / `start` share these parameters: `prompt`, `model`, `options` (external `republic.ChatOptions`), required `tape` name, `state`, `merge_back`, and `metadata`. See [Tape](/docs/concepts/tape/#forks) for forks and merges.
+`run` / `start` share these parameters: `prompt`, `model`, `options` (external `republic.ChatOptions`), required `tape` name, `state`, `merge_back`, and `metadata`. See [forks and merges](/docs/sdk/tape/#forks-and-merges) for how a Run's Tape fork merges on close.
 
 ### Model {#model}
 
@@ -94,7 +94,7 @@ from bub.core import Tool, ToolContext, tool
 from bub.core.tools import content_result, result_content
 ```
 
-`content_result(content)` constructs a tool result containing text and media, and `result_content(result)` converts it back into model content. Ordinary results are converted to text by `Tool.render()`. See [Custom tools and code mode](/docs/sdk/tools/) for usage.
+`content_result(content)` constructs a tool result containing text and media, and `result_content(result)` converts it back into model content. Ordinary results are converted to text by `Tool.render()`. See [Custom tools and code mode](/docs/sdk/tools/) for usage, and [media](/docs/sdk/tape/#media) for how such results are recorded on the Tape.
 
 ### System prompt {#system-prompt}
 
@@ -157,6 +157,23 @@ tape = Tape(
 
 `session_tape_name(session_id, workspace)` returns a physical Tape name of the form `<workspace hash>__<session hash>`, which the framework uses to map one session to one Tape; SDK callers may also use their own names.
 
+#### `TapeSidecar` {#tapesidecar}
+
+```python
+from bub.core.sidecars import TapeSidecar, sidecar_tape_name
+```
+
+```python
+class TapeSidecar(Protocol):
+    @property
+    def name(self) -> str: ...
+
+
+def sidecar_tape_name(owner: str, sidecar: str) -> str: ...
+```
+
+A sidecar is backed by the sibling Tape `<owner>__sidecar__<name>`: it forks, merges, and resets with the main Tape, and its entries never enter the main context. Mounting is covered in [Sidecars](/docs/sdk/tape/#sidecars); the application-level provider is [`provide_tape_sidecar`](/docs/reference/hooks/#provide_tape_sidecar).
+
 #### `TapeEntry` {#tapeentry}
 
 The entry type accepted by `append(tape, entry)`:
@@ -211,6 +228,8 @@ class AsyncTapeStore(Protocol):
 
 Multiple conditions are combined with AND. A query for a missing anchor fails with `BubError(kind=NOT_FOUND)`; a malformed date fails with `INVALID_INPUT`.
 
+`after_anchor` and `last_anchor` return entries after the named or latest anchor, excluding the boundary anchor itself. A missing anchor raises `BubError(kind=NOT_FOUND)`. The default query therefore does not pass the boundary anchor to the projection. When reading without anchor filtering, such as with `anchor=None`, the selector can receive anchor entries; the default selector converts any anchor it receives into an `[Anchor created: …]` assistant message. A raw `TapeQuery` does not apply `TapeContext`'s `context=False` filter.
+
 For a synchronous store, `all()` returns an `Iterable` directly; for an asynchronous store, await it. A query from `Tape.query()` is always bound to an `AsyncTapeStore`:
 
 ```python
@@ -231,7 +250,7 @@ entries = list(await query.all())
 
 `FileTapeStore` uses the Tape name directly as a file name, so names must be safe as paths; multi-tenant or web services should use controlled identifiers. See [Tape and memory](/docs/sdk/tape/#storage).
 
-### Events {#events}
+### `EventBus` {#events}
 
 ```python
 from bub.core import EventBus, ToolCallStarted, ToolCallFinished
@@ -239,7 +258,25 @@ from bub.core import EventBus, ToolCallStarted, ToolCallFinished
 
 `EventBus`: `on` / `off` / `emit`. Public event types include `RunStarted` / `RunFinished`, `StepStarted` / `StepFinished`, `LLMCallStarted` / `LLMCallFinished`, `ToolCallStarted` / `ToolCallFinished`, `MessagesPending`, `ChatFinished`, `CommandFinished`, and others.
 
-Interception payloads (`LLMCallRequest`, `LLMCallDecision`, `ToolCall`, `ToolCallDecision`, and others) are also exported from `bub.core`. See [Events](/docs/concepts/events/) for fields and control conventions.
+### Events at a glance {#event-reference}
+
+| Event | When it fires | What a handler can read or change |
+| --- | --- | --- |
+| `RunStarted` | A model Run begins | `model`, `prompt`, `metadata` |
+| `RunFinished` | The Run's stream closes | `status` (`ok` / `error` / `cancelled`), `steps`, elapsed time, error |
+| `StepStarted` | A Step begins | `step`, optional `prompt` |
+| `StepFinished` | A Step ends | Progress, usage; set `next_prompt` when continuing |
+| `MessagesPending` | While a request is built, or when a Step ends | Append user content to `messages` |
+| `LLMCallStarted` | Before calling the provider | Replace `request`; set `LLMCallDecision.finish()` |
+| `LLMCallFinished` | After success or an ordinary provider failure | `request` and the aggregated `result` |
+| `ToolCallStarted` | Before a tool runs | Replace `call`; set `deny` or `replace` |
+| `ToolCallFinished` | Tool success, ordinary failure, denial, or replacement | Assign `event.result.result` to change the model-facing result |
+| `ChatFinished` | When a Step's exchange can be recorded | Messages, tool round-trips, usage, errors |
+| `CommandFinished` | A direct command succeeds or fails | Command, status, output |
+
+`RunFinished` fires when the stream closes; a Run closed before iterating ends as `cancelled` with zero steps, and Finished events do not cover every cancellation path, so billing and cleanup must not rely on them alone. `StepFinished.next_prompt` supplies the next Step's user message, and `MessagesPending.messages` receives messages that arrived during the Run. Exceeding `max_steps` (set by `BUB_MAX_STEPS` in the app) raises `max_steps_reached`. A direct command emits tool events and `CommandFinished` but no `RunStarted` or `RunFinished`. Every event carries `state`, and `TapeEvent` subclasses also carry `tape`.
+
+Interception payloads (`LLMCallRequest`, `LLMCallDecision`, `ToolCall`, `ToolCallDecision`, and others) are also exported from `bub.core`. See [Agent events](/docs/concepts/events/#call-control) for the decision semantics, and [Hooks reference](/docs/reference/hooks/#event-mapping) for the app-hook mapping.
 
 ### Streams {#streams}
 
@@ -380,7 +417,7 @@ from bub.builtin.agent import BubAgent
 
 Configuration is cached process-wide. To use the framework's active store, construct `BubAgent` inside `async with framework.running():`. An explicit `tape_store` takes precedence and remains the caller's lifecycle responsibility. See [Reuse the Bub app](/docs/integrations/reuse-app/) for embedding.
 
-`run_stream` parameters: `session_id` (a `temp/` prefix prevents the branch from merging), `prompt`, `state` (loaded through hooks when `None`), `model`, `allowed_skills`, `allowed_tools`, and `reasoning_effort`. Await it before iterating; it does not handle outbound rendering, `save_state`, or serialization of concurrent runs in the same session. See [Turn entry points](/docs/concepts/turn/#entry-points) for differences from a complete Turn.
+`run_stream` parameters: `session_id` (a `temp/` prefix prevents the branch from merging), `prompt`, `state` (loaded through hooks when `None`), `model`, `allowed_skills`, `allowed_tools`, and `reasoning_effort`. Await it before iterating; it does not handle outbound rendering, `save_state`, or serialization of concurrent runs in the same session. See [Turn](/docs/concepts/turn/#stages) for the differences from a complete Turn.
 
 ### Messages and TurnResult {#messages}
 
@@ -415,7 +452,7 @@ from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 
 `ChannelRouter`: `dispatch_output`, `wrap_stream`, `quit`, and `admit_channel_message`. `ChannelManager` implements this protocol and is bound through `bind_channel_router`.
 
-Admission types: `AdmitDecision(action, reason=None)` (`process` / `drop` / `follow_up` / `steer`), `TurnSnapshot`, and `SteeringInbox`. `follow_up` means queueing (Queue up), and `steer` means steering (Steering); see the [Hooks reference](/docs/reference/hooks/#application-hooks) and [Turn](/docs/concepts/turn/) for complete behavior.
+Admission types: `AdmitDecision(action, reason=None)` (`process` / `drop` / `follow_up` / `steer`), `TurnSnapshot`, and `SteeringInbox`. `follow_up` processes the message after the current Turn, while `steer` injects it into the running Turn; see the [Hooks reference](/docs/reference/hooks/#application-hooks) and [Turn](/docs/concepts/turn/) for complete behavior.
 
 ### Hooks {#hooks}
 

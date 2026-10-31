@@ -425,6 +425,19 @@ class Tape:
 def session_tape_name(session_id: str, workspace: Path) -> str: ...
 ```
 
+### `TapeSidecar` {#tapesidecar}
+
+```python
+class TapeSidecar(Protocol):
+    @property
+    def name(self) -> str: ...
+
+
+def sidecar_tape_name(owner: str, sidecar: str) -> str: ...
+```
+
+Sidecar 由配套 Tape `<owner>__sidecar__<name>` 承载：随主 Tape 分支、合并和重置，条目不进入主上下文。挂载方式见 [Sidecar](/zh-cn/docs/sdk/tape/#sidecars)，应用层的提供方式见 [`provide_tape_sidecar`](/zh-cn/docs/reference/hooks/#provide_tape_sidecar)。
+
 ### `TapeStore` {#tape-store}
 
 ```python
@@ -467,6 +480,17 @@ class TapeQuery[T: TapeStore | AsyncTapeStore]:
     @overload
     async def all(self: TapeQuery[AsyncTapeStore]) -> Iterable[TapeEntry]: ...
 ```
+
+| 过滤条件 | 语义 |
+| --- | --- |
+| `after_anchor(name)` / `last_anchor()` | 指定 anchor 或最近一个 anchor 之后；Tape 中没有 anchor 时抛 `BubError(kind=NOT_FOUND)` |
+| `between_anchors(start, end)` | 两个 anchor 之间，不含边界；任一 anchor 不存在时抛 `NOT_FOUND` |
+| `between_dates(start, end)` | ISO 日期或时间范围，含边界；只有日期的上界覆盖整天 |
+| `kinds(*kinds)` | 条目类型 |
+| `query(value)` | 在 kind、日期、payload 和 meta 的 JSON 文本中做不区分大小写的包含匹配 |
+| `limit(value)` | 最多返回的条目数，在其他过滤之后应用 |
+
+`after_anchor` / `last_anchor` 返回指定或最近一个 anchor **之后**的条目，不包含边界 anchor 本身；anchor 不存在时抛出 `BubError(kind=NOT_FOUND)`。因此默认投影不会收到边界 anchor。使用 `anchor=None` 等不过滤 anchor 的读取方式时，选择器可能收到 anchor 条目，默认选择器会把它转换为 `[Anchor created: …]` 助手消息。直接使用 `TapeQuery` 时不叠加 `TapeContext` 的 `context=False` 过滤。
 
 ### `InMemoryQueryMixin`
 
@@ -538,6 +562,28 @@ class Event:
     @property
     def stopped(self) -> bool: ...
 ```
+
+### 事件一览 {#event-reference}
+
+| 事件 | 触发时机 | 处理器可读取或修改的内容 |
+| --- | --- | --- |
+| `RunStarted` | 模型 Run 开始 | `model`、`prompt`、`metadata` |
+| `RunFinished` | Run 的流关闭 | `status`（`ok` / `error` / `cancelled`）、`steps`、耗时和错误 |
+| `StepStarted` | Step 开始 | `step`、可选的 `prompt` |
+| `StepFinished` | Step 结束 | 进度、用量；继续时设置 `next_prompt` |
+| `MessagesPending` | 构建请求时，或特定 Step 结束时 | 向 `messages` 追加用户内容 |
+| `LLMCallStarted` | 调用模型提供商之前 | 替换 `request`；设置 `LLMCallDecision.finish()` |
+| `LLMCallFinished` | 提供商调用成功或因普通异常失败 | `request` 和汇总后的 `result` |
+| `ToolCallStarted` | 工具执行之前 | 替换 `call`；设置 `deny` 或 `replace` |
+| `ToolCallFinished` | 工具成功、普通失败、被拒绝或被替换 | 给 `event.result.result` 赋值，替换面向模型的结果 |
+| `ChatFinished` | 当前 Step 的对话和工具往返可以记录时 | 消息、工具往返、用量和错误 |
+| `CommandFinished` | 直接命令成功或失败 | 命令、状态和输出 |
+
+`RunFinished` 在流关闭时发出。尚未迭代就关闭的 Run 以 `cancelled` 结束，Step 数为零。模型和工具的 Finished 事件不保证覆盖取消路径，因此计费和清理不能只依赖它们。
+
+`StepFinished.next_prompt` 提供下一个 Step 的用户消息，`MessagesPending.messages` 接收 Run 期间到达的消息。达到 `max_steps`（应用层由 `BUB_MAX_STEPS` 设置）时会抛出 `max_steps_reached` 错误。
+
+直接命令发出工具事件和 `CommandFinished`，但不发出 `RunStarted` 或 `RunFinished`。所有 Agent 事件都有 `state`，`TapeEvent` 子类还带有当前 `tape`。分发规则与决策语义见 [Agent 事件](/zh-cn/docs/concepts/events/#call-control)；应用 hooks 与这些事件的映射见 [Hooks 参考](/zh-cn/docs/reference/hooks/#event-mapping)。
 
 ### `AgentEvent`
 

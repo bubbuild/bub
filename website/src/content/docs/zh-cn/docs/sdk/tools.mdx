@@ -225,7 +225,7 @@ async with agent.run(",get_order A123", model=model, tape="tools-demo") as strea
 
 这和普通函数调用的区别在于，直接命令会产生 Bub 定义事件，以便你现有 Agent 流程逻辑可以统一处理。但调用发生错误时，不会像模型工具错误那样交回模型修正。
 
-## Code Mode {#compose-tools-with-codemode}
+## 代码模式 {#compose-tools-with-codemode}
 
 当工具较多或任务需要条件逻辑时，可以让模型通过 `run_code` 工具来编写 Python 代码，以满足更灵活的处理需要或在一次执行中组合多个工具：
 

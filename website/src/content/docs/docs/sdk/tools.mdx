@@ -225,7 +225,7 @@ async with agent.run(",get_order A123", model=model, tape="tools-demo") as strea
 
 The difference from an ordinary function call is that a direct command emits Bub-defined events, so your existing Agent flow can handle it the same way. If the command fails, however, the error is not sent back to the model for correction the way a model tool error is.
 
-## Code Mode {#compose-tools-with-codemode}
+## Code mode {#compose-tools-with-codemode}
 
 When there are many tools or the task needs conditional logic, let the model write Python through the `run_code` tool. This gives it more flexibility and lets it compose several tools in one execution:
 

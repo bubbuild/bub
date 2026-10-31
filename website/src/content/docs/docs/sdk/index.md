@@ -1,6 +1,6 @@
 ---
 title: The Agent Loop
-description: Understand the core loop in bub.core.Agent, including Runs, Steps, stream events, and Tape memory management.
+description: "Drive bub.core.Agent from your own code: consume the run stream, read stream events, and manage Tape memory."
 ---
 
 `bub.core.Agent` is the minimal core of `bub`. It drives the interaction loop between the model and your local tools, and you can embed it directly in any Python service, backend framework, or custom script.
@@ -29,18 +29,11 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-This page looks at what happens inside `bub.core.Agent`.
+This page covers consuming run streams, handling stream events, and managing Tapes. For the definitions of Runs, Steps, and Turns, see [The Agent loop](/docs/concepts/agent/#loop).
 
 ## 1. Runs and Steps {#run-and-step}
 
-Unlike a single API request, an Agent is fundamentally a **multi-step loop**. It sends user input to the model; when the model asks to call a tool, the Agent runs that tool locally and feeds the result back to the model, repeating until the model produces a final answer.
-
-To make this process controllable, `bub` separates two levels in its architecture:
-
-- **Run**: one complete user interaction, started by `agent.run(...)`.
-- **Step**: one iteration inside a Run. **A Run contains one or more Steps.**
-
-The diagram below shows a multi-step loop that calls a tool:
+The diagram below shows a multi-step Run that calls a tool:
 
 ```mermaid
 flowchart TD
@@ -56,13 +49,9 @@ flowchart TD
     Final --> Close["Close the stream, emit RunFinished, merge the Tape fork"]
 ```
 
-In the minimal example above, no tools are registered, so the model answers directly and the whole Run finishes in a single Step. Once you add tools, multiple Steps are chained automatically.
-
----
-
 ## 2. Consuming the stream {#consume-the-stream}
 
-After you enter `agent.run()`, `bub` initializes the session and emits `RunStarted`. The model and tool loop is **lazy**: the Agent only starts stepping and working once you consume the event stream. Creating the context without consuming the stream does not run the task. A simple example:
+After you enter `agent.run()`, `bub` initializes the session and emits `RunStarted`. The underlying model and tool loop uses **lazy evaluation**: the Agent starts stepping and working only when you consume the event stream. Creating the context without consuming the stream does not run the task. A simple example:
 
 ```python
 async with agent.run(prompt, model=model, tape="quickstart") as stream:
@@ -76,7 +65,7 @@ You can read the type of every event from `event.kind`.
 
 :::caution
 A `final` event marks the end of the **current Step**, not the end of the Run.
-If the model requested tools in this round, the Agent must run them and then enter another Step with the results, producing more events. So whether you are streaming a response to a client or tracking task completion, wait for the entire `async for event in stream` loop to finish before acting on it.
+If the model requested tools in the current Step, the Agent must run them and then enter another Step with the results, producing more events. So whether you are streaming a response to a client or tracking task completion, wait for the entire `async for event in stream` loop to finish before acting on it.
 :::
 
 ## 3. Event types and payloads {#stream-events}
@@ -105,11 +94,4 @@ async for event in stream:
 
 ## 4. Tape and memory branches {#tape-management}
 
-You may have noticed the `tape="demo"` argument in the first example.
-
-In Bub's architecture, a **Tape** is the core store for conversation history and state. It can:
-
-- **Rebuild context from its records**: unlike traditional in-memory session state, which can hallucinate once the model context grows too large or is lost, `bub` rebuilds context on demand from an append-only Tape.
-- **Branch**: `tape="demo"` attaches this Run to a specific Tape branch. When the stream closes normally, the branch's records merge back into the main Tape by default; if you configure the Run to discard branch records, they do not pollute the main history.
-
-The Tape is what gives the Agent loop memory and multi-turn continuity. We cover it in detail in [Tape & Memory](/docs/sdk/tape/#forks-and-merges).
+The `tape="demo"` argument in the example selects the history used by this Run. For continuous conversations, persistence, and fork merging, see [SDK: Tape & Memory](/docs/sdk/tape/); for the difference between history and model context, see [Tape concepts](/docs/concepts/tape/).
