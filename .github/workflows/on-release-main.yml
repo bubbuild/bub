@@ -46,7 +46,7 @@ jobs:
         run: uv build
 
       - name: Publish package
-        run: uv publish --trusted-publishing always
+        uses: pypa/gh-action-pypi-publish@release/v1
 
   docker:
     runs-on: ubuntu-latest
