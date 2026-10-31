@@ -9,7 +9,7 @@
 
 <p><strong>Build your Bub.</strong></p>
 
-[Website](https://bub.build) · [Docs](https://bub.build/docs/) · [Hub](https://hub.bub.build)
+[Website](https://bub.build) · [Docs](https://bub.build/docs/getting-started/) · [Hub](https://hub.bub.build)
 
 </div>
 
@@ -51,13 +51,13 @@ Follow the prompts to choose plugins and configure your model, then start a conv
 bub chat
 ```
 
-[Run your first conversation](https://bub.build/docs/app/workspace/) walks through a task in your workspace. [Customize the Bub app](https://bub.build/docs/app/workspace/) covers tools, plugins, and packaging. For `uv tool install` and other setup options, see [Install Bub](https://bub.build/docs/getting-started/install/#app-install).
+[Run your first conversation](https://bub.build/docs/getting-started/quickstart/#cli) walks through a task in your workspace. To customize the Bub app, see [tools](https://bub.build/docs/app/tools/), [plugins](https://bub.build/docs/app/plugins/), and [packaging](https://bub.build/docs/app/distribution/). For `uv tool install` and other setup options, see [Install Bub](https://bub.build/docs/getting-started/install/#app-install).
 
 ## Documentation
 
-- [Choose a starting point](https://bub.build/docs/)
-- [Shared concepts and capabilities](https://bub.build/docs/concepts/)
-- [API and application reference](https://bub.build/docs/reference/)
+- [Choose a starting point](https://bub.build/docs/getting-started/)
+- [Shared concepts and capabilities](https://bub.build/docs/concepts/agent/)
+- [API and application reference](https://bub.build/docs/reference/python-api/)
 
 ## Background
 
