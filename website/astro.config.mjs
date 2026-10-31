@@ -27,10 +27,6 @@ export default defineConfig({
     imageService: image_service,
     prerenderEnvironment: 'node',
   }),
-  redirects: {
-    '/docs/sdk/options': '/docs/sdk/tape',
-    '/zh-cn/docs/sdk/options': '/zh-cn/docs/sdk/tape',
-  },
   site: process.env.SITE_URL ?? 'https://bub.build',
   env: {
     schema: {
@@ -134,7 +130,7 @@ export default defineConfig({
           translations: { 'zh-CN': '核心概念' },
           items: [
             'docs/concepts',
-            'docs/concepts/kernel',
+            'docs/concepts/agent',
             'docs/concepts/turn',
             'docs/concepts/tape',
             'docs/concepts/events',
