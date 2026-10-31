@@ -19,8 +19,8 @@
     .animate-rise { animation: rise-in 0.18s ease-out both; }
     .shadow-panel {
       box-shadow:
-        0 1px 2px rgb(0 0 0 / 0.04),
-        0 16px 40px -28px rgb(0 0 0 / 0.35);
+        0 1px 2px rgb(0 0 0 / 0.03),
+        0 12px 32px -24px rgb(0 0 0 / 0.18);
     }
     @media (prefers-reduced-motion: reduce) {
       .animate-rise { animation: none; }
@@ -38,7 +38,7 @@
             <h1 class="min-w-0 truncate text-[15px] font-semibold tracking-tight">Bub Todo Agent</h1>
           </div>
           <button
-            class="flex size-9 shrink-0 items-center justify-center rounded-xl border-[0.5px] border-zinc-300/70 bg-white text-zinc-500 shadow-sm transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+            class="flex size-9 shrink-0 items-center justify-center rounded-xl border-[0.5px] border-zinc-300/70 bg-white text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
             :class="sidebarOpen ? 'bg-zinc-100 text-zinc-900' : ''"
             type="button"
             @click="sidebarOpen = !sidebarOpen"
@@ -65,9 +65,9 @@
             <h2 class="text-xl font-semibold tracking-tight">What are you working on?</h2>
             <p class="mt-2 text-sm leading-6 text-zinc-500">Tell me your plan. I will use tools to add, look up, and complete todos for you.</p>
             <div class="mt-6 flex flex-wrap justify-center gap-2">
-              <button class="h-8 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-3.5 text-xs text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50 hover:text-zinc-900" type="button" @click="ask('Add a todo: read for 30 minutes at 8 PM.')">Add a reading todo</button>
-              <button class="h-8 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-3.5 text-xs text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50 hover:text-zinc-900" type="button" @click="ask('List all pending todos.')">Show open todos</button>
-              <button class="h-8 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-3.5 text-xs text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50 hover:text-zinc-900" type="button" @click="ask('Mark the weekly report as complete.')">Complete “Write the weekly report”</button>
+              <button class="h-8 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-3.5 text-xs text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900" type="button" @click="ask('Add a todo: read for 30 minutes at 8 PM.')">Add a reading todo</button>
+              <button class="h-8 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-3.5 text-xs text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900" type="button" @click="ask('List all pending todos.')">Show open todos</button>
+              <button class="h-8 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-3.5 text-xs text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900" type="button" @click="ask('Mark the weekly report as complete.')">Complete “Write the weekly report”</button>
             </div>
           </div>
 
@@ -88,7 +88,7 @@
             </template>
 
             <div class="flex items-start" x-show="toolStatus" x-transition.opacity.duration.150ms>
-              <div class="flex items-center gap-2 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-3.5 py-2 text-xs text-zinc-500 shadow-sm">
+              <div class="flex items-center gap-2 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-3.5 py-2 text-xs text-zinc-500">
                 <svg class="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.56"></path></svg>
                 <span x-text="toolStatus"></span>
               </div>
@@ -118,14 +118,14 @@
             </div>
             <div class="flex shrink-0 justify-end gap-1.5">
               <button
-                class="h-8 rounded-full border-[0.5px] border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20 disabled:opacity-50"
+                class="h-8 rounded-full border-[0.5px] border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20 disabled:opacity-50"
                 type="button"
                 x-ref="confirmCancel"
                 :disabled="confirmBusy"
                 @click="answerConfirm(false)"
               >Cancel</button>
               <button
-                class="h-8 rounded-full border-0 bg-red-600 px-3 text-xs font-medium text-white shadow-sm transition-colors hover:bg-red-500 disabled:opacity-50"
+                class="h-8 rounded-full border-0 bg-red-600 px-3 text-xs font-medium text-white transition-colors hover:bg-red-500 disabled:opacity-50"
                 type="button"
                 :disabled="confirmBusy"
                 @click="answerConfirm(true)"
@@ -135,19 +135,19 @@
         </div>
 
         <div class="shrink-0 px-4 pb-4 sm:px-6 sm:pb-6">
-          <form class="mx-auto w-full max-w-xl overflow-hidden rounded-3xl border-[0.5px] border-zinc-300 bg-white shadow-sm transition focus-within:border-zinc-400 focus-within:ring-4 focus-within:ring-zinc-900/5" @submit.prevent="send()">
+          <form class="mx-auto w-full max-w-xl overflow-hidden rounded-3xl border-[0.5px] border-zinc-300 bg-white transition focus-within:border-zinc-400 focus-within:ring-4 focus-within:ring-zinc-900/5" @submit.prevent="send()">
             <div class="flex items-end gap-2 p-2 pl-4">
               <textarea
                 class="min-h-[44px] flex-1 resize-none self-center border-0 bg-transparent py-3 pr-1 text-sm leading-6 outline-none placeholder:text-zinc-400 disabled:opacity-50"
                 x-model="input"
                 @keydown.enter="handleEnter($event)"
                 :disabled="sending"
-                placeholder="Message the agent…"
+                placeholder="Message the agent · Enter to send"
                 aria-label="Message"
                 rows="1"
               ></textarea>
               <button
-                class="flex size-9 shrink-0 items-center justify-center rounded-full border-0 bg-zinc-900 text-white shadow-sm transition-colors hover:bg-zinc-700 disabled:pointer-events-none disabled:bg-zinc-100 disabled:text-zinc-400"
+                class="flex size-9 shrink-0 items-center justify-center rounded-full border-0 bg-zinc-900 text-white transition-colors hover:bg-zinc-700 disabled:pointer-events-none disabled:bg-zinc-100 disabled:text-zinc-400"
                 type="submit"
                 :disabled="sending || !input.trim()"
                 :aria-label="sending ? 'Running' : 'Send'"
@@ -157,11 +157,11 @@
               </button>
             </div>
             <div class="flex min-h-10 flex-wrap items-center gap-2 border-t border-zinc-200/70 bg-zinc-50 px-3 py-2">
-              <div class="flex h-7 min-w-0 items-center gap-1.5 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-2.5 text-[11px] text-zinc-600 shadow-sm" :title="`${baseUrl} · ${apiKeyConfigured ? 'API key configured' : 'API key missing'}`">
+              <div class="flex h-7 min-w-0 items-center gap-1.5 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-2.5 text-[11px] text-zinc-600" :title="`${baseUrl} · ${apiKeyConfigured ? 'API key configured' : 'API key missing'}`">
                 <svg class="size-3 shrink-0 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect width="16" height="16" x="4" y="4" rx="2"></rect><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"></path></svg>
                 <span class="max-w-[200px] truncate font-mono" x-text="model"></span>
               </div>
-              <label class="flex h-7 items-center gap-1.5 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-2.5 text-[11px] text-zinc-600 shadow-sm" title="Reasoning effort depends on the model; Auto sends no reasoning_effort">
+              <label class="flex h-7 items-center gap-1.5 rounded-full border-[0.5px] border-zinc-300/70 bg-white px-2.5 text-[11px] text-zinc-600" title="Reasoning effort depends on the model; Auto sends no reasoning_effort">
                 <svg class="size-3 shrink-0 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"></path></svg>
                 <span>Think level</span>
                 <select class="cursor-pointer border-0 bg-transparent p-0 pr-1 text-[11px] font-medium text-zinc-800 outline-none" x-model="thinkLevel" :disabled="sending" aria-label="Reasoning effort">
@@ -171,7 +171,7 @@
                   <option value="high">High</option>
                 </select>
               </label>
-              <span class="ml-auto hidden shrink-0 text-[10px] text-zinc-400 sm:inline"> Enter to send · Shift + Enter for a new line</span>
+              <span class="ml-auto hidden shrink-0 text-[10px] text-zinc-400 sm:inline">Shift + Enter for a new line</span>
             </div>
           </form>
         </div>
@@ -199,9 +199,9 @@
 
         <div class="shrink-0 px-4 pb-2 pt-4">
           <div class="grid grid-cols-3 gap-1 rounded-xl bg-zinc-100 p-1 ring-[0.5px] ring-zinc-950/10" aria-label="Filter todos">
-            <button class="h-7 rounded-lg border-0 text-xs text-zinc-500 transition-all duration-150" :class="filter === 'all' ? 'bg-white text-zinc-900 shadow-sm ring-[0.5px] ring-zinc-950/10' : 'hover:text-zinc-800'" type="button" @click="filter = 'all'" :aria-pressed="filter === 'all'">All</button>
-            <button class="h-7 rounded-lg border-0 text-xs text-zinc-500 transition-all duration-150" :class="filter === 'pending' ? 'bg-white text-zinc-900 shadow-sm ring-[0.5px] ring-zinc-950/10' : 'hover:text-zinc-800'" type="button" @click="filter = 'pending'" :aria-pressed="filter === 'pending'">Open</button>
-            <button class="h-7 rounded-lg border-0 text-xs text-zinc-500 transition-all duration-150" :class="filter === 'completed' ? 'bg-white text-zinc-900 shadow-sm ring-[0.5px] ring-zinc-950/10' : 'hover:text-zinc-800'" type="button" @click="filter = 'completed'" :aria-pressed="filter === 'completed'">Done</button>
+            <button class="h-7 rounded-lg border-0 text-xs text-zinc-500 transition-all duration-150" :class="filter === 'all' ? 'bg-white text-zinc-900 ring-[0.5px] ring-zinc-950/10' : 'hover:text-zinc-800'" type="button" @click="filter = 'all'" :aria-pressed="filter === 'all'">All</button>
+            <button class="h-7 rounded-lg border-0 text-xs text-zinc-500 transition-all duration-150" :class="filter === 'pending' ? 'bg-white text-zinc-900 ring-[0.5px] ring-zinc-950/10' : 'hover:text-zinc-800'" type="button" @click="filter = 'pending'" :aria-pressed="filter === 'pending'">Open</button>
+            <button class="h-7 rounded-lg border-0 text-xs text-zinc-500 transition-all duration-150" :class="filter === 'completed' ? 'bg-white text-zinc-900 ring-[0.5px] ring-zinc-950/10' : 'hover:text-zinc-800'" type="button" @click="filter = 'completed'" :aria-pressed="filter === 'completed'">Done</button>
           </div>
         </div>
 
