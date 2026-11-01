@@ -23,8 +23,7 @@ This page focuses on **building and distributing a standalone installable packag
 
 A distribution can provide its own command name and call Bub's CLI entry point internally. This lets you give the agent its own brand or fix its default behavior:
 
-```python
-# src/my_bub/cli.py
+```python title="src/my_bub/cli.py"
 from pathlib import Path
 import os
 from bub.__main__ import main as bub_main
@@ -80,7 +79,7 @@ Ship `src/skills/` as a **PEP 420 implicit namespace package**, and **never** cr
 
 Set up the entry points and Hatch build includes in `pyproject.toml`:
 
-```toml
+```toml title="pyproject.toml" mark={14-15,17-18,20-21}
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

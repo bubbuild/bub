@@ -39,7 +39,7 @@ import { FileTree, Steps } from '@astrojs/starlight/components';
 1. 导入相关依赖，并将配置信息读取作为变量保存；
 2. 自定义 FastAPI [生命周期](https://fastapi.tiangolo.com/advanced/events/#lifespan)（lifespan）逻辑，在启动时完成 Bub Agent 配置。
 
-```python
+```python title="main.py"
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
@@ -127,7 +127,7 @@ Agent 就位之后，接下来让它真正能做事——即我们所有涉及�
 - 用 Python 的字典对象来存储任务数据
 - 提供常见的增删改查方法来让 Agent 与这个字典对象交互，即查看任务、新增任务、完成任务以及删除任务。
 
-```python
+```python title="main.py"
 # ...
 
 from itertools import count
@@ -184,7 +184,7 @@ def delete_task(task_id: str) -> dict[str, object]:
 
 现在让我们修改 Agent 配置：
 
-```python
+```python title="main.py"
 
 # Code snippet..
 
@@ -254,7 +254,7 @@ def run_agent(agent: Agent, model, req: ChatRequest, confirm_delete: ConfirmDele
 
 所以在 Agent 创建后，我们再在 FastAPI 的 `lifespan`  中新增如下逻辑：
 
-```python
+```python title="main.py"
 # ...
 
 from bub.core.events import ToolCallDecision, ToolCallFinished, ToolCallStarted
@@ -348,7 +348,7 @@ async def confirm_tool_call(req: Confirmation, request: Request):
 
 这里直接给出完整代码：
 
-```python
+```python title="main.py"
 import asyncio
 from collections.abc import AsyncIterable
 from contextlib import suppress
@@ -469,7 +469,7 @@ sequenceDiagram
 
 1. 将 `.env.example` 重命名为 `.env`，并填写模型相关参数或端口：
 
-    ```
+    ```bash title=".env"
     BUB_MODEL=openai:gpt-4o-mini
     BUB_API_BASE=https://api.openai.com/v1
 

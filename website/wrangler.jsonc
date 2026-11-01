@@ -4,6 +4,9 @@
   // Must not be newer than the `workerd` bundled with the pinned `wrangler`, or
   // `pnpm dev` / `pnpm preview` refuse to start.
   "compatibility_date": "2026-10-03",
+  "assets": {
+    "not_found_handling": "404-page"
+  },
   "observability": {
     "enabled": false,
     "head_sampling_rate": 1,

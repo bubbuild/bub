@@ -42,7 +42,7 @@ cd bub-echo-plugin
 
 在 `pyproject.toml` 中，通过 `[project.entry-points."bub"]` 将插件对象暴露给 Bub：
 
-```toml
+```toml title="pyproject.toml" mark={11-12}
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -66,7 +66,7 @@ echo = "bub_echo_plugin.plugin:echo_plugin"
 
 在模块中编写插件逻辑时，需使用 `@hookimpl` 装饰器标记具体的 Hook 实现：
 
-```python
+```python title="src/bub_echo_plugin/plugin.py"
 from bub import hookimpl
 
 
@@ -390,7 +390,7 @@ if ask_confirm("确认继续执行？", kind="permission"):
 
 `extism.json` 指定模块文件和 hook 映射：
 
-```json
+```json title="extism.json"
 {
   "plugins": {
     "prompt": {

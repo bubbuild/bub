@@ -122,7 +122,7 @@ You can add multiple servers to the `mcpServers` dictionary in `~/.bub/mcp.json`
 
 If the tool runs as a microservice on a remote server or in a local container, configure it with `url` and `transport`:
 
-```json
+```json title="~/.bub/mcp.json"
 {
   "mcpServers": {
     "weather": {
@@ -144,7 +144,7 @@ If the tool runs as a microservice on a remote server or in a local container, c
 
 For local tools with permission restrictions, you can limit their operating directory through `args`:
 
-```json
+```json title="~/.bub/mcp.json"
 {
   "mcpServers": {
     "filesystem": {

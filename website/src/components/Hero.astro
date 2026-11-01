@@ -4,7 +4,7 @@ import Icon from '@/components/ui/Icon.astro';
 import LinkButton from '@/components/ui/LinkButton.astro';
 import type { HeroData } from '@/data/landing-page';
 import type { GitHubContributor } from '@/lib/github';
-import CodeBlock from '@/components/ui/CodeBlock.astro';
+import { Code } from '@astrojs/starlight/components';
 
 interface Props extends HeroData {
   contributors: GitHubContributor[];
@@ -84,7 +84,7 @@ class MyPlugin:
 
       <!-- Right: code editor -->
       <div class="hero-terminal min-w-0 overflow-hidden border border-border shadow-[var(--site-shadow-elevated)]">
-        <CodeBlock code={exampleCode} lang="python" title="hooks.py" frame="code" />
+        <Code code={exampleCode} lang="python" title="hooks.py" frame="code" class="site-code-block site-code-block--no-copy" />
       </div>
     </div>
   </div>

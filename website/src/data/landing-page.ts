@@ -13,16 +13,12 @@ export type HeroData = {
 };
 
 export type InstallPlatform = {
-  /** `windows` also drives the default tab on Windows; `posix` is the fallback. */
-  id: 'posix' | 'windows';
   label: string;
   command: string;
 };
 
 export type InstallCommandData = {
   platforms: InstallPlatform[];
-  copyLabel: string;
-  copiedLabel: string;
 };
 
 export type GetStartedData = {
@@ -112,18 +108,14 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       install: {
         platforms: [
           {
-            id: 'posix',
             label: 'macOS / Linux',
             command: 'curl -fsSL https://bub.build/install.sh | bash',
           },
           {
-            id: 'windows',
             label: 'Windows',
             command: 'powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"',
           },
         ],
-        copyLabel: 'Copy install command',
-        copiedLabel: 'Install command copied',
       },
     },
     features: {
@@ -242,18 +234,14 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       install: {
         platforms: [
           {
-            id: 'posix',
             label: 'macOS / Linux',
             command: 'curl -fsSL https://bub.build/install.sh | bash',
           },
           {
-            id: 'windows',
             label: 'Windows',
             command: 'powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"',
           },
         ],
-        copyLabel: '复制安装命令',
-        copiedLabel: '安装命令已复制',
       },
     },
     features: {

@@ -41,7 +41,7 @@ Use `process_inbound()` when Bub should own session resolution, the initial prom
 
 Create `embedded.py`:
 
-```python
+```python title="embedded.py"
 import asyncio
 
 from bub import BubFramework
@@ -207,7 +207,7 @@ export REPUBLIC_OPENAI_API_KEY=sk-...
 
 Save the following script as `search_agent.py`:
 
-```python
+```python title="search_agent.py"
 import asyncio
 from pathlib import Path
 
@@ -258,7 +258,7 @@ Run `uv run python search_agent.py` to record the session in `sessions/`. This r
 
 The following is a complete minimal plugin example. Save it as `agent_hooks.py`; install `bub[app]` and configure `REPUBLIC_OPENAI_API_KEY` first:
 
-```python
+```python title="agent_hooks.py" wrap
 import asyncio
 
 import republic
