@@ -1,7 +1,7 @@
 ---
-import InstallCommand from '@/components/ui/InstallCommand.astro';
 import SectionHeading from '@/components/ui/SectionHeading.astro';
 import type { GetStartedData } from '@/data/landing-page';
+import { Code, TabItem, Tabs } from '@astrojs/starlight/components';
 
 type Props = GetStartedData;
 
@@ -11,8 +11,14 @@ const { eyebrow, heading, description, install } = Astro.props;
 <section id="get-started" class="relative scroll-mt-20 py-20 md:py-28" data-reveal aria-label="Quick Start">
   <div class="mx-auto max-w-6xl px-5 md:px-8">
     <SectionHeading align="center" eyebrow={eyebrow} heading={heading} body={[description]} />
-    <div class="mx-auto max-w-3xl">
-      <InstallCommand install={install} />
+    <div class="install-tabs mx-auto max-w-2xl">
+      <Tabs syncKey="bub-install-platform">
+        {install.platforms.map((platform) => (
+          <TabItem label={platform.label}>
+            <Code code={platform.command} lang="shellscript" frame="none" class="site-code-block" />
+          </TabItem>
+        ))}
+      </Tabs>
     </div>
   </div>
 </section>

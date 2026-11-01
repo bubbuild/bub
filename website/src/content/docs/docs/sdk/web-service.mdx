@@ -39,7 +39,7 @@ First, let's set up the application skeleton: configure the Bub Agent and create
 1. Import the dependencies and load configuration into variables.
 2. Customize FastAPI's [lifespan](https://fastapi.tiangolo.com/advanced/events/#lifespan) logic so the Bub Agent is configured at startup.
 
-```python
+```python title="main.py"
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
@@ -127,7 +127,7 @@ Now that the Agent is in place, let's make it actually useful: every Todo operat
 - Store task data in a Python dictionary.
 - Provide the usual create, read, update, and delete operations so the Agent can view, add, complete, and delete tasks.
 
-```python
+```python title="main.py"
 # ...
 
 from itertools import count
@@ -184,7 +184,7 @@ The code above is fairly basic Python, so we won't go through it line by line. I
 
 Now update the Agent configuration:
 
-```python
+```python title="main.py"
 
 # Code snippet..
 
@@ -254,7 +254,7 @@ The core logic:
 
 So, after creating the Agent, add the following inside FastAPI's `lifespan`:
 
-```python
+```python title="main.py"
 # ...
 
 from bub.core.events import ToolCallDecision, ToolCallFinished, ToolCallStarted
@@ -348,7 +348,7 @@ With locks and confirmations in place, we can wire them into the Agent conversat
 
 Here is the complete code:
 
-```python
+```python title="main.py"
 import asyncio
 from collections.abc import AsyncIterable
 from contextlib import suppress
@@ -470,7 +470,7 @@ Your complete demo is now ready. You can run the whole service from [bub-todo-ag
 
 1. Rename `.env.example` to `.env` and fill in the model settings or port:
 
-    ```
+    ```bash title=".env"
     BUB_MODEL=openai:gpt-4o-mini
     BUB_API_BASE=https://api.openai.com/v1
 

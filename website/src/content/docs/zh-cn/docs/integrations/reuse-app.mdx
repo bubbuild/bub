@@ -41,7 +41,7 @@ uv add "bub[app]"
 
 创建 `embedded.py`：
 
-```python
+```python title="embedded.py"
 import asyncio
 
 from bub import BubFramework
@@ -207,7 +207,7 @@ export REPUBLIC_OPENAI_API_KEY=sk-...
 
 将下面脚本保存为 `search_agent.py`：
 
-```python
+```python title="search_agent.py"
 import asyncio
 from pathlib import Path
 
@@ -258,7 +258,7 @@ if __name__ == "__main__":
 
 下面的 `PlainTextPlugin` 是一个完整的最小插件示例。将代码保存为 `agent_hooks.py`，并确保已安装 `bub[app]`、配置 `REPUBLIC_OPENAI_API_KEY`：
 
-```python
+```python title="agent_hooks.py" wrap
 import asyncio
 
 import republic

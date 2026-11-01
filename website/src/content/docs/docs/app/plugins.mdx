@@ -43,7 +43,7 @@ Create `plugin.py` inside the `src/bub_echo_plugin/` source directory to hold th
 
 In `pyproject.toml`, expose the plugin object to Bub through `[project.entry-points."bub"]`:
 
-```toml
+```toml title="pyproject.toml" mark={11-12}
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -67,7 +67,7 @@ Note:
 
 When writing plugin logic in the module, mark hook implementations with the `@hookimpl` decorator:
 
-```python
+```python title="src/bub_echo_plugin/plugin.py"
 from bub import hookimpl
 
 
@@ -391,7 +391,7 @@ With the [`bub-extism`](https://github.com/bubbuild/bub-contrib/tree/main/packag
 
 `extism.json` specifies the module files and hook mapping:
 
-```json
+```json title="extism.json"
 {
   "plugins": {
     "prompt": {

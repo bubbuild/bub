@@ -1,0 +1,73 @@
+---
+import { Code } from '@astrojs/starlight/components';
+import Icon from '@/components/ui/Icon.astro';
+import LinkButton from '@/components/ui/LinkButton.astro';
+import SectionHeading from '@/components/ui/SectionHeading.astro';
+import type { SdkIntroData } from '@/data/landing-page';
+
+interface Props extends SdkIntroData {
+  docsHref: string;
+  apiHref: string;
+}
+
+const { eyebrow, heading, description, highlights, primaryLabel, secondaryLabel, docsHref, apiHref } = Astro.props;
+
+const exampleCode = `import republic
+from bub.core import Agent
+from bub.core.events import ToolCallStarted
+from bub.core.tools import tool
+
+@tool
+def get_weather(city: str) -> str:
+    """Get the current weather for a city."""
+    return f"{city}: 22°C, sunny"
+
+agent = Agent(tools=[get_weather], system_prompt="Be concise.")
+
+@agent.events.on(ToolCallStarted)
+def log_tool_call(event: ToolCallStarted) -> None:
+    print(f"Calling {event.call.tool}: {event.call.arguments}")
+
+async with republic.get_model("openai:gpt-5-mini") as model:
+    async with agent.run("Weather in Paris?", model=model, tape="demo") as stream:
+        async for event in stream:
+            if event.kind == "text":
+                print(event.data["delta"], end="", flush=True)`;
+---
+
+<section class="relative py-20 md:py-28" data-reveal aria-label="Python SDK">
+  <div class="mx-auto max-w-6xl px-5 md:px-8">
+    <div class="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+      <div>
+        <SectionHeading eyebrow={eyebrow} heading={heading} body={description} class="mb-0 max-w-none" />
+
+        <ul class="mt-8 space-y-4">
+          {highlights.map((highlight) => (
+            <li>
+              <div class="flex items-center gap-3">
+                <span class="inline-flex h-7 w-7 shrink-0 items-center justify-center border border-border bg-secondary/50 text-primary">
+                  <Icon name={highlight.icon} size={14} aria-hidden="true" />
+                </span>
+                <h3 class="text-sm font-semibold leading-none text-foreground">{highlight.title}</h3>
+              </div>
+              <p class="mt-2 pl-10 text-sm leading-relaxed text-muted-foreground">{highlight.description}</p>
+            </li>
+          ))}
+        </ul>
+
+        <div class="mt-8 flex flex-col gap-3 sm:flex-row">
+          <LinkButton href={docsHref} class="w-full px-6 py-3 sm:w-auto">
+            {primaryLabel}
+          </LinkButton>
+          <LinkButton href={apiHref} variant="secondary" class="w-full px-6 py-3 sm:w-auto">
+            {secondaryLabel}
+          </LinkButton>
+        </div>
+      </div>
+
+      <div class="sdk-terminal min-w-0 overflow-hidden border border-border bg-card shadow-[var(--site-shadow-elevated)]">
+        <Code code={exampleCode} lang="python" title="agent.py" frame="code" class="site-code-block site-code-block--no-copy" wrap />
+      </div>
+    </div>
+  </div>
+</section>

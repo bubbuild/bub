@@ -23,8 +23,7 @@ import { FileTree, Steps } from '@astrojs/starlight/components';
 
 发行包可以提供自己的命令名，并在内部调用 Bub 的 CLI 入口。通过这种方式，你可以为 Agent 打造专属品牌或固化默认行为：
 
-```python
-# src/my_bub/cli.py
+```python title="src/my_bub/cli.py"
 from pathlib import Path
 import os
 from bub.__main__ import main as bub_main
@@ -79,7 +78,7 @@ my-bub = "my_bub.cli:main"
 
 在 `pyproject.toml` 中配置入口点与 Hatch 构建包含规则：
 
-```toml
+```toml title="pyproject.toml" mark={14-15,17-18,20-21}
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

@@ -122,7 +122,7 @@ flowchart LR
 
 如果工具作为微服务运行在远程服务器或本地容器中，使用 `url` 和 `transport` 进行配置：
 
-```json
+```json title="~/.bub/mcp.json"
 {
   "mcpServers": {
     "weather": {
@@ -144,7 +144,7 @@ flowchart LR
 
 对于有权限限制的本地工具，可通过 `args` 限制其操作目录范围：
 
-```json
+```json title="~/.bub/mcp.json"
 {
   "mcpServers": {
     "filesystem": {

@@ -88,10 +88,8 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? SITE_URL).href;
       (() => {
         const stored = localStorage.getItem('starlight-theme');
         const dark = stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (dark) {
-          document.documentElement.classList.add('dark');
-          document.documentElement.setAttribute('data-theme', 'dark');
-        }
+        document.documentElement.classList.toggle('dark', dark);
+        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
       })();
     </script>
     <script is:inline src="/favicon-theme.js" defer></script>

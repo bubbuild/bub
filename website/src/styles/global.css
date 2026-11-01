@@ -326,6 +326,113 @@
     }
 }
 
+/* Shared Expressive Code presentation. */
+.site-code-block {
+    --ec-brdWd: 0px;
+    --ec-brdRad: 0px;
+    --ec-codeBg: var(--card);
+    --ec-frm-edBg: var(--card);
+    --ec-frm-edTabBarBg: var(--secondary);
+    --ec-frm-edTabBarBrdCol: var(--border);
+    --ec-frm-edTabBarBrdBtmCol: var(--border);
+    --ec-frm-edActTabBg: var(--card);
+    --ec-frm-edActTabFg: var(--muted-foreground);
+    --ec-frm-edActTabIndTopCol: transparent;
+    --ec-frm-edActTabIndBtmCol: transparent;
+    --ec-frm-inlBtnFg: var(--muted-foreground);
+    --ec-frm-inlBtnBg: var(--ec-frm-inlBtnFg);
+    --ec-frm-inlBtnBrd: var(--ec-frm-inlBtnFg);
+    --ec-codeFontFml: var(--font-mono);
+    --ec-codeFontSize: 0.78rem;
+    --ec-codeLineHt: 1.7;
+    --ec-codePadBlk: 1rem;
+    --ec-codePadInl: 1.25rem;
+    --ec-uiFontFml: var(--font-mono);
+    --ec-uiFontSize: 0.78rem;
+    --ec-uiPadBlk: 0.4rem;
+    --ec-uiPadInl: 1rem;
+    margin: 0;
+}
+
+.site-code-block pre > code {
+    padding: var(--ec-codePadBlk) 0;
+    font-size: var(--ec-codeFontSize);
+    line-height: var(--ec-codeLineHt);
+}
+
+.site-code-block .ec-line .code {
+    padding-inline-start: calc(var(--ecIndent, 0ch) + var(--ec-codePadInl) - var(--ecGtrBrdWd));
+    padding-inline-end: var(--ec-codePadInl);
+}
+
+.site-code-block .frame.has-title:not(.is-terminal) .title {
+    padding: calc(var(--ec-uiPadBlk) + var(--ec-frm-edActTabIndHt)) var(--ec-uiPadInl);
+}
+
+.site-code-block .copy button {
+    border-radius: 0.2rem;
+    background: var(--ec-codeBg);
+    opacity: 0.75;
+}
+
+.site-code-block .copy button > div {
+    background: var(--ec-frm-inlBtnBg);
+}
+
+.site-code-block .copy button::before {
+    border: var(--ec-brdWd) solid var(--ec-frm-inlBtnBrd);
+}
+
+.site-code-block .copy button::after {
+    margin: 0.475rem;
+}
+
+@media (hover: hover) {
+    .site-code-block .copy button {
+        opacity: 0;
+    }
+
+    .site-code-block .frame:hover .copy button:not(:hover),
+    .site-code-block .frame:focus-within :focus-visible ~ .copy button:not(:hover),
+    .site-code-block .frame .copy .feedback.show ~ button:not(:hover) {
+        opacity: 0.75;
+    }
+}
+
+.site-code-block .copy button:hover,
+.site-code-block .copy button:focus-visible {
+    opacity: 1;
+}
+
+.site-code-block--no-copy .copy {
+    display: none;
+}
+
+.install-tabs [role='tablist'] {
+    border-bottom: 1px solid var(--border);
+}
+
+.install-tabs .tab > [role='tab'] {
+    padding: 0.5rem 1.25rem;
+    color: var(--muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    box-shadow: 0 1px 0 var(--border);
+}
+
+.install-tabs .tab > [role='tab'][aria-selected='true'] {
+    color: var(--foreground);
+    box-shadow: 0 1px 0 var(--foreground);
+}
+
+.install-tabs .site-code-block {
+    --ec-brdWd: 1px;
+    --ec-brdCol: var(--border);
+    --ec-codePadBlk: 0.75rem;
+    --ec-codePadInl: 1rem;
+}
+
+
 .pele-diagram {
     --pele-bg: var(--background);
     --pele-fg: var(--foreground);

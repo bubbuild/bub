@@ -13,16 +13,12 @@ export type HeroData = {
 };
 
 export type InstallPlatform = {
-  /** `windows` also drives the default tab on Windows; `posix` is the fallback. */
-  id: 'posix' | 'windows';
   label: string;
   command: string;
 };
 
 export type InstallCommandData = {
   platforms: InstallPlatform[];
-  copyLabel: string;
-  copiedLabel: string;
 };
 
 export type GetStartedData = {
@@ -39,6 +35,17 @@ export type FeaturesData = {
   heading: string;
   subheading: string;
   features: FeatureItem[];
+};
+
+export type SdkHighlight = FeatureItem;
+
+export type SdkIntroData = {
+  eyebrow: string;
+  heading: string;
+  description: string[];
+  highlights: SdkHighlight[];
+  primaryLabel: string;
+  secondaryLabel: string;
 };
 
 export type HookStage = { name: string; note: string };
@@ -74,6 +81,7 @@ export type LandingPageData = {
   hero: HeroData;
   getStarted: GetStartedData;
   features: FeaturesData;
+  sdkIntro: SdkIntroData;
   hookIntro: HookIntroData;
   tapeModel: TapeModelData;
   testimonials: TestimonialsData;
@@ -100,18 +108,14 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       install: {
         platforms: [
           {
-            id: 'posix',
             label: 'macOS / Linux',
             command: 'curl -fsSL https://bub.build/install.sh | bash',
           },
           {
-            id: 'windows',
             label: 'Windows',
             command: 'powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"',
           },
         ],
-        copyLabel: 'Copy install command',
-        copiedLabel: 'Install command copied',
       },
     },
     features: {
@@ -156,6 +160,30 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
             'Python entry-points under group="bub". Later-registered plugins run first and override earlier ones. No framework privilege.',
         },
       ],
+    },
+    sdkIntro: {
+      eyebrow: 'Python SDK',
+      heading: 'Build your agent with the SDK.',
+      description: ['Bub now provides an SDK that integrates with your existing services.'],
+      highlights: [
+        {
+          icon: 'wrench',
+          title: 'Define your own tools',
+          description: 'Use Python functions to bring your own logic and extend what the Agent can do.',
+        },
+        {
+          icon: 'activity',
+          title: 'Customize with events',
+          description: 'Add logic at key moments to adapt how the Agent runs.',
+        },
+        {
+          icon: 'layers',
+          title: 'Keep memory in Tape',
+          description: 'Persist conversations and work with history branches.',
+        },
+      ],
+      primaryLabel: 'Explore the SDK',
+      secondaryLabel: 'Python API reference',
     },
     hookIntro: {
       eyebrow: 'Architecture',
@@ -206,18 +234,14 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
       install: {
         platforms: [
           {
-            id: 'posix',
             label: 'macOS / Linux',
             command: 'curl -fsSL https://bub.build/install.sh | bash',
           },
           {
-            id: 'windows',
             label: 'Windows',
             command: 'powershell -ExecutionPolicy ByPass -c "irm https://bub.build/install.ps1 | iex"',
           },
         ],
-        copyLabel: '复制安装命令',
-        copiedLabel: '安装命令已复制',
       },
     },
     features: {
@@ -260,6 +284,30 @@ const landingPageData: Record<LandingLocale, LandingPageData> = {
           description: '显式覆盖插件设计：后注册的插件优先运行并覆盖前者，没有任何框架优先限制。',
         },
       ],
+    },
+    sdkIntro: {
+      eyebrow: 'Python SDK',
+      heading: '用 SDK 构建你的 Agent。',
+      description: ['Bub 现已提供 SDK 能力，可以与你现有服务集成。'],
+      highlights: [
+        {
+          icon: 'wrench',
+          title: '自定义工具逻辑',
+          description: '用 Python 函数承载业务逻辑，灵活扩展 Agent 的能力。',
+        },
+        {
+          icon: 'activity',
+          title: '丰富的事件切入点',
+          description: '在关键节点加入监听逻辑，按需定制 Agent 的行为。',
+        },
+        {
+          icon: 'layers',
+          title: '用 Tape 管理记忆',
+          description: '持久化对话，自由操作历史分支。',
+        },
+      ],
+      primaryLabel: '探索 SDK',
+      secondaryLabel: 'Python API 参考',
     },
     hookIntro: {
       eyebrow: '架构',

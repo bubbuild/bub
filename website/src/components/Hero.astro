@@ -4,7 +4,7 @@ import Icon from '@/components/ui/Icon.astro';
 import LinkButton from '@/components/ui/LinkButton.astro';
 import type { HeroData } from '@/data/landing-page';
 import type { GitHubContributor } from '@/lib/github';
-import { Code } from 'astro:components';
+import { Code } from '@astrojs/starlight/components';
 
 interface Props extends HeroData {
   contributors: GitHubContributor[];
@@ -83,24 +83,8 @@ class MyPlugin:
       </div>
 
       <!-- Right: code editor -->
-      <div
-        class="hero-terminal min-w-0 overflow-hidden border border-border shadow-[var(--site-shadow-elevated)]"
-        role="img"
-        aria-label="Example Python code showing Bub hook implementations"
-      >
-        <div class="expressive-code">
-          <figure class="frame has-title not-content">
-            <figcaption class="header">
-              <span class="title">hooks.py</span>
-            </figcaption>
-            <Code
-              code={exampleCode}
-              lang="python"
-              themes={{ light: 'night-owl-light', dark: 'night-owl' }}
-              defaultColor="light"
-            />
-          </figure>
-        </div>
+      <div class="hero-terminal min-w-0 overflow-hidden border border-border shadow-[var(--site-shadow-elevated)]">
+        <Code code={exampleCode} lang="python" title="hooks.py" frame="code" class="site-code-block site-code-block--no-copy" />
       </div>
     </div>
   </div>
@@ -115,103 +99,5 @@ class MyPlugin:
     .hero-terminal {
       margin-top: 4.75rem;
     }
-  }
-
-  .hero-terminal :global(.expressive-code) {
-    margin: 0;
-    border: none;
-    border-radius: 0;
-    --ec-brdWd: 0px;
-    --ec-codeBg: var(--card);
-    --ec-frm-edTabBarBg: var(--secondary);
-    --ec-frm-edActTabBg: var(--card);
-    --ec-frm-edActTabFg: var(--muted-foreground);
-    --ec-frm-edBg: var(--card);
-    --ec-frm-edTabBarBrdCol: var(--border);
-    --ec-frm-edTabBarBrdBtmCol: var(--border);
-    --ec-frm-edActTabIndTopCol: transparent;
-    --ec-frm-edActTabIndBtmCol: transparent;
-  }
-
-  .hero-terminal :global(.expressive-code .frame) {
-    margin: 0;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
-  }
-
-  .hero-terminal :global(.expressive-code .header) {
-    position: relative;
-    display: flex;
-    align-items: flex-end;
-    background:
-      linear-gradient(to top, var(--border) 1px, transparent 1px), linear-gradient(var(--secondary), var(--secondary));
-    background-repeat: no-repeat;
-    padding: 0;
-  }
-
-  .hero-terminal :global(.expressive-code .header::before) {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border: 1px solid var(--border);
-    border-bottom: none;
-    border-radius: inherit;
-    pointer-events: none;
-  }
-
-  .hero-terminal :global(.expressive-code .title) {
-    position: relative;
-    display: block;
-    color: var(--muted-foreground);
-    background: var(--card);
-    background-clip: padding-box;
-    padding: 5px 15px;
-    border: none;
-    border-radius: 0;
-    font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
-    font-size: 0.78rem;
-    line-height: 1.9;
-    letter-spacing: 0.02em;
-  }
-
-  .hero-terminal :global(.expressive-code pre.astro-code) {
-    margin: 0;
-    padding: 0;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
-    background: var(--card) !important;
-    font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
-    font-size: 0.78rem;
-    line-height: 1.7;
-    overflow-x: auto;
-    display: flex;
-    white-space: pre-wrap;
-  }
-
-  .hero-terminal :global(.expressive-code pre.astro-code code) {
-    display: grid;
-    min-width: 100%;
-    padding: 0.75rem 1.2rem;
-  }
-
-  .hero-terminal :global(.expressive-code pre.astro-code .line) {
-    display: block;
-    min-height: 1.7em;
-  }
-
-  :global(.dark) .hero-terminal :global(.expressive-code pre.astro-code),
-  :global([data-theme='dark']) .hero-terminal :global(.expressive-code pre.astro-code) {
-    color: var(--shiki-dark) !important;
-  }
-
-  :global(.dark) .hero-terminal :global(.expressive-code pre.astro-code span[style*='--shiki-dark']),
-  :global([data-theme='dark']) .hero-terminal :global(.expressive-code pre.astro-code span[style*='--shiki-dark']) {
-    color: var(--shiki-dark) !important;
-    background-color: transparent !important;
-    font-style: var(--shiki-dark-font-style) !important;
-    font-weight: var(--shiki-dark-font-weight) !important;
-    text-decoration: var(--shiki-dark-text-decoration) !important;
   }
 </style>

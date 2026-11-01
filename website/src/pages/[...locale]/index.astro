@@ -1,28 +1,25 @@
 ---
-export const prerender = false;
+export const prerender = true;
 
 import { getCollection } from 'astro:content';
 import Features from '@/components/Features.astro';
 import GetStarted from '@/components/GetStarted.astro';
 import Hero from '@/components/Hero.astro';
 import HookIntro from '@/components/HookIntro.astro';
+import SdkIntro from '@/components/SdkIntro.astro';
 import TapeModel from '@/components/TapeModel.astro';
 import Testimonials from '@/components/Testimonials.astro';
 import { getLandingPageData } from '@/data/landing-page';
-import { getLocaleFromParam, useTranslations } from '@/i18n/utils';
+import type { Locale } from '@/i18n/ui';
+import { getDocsHref, getStaticLocalePaths, useTranslations } from '@/i18n/utils';
 import { getRepoStats, gitHubAvatarUrl } from '@/lib/github';
 import LandingLayout from '@/layouts/LandingLayout.astro';
 
-// In SSR mode, read locale from the catch-all param.
-// `/`       → locale = undefined → defaultLang ('en')
-// `/zh-cn/` → locale = 'zh-cn'
-const { locale: localeParam } = Astro.params;
-const locale = getLocaleFromParam(localeParam);
-
-// Guard against catch-all hits from unknown paths (e.g. /foo/).
-if (!locale) {
-  return Astro.redirect('/404');
+export function getStaticPaths() {
+  return getStaticLocalePaths();
 }
+
+const { locale } = Astro.props as { locale: Locale };
 
 const t = useTranslations(locale);
 const pageData = getLandingPageData(locale);
@@ -42,5 +39,10 @@ const testimonialItems = userwallEntries.map((entry) => ({
   <Features {...pageData.features} />
   <HookIntro {...pageData.hookIntro} />
   <TapeModel {...pageData.tapeModel} />
+  <SdkIntro
+    {...pageData.sdkIntro}
+    docsHref={getDocsHref(locale, '/sdk/')}
+    apiHref={getDocsHref(locale, '/reference/python-api/')}
+  />
   <Testimonials {...pageData.testimonials} testimonials={testimonialItems} />
 </LandingLayout>
