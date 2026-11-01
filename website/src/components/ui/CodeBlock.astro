@@ -1,0 +1,106 @@
+---
+import Icon from '@/components/ui/Icon.astro';
+import { getLangFromUrl } from '@/i18n/utils';
+import { Code } from 'astro:components';
+
+interface Props {
+  code: string;
+  lang: string;
+  title?: string;
+  frame?: 'code' | 'terminal' | 'none' | 'auto';
+  showCopy?: boolean;
+  class?: string;
+}
+
+const { code, lang, title, frame = 'auto', showCopy = true, class: className }: Props = Astro.props;
+const locale = getLangFromUrl(Astro.url);
+const copyLabel = locale === 'zh-cn' ? '复制代码' : 'Copy code';
+const copiedLabel = locale === 'zh-cn' ? '复制成功' : 'Copied';
+---
+
+<div
+  class:list={['site-code-block', !showCopy && 'site-code-block--no-copy', className]}
+  data-site-code-block
+  data-code={code}
+  data-copied-label={copiedLabel}
+>
+  <figure class:list={['frame', 'not-content', title && frame !== 'none' && 'has-title']}>
+    {title && frame !== 'none' && (
+      <figcaption class="header">
+        <span class="title">{title}</span>
+      </figcaption>
+    )}
+    <div class="code-content">
+      <Code
+        code={code}
+        lang={lang}
+        themes={{ light: 'night-owl-light', dark: 'night-owl' }}
+        defaultColor="light"
+      />
+      {showCopy && (
+        <button
+          type="button"
+          class="site-code-copy"
+          aria-label={copyLabel}
+          title={copyLabel}
+          data-site-code-copy
+        >
+          <span data-copy-icon>
+            <Icon name="copy" size={16} aria-hidden="true" />
+          </span>
+          <span class="hidden" data-copied-icon>
+            <Icon name="check" size={16} aria-hidden="true" />
+          </span>
+        </button>
+      )}
+    </div>
+  </figure>
+  <span class="sr-only" aria-live="polite" data-copy-status></span>
+</div>
+
+<script>
+  async function copyCode(value: string) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.append(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    if (!copied) throw new Error('Unable to copy code');
+  }
+
+  for (const container of document.querySelectorAll<HTMLElement>('[data-site-code-block]')) {
+    if (container.dataset.copyReady === 'true') continue;
+    container.dataset.copyReady = 'true';
+
+    const button = container.querySelector<HTMLButtonElement>('[data-site-code-copy]');
+    const copyIcon = container.querySelector<HTMLElement>('[data-copy-icon]');
+    const copiedIcon = container.querySelector<HTMLElement>('[data-copied-icon]');
+    const status = container.querySelector<HTMLElement>('[data-copy-status]');
+
+    button?.addEventListener('click', async () => {
+      try {
+        await copyCode(container.dataset.code ?? '');
+      } catch {
+        return;
+      }
+
+      copyIcon?.classList.add('hidden');
+      copiedIcon?.classList.remove('hidden');
+      if (status) status.textContent = container.dataset.copiedLabel ?? '';
+
+      window.setTimeout(() => {
+        copyIcon?.classList.remove('hidden');
+        copiedIcon?.classList.add('hidden');
+        if (status) status.textContent = '';
+      }, 2000);
+    });
+  }
+</script>

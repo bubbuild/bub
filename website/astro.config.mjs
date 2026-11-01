@@ -62,7 +62,10 @@ export default defineConfig({
     starlight({
       title: 'Bub',
       description: 'Build an agent in Python or customize the Bub application.',
-      expressiveCode: false,
+      expressiveCode: {
+        themes: ['night-owl', 'night-owl-light'],
+        useStarlightUiThemeColors: true,
+      },
       favicon: '/favicon.ico',
       head: [
         {

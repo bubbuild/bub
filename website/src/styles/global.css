@@ -326,6 +326,93 @@
     }
 }
 
+/* Shared landing-page code presentation; docs and blog use Expressive Code. */
+.site-code-block {
+    margin: 0;
+    color: var(--foreground);
+    font-family: var(--font-mono);
+}
+
+.site-code-block .frame {
+    margin: 0;
+}
+
+.site-code-block .header {
+    display: flex;
+    background: var(--secondary);
+    border-bottom: 1px solid var(--border);
+}
+
+.site-code-block .title {
+    display: block;
+    padding: 5px 15px;
+    background: var(--card);
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+    line-height: 1.9;
+    letter-spacing: 0.02em;
+}
+
+.site-code-block .code-content {
+    position: relative;
+    background: var(--card);
+}
+
+.site-code-block pre.astro-code {
+    margin: 0;
+    padding: 0.75rem 1.2rem;
+    overflow-x: auto;
+    background: var(--card) !important;
+    font-size: 0.78rem;
+    line-height: 1.7;
+}
+
+.site-code-block pre.astro-code code {
+    display: block;
+    min-width: max-content;
+}
+
+.site-code-copy {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    cursor: pointer;
+    color: var(--muted-foreground);
+    background: var(--card);
+    opacity: 0.75;
+    transition: opacity 150ms, background-color 150ms;
+}
+
+.site-code-copy:hover,
+.site-code-copy:focus-visible {
+    background: var(--secondary);
+    color: var(--foreground);
+    opacity: 1;
+}
+
+.site-code-block--no-copy .site-code-copy {
+    display: none;
+}
+
+.dark .site-code-block pre.astro-code,
+[data-theme='dark'] .site-code-block pre.astro-code {
+    color: var(--shiki-dark) !important;
+}
+
+.dark .site-code-block pre.astro-code span[style*='--shiki-dark'],
+[data-theme='dark'] .site-code-block pre.astro-code span[style*='--shiki-dark'] {
+    color: var(--shiki-dark) !important;
+    background-color: transparent !important;
+    font-style: var(--shiki-dark-font-style) !important;
+    font-weight: var(--shiki-dark-font-weight) !important;
+    text-decoration: var(--shiki-dark-text-decoration) !important;
+}
+
 .pele-diagram {
     --pele-bg: var(--background);
     --pele-fg: var(--foreground);

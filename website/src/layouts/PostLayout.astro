@@ -119,14 +119,14 @@ const ogImage = `/og/posts/${postId}.png`;
     color: var(--muted-foreground);
     font-style: italic;
   }
-  .post-content code {
+  .post-content code:not(:where(.not-content *)) {
     font-family: "JetBrains Mono Variable", ui-monospace, monospace;
     font-size: 0.875em;
     padding: 0.125rem 0.375rem;
     background: var(--secondary);
     color: var(--foreground);
   }
-  .post-content pre {
+  .post-content pre:not(:where(.not-content *)) {
     margin: 1.5rem 0;
     padding: 1.25rem;
     overflow-x: auto;
@@ -136,7 +136,7 @@ const ogImage = `/og/posts/${postId}.png`;
     font-size: 0.85rem;
     line-height: 1.7;
   }
-  .post-content pre code {
+  .post-content pre code:not(:where(.not-content *)) {
     padding: 0;
     background: none;
   }
