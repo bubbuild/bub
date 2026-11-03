@@ -61,6 +61,8 @@ fs.read(path, offset=0, limit=None)
 
 Read UTF-8 text. `offset` is a zero-based line number and `limit` is the maximum number of lines, not characters. Omit both to return the whole file.
 
+`.png`, `.jpg`, `.jpeg`, `.webp` and `.gif` files are returned as an image the model can see, up to 10 MiB; `offset` and `limit` are ignored for them.
+
 ### `fs.write` {#fs-write}
 
 ```text

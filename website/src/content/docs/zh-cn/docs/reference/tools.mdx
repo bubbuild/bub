@@ -64,6 +64,8 @@ fs.read(path, offset=0, limit=None)
 
 省略分页参数时返回整个文件。
 
+`.png`、`.jpg`、`.jpeg`、`.webp`、`.gif` 文件会作为图片返回给模型查看，上限 10 MiB，此时忽略 `offset` 和 `limit`。
+
 ### `fs.write` {#fs-write}
 
 ```text
