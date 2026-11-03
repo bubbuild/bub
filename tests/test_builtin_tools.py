@@ -12,12 +12,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import republic
 
 import bub.builtin.tools as builtin_tools
 from bub.builtin.shell_manager import ShellManager
 from bub.builtin.tools import (
     bash,
     bash_output,
+    fs_read,
     kill_bash,
     quit_tool,
     render_tools_prompt,
@@ -28,7 +30,7 @@ from bub.builtin.tools import (
 )
 from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
-from bub.core.tools import Tool, ToolContext, ToolExecutor, tool
+from bub.core.tools import Tool, ToolContext, ToolExecutor, is_content_result, result_content, tool
 from bub.errors import ErrorKind
 
 
@@ -354,6 +356,30 @@ async def test_shell_termination_bounds_output_drain(monkeypatch) -> None:
 
     assert reader.cancelled()
     assert manager._shells == {}
+
+
+@pytest.mark.asyncio
+async def test_fs_read_returns_images_as_content(tmp_path, monkeypatch) -> None:
+    png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+    (tmp_path / "shot.PNG").write_bytes(png)
+    (tmp_path / "notes.txt").write_text("line one\nline two", encoding="utf-8")
+    executor = ToolExecutor()
+    context = _tool_context(tmp_path)
+
+    image_result = await executor.execute(fs_read, {"path": "shot.PNG"}, context=context)
+    text_result = await executor.execute(fs_read, {"path": "notes.txt", "offset": 1}, context=context)
+
+    assert is_content_result(image_result)
+    assert result_content(image_result) == [
+        f"Image shot.PNG (image/png, {len(png)} bytes):",
+        republic.image(png, media_type="image/png"),
+    ]
+    assert text_result == "line two"
+
+    monkeypatch.setattr(builtin_tools, "MAX_IMAGE_BYTES", len(png) - 1)
+    result = await executor.execute_many([(fs_read, {"path": "shot.PNG"})], context=context)
+    assert result.error is not None
+    assert "image is too large to show" in result.error.details["error"]
 
 
 @pytest.mark.asyncio

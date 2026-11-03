@@ -7,14 +7,16 @@ import uuid
 from collections.abc import Iterable, Mapping
 from contextlib import aclosing
 from dataclasses import asdict
+from pathlib import PurePath
 from typing import TYPE_CHECKING, Any, TypedDict, cast, final
 
+import republic
 from pydantic import BaseModel, Field
 
 from bub.builtin.environment import environment_from_state
 from bub.builtin.settings import load_settings, set_session_setting
 from bub.builtin.shell_manager import shell_manager
-from bub.core.tools import Tool, ToolContext, tool
+from bub.core.tools import Tool, ToolContext, content_result, tool
 from bub.skills import discover_skills
 
 if TYPE_CHECKING:
@@ -27,6 +29,14 @@ DEFAULT_REQUEST_TIMEOUT_SECONDS = 10
 TOOL_DESCRIBE_TOOL_NAME = "tool.describe"
 TOOL_LOADED_EVENT = "tool.loaded"
 ALLOWED_TOOLS_STATE_KEY = "_runtime_allowed_tools"
+IMAGE_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 
 def _to_model_name(name: str) -> str:
@@ -336,10 +346,27 @@ async def kill_bash(shell_id: str) -> str:
 
 
 @tool(context=True, name="fs.read", exposure="direct")
-async def fs_read(path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext) -> str:
-    """Read a text file and return its content. Supports optional pagination with offset and limit."""
+async def fs_read(
+    path: str, offset: int = 0, limit: int | None = None, *, context: ToolContext
+) -> str | dict[str, Any]:
+    """Read a text file and return its content. Supports optional pagination with offset and limit.
+
+    PNG, JPEG, WebP and GIF files are returned as images instead of text.
+    """
     environment = environment_from_state(context.state)
-    text = await environment.read_text(environment.resolve_path(path))
+    resolved_path = environment.resolve_path(path)
+    media_type = IMAGE_MEDIA_TYPES.get(PurePath(resolved_path).suffix.lower())
+    if media_type is not None:
+        data = await environment.read_bytes(resolved_path)
+        if len(data) > MAX_IMAGE_BYTES:
+            raise ValueError(
+                f"image is too large to show: {resolved_path} ({len(data)} bytes, limit {MAX_IMAGE_BYTES})"
+            )
+        return content_result([
+            f"Image {PurePath(resolved_path).name} ({media_type}, {len(data)} bytes):",
+            republic.image(data, media_type=media_type),
+        ])
+    text = await environment.read_text(resolved_path)
     lines = text.splitlines()
     start = max(0, min(offset, len(lines)))
     end = len(lines) if limit is None else min(len(lines), start + max(0, limit))
