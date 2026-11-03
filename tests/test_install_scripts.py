@@ -169,7 +169,7 @@ def test_install_sh_uses_existing_uv_with_minimal_preset(tmp_path: Path) -> None
 
     uv_calls = (tmp_path / "uv.log").read_text().splitlines()
     assert uv_calls[0].startswith("run --no-project python - ")
-    assert " noninteractive minimal " in uv_calls[0]
+    assert uv_calls[0].endswith(" noninteractive minimal")
     venv_path = tmp_path / "home" / ".bub" / ".venv"
     assert uv_calls[1:] == [
         f"venv --python 3.12 --allow-existing {venv_path}",
@@ -277,7 +277,7 @@ chmod +x "$UV_INSTALL_DIR/uv"
         "-LsSf https://astral.sh/uv/install.sh",
         "-LsSf https://example.test/presets.json -o "
         + next(
-            part.removeprefix("run --no-project python - ").rsplit(" noninteractive minimal ", maxsplit=1)[0]
+            part.removeprefix("run --no-project python - ").split(" ", maxsplit=1)[0]
             for part in (tmp_path / "uv.log").read_text().splitlines()
             if part.startswith("run --no-project python - ")
         ),
@@ -388,7 +388,7 @@ def test_embedded_resolver_interactive_picker_uses_inquirer_textual(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["installer_resolver.py", str(PRESETS_JSON), "interactive", "", str(resolution_path)],
+        ["installer_resolver.py", str(PRESETS_JSON), str(resolution_path), "interactive"],
     )
 
     namespace["main"]()

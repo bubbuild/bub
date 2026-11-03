@@ -173,7 +173,10 @@ resolve_preset() {
     local uv_args=(run --no-project)
     [[ "$INTERACTIVE" == true ]] && mode=interactive
     [[ "$INTERACTIVE" == true ]] && uv_args+=(--with "$INQUIRER_PACKAGE")
-    local resolver_args=("$catalog" "$mode" "$REQUESTED_PRESET" "$resolution")
+    local resolver_args=("$catalog" "$resolution" "$mode")
+    if [[ "$mode" == "noninteractive" ]]; then
+        resolver_args+=("$REQUESTED_PRESET")
+    fi
     if ((${#EXTRA_DEPENDENCIES[@]})); then
         resolver_args+=("${EXTRA_DEPENDENCIES[@]}")
     fi
@@ -293,12 +296,16 @@ def choose_preset(presets: list[dict[str, object]]) -> tuple[dict[str, object], 
 
 
 def main() -> None:
-    catalog_path, mode, requested_preset, resolution_path, *extras = sys.argv[1:]
+    # Windows PowerShell drops empty native arguments, so the preset is only passed when it is set.
+    catalog_path, resolution_path, mode, *extras = sys.argv[1:]
     presets = load_catalog(catalog_path)
     if mode == "interactive":
         selected, prompted_extras = choose_preset(presets)
         extras.extend(prompted_extras)
     else:
+        if not extras:
+            abort("a preset is required in noninteractive mode")
+        requested_preset = extras.pop(0)
         selected = next((preset for preset in presets if preset["name"] == requested_preset), None)
         if selected is None:
             available = ", ".join(str(preset["name"]) for preset in presets)

@@ -157,8 +157,11 @@ function Get-PresetResolution {
     )
 
     $Mode = if ($script:Interactive) { "interactive" } else { "noninteractive" }
-    $RequestedPresetValue = if ($null -eq $script:RequestedPreset) { "" } else { $script:RequestedPreset }
-    $ResolverArguments = @($CatalogPath, $Mode, $RequestedPresetValue, $ResolutionPath)
+    # Never pass an empty argument: Windows PowerShell silently drops it when calling native commands.
+    $ResolverArguments = @($CatalogPath, $ResolutionPath, $Mode)
+    if (-not $script:Interactive) {
+        $ResolverArguments += @($script:RequestedPreset)
+    }
     $ResolverArguments += @($script:ExtraDependencies)
     $UvArguments = @("run", "--no-project")
     if ($script:Interactive) {
@@ -280,12 +283,16 @@ def choose_preset(presets: list[dict[str, object]]) -> tuple[dict[str, object], 
 
 
 def main() -> None:
-    catalog_path, mode, requested_preset, resolution_path, *extras = sys.argv[1:]
+    # Windows PowerShell drops empty native arguments, so the preset is only passed when it is set.
+    catalog_path, resolution_path, mode, *extras = sys.argv[1:]
     presets = load_catalog(catalog_path)
     if mode == "interactive":
         selected, prompted_extras = choose_preset(presets)
         extras.extend(prompted_extras)
     else:
+        if not extras:
+            abort("a preset is required in noninteractive mode")
+        requested_preset = extras.pop(0)
         selected = next((preset for preset in presets if preset["name"] == requested_preset), None)
         if selected is None:
             available = ", ".join(str(preset["name"]) for preset in presets)
