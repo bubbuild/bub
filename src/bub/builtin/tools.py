@@ -395,6 +395,8 @@ async def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: Too
     replaced = to_replace.replace(old, new)
     if prev:
         replaced = prev + "\n" + replaced
+    if text.endswith(("\n", "\r")):
+        replaced += "\n"
     await environment.write_text(resolved_path, replaced)
     return f"edited: {resolved_path}"
 
