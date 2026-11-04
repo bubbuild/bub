@@ -5,6 +5,7 @@ import pytest
 from bub.builtin import BubAgent
 from bub.builtin.codemode import run_code, set_code_mode
 from bub.builtin.model import BubModel
+from bub.builtin.subagents import subagent_wait
 from bub.builtin.tools import resolve_tool_names, run_subagent, show_help
 from bub.core import Agent as CoreAgent
 from bub.core.store import InMemoryTapeStore
@@ -193,7 +194,8 @@ async def test_subagent_uses_parent_instance_tools(
         tape=tape,
         state={"_runtime_agent": agent, "session_id": "parent", "_runtime_workspace": str(framework.workspace)},
     )
-    result = await run_subagent.run(prompt="lookup", allowed_tools=allowed_tools, context=context)
+    started = await run_subagent.run(prompt="lookup", allowed_tools=allowed_tools, context=context)
+    [result] = await subagent_wait.run(task_ids=[started["task_id"]], context=context)
     assert result["output"] == "done"
     assert run_subagent.render(result) == "done"
     assert await step_tool_names(steps[-1]) == ["sdk_lookup"]

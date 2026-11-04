@@ -3,9 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import uuid
 from collections.abc import Iterable, Mapping
-from contextlib import aclosing
 from dataclasses import asdict
 from pathlib import PurePath
 from typing import TYPE_CHECKING, Any, TypedDict, cast, final
@@ -16,6 +14,10 @@ from pydantic import BaseModel, Field
 from bub.builtin.environment import environment_from_state
 from bub.builtin.settings import load_settings, set_session_setting
 from bub.builtin.shell_manager import shell_manager
+from bub.builtin.subagents import SUBAGENT_TOOLS, subagent_manager
+from bub.builtin.subagents import SubAgentInput as SubAgentInput
+from bub.builtin.subagents import SubAgentResult as SubAgentResult
+from bub.builtin.subagents import run_subagent as run_subagent
 from bub.core.tools import Tool, ToolContext, content_result, tool
 from bub.skills import discover_skills
 
@@ -162,25 +164,6 @@ class SearchInput(BaseModel):
     )
 
 
-class SubAgentInput(BaseModel):
-    prompt: str | list[dict] = Field(
-        ..., description="The initial prompt for the sub-agent, either as a string or a list of message parts."
-    )
-    model: str | None = Field(None, description="The model to use for the sub-agent.")
-    session: str = Field(
-        "temp",
-        description="The session handling strategy for the sub-agent. 'inherit' to use the same session, 'temp' to create a temporary session.",
-    )
-    allowed_tools: list[str] | None = Field(
-        None,
-        description="Optional list of allowed tool names for the sub-agent. If not specified, the sub-agent can use any tool available to the main agent.",
-    )
-    allowed_skills: list[str] | None = Field(
-        None,
-        description="Optional list of allowed skill names for the sub-agent. If not specified, the sub-agent can use any skill available to the main agent.",
-    )
-
-
 @final
 class SkillList(TypedDict):
     skills: list[str]
@@ -240,12 +223,6 @@ class WebFetchResult(TypedDict):
     content: str
 
 
-class SubAgentResult(TypedDict):
-    session_id: str
-    output: str
-    errors: list[str]
-
-
 def _render_skill(result: SkillList | SkillContent | ToolFailure) -> str:
     if "error" in result:
         return f"({result['error']})"
@@ -279,10 +256,6 @@ def _render_anchors(result: dict[str, list[str]]) -> str:
     if not result["anchors"]:
         return "(no anchors)"
     return "\n".join(f"- {name}" for name in result["anchors"])
-
-
-def _render_subagent(result: SubAgentResult) -> str:
-    return result["output"] + "".join(f"[Error: {message}]" for message in result["errors"])
 
 
 @tool(context=True, exposure="direct")
@@ -531,38 +504,6 @@ async def web_fetch(url: str, headers: dict | None = None, timeout: int | None =
         }
 
 
-@tool(name="subagent", context=True, model=SubAgentInput, renderer=_render_subagent)
-async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> SubAgentResult:
-    """Run a task with sub-agent using specific model and session."""
-    agent = _get_agent(context)
-    session_id = context.state.get("session_id", "temp/unknown")
-    if param.session == "inherit":
-        subagent_session = session_id
-    elif param.session == "temp":
-        subagent_session = f"temp/{uuid.uuid4().hex[:8]}"
-    else:
-        subagent_session = param.session
-    state = {**context.state, "session_id": subagent_session}
-    allowed_tools = resolve_tool_names(param.allowed_tools or None, exclude={"subagent"}, all_names=agent.tools)
-    output = ""
-    errors: list[str] = []
-    stream = await agent.run_stream(
-        session_id=subagent_session,
-        prompt=param.prompt,
-        state=state,
-        model=param.model,
-        allowed_tools=allowed_tools,
-        allowed_skills=param.allowed_skills,
-    )
-    async with aclosing(stream):
-        async for event in stream:
-            if event.kind == "error":
-                errors.append(str(event.data.get("message", "unknown error")))
-            elif event.kind == "text":
-                output += str(event.data.get("delta", ""))
-    return {"session_id": subagent_session, "output": output, "errors": errors}
-
-
 @tool(name="help", context=True, exposure="command")
 def show_help(*, context: ToolContext | None = None) -> str:
     """Show a help message."""
@@ -594,6 +535,7 @@ async def quit_tool(*, context: ToolContext) -> str:
     """Abort the tasks of the current session. DO NOT use it in a normal workflow."""
     agent = _get_agent(context)
     session_id = str(context.state.get("session_id", "temp/unknown"))
+    await subagent_manager.cancel_session(session_id)
     await shell_manager.terminate_session(session_id)
     await agent.framework.quit_via_channel_router(session_id)
     return "Session tasks stopped."
@@ -637,7 +579,7 @@ TOOLS: tuple[Tool, ...] = (
     tape_handoff,
     tape_anchors,
     web_fetch,
-    run_subagent,
+    *SUBAGENT_TOOLS,
     show_help,
     quit_tool,
     set_model,

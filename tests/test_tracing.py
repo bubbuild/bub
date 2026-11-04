@@ -116,7 +116,9 @@ async def test_subagent_is_nested_under_its_tool(
     spans: Any, agent: BubAgent, provider_transport: ProviderService
 ) -> None:
     provider_transport.reply_chat(calls=[call("subagent", "child", {"prompt": "child task"})])
-    provider_transport.reply_chat("child done")
+    # The parent's next steps and the background child call the model in either order.
+    provider_transport.reply_chat()
+    provider_transport.reply_chat()
     provider_transport.reply_chat()
     events = await agent.run_stream(
         session_id="parent", prompt="delegate", state={"_runtime_agent": agent}, allowed_tools=["subagent"]

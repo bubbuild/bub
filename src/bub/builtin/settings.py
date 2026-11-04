@@ -83,6 +83,12 @@ class AgentSettings(Settings):
     providers: dict[str, CustomProvider] = Field(default_factory=dict)
     max_steps: int = Field(default=sys.maxsize, gt=0)
     max_tokens: int = DEFAULT_MAX_TOKENS
+    subagent_max_concurrency: int = Field(
+        default=4, gt=0, description="Maximum subagents running at once; later ones wait in a queue."
+    )
+    subagent_timeout_seconds: int | None = Field(
+        default=None, gt=0, description="Default time limit of one subagent run; None means no limit."
+    )
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] = Field(default_factory=dict)
     completion_args: dict[str, Any] = Field(default_factory=dict)

@@ -1,9 +1,9 @@
 ---
 title: 子 Agent
-description: 使用内置 subagent 工具委派任务，选择会话策略，并收窄子 Agent 的模型、工具和技能。
+description: 使用内置 subagent 工具把任务委派给后台子 Agent、定义可复用的子 Agent 配置，并收窄子 Agent 的可用能力。
 ---
 
-Bub 应用内置 `subagent` 工具，允许当前 Agent 将特定子任务委派给另一个单独的 Agent 实例。
+Bub 应用内置 `subagent` 工具，允许当前 Agent 将特定子任务委派给同一个 Agent 的一次子运行。
 
 子 Agent 适合将**大量检索、长文档阅读、独立代码审查**等产生海量中间上下文的任务从主对话中剥离出去，只将最终结论带回主会话，从而防止主会话的上下文窗口被额外信息占用。
 
@@ -18,42 +18,95 @@ Bub 应用内置 `subagent` 工具，允许当前 Agent 将特定子任务委派
 3. 返回审查发现并附带相关文件路径。
 ```
 
-父 Agent 随后调用 `subagent` 工具，子 Agent 在其独立循环中调用工具完成分析，最后把结果汇总返回。
+父 Agent 随后调用 `subagent` 工具，工具在后台启动子 Agent 并立即返回任务 ID。子 Agent 在其独立循环中调用工具完成分析，最终答案以消息的形式送达父 Agent。返回的只有这个答案，也就是子 Agent 最后一步的文本；中间的叙述和工具调用不会进入父 Agent 的上下文。
+
+子 Agent 只能看到 `prompt`（使用 `session="fork"` 时还能看到当前对话），因此 prompt 应当自成一体：写清楚要做什么、返回什么、有哪些限制。
 
 除了人工要求外，也可以在工作区 `AGENTS.md` 或技能中设定规则（例如：「复杂检索或代码审查应先委派给只读子 Agent，主 Agent 仅根据审查结论执行修改」）来实现**自动委派**。
 
 ## 选择会话模式 {#sessions}
 
-`subagent` 工具通过 `session` 参数决定会话上下文的存储与归属：
+`session` 参数决定子 Agent 从什么开始、结束后保留什么：
 
 | 会话模式 | 行为 | 适用场景 |
 | --- | --- | --- |
-| `temp`（默认） | 创建独立的 `temp/<id>` 临时会话，执行完毕后中间记录不并入主会话 | **最常用**。一次性分析或调研，仅返回结论，保持主上下文干净 |
-| `inherit` | 直接沿用父 Agent 的当前 `session_id` | 需要把子任务的每一步交互都完整记录到主会话历史中 |
-| 自定义字符串 | 使用指定的固定会话 ID | 任务较长，后续需要恢复或人工调阅该子会话记录 |
+| `temp`（默认） | 新建空的 `temp/<task_id>` 会话，结束后丢弃 | **最常用**。一次性分析或调研，仅返回结论 |
+| `fork` | 从当前对话（包括本轮已有内容）的副本开始，结束后丢弃 | 子任务需要用户和父 Agent 已经说过的内容，又不想让父 Agent 重新复述 |
+| 自定义字符串 | 使用指定的固定会话 ID，会话会被保留 | 较长的工作，之后要用 `subagent.send` 继续，或事后查看 |
 
-:::tip
-默认的 `temp` 模式只会向父 Agent 返回最终的 `output` 文本和发生的 `errors`，子任务中间产生的所有提示词、工具调用均不会占用主对话的上下文。
-:::
+`inherit` 作为 `fork` 的别名仍可使用。fork 在调用发生时复制对话，子 Agent 看不到父 Agent 之后的动作，子 Agent 的记录也不会写回父会话历史。
 
+## 接收结果 {#background}
+
+子 Agent 总是在后台运行：它们运行期间父 Agent 继续工作，多个子 Agent 可以在父 Agent 做别的事时并行处理：
+
+```text
+启动三个子 Agent，每个服务一个，检查日志中的错误。
+你继续做迁移；它们完成后汇总结论。
+```
+
+任务结束时，结果会以消息的形式送达父 Agent：
+
+```text
+<subagent-notification task_id="sub-1a2b3c4d" status="completed">
+自上次部署以来，支付服务日志中没有错误。
+</subagent-notification>
+```
+
+父 Agent 会在下一步之前读到它。由它启动的子 Agent 还在运行时，这一轮不会结束：父 Agent 没有别的事可做时，会等待下一个结果并带着它继续，因此可以在回复前汇总所有结论。只有当这一轮失败、被取消或达到步数上限时，尚未结束的任务才会随会话的下一轮报告。父 Agent 也可以直接管理任务：
+
+| 工具 | 作用 |
+| --- | --- |
+| `subagent.wait` | 返回结果，最多等待 `timeout_seconds`（默认 60；`0` 只查看不等待）。不传 `task_ids` 时覆盖本会话中尚未读取的任务。在这里读到的结果不会再发通知。 |
+| `subagent.send` | 给运行中的任务发消息，它会在下一步之前读到；或者继续一个使用命名会话、已经结束的任务。 |
+| `subagent.cancel` | 停止运行中的任务。 |
+
+同时运行的子 Agent 最多 `BUB_SUBAGENT_MAX_CONCURRENCY` 个（默认 4），超出的排队等待。调用时的 `timeout_seconds`，或全局的 `BUB_SUBAGENT_TIMEOUT_SECONDS`，会停止运行过久的子 Agent。退出 Bub，或对某个会话执行 `,quit`，都会取消其运行中的子 Agent。
+
+## 定义子 Agent 配置 {#profiles}
+
+子 Agent 配置（profile）是一个可复用的子 Agent：放在工作区 `.agents/agents/` 下的 markdown 文件，或放在 `~/.agents/agents/` 下供所有工作区使用。front matter 设定配置，正文会加入子 Agent 的系统提示词：
+
+```markdown title=".agents/agents/reviewer.md"
+---
+description: 审查改动中的 bug 并报告发现，不修改文件
+model: openai:gpt-5-mini
+tools: [fs.read, bash, tape.search]
+skills: []
+timeout_seconds: 600
+---
+
+你负责代码审查。阅读相关文件，报告具体问题并附上文件路径和行号，绝不修改文件。
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `description` | 必填。告诉父 Agent 何时使用该配置 |
+| `name` | 可选；默认为去掉 `.md` 的文件名 |
+| `model`、`reasoning_effort` | 子 Agent 的模型和推理强度 |
+| `tools`、`skills` | 子 Agent 可用的工具和技能（列表，或逗号分隔的字符串） |
+| `timeout_seconds` | 子 Agent 的运行时限 |
+
+当 `subagent` 工具可用时，父 Agent 的系统提示词会列出这些配置，模型通过把配置名传给 `agent` 来使用。调用时显式给出的参数优先于配置。工作区中的配置会覆盖 home 目录下的同名配置。
 
 ## 状态共享与能力边界 {#boundaries}
 
-子 Agent 与父 Agent 基于同一个运行实例派生，其继承与隔离边界如下：
+子 Agent 是父 Agent 所在实例的一次子运行，其继承与隔离边界如下：
 
 | 资源类别 | 边界关系 | 说明与控制参数 |
 | --- | --- | --- |
 | **基础实例** | 完全共享 | 共享插件 Hooks、模型凭据与 `BubAgent` 配置 |
 | **执行环境** | 完全共享 | 共享工作区目录、本地文件系统、Shell 进程和网络访问 |
-| **模型选择** | 可单独指定 | 默认沿用父模型，可用 `model`（如 `model="gpt-4o-mini"`）降级使用轻量模型 |
-| **工具与技能** | 可参数收窄 | 默认沿用全部，可用 `allowed_tools`、`allowed_skills` 缩小可用范围 |
-| **会话记录** | 视策略隔离 | 由 `session` 参数决定，`temp` 仅向父 Agent 返回最终汇总文本 |
+| **模型选择** | 可单独指定 | 默认使用配置中的模型或父模型，可用 `model` 换成轻量模型 |
+| **工具与技能** | 不超过父 Agent | 默认沿用父 Agent 本轮的工具和技能，`allowed_tools`、`allowed_skills` 可以进一步收窄。子 Agent 不能再启动子 Agent |
+| **轮次状态** | 复制 | 子 Agent 得到父 Agent 轮次状态的副本，并使用自己的 steering 键，发给父 Agent 的消息仍归父 Agent |
+| **会话记录** | 视策略而定 | `temp` 和 `fork` 结束后丢弃；命名会话会被保留 |
 
-各参数的详细类型定义及默认值见 [subagent 参考](/zh-cn/docs/reference/tools/#subagent)。
+各参数的详细类型定义及默认值见 [subagent 参考](/zh-cn/docs/reference/tools/#subagent)。Channel 可以通过[事件](/zh-cn/docs/reference/tools/#subagent-events)观察子 Agent。
 
 ### 安全限制 {#security-limits}
 
-和父 Agent 一样，子 Agent 本质上也运行在当前用户权限下的本地环境中，有可能会当前系统产生影响：
+和父 Agent 一样，子 Agent 本质上也运行在当前用户权限下的本地环境中，可能会对当前系统产生影响：
 
-1. 用临时会话隔离的仅是**对话记录与模型上下文**，而不是文件、网络或系统进程。子 Agent 对文件进行的修改、发送的网络请求均具有真实的系统副作用，不会因为使用 `temp` 模式而在退出时回滚。
-2. 必要时可通过 `allowed_tools` 等参数限制模型行为，**不构成强制安全边界**。如需对危险命令或越权工具进行硬性拦截，必须使用[工具拦截 Hooks](/zh-cn/docs/app/plugins/#control-a-model-or-tool-call)；如需物理环境隔离，应配置独立的[执行环境](/zh-cn/docs/app/tools/#environment)。
+1. 会话策略隔离的仅是**对话记录与模型上下文**，而不是文件、网络或系统进程。子 Agent 对文件进行的修改、发送的网络请求均具有真实的系统副作用，不会在退出时回滚。
+2. 在对话中，`subagent` 的参数由模型生成，因此 `allowed_tools` 只能限制模型行为，**不构成强制安全边界**。如需对危险命令或越权工具进行硬性拦截，必须使用[工具拦截 Hooks](/zh-cn/docs/app/plugins/#control-a-model-or-tool-call)；如需物理环境隔离，应配置独立的[执行环境](/zh-cn/docs/app/tools/#environment)。

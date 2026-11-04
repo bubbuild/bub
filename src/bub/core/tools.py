@@ -28,7 +28,10 @@ class ToolContext:
     as a direct model tool call. Whether the result is rendered to text is decided by the
     ``ToolExecutor`` running the call, not by this flag. ``command`` is true when the tool
     runs as a command prompt rather than for the model. ``events`` is the bus of the agent
-    running the call, for tools that execute further tool calls.
+    running the call, for tools that execute further tool calls. ``step_messages`` are the
+    user messages the calling model step sent, which the tape records only after its tool
+    calls finish. ``call_id`` is the model's ID of the call; calls made from code share the
+    ID of the code call.
     """
 
     tape: Tape
@@ -37,6 +40,8 @@ class ToolContext:
     code_mode: bool = False
     command: bool = False
     events: EventBus | None = field(default=None, repr=False, compare=False)
+    step_messages: list[republic.Message] = field(default_factory=list, repr=False, compare=False)
+    call_id: str | None = None
 
 
 def render_result(result: Any) -> str:
@@ -364,6 +369,8 @@ class ToolExecutor:
         context: ToolContext | None,
         call_id: str | None,
     ) -> Any:
+        if context is not None and call_id is not None:
+            context = replace(context, call_id=call_id)
         async with self._limiter:
             span = Span(
                 f"execute_tool {tool.name}",

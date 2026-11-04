@@ -56,6 +56,8 @@ Every YAML key has a corresponding environment variable, which takes precedence.
 | `BUB_PROVIDERS` | `{}` | `providers` | [Custom providers](#custom-providers) |
 | `BUB_MAX_STEPS` | `sys.maxsize` | `max_steps` | [AgentSettings](#agent-settings) |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | [AgentSettings](#agent-settings) |
+| `BUB_SUBAGENT_MAX_CONCURRENCY` | `4` | `subagent_max_concurrency` | [AgentSettings](#agent-settings) |
+| `BUB_SUBAGENT_TIMEOUT_SECONDS` | `null` | `subagent_timeout_seconds` | [AgentSettings](#agent-settings) |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | [AgentSettings](#agent-settings) |
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | [`client_args`](#client-args) |
 | `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | [`completion_args`](#completion-args) |
@@ -94,6 +96,8 @@ class AgentSettings(Settings):
     providers: dict[str, CustomProvider] = {}
     max_steps: int = sys.maxsize
     max_tokens: int = 16384
+    subagent_max_concurrency: int = 4
+    subagent_timeout_seconds: int | None = None
     model_timeout_seconds: int | None = None
     client_args: dict[str, Any] = {}
     completion_args: dict[str, Any] = {}
@@ -112,6 +116,8 @@ class AgentSettings(Settings):
 | `BUB_PROVIDERS` | `{}` | `providers` | JSON object defining custom providers |
 | `BUB_MAX_STEPS` | `sys.maxsize` | `max_steps` | Maximum model Steps per Run; must be a positive integer |
 | `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Default output limit; omitted for Codex calls |
+| `BUB_SUBAGENT_MAX_CONCURRENCY` | `4` | `subagent_max_concurrency` | Maximum [subagents](/docs/app/subagents/) running at once in the process; later ones wait in a queue |
+| `BUB_SUBAGENT_TIMEOUT_SECONDS` | `null` | `subagent_timeout_seconds` | Default time limit of one subagent run; `null` means no limit |
 | `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | Seconds for one model call, including streaming |
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | JSON object passed to the model client |
 | `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | JSON object passed to each generation |

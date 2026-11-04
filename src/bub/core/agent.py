@@ -148,13 +148,19 @@ class Agent:
 
     @asynccontextmanager
     async def session(
-        self, name: str, *, state: TurnState | None = None, merge_back: bool = True
+        self, name: str | Tape, *, state: TurnState | None = None, merge_back: bool = True
     ) -> AsyncGenerator[Tape]:
         """Open a fork of tape ``name`` for one run, with ``state`` as its turn state.
 
+        ``name`` may also be an open :class:`Tape`, such as another run's: the fork then
+        starts from what that tape holds, including entries its own fork has not merged yet.
         The fork merges back on exit unless ``merge_back`` is false.
         """
-        async with self.tape(name, state=state).fork_tape(merge_back=merge_back) as tape:
+        if isinstance(name, Tape):
+            base = name.with_context(replace(name.context, state={} if state is None else state))
+        else:
+            base = self.tape(name, state=state)
+        async with base.fork_tape(merge_back=merge_back) as tape:
             await tape.ensure_bootstrap_anchor()
             yield tape
 
@@ -165,7 +171,7 @@ class Agent:
         *,
         model: Model | None = None,
         options: Mapping[str, Any] | None = None,
-        tape: str,
+        tape: str | Tape,
         state: TurnState | None = None,
         merge_back: bool = True,
         metadata: dict[str, Any] | None = None,
@@ -193,7 +199,7 @@ class Agent:
         *,
         model: Model | None = None,
         options: Mapping[str, Any] | None = None,
-        tape: str,
+        tape: str | Tape,
         state: TurnState | None = None,
         merge_back: bool = True,
         metadata: dict[str, Any] | None = None,
@@ -208,8 +214,9 @@ class Agent:
         ``options`` are ``republic.ChatOptions`` (such as ``max_tokens`` or ``temperature``)
         sent with every model call of the run.
 
-        The run works on a fork of the tape (see :meth:`session`) that stays open until
-        the stream closes, even if it is never consumed. ``state`` is the run's mutable
+        ``tape`` is a tape name, or an open tape to fork (see :meth:`session`). The run works
+        on a fork of the tape that stays open until the stream closes, even if it is never
+        consumed. ``state`` is the run's mutable
         turn state, carried by events and tools; ``metadata`` is attached to the
         ``RunStarted`` event. Each model step ends with a ``final`` event; the run ends
         when a step makes no tool calls and no messages are pending. A context-length
@@ -222,7 +229,7 @@ class Agent:
             {
                 "gen_ai.operation.name": "invoke_agent",
                 "gen_ai.agent.name": self.name,
-                "gen_ai.conversation.id": (state or {}).get("session_id", tape),
+                "gen_ai.conversation.id": (state or {}).get("session_id", tape if isinstance(tape, str) else tape.name),
             },
         )
         stack = AsyncExitStack()
@@ -388,7 +395,9 @@ class Agent:
             tool_invocations = [_tool_invocation(tool_call, tool_map) for tool_call in tool_calls]
             yield StreamEvent("tool_call", {"tool_calls": serialized_tool_calls})
             turn_state["_runtime_tool_names"] = tuple(tool_map)
-            context = ToolContext(tape=tape, run_id=run_id, state=turn_state, events=self.events)
+            context = ToolContext(
+                tape=tape, run_id=run_id, state=turn_state, events=self.events, step_messages=new_messages
+            )
             execution = await ToolExecutor(events=self.events, max_concurrency=self.max_tool_concurrency).execute_many(
                 tool_invocations,
                 context=context,
@@ -546,7 +555,7 @@ class Agent:
 
                 # Messages left on the last allowed step stay with their source.
                 if not should_continue and step < self.max_steps:
-                    pending = (await self._emit(MessagesPending, tape, prompt=None)).messages
+                    pending = (await self._emit(MessagesPending, tape, prompt=None, step_ended=True)).messages
                 if not (should_continue or pending):
                     await self._record_step(tape, step, start, "ok", prompt=next_prompt, stream=state)
                     tracker.status = "ok"
