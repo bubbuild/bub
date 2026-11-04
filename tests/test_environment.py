@@ -83,6 +83,17 @@ async def test_fs_tools_read_and_write_through_the_session_environment(tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_fs_edit_preserves_trailing_newline(tmp_path: Path) -> None:
+    environment = MemoryEnvironment()
+    context = _context(tmp_path, environment)
+
+    await builtin_tools.fs_write.run(path="a.py", content="x = 1\ny = 2\n", context=context)
+    await builtin_tools.fs_edit.run(path="a.py", old="y = 2", new="y = 3", start=1, context=context)
+
+    assert environment.files == {"/environment/work/a.py": "x = 1\ny = 3\n"}
+
+
+@pytest.mark.asyncio
 async def test_bash_spawns_in_the_session_environment_with_cwd_resolved_there(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(builtin_tools, "shell_manager", ShellManager())
     (tmp_path / "sub").mkdir()
