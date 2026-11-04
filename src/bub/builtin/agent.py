@@ -28,8 +28,9 @@ class BubAgent(core.Agent):
 
     Adds commands, skills, code mode and deferred tools to :class:`bub.core.Agent`, and
     connects the framework's agent-loop hooks through :class:`AgentPlugins`. System prompt
-    sections, in order: code mode, deferred tools, skills, the framework's ``system_prompt``
-    hooks, then sections added with ``system_prompt.add``. The framework's hooks handle
+    sections, in order: a subagent's profile instructions, code mode, deferred tools, skills,
+    subagent profiles, the framework's ``system_prompt`` hooks, then sections added with
+    ``system_prompt.add``. The framework's hooks handle
     events before handlers added with ``events.on``.
 
     One instance serves any number of sessions: per-turn choices (model, allowed tools
@@ -73,9 +74,11 @@ class BubAgent(core.Agent):
             store=framework.get_tape_store() if tape_store is None else tape_store,
             tools=() if tools is None else tools,
             system_prompt=[
+                self._subagent_instructions_prompt,
                 self._code_mode_prompt,
                 self._deferred_tools_prompt,
                 self._skills_prompt,
+                self._subagent_profiles_prompt,
             ],
             context=framework.build_tape_context(),
             sidecars=framework.get_tape_sidecars(),
@@ -95,6 +98,7 @@ class BubAgent(core.Agent):
         allowed_skills: Collection[str] | None = None,
         allowed_tools: Collection[str] | None = None,
         reasoning_effort: str | None = None,
+        fork_from: Tape | None = None,
     ) -> AsyncStreamEvents:
         """Prepare a turn and return its stream; await this method before iterating.
 
@@ -114,6 +118,8 @@ class BubAgent(core.Agent):
                 None allows all instance tools and an empty collection allows none.
                 Command execution uses the instance's tools directly.
             reasoning_effort: Per-turn override of the value in state.
+            fork_from: An open tape, such as a running turn's, to start from instead of the
+                session's tape. The turn sees what that tape holds and its fork is discarded.
 
         Loads the turn state and starts the turn with :meth:`start` on the session's tape.
         Consume the stream to completion to finish execution and tape merging. A
@@ -142,9 +148,9 @@ class BubAgent(core.Agent):
             model=self.settings.chat_model(
                 state.get("model") if model is None else model, reasoning_effort=state.get("reasoning_effort")
             ),
-            tape=session_tape_name(session_id, workspace_from_state(state)),
+            tape=session_tape_name(session_id, workspace_from_state(state)) if fork_from is None else fork_from,
             state=state,
-            merge_back=not session_id.startswith("temp/"),
+            merge_back=fork_from is None and not session_id.startswith("temp/"),
             metadata=metadata,
         )
 
@@ -218,6 +224,21 @@ class BubAgent(core.Agent):
 
         tools, _ = self._split_code_mode(context.state)
         return render_deferred_tools_prompt(_deferred_tools(tools))
+
+    @staticmethod
+    def _subagent_instructions_prompt(context: core.PromptContext) -> str | None:
+        from bub.builtin.subagents import SUBAGENT_INSTRUCTIONS_STATE_KEY
+
+        return context.state.get(SUBAGENT_INSTRUCTIONS_STATE_KEY)
+
+    @staticmethod
+    def _subagent_profiles_prompt(context: core.PromptContext) -> str:
+        """List subagent profiles when the run may start subagents."""
+        from bub.builtin.subagents import SUBAGENT_TOOL_NAME, discover_subagent_profiles, render_profiles_prompt
+
+        if not any(tool.name == SUBAGENT_TOOL_NAME for tool in context.tools):
+            return ""
+        return render_profiles_prompt(list(discover_subagent_profiles(workspace_from_state(context.state)).values()))
 
     def _skills_prompt(self, context: core.PromptContext) -> str:
         allowed = context.state.get(ALLOWED_SKILLS_STATE_KEY)

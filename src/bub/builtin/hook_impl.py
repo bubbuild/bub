@@ -263,8 +263,10 @@ class BuiltinImpl:
     @hookimpl
     async def provide_lifespan(self) -> AsyncIterator[None]:
         from bub.builtin.shell_manager import shell_manager
+        from bub.builtin.subagents import subagent_manager
 
-        async with shell_manager.lifespan():
+        # Subagents stop before the shells they may have started.
+        async with shell_manager.lifespan(), subagent_manager.lifespan():
             yield
 
     @hookimpl
