@@ -266,7 +266,7 @@ from bub.core import EventBus, ToolCallStarted, ToolCallFinished
 | `RunFinished` | The Run's stream closes | `status` (`ok` / `error` / `cancelled`), `steps`, elapsed time, error |
 | `StepStarted` | A Step begins | `step`, optional `prompt` |
 | `StepFinished` | A Step ends | Progress, usage; set `next_prompt` when continuing |
-| `MessagesPending` | While a request is built, or when a Step ends | Append user content to `messages` |
+| `MessagesPending` | While a request is built, or when a Step ends without tool calls (`step_ended=True`) | Append user content to `messages`; at a Step end, messages continue the Run |
 | `LLMCallStarted` | Before calling the provider | Replace `request`; set `LLMCallDecision.finish()` |
 | `LLMCallFinished` | After success or an ordinary provider failure | `request` and the aggregated `result` |
 | `ToolCallStarted` | Before a tool runs | Replace `call`; set `deny` or `replace` |

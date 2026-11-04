@@ -156,8 +156,7 @@ Clear the current Tape. With `archive=true`, first archive the main Tape and sid
 
 ```text
 subagent(prompt, agent=None, description=None, model=None, reasoning_effort=None,
-         session="temp", allowed_tools=None, allowed_skills=None, background=False,
-         timeout_seconds=None)
+         session="temp", allowed_tools=None, allowed_skills=None, timeout_seconds=None)
 ```
 
 | Parameter | Type and default | Description |
@@ -170,7 +169,6 @@ subagent(prompt, agent=None, description=None, model=None, reasoning_effort=None
 | `session` | `str`, default `"temp"` | Session strategy for the subagent |
 | `allowed_tools` | `list[str] \| None`, default `None` | Tools the subagent may use; by default, the parent run's tools |
 | `allowed_skills` | `list[str] \| None`, default `None` | Skills the subagent may use; by default, the parent run's skills |
-| `background` | `bool`, default `False` | Return a task ID at once and keep running in the background |
 | `timeout_seconds` | `int \| None`, default `None` | Stop the child after this many seconds; defaults to the profile's limit, then `BUB_SUBAGENT_TIMEOUT_SECONDS` |
 
 Tool names can be runtime names or model aliases, so both `fs.read` and `fs_read` work. A child never gets more than its parent: the tools default to the parent run's allowed tools, and naming a tool outside them is an error. Skill names are case-insensitive and are likewise narrowed to the parent's; `allowed_skills=[]` disables skill discovery. Children cannot start or manage subagents, so `subagent` and `subagent.*` are always excluded.
@@ -197,7 +195,7 @@ The tool returns:
 }
 ```
 
-`output` is the child's final answer: the text of its last step that made no tool calls. A foreground subagent that fails without an answer raises a tool error. A background subagent returns at once with status `queued` or `running`; when it ends, the parent session receives its result as a steering message:
+The subagent runs in the background: the tool returns at once with status `queued` or `running` and an empty `output`. When the task ends, the parent receives its result as a message:
 
 ```text
 <subagent-notification task_id="sub-1a2b3c4d" status="completed">
@@ -205,7 +203,7 @@ The tool returns:
 </subagent-notification>
 ```
 
-A running parent turn reads it before its next step; otherwise it arrives with the session's next turn. Results read with `subagent.wait` send no notification.
+`output` is the child's final answer: the text of its last step that made no tool calls. A run that started subagents does not end while their results are outstanding: when a step ends without tool calls, the run waits for the next task to finish and continues with its notification. A task that ends after its run, because the run failed, was cancelled or reached `max_steps`, reports through the session's steering inbox: before the next step of a running turn, or with the next turn. Results read with `subagent.wait` send no notification.
 
 At most `BUB_SUBAGENT_MAX_CONCURRENCY` subagents run at once in the process; later ones wait with status `queued`. Ending the runtime, or the `quit` command for a session, cancels running subagents. When a `temp` or `fork` subagent ends, the background shells it started are stopped.
 
@@ -220,10 +218,10 @@ Return task results, waiting up to `timeout_seconds` for the tasks to finish; `0
 ### `subagent.send` {#subagent-send}
 
 ```text
-subagent.send(task_id, message, background=False)
+subagent.send(task_id, message)
 ```
 
-Send a message to a task. A running task receives it before its next step. A finished task with a named session continues that conversation as a new task, bounded by the current run's tools; a finished `temp` or `fork` task cannot be continued.
+Send a message to a task. A running task receives it before its next step. A finished task with a named session continues that conversation as a new background task, bounded by the current run's tools; a finished `temp` or `fork` task cannot be continued.
 
 ### `subagent.cancel` {#subagent-cancel}
 

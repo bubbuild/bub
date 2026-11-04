@@ -1,6 +1,6 @@
 ---
 title: Subagents
-description: Delegate tasks with the built-in subagent tool, run them in the background, define reusable subagent profiles, and narrow what a subagent can use.
+description: Delegate tasks to background subagents with the built-in subagent tool, define reusable subagent profiles, and narrow what a subagent can use.
 ---
 
 The Bub app includes a built-in `subagent` tool that lets the current agent delegate a specific subtask to a child run of the same agent.
@@ -18,7 +18,7 @@ Use the subagent tool to review the authentication flow:
 3. Return the review findings with the relevant file paths.
 ```
 
-The parent agent then calls the `subagent` tool; the child calls tools inside its own loop, finishes the analysis, and returns its final answer to the parent. Only that answer, the text of the child's last step, comes back; the child's intermediate narration and tool calls stay out of the parent's context.
+The parent agent then calls the `subagent` tool, which starts the child in the background and returns a task ID at once. The child calls tools inside its own loop, finishes the analysis, and its final answer reaches the parent as a message. Only that answer, the text of the child's last step, comes back; the child's intermediate narration and tool calls stay out of the parent's context.
 
 The child sees only its `prompt` (and, with `session="fork"`, the conversation so far), so the prompt should be self-contained: say what to do, what to return, and any limits.
 
@@ -36,16 +36,16 @@ The `session` parameter decides what the child starts from and what is kept:
 
 `inherit` is accepted as an alias of `fork`. A fork copies the conversation at the moment of the call, so the child does not see what the parent does next, and nothing the child does is written back to the parent's history.
 
-## Run in the background {#background}
+## Receive results {#background}
 
-By default the parent waits for the subagent. With `background=true`, the tool returns a task ID at once and the parent keeps working, so several subagents can run while the parent does something else:
+Subagents always run in the background: the parent keeps working while they run, so several subagents can work in parallel while the parent does something else:
 
 ```text
-Start three background subagents, one per service, to check the logs for errors.
+Start three subagents, one per service, to check the logs for errors.
 Keep working on the migration; summarize their findings when they are done.
 ```
 
-When a background task ends, its result reaches the parent session as a steering message:
+When a task ends, its result reaches the parent as a message:
 
 ```text
 <subagent-notification task_id="sub-1a2b3c4d" status="completed">
@@ -53,7 +53,7 @@ No errors in the payments service logs since the last deploy.
 </subagent-notification>
 ```
 
-If the parent's turn is still running, it reads the notification before its next step. If the turn already ended, the notification arrives with the session's next turn. The parent can also manage tasks directly:
+The parent reads it before its next step. A turn does not end while subagents it started are still running: when the parent has nothing else to do, it waits for the next result and continues with it, so it can summarize every finding before replying. A task that outlives its turn, because the turn failed, was cancelled or reached its step limit, reports with the session's next turn. The parent can also manage tasks directly:
 
 | Tool | What it does |
 | --- | --- |

@@ -1,10 +1,11 @@
-"""Subagents: child runs of a Bub agent, in the foreground or as background tasks.
+"""Subagents: child runs of a Bub agent, run as background tasks.
 
-The ``subagent`` tool starts a child run of the same agent and tracks it as a
-:class:`SubagentTask`. A foreground task returns its answer as the tool result; a
-background task returns a task ID at once, keeps running, and reports its result to the
-parent session as a ``<subagent-notification>`` steering message, unless the parent read
-it first with ``subagent.wait``.
+The ``subagent`` tool starts a child run of the same agent in the background, tracks it
+as a :class:`SubagentTask` and returns its task ID at once. The result reaches the parent
+as a ``<subagent-notification>`` message, unless the parent read it first with
+``subagent.wait``: a run that started tasks waits for them when a step would end the run
+(see :func:`deliver_subagent_results`), and a task that ends after its run reaches the
+session through the steering inbox.
 
 Each task publishes :class:`SubagentStarted`, :class:`SubagentOutput` (one per child
 stream event) and :class:`SubagentFinished` on the agent's event bus, so channels can
@@ -33,7 +34,7 @@ import yaml
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from bub.core.events import AgentEvent, EventBus
+from bub.core.events import AgentEvent, EventBus, MessagesPending
 from bub.core.tools import ToolContext, tool
 from bub.streaming import StreamEvent
 from bub.turn import TurnState
@@ -93,14 +94,6 @@ class SubAgentInput(BaseModel):
         None,
         description="Skill names the sub-agent may use; defaults to the skills available to the current agent.",
     )
-    background: bool = Field(
-        False,
-        description=(
-            "Run in the background and return a task ID at once. The result arrives later as a "
-            "<subagent-notification> message; use subagent.wait, subagent.send and subagent.cancel "
-            "to manage the task."
-        ),
-    )
     timeout_seconds: int | None = Field(None, gt=0, description="Stop the sub-agent after this many seconds.")
 
 
@@ -157,7 +150,6 @@ class SubagentTask:
     description: str
     model: str | None
     profile: str | None
-    background: bool
     persistent: bool
     parent_call_id: str | None = None
     """The ID of the tool call that started the task, when the model made it."""
@@ -172,7 +164,7 @@ class SubagentTask:
     started_at: float | None = None
     ended_at: float | None = None
     delivered: bool = False
-    """Whether the parent has read the result; a delivered result sends no notification."""
+    """Whether the result was handed to the parent; a delivered result sends no further notification."""
     _parent_key: TurnState = field(default_factory=dict, repr=False)
     _request: _RunRequest | None = field(default=None, repr=False)
     _events: EventBus | None = field(default=None, repr=False)
@@ -290,7 +282,6 @@ class SubagentManager:
         parent_state: TurnState,
         description: str | None,
         profile: str | None,
-        background: bool,
         parent_call_id: str | None = None,
     ) -> SubagentTask:
         """Queue a child run and return its task; the run starts once a slot is free."""
@@ -304,7 +295,6 @@ class SubagentManager:
             description=description or _describe(prompt),
             model=request.model,
             profile=profile,
-            background=background,
             persistent=persistent,
             parent_call_id=parent_call_id,
             _parent_key=_steering_key(parent_state),
@@ -317,21 +307,32 @@ class SubagentManager:
         task._runner = asyncio.create_task(self._run(task, prompt), name=f"subagent {task_id}")
         return task
 
-    async def wait(self, tasks: Iterable[SubagentTask], timeout: float | None) -> None:
-        """Wait until every task ends or ``timeout`` seconds pass; their results count as read."""
+    async def wait(self, tasks: Iterable[SubagentTask], timeout: float | None, *, any_task: bool = False) -> None:
+        """Wait until every task (or, with ``any_task``, one) ends or ``timeout`` seconds pass.
+
+        Ended tasks count as delivered: their results go to the waiter, not to a notification.
+        """
         tasks = list(tasks)
+        if not tasks:
+            return
         for task in tasks:
             task._waiters += 1
+        waiters = [asyncio.ensure_future(task.wait()) for task in tasks]
         try:
-            async with asyncio.timeout(timeout):
-                await asyncio.gather(*(task.wait() for task in tasks))
-        except TimeoutError:
-            pass
+            await asyncio.wait(
+                waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED if any_task else asyncio.ALL_COMPLETED
+            )
         finally:
+            for waiter in waiters:
+                waiter.cancel()
             for task in tasks:
                 task._waiters -= 1
                 if task.done:
                     task.delivered = True
+
+    def unread(self, state: TurnState) -> list[SubagentTask]:
+        """Tasks started by the run whose turn state is ``state`` and not delivered yet."""
+        return [task for task in self._tasks.values() if task._parent_state is state and not task.delivered]
 
     async def cancel(self, task_id: str) -> SubagentTask:
         task = self.get(task_id)
@@ -447,7 +448,9 @@ class SubagentManager:
             await shell_manager.terminate_session(task.session_id)
         task._done.set()
         await _publish(events, SubagentFinished(state=parent_state, task=task))
-        if task.background and not task.delivered and task._waiters == 0 and framework is not None:
+        if not task.delivered and task._waiters == 0 and framework is not None:
+            # The parent session reads it with its next step, or with its next turn.
+            task.delivered = True
             await framework.steer_message(
                 message=_channel_message(task.parent_session_id, task.task_id, render_notification(task)),
                 session_id=task.parent_session_id,
@@ -515,9 +518,10 @@ def _render_result(result: SubAgentResult | str) -> str:
     errors = "".join(f"[Error: {message}]" for message in result["errors"])
     if result["status"] in ("queued", "running"):
         return (
-            f"Subagent task {result['task_id']} started in the background (session {result['session_id']}). "
-            "Its result arrives as a <subagent-notification> message; use subagent.wait to check or block "
-            "on it, subagent.send to message it, or subagent.cancel to stop it."
+            f"Subagent task {result['task_id']} is running in the background (session {result['session_id']}). "
+            "Its result arrives as a <subagent-notification> message before this turn ends, so keep working "
+            "or finish your reply; use subagent.wait to get it sooner, subagent.send to message the task, "
+            "or subagent.cancel to stop it."
         )
     if result["status"] == "cancelled":
         partial = f"\nPartial output:\n{result['output']}" if result["output"] else ""
@@ -699,14 +703,13 @@ async def _build_request(param: SubAgentInput, context: ToolContext) -> tuple[_R
     )
 
 
-async def _start_and_maybe_wait(
+async def _start(
     request: _RunRequest,
     prompt: str | list[dict],
     *,
     context: ToolContext,
     description: str | None,
     profile: str | None,
-    background: bool,
 ) -> SubAgentResult:
     task = await subagent_manager.start(
         request,
@@ -715,38 +718,47 @@ async def _start_and_maybe_wait(
         parent_state=context.state,
         description=description,
         profile=profile,
-        background=background,
         parent_call_id=getattr(context, "call_id", None),
     )
-    if background:
-        return task.result()
-    task.delivered = True
-    try:
-        await task.wait()
-    except asyncio.CancelledError:
-        # The parent's tool call was cancelled: its foreground child goes with it.
-        await subagent_manager.cancel(task.task_id)
-        raise
-    if task.status == "failed" and not task.output:
-        raise RuntimeError(f"subagent {task.task_id} failed: {'; '.join(task.errors) or 'unknown error'}")
     return task.result()
+
+
+async def deliver_subagent_results(event: MessagesPending) -> None:
+    """Keep a run going until the subagents it started have reported.
+
+    When a step ends without tool calls, the run would end. If it started subagent tasks
+    whose results it has not received, wait for one of them to finish (unless other
+    messages already continue the run), then add each finished task's notification so the
+    run takes another step with it.
+    """
+    if not event.step_ended:
+        return
+    tasks = subagent_manager.unread(event.state)
+    if not tasks:
+        return
+    if not event.messages:
+        await subagent_manager.wait([task for task in tasks if not task.done], None, any_task=True)
+    for task in tasks:
+        if task.done:
+            task.delivered = True
+            event.messages.append([render_notification(task)])
 
 
 @tool(name=SUBAGENT_TOOL_NAME, context=True, model=SubAgentInput, renderer=_render_result)
 async def run_subagent(param: SubAgentInput, *, context: ToolContext) -> SubAgentResult:
-    """Delegate a task to a sub-agent that runs its own loop with this agent's tools and returns its answer.
+    """Delegate a task to a sub-agent that runs its own loop with this agent's tools, in the background.
 
-    The sub-agent only sees `prompt` (and, with session='fork', the current conversation), so make
-    the prompt self-contained. Set background=true to keep working while it runs.
+    Returns a task ID at once; the sub-agent's answer arrives later as a <subagent-notification>
+    message. Start several to work in parallel. The sub-agent only sees `prompt` (and, with
+    session='fork', the current conversation), so make the prompt self-contained.
     """
     request, profile = await _build_request(param, context)
-    return await _start_and_maybe_wait(
+    return await _start(
         request,
         param.prompt,
         context=context,
         description=param.description,
         profile=profile.name if profile else None,
-        background=param.background,
     )
 
 
@@ -779,13 +791,11 @@ async def subagent_cancel(task_id: str, *, context: ToolContext) -> list[SubAgen
 
 
 @tool(name="subagent.send", context=True, renderer=_render_result)
-async def subagent_send(
-    task_id: str, message: str, background: bool = False, *, context: ToolContext
-) -> SubAgentResult | str:
+async def subagent_send(task_id: str, message: str, *, context: ToolContext) -> SubAgentResult | str:
     """Send a message to a subagent task.
 
     A running task receives it before its next step. A finished task with a named session
-    continues that conversation as a new task, in the background when background=true.
+    continues that conversation as a new background task.
     """
     task = subagent_manager.get(task_id)
     if not task.done:
@@ -811,13 +821,12 @@ async def subagent_send(
         timeout_seconds=request.timeout_seconds,
         base_state=dict(context.state),
     )
-    return await _start_and_maybe_wait(
+    return await _start(
         continued,
         message,
         context=context,
         description=task.description,
         profile=task.profile,
-        background=background,
     )
 
 

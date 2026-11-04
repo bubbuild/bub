@@ -179,8 +179,7 @@ tape.reset(archive=False)
 
 ```text
 subagent(prompt, agent=None, description=None, model=None, reasoning_effort=None,
-         session="temp", allowed_tools=None, allowed_skills=None, background=False,
-         timeout_seconds=None)
+         session="temp", allowed_tools=None, allowed_skills=None, timeout_seconds=None)
 ```
 
 | 参数 | 类型 | 说明 |
@@ -193,7 +192,6 @@ subagent(prompt, agent=None, description=None, model=None, reasoning_effort=None
 | `session` | `str` | 子 Agent 的会话策略，默认 `"temp"` |
 | `allowed_tools` | `list[str] \| None` | 可用工具；默认为父 Agent 本轮的工具 |
 | `allowed_skills` | `list[str] \| None` | 可用技能；默认为父 Agent 本轮的技能，`[]` 禁用技能发现 |
-| `background` | `bool` | 立即返回任务 ID，在后台继续运行；默认 `False` |
 | `timeout_seconds` | `int \| None` | 超时即停止子 Agent；默认取配置中的时限，再取 `BUB_SUBAGENT_TIMEOUT_SECONDS` |
 
 工具名支持运行时名称和模型别名；技能名不区分大小写。子 Agent 的工具和技能不会超过父 Agent：默认就是父 Agent 本轮允许的范围，指定范围外的工具会报错。子 Agent 不能启动或管理子 Agent，`subagent` 和 `subagent.*` 始终被排除。
@@ -218,7 +216,7 @@ fork 在调用时复制父 Agent 的 Tape，子 Agent 看不到父 Agent 之后�
 }
 ```
 
-`output` 是子 Agent 的最终答案，即它最后一个没有工具调用的步骤的文本。前台子 Agent 失败且没有答案时抛出工具错误。后台子 Agent 立即以 `queued` 或 `running` 状态返回；结束时，父会话会收到一条 steering 消息：
+子 Agent 在后台运行：工具立即以 `queued` 或 `running` 状态返回，`output` 为空。任务结束时，父 Agent 会收到一条消息：
 
 ```text
 <subagent-notification task_id="sub-1a2b3c4d" status="completed">
@@ -226,7 +224,7 @@ fork 在调用时复制父 Agent 的 Tape，子 Agent 看不到父 Agent 之后�
 </subagent-notification>
 ```
 
-父 Agent 的轮次仍在进行时，会在下一步之前读到它；否则随会话的下一轮送达。用 `subagent.wait` 读过的结果不再发送通知。
+`output` 是子 Agent 的最终答案，即它最后一个没有工具调用的步骤的文本。启动了子 Agent 的运行在结果全部送达前不会结束：某一步结束且没有工具调用时，运行会等待下一个任务结束，并带着它的通知继续。如果运行失败、被取消或达到 `max_steps` 后任务才结束，结果会通过会话的 steering 收件箱送达：运行中的轮次在下一步之前读到，否则随下一轮送达。用 `subagent.wait` 读过的结果不再发送通知。
 
 进程内同时运行的子 Agent 最多 `BUB_SUBAGENT_MAX_CONCURRENCY` 个，其余以 `queued` 状态排队。运行时退出，或对某个会话执行 `quit` 命令，会取消运行中的子 Agent。`temp` 或 `fork` 子 Agent 结束时，它启动的后台 Shell 会被停止。
 
@@ -241,10 +239,10 @@ subagent.wait(task_ids=None, timeout_seconds=60)
 ### `subagent.send` {#subagent-send}
 
 ```text
-subagent.send(task_id, message, background=False)
+subagent.send(task_id, message)
 ```
 
-给任务发消息。运行中的任务在下一步之前读到它。使用命名会话且已结束的任务会作为新任务继续该对话，工具范围受当前运行约束；已结束的 `temp` 或 `fork` 任务无法继续。
+给任务发消息。运行中的任务在下一步之前读到它。使用命名会话且已结束的任务会作为新的后台任务继续该对话，工具范围受当前运行约束；已结束的 `temp` 或 `fork` 任务无法继续。
 
 ### `subagent.cancel` {#subagent-cancel}
 

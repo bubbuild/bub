@@ -1,6 +1,6 @@
 ---
 title: 子 Agent
-description: 使用内置 subagent 工具委派任务、在后台运行子任务、定义可复用的子 Agent 配置，并收窄子 Agent 的可用能力。
+description: 使用内置 subagent 工具把任务委派给后台子 Agent、定义可复用的子 Agent 配置，并收窄子 Agent 的可用能力。
 ---
 
 Bub 应用内置 `subagent` 工具，允许当前 Agent 将特定子任务委派给同一个 Agent 的一次子运行。
@@ -18,7 +18,7 @@ Bub 应用内置 `subagent` 工具，允许当前 Agent 将特定子任务委派
 3. 返回审查发现并附带相关文件路径。
 ```
 
-父 Agent 随后调用 `subagent` 工具，子 Agent 在其独立循环中调用工具完成分析，最后把最终答案返回给父 Agent。返回的只有这个答案，也就是子 Agent 最后一步的文本；中间的叙述和工具调用不会进入父 Agent 的上下文。
+父 Agent 随后调用 `subagent` 工具，工具在后台启动子 Agent 并立即返回任务 ID。子 Agent 在其独立循环中调用工具完成分析，最终答案以消息的形式送达父 Agent。返回的只有这个答案，也就是子 Agent 最后一步的文本；中间的叙述和工具调用不会进入父 Agent 的上下文。
 
 子 Agent 只能看到 `prompt`（使用 `session="fork"` 时还能看到当前对话），因此 prompt 应当自成一体：写清楚要做什么、返回什么、有哪些限制。
 
@@ -36,16 +36,16 @@ Bub 应用内置 `subagent` 工具，允许当前 Agent 将特定子任务委派
 
 `inherit` 作为 `fork` 的别名仍可使用。fork 在调用发生时复制对话，子 Agent 看不到父 Agent 之后的动作，子 Agent 的记录也不会写回父会话历史。
 
-## 后台运行 {#background}
+## 接收结果 {#background}
 
-默认情况下父 Agent 会等待子 Agent 完成。设置 `background=true` 后，工具立即返回任务 ID，父 Agent 继续工作，多个子 Agent 可以在父 Agent 做别的事时同时运行：
+子 Agent 总是在后台运行：它们运行期间父 Agent 继续工作，多个子 Agent 可以在父 Agent 做别的事时并行处理：
 
 ```text
-启动三个后台子 Agent，每个服务一个，检查日志中的错误。
+启动三个子 Agent，每个服务一个，检查日志中的错误。
 你继续做迁移；它们完成后汇总结论。
 ```
 
-后台任务结束时，结果会以 steering 消息的形式送达父会话：
+任务结束时，结果会以消息的形式送达父 Agent：
 
 ```text
 <subagent-notification task_id="sub-1a2b3c4d" status="completed">
@@ -53,7 +53,7 @@ Bub 应用内置 `subagent` 工具，允许当前 Agent 将特定子任务委派
 </subagent-notification>
 ```
 
-如果父 Agent 的这一轮还在进行，它会在下一步之前读到通知；如果这一轮已经结束，通知会随会话的下一轮送达。父 Agent 也可以直接管理任务：
+父 Agent 会在下一步之前读到它。由它启动的子 Agent 还在运行时，这一轮不会结束：父 Agent 没有别的事可做时，会等待下一个结果并带着它继续，因此可以在回复前汇总所有结论。只有当这一轮失败、被取消或达到步数上限时，尚未结束的任务才会随会话的下一轮报告。父 Agent 也可以直接管理任务：
 
 | 工具 | 作用 |
 | --- | --- |

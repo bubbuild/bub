@@ -16,6 +16,7 @@ from bub.builtin.subagents import (
     SubagentEvent,
     SubagentFinished,
     SubagentOutput,
+    SubAgentResult,
     SubagentStarted,
     run_subagent,
     subagent_cancel,
@@ -64,14 +65,17 @@ class FakeContext:
 class FakeAgent:
     """Records child runs; ``block`` holds each run until ``release`` is set."""
 
-    def __init__(self, *tools: Tool, block: bool = False) -> None:
+    def __init__(self, *tools: Tool, block: bool = False, error: Exception | None = None) -> None:
         self.tools = {item.name: item for item in (lookup, other, *SUBAGENT_TOOLS, *tools)}
         self.calls: list[dict[str, Any]] = []
         self.block = block
+        self.error = error
         self.release = asyncio.Event()
 
     async def run_stream(self, **kwargs: Any) -> AsyncStreamEvents:
         self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
 
         async def iterator() -> AsyncIterator[StreamEvent]:
             if self.block:
@@ -115,12 +119,74 @@ async def run_parent(agent: BubAgent, prompt: str) -> None:
         pass
 
 
-def request_text(provider: ProviderService, index: int) -> str:
-    return json.dumps(provider.body(index))
+async def run_child(context: Any, **arguments: Any) -> SubAgentResult:
+    """Start a subagent and wait for its result."""
+    started = await run_subagent.run(context=context, **arguments)
+    [result] = await subagent_wait.run(task_ids=[started["task_id"]], timeout_seconds=30, context=context)
+    return result
 
 
-def system_prompt(provider: ProviderService, index: int) -> str:
-    return provider.body(index)["messages"][0]["content"]
+def requests_ending_with(provider: ProviderService, text: str) -> list[dict[str, Any]]:
+    """Request bodies whose last message is a user message containing ``text``.
+
+    A parent run and its subagents call the model concurrently, so tests find a request
+    by what it asks rather than by its position.
+    """
+    bodies = [provider.body(index) for index in range(len(provider.requests))]
+    return [
+        body
+        for body in bodies
+        if body["messages"][-1]["role"] == "user" and text in json.dumps(body["messages"][-1]["content"])
+    ]
+
+
+def system_prompt(body: dict[str, Any]) -> str:
+    return body["messages"][0]["content"]
+
+
+def reply_texts(provider: ProviderService, count: int) -> None:
+    """Queue interchangeable plain answers for requests whose order is not fixed."""
+    for _ in range(count):
+        provider.reply_chat("noted")
+
+
+@pytest.mark.asyncio
+async def test_subagent_returns_a_task_at_once() -> None:
+    agent = FakeAgent(block=True)
+    context = FakeContext({"_runtime_agent": agent})
+
+    started = await run_subagent.run(prompt="task", context=context)
+
+    assert started["status"] in ("queued", "running")
+    assert started["output"] == ""
+    assert "running in the background" in run_subagent.render(started)
+    agent.release.set()
+    [result] = await subagent_wait.run(task_ids=[started["task_id"]], context=context)
+    assert result["status"] == "completed"
+    assert result["output"] == "agent result"
+
+
+@pytest.mark.asyncio
+async def test_run_waits_for_its_subagents_before_ending(
+    runtime: BubAgent, provider_transport: ProviderService
+) -> None:
+    provider_transport.reply_chat(calls=[call("subagent", "c1", {"prompt": "child task"})])
+    reply_texts(provider_transport, 3)
+    started: list[SubagentStarted] = []
+    runtime.events.on(SubagentStarted, started.append)
+
+    await run_parent(runtime, "delegate")
+
+    [task] = [event.task for event in started]
+    assert task.done
+    assert task.delivered
+    [last] = requests_ending_with(provider_transport, "<subagent-notification")
+    assert f'task_id="{task.task_id}" status="completed"' in str(last["messages"][-1]["content"])
+    messages = await runtime.tape(session_tape_name("parent", runtime.framework.workspace)).read_messages()
+    assert any("<subagent-notification" in json.dumps(message.to_dict()) for message in messages)
+    inbox = runtime.framework.get_steering_inbox()
+    assert inbox is not None
+    assert await inbox.drain_messages(dict(PARENT_KEY)) == []
 
 
 @pytest.mark.asyncio
@@ -128,8 +194,7 @@ async def test_subagent_leaves_parent_steering_messages_to_the_parent(
     runtime: BubAgent, provider_transport: ProviderService
 ) -> None:
     provider_transport.reply_chat(calls=[call("subagent", "c1", {"prompt": "child task"})])
-    provider_transport.reply_chat("child answer")
-    provider_transport.reply_chat("parent answer")
+    reply_texts(provider_transport, 3)
 
     @runtime.events.on(ToolCallStarted)
     async def steer_parent(event: ToolCallStarted) -> None:
@@ -142,9 +207,9 @@ async def test_subagent_leaves_parent_steering_messages_to_the_parent(
 
     await run_parent(runtime, "delegate")
 
-    assert "child task" in request_text(provider_transport, 1)
-    assert "user follow-up" not in request_text(provider_transport, 1)
-    assert "user follow-up" in request_text(provider_transport, 2)
+    [child] = requests_ending_with(provider_transport, "child task")
+    assert "user follow-up" not in json.dumps(child)
+    assert requests_ending_with(provider_transport, "user follow-up")
 
 
 @pytest.mark.asyncio
@@ -152,7 +217,7 @@ async def test_subagent_returns_only_its_final_answer(runtime: BubAgent, provide
     provider_transport.reply_chat("let me look it up", calls=[call("tests_lookup", "l1")])
     provider_transport.reply_chat("the answer")
 
-    result = await run_subagent.run(prompt="find it", context=parent_context(runtime))
+    result = await run_child(parent_context(runtime), prompt="find it")
 
     assert result["status"] == "completed"
     assert result["output"] == "the answer"
@@ -165,14 +230,12 @@ async def test_forked_subagent_sees_the_current_turn_and_is_discarded(
     runtime: BubAgent, provider_transport: ProviderService, session: str
 ) -> None:
     provider_transport.reply_chat(calls=[call("subagent", "c1", {"prompt": "summarize it", "session": session})])
-    provider_transport.reply_chat("child summary")
-    provider_transport.reply_chat("parent answer")
+    reply_texts(provider_transport, 3)
 
     await run_parent(runtime, "parent question")
 
-    child_request = request_text(provider_transport, 1)
-    assert "parent question" in child_request
-    assert "summarize it" in child_request
+    [child] = requests_ending_with(provider_transport, "summarize it")
+    assert "parent question" in json.dumps(child)
     messages = await runtime.tape(session_tape_name("parent", runtime.framework.workspace)).read_messages()
     user_texts = [json.dumps(message.to_dict()) for message in messages if message.role == "user"]
     assert any("parent question" in text for text in user_texts)
@@ -184,7 +247,7 @@ async def test_child_state_gets_its_own_thread_and_drops_parent_scope() -> None:
     agent = FakeAgent()
     state = {"_runtime_agent": agent, **PARENT_KEY, ALLOWED_TOOLS_STATE_KEY: ["tests.lookup"], "extra": "val"}
 
-    result = await run_subagent.run(prompt="task", context=FakeContext(state))
+    result = await run_child(FakeContext(state), prompt="task")
 
     child = agent.calls[0]
     assert child["session_id"] == f"temp/{result['task_id']}"
@@ -199,7 +262,7 @@ async def test_child_tools_stay_within_the_parent_allowlist() -> None:
     agent = FakeAgent()
     state = {"_runtime_agent": agent, **PARENT_KEY, ALLOWED_TOOLS_STATE_KEY: ["tests.lookup", "subagent"]}
 
-    await run_subagent.run(prompt="task", context=FakeContext(state))
+    await run_child(FakeContext(state), prompt="task")
     assert agent.calls[0]["allowed_tools"] == {"tests.lookup"}
 
     with pytest.raises(ValueError, match="tests_other"):
@@ -210,7 +273,7 @@ async def test_child_tools_stay_within_the_parent_allowlist() -> None:
 async def test_child_cannot_start_or_manage_subagents() -> None:
     agent = FakeAgent()
 
-    await run_subagent.run(prompt="task", allowed_tools=[], context=FakeContext({"_runtime_agent": agent}))
+    await run_child(FakeContext({"_runtime_agent": agent}), prompt="task", allowed_tools=[])
 
     allowed = agent.calls[0]["allowed_tools"]
     assert {"tests.lookup", "tests.other"} <= allowed
@@ -222,8 +285,8 @@ async def test_child_skills_stay_within_the_parent_allowlist() -> None:
     agent = FakeAgent()
     state = {"_runtime_agent": agent, "allowed_skills": ["review"]}
 
-    await run_subagent.run(prompt="task", context=FakeContext(state))
-    await run_subagent.run(prompt="task", allowed_skills=["Review", "deploy"], context=FakeContext(state))
+    await run_child(FakeContext(state), prompt="task")
+    await run_child(FakeContext(state), prompt="task", allowed_skills=["Review", "deploy"])
 
     assert [child["allowed_skills"] for child in agent.calls] == [["review"], ["review"]]
 
@@ -241,16 +304,26 @@ async def test_unknown_allowed_tools_are_rejected_before_running() -> None:
 
 
 @pytest.mark.asyncio
-async def test_background_subagent_notifies_the_parent_through_steering(
+async def test_failing_child_reports_failed_status() -> None:
+    agent = FakeAgent(error=RuntimeError("child exploded"))
+
+    result = await run_child(FakeContext({"_runtime_agent": agent}), prompt="task")
+
+    assert result["status"] == "failed"
+    assert result["errors"] == ["child exploded"]
+
+
+@pytest.mark.asyncio
+async def test_subagent_ending_after_its_run_notifies_the_session_through_steering(
     runtime: BubAgent, provider_transport: ProviderService
 ) -> None:
     provider_transport.reply_chat("background done")
 
-    result = await run_subagent.run(prompt="task", background=True, context=parent_context(runtime))
-    assert result["status"] in ("queued", "running")
-    assert "started in the background" in run_subagent.render(result)
-    await subagent_manager.get(result["task_id"])._runner
+    result = await run_subagent.run(prompt="task", context=parent_context(runtime))
+    task = subagent_manager.get(result["task_id"])
+    await task._runner
 
+    assert task.delivered
     inbox = runtime.framework.get_steering_inbox()
     assert inbox is not None
     [message] = await inbox.drain_messages(dict(PARENT_KEY))
@@ -259,13 +332,13 @@ async def test_background_subagent_notifies_the_parent_through_steering(
 
 
 @pytest.mark.asyncio
-async def test_waiting_on_a_background_subagent_delivers_its_result_without_a_notification(
+async def test_waiting_on_a_subagent_delivers_its_result_without_a_notification(
     runtime: BubAgent, provider_transport: ProviderService
 ) -> None:
     provider_transport.reply_chat("background done")
     context = parent_context(runtime)
 
-    started = await run_subagent.run(prompt="task", background=True, context=context)
+    started = await run_subagent.run(prompt="task", context=context)
     [result] = await subagent_wait.run(task_ids=[started["task_id"]], timeout_seconds=5, context=context)
     await subagent_manager.get(started["task_id"])._runner
 
@@ -280,8 +353,8 @@ async def test_waiting_on_a_background_subagent_delivers_its_result_without_a_no
 async def test_wait_without_ids_covers_unread_tasks_of_the_session() -> None:
     agent = FakeAgent()
     context = FakeContext({"_runtime_agent": agent, "session_id": "wait-session"})
-    first = await run_subagent.run(prompt="one", background=True, context=context)
-    second = await run_subagent.run(prompt="two", background=True, context=context)
+    first = await run_subagent.run(prompt="one", context=context)
+    second = await run_subagent.run(prompt="two", context=context)
 
     results = await subagent_wait.run(context=context)
     assert [result["task_id"] for result in results] == [first["task_id"], second["task_id"]]
@@ -292,7 +365,7 @@ async def test_wait_without_ids_covers_unread_tasks_of_the_session() -> None:
 async def test_wait_returns_running_tasks_after_its_timeout() -> None:
     agent = FakeAgent(block=True)
     context = FakeContext({"_runtime_agent": agent})
-    started = await run_subagent.run(prompt="task", background=True, context=context)
+    started = await run_subagent.run(prompt="task", context=context)
 
     [result] = await subagent_wait.run(task_ids=[started["task_id"]], timeout_seconds=0, context=context)
 
@@ -302,10 +375,10 @@ async def test_wait_returns_running_tasks_after_its_timeout() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cancel_stops_a_background_subagent() -> None:
+async def test_cancel_stops_a_subagent() -> None:
     agent = FakeAgent(block=True)
     context = FakeContext({"_runtime_agent": agent})
-    started = await run_subagent.run(prompt="task", background=True, context=context)
+    started = await run_subagent.run(prompt="task", context=context)
 
     [result] = await subagent_cancel.run(task_id=started["task_id"], context=context)
 
@@ -316,11 +389,9 @@ async def test_cancel_stops_a_background_subagent() -> None:
 @pytest.mark.asyncio
 async def test_cancel_session_stops_only_that_sessions_tasks() -> None:
     agent = FakeAgent(block=True)
-    mine = await run_subagent.run(
-        prompt="task", background=True, context=FakeContext({"_runtime_agent": agent, "session_id": "mine"})
-    )
+    mine = await run_subagent.run(prompt="task", context=FakeContext({"_runtime_agent": agent, "session_id": "mine"}))
     theirs = await run_subagent.run(
-        prompt="task", background=True, context=FakeContext({"_runtime_agent": agent, "session_id": "theirs"})
+        prompt="task", context=FakeContext({"_runtime_agent": agent, "session_id": "theirs"})
     )
 
     assert await subagent_manager.cancel_session("mine") == 1
@@ -332,26 +403,13 @@ async def test_cancel_session_stops_only_that_sessions_tasks() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cancelling_the_parent_call_cancels_its_foreground_subagent() -> None:
-    agent = FakeAgent(block=True)
-    call_task = asyncio.create_task(run_subagent.run(prompt="task", context=FakeContext({"_runtime_agent": agent})))
-    while not agent.calls:
-        await asyncio.sleep(0)
-    [task] = [task for task in subagent_manager.tasks() if task._request and task._request.agent is agent]
-
-    call_task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await call_task
-
-    assert task.status == "cancelled"
-
-
-@pytest.mark.asyncio
 async def test_subagent_times_out() -> None:
     agent = FakeAgent(block=True)
 
-    with pytest.raises(RuntimeError, match="timed out after 1 seconds"):
-        await run_subagent.run(prompt="task", timeout_seconds=1, context=FakeContext({"_runtime_agent": agent}))
+    result = await run_child(FakeContext({"_runtime_agent": agent}), prompt="task", timeout_seconds=1)
+
+    assert result["status"] == "failed"
+    assert result["errors"] == ["timed out after 1 seconds"]
 
 
 @pytest.mark.asyncio
@@ -359,8 +417,8 @@ async def test_concurrency_limit_queues_extra_subagents(monkeypatch: pytest.Monk
     monkeypatch.setenv("BUB_SUBAGENT_MAX_CONCURRENCY", "1")
     agent = FakeAgent(block=True)
     context = FakeContext({"_runtime_agent": agent})
-    first = await run_subagent.run(prompt="one", background=True, context=context)
-    second = await run_subagent.run(prompt="two", background=True, context=context)
+    first = await run_subagent.run(prompt="one", context=context)
+    second = await run_subagent.run(prompt="two", context=context)
     for _ in range(5):
         await asyncio.sleep(0)
 
@@ -387,14 +445,14 @@ async def test_send_steers_a_running_subagent(runtime: BubAgent, provider_transp
     provider_transport.reply_chat("ok")
     context = parent_context(runtime)
 
-    started = await run_subagent.run(prompt="task", background=True, context=context)
+    started = await run_subagent.run(prompt="task", context=context)
     await entered.wait()
     reply = await subagent_send.run(task_id=started["task_id"], message="extra details", context=context)
     release.set()
     await subagent_manager.get(started["task_id"])._runner
 
     assert "Message queued" in reply
-    assert "extra details" in request_text(provider_transport, 1)
+    assert requests_ending_with(provider_transport, "extra details")
 
 
 @pytest.mark.asyncio
@@ -403,21 +461,21 @@ async def test_send_continues_a_finished_named_session(runtime: BubAgent, provid
     provider_transport.reply_chat("second answer")
     context = parent_context(runtime)
 
-    first = await run_subagent.run(prompt="first question", session="notes/1", context=context)
-    second = await subagent_send.run(task_id=first["task_id"], message="second question", context=context)
+    first = await run_child(context, prompt="first question", session="notes/1")
+    started = await subagent_send.run(task_id=first["task_id"], message="second question", context=context)
+    [second] = await subagent_wait.run(task_ids=[started["task_id"]], context=context)
 
     assert second["output"] == "second answer"
     assert second["task_id"] != first["task_id"]
     assert second["session_id"] == "notes/1"
-    continued = request_text(provider_transport, 1)
-    assert "first question" in continued
-    assert "second question" in continued
+    [continued] = requests_ending_with(provider_transport, "second question")
+    assert "first question" in json.dumps(continued)
 
 
 @pytest.mark.asyncio
 async def test_send_rejects_a_finished_temporary_session() -> None:
     context = FakeContext({"_runtime_agent": FakeAgent()})
-    finished = await run_subagent.run(prompt="task", context=context)
+    finished = await run_child(context, prompt="task")
 
     with pytest.raises(ValueError, match="temporary session is gone"):
         await subagent_send.run(task_id=finished["task_id"], message="more", context=context)
@@ -429,7 +487,7 @@ async def test_subagent_publishes_its_lifecycle_events(runtime: BubAgent, provid
     seen: list[SubagentEvent] = []
     runtime.events.on(SubagentEvent, seen.append)
 
-    result = await run_subagent.run(prompt="task", context=parent_context(runtime))
+    result = await run_child(parent_context(runtime), prompt="task")
 
     assert isinstance(seen[0], SubagentStarted)
     assert isinstance(seen[-1], SubagentFinished)
@@ -451,7 +509,7 @@ async def test_failing_event_handler_does_not_fail_the_subagent(
 
     runtime.events.on(SubagentEvent, broken)
 
-    result = await run_subagent.run(prompt="task", context=parent_context(runtime))
+    result = await run_child(parent_context(runtime), prompt="task")
 
     assert result["output"] == "child answer"
 
@@ -468,17 +526,17 @@ async def test_profile_sets_the_child_model_tools_and_instructions(
         encoding="utf-8",
     )
     provider_transport.reply_chat(calls=[call("subagent", "c1", {"prompt": "check it", "agent": "Reviewer"})])
-    provider_transport.reply_chat("no findings")
-    provider_transport.reply_chat("parent answer")
+    reply_texts(provider_transport, 3)
 
     await run_parent(runtime, "review please")
 
-    assert "<available_subagents>" in system_prompt(provider_transport, 0)
-    assert "- reviewer: Reviews code changes" in system_prompt(provider_transport, 0)
-    child = provider_transport.body(1)
+    parent = provider_transport.body(0)
+    assert "<available_subagents>" in system_prompt(parent)
+    assert "- reviewer: Reviews code changes" in system_prompt(parent)
+    [child] = requests_ending_with(provider_transport, "check it")
     assert child["model"] == "review-model"
-    assert "Only report findings." in system_prompt(provider_transport, 1)
-    assert "<available_subagents>" not in system_prompt(provider_transport, 1)
+    assert "Only report findings." in system_prompt(child)
+    assert "<available_subagents>" not in system_prompt(child)
     assert [item["function"]["name"] for item in child["tools"]] == ["tests_lookup"]
 
 
@@ -493,8 +551,7 @@ async def test_subagent_task_records_the_tool_call_that_started_it(
     runtime: BubAgent, provider_transport: ProviderService
 ) -> None:
     provider_transport.reply_chat(calls=[call("subagent", "call-42", {"prompt": "child task"})])
-    provider_transport.reply_chat("child answer")
-    provider_transport.reply_chat("parent answer")
+    reply_texts(provider_transport, 3)
     started: list[SubagentStarted] = []
     runtime.events.on(SubagentStarted, started.append)
 

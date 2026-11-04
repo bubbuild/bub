@@ -207,11 +207,14 @@ class MessagesPending(TapeEvent):
     calls; messages supplied then continue the run for another step. Append each
     message's content to ``messages``. They are sent in order before the next step's
     prompt and recorded with it. ``prompt`` is the building step's prompt; it is None
-    when the step continues the conversation and when a step ends.
+    when the step continues the conversation and when a step ends. ``step_ended`` tells
+    the two emissions apart: it is true when a step ended without tool calls, where
+    handlers may wait for messages that would continue the run.
     """
 
     prompt: list[UserContent] | None
     messages: list[list[UserContent]] = field(default_factory=list)
+    step_ended: bool = False
 
 
 @dataclass(kw_only=True)

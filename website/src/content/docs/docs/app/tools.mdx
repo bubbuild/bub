@@ -20,8 +20,8 @@ The Bub app ships with the following core tools:
 | **Session management** | `tape.info`, `tape.search` | Check token usage and search conversation records |
 | | `tape.handoff`, `tape.reset` | Move the context start point to compact the session, or archive and reset the context |
 | | `spill.read` | Read large tool results that exceed the context limit in chunks |
-| **Multi-task coordination** | [`subagent`](/docs/app/subagents/) | Delegate a task to a subagent, in the foreground or in the background |
-| | `subagent.wait`, `subagent.send`, `subagent.cancel` | Read background results, message a subagent, or stop it |
+| **Multi-task coordination** | [`subagent`](/docs/app/subagents/) | Delegate a task to a subagent that runs in the background |
+| | `subagent.wait`, `subagent.send`, `subagent.cancel` | Wait for results, message a subagent, or stop it |
 | **Code mode** | `run_code` | Compose multiple tools in Python when code mode is on |
 
 Built-in tool parameters and defaults are listed in the [tools reference](/docs/reference/tools/).

@@ -27,7 +27,8 @@ class BubAgent(core.Agent):
     """Bub's agent: the core loop configured by settings and the framework's hooks.
 
     Adds commands, skills, code mode and deferred tools to :class:`bub.core.Agent`, and
-    connects the framework's agent-loop hooks through :class:`AgentPlugins`. System prompt
+    connects the framework's agent-loop hooks through :class:`AgentPlugins`. A run that
+    started subagents does not end before their results arrive. System prompt
     sections, in order: a subagent's profile instructions, code mode, deferred tools, skills,
     subagent profiles, the framework's ``system_prompt`` hooks, then sections added with
     ``system_prompt.add``. The framework's hooks handle
@@ -87,6 +88,10 @@ class BubAgent(core.Agent):
             command_prefix=self.settings.command_prefix if command_prefix is None else command_prefix,
         )
         self.plugins.attach(self, tools=tools is None)
+        from bub.builtin.subagents import deliver_subagent_results
+
+        # After the plugins' steering handler, so steered messages are seen first.
+        self.events.on(core.MessagesPending, deliver_subagent_results)
 
     async def run_stream(
         self,

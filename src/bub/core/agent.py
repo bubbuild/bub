@@ -555,7 +555,7 @@ class Agent:
 
                 # Messages left on the last allowed step stay with their source.
                 if not should_continue and step < self.max_steps:
-                    pending = (await self._emit(MessagesPending, tape, prompt=None)).messages
+                    pending = (await self._emit(MessagesPending, tape, prompt=None, step_ended=True)).messages
                 if not (should_continue or pending):
                     await self._record_step(tape, step, start, "ok", prompt=next_prompt, stream=state)
                     tracker.status = "ok"

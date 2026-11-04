@@ -575,7 +575,7 @@ class Event:
 | `RunFinished` | Run 的流关闭 | `status`（`ok` / `error` / `cancelled`）、`steps`、耗时和错误 |
 | `StepStarted` | Step 开始 | `step`、可选的 `prompt` |
 | `StepFinished` | Step 结束 | 进度、用量；继续时设置 `next_prompt` |
-| `MessagesPending` | 构建请求时，或特定 Step 结束时 | 向 `messages` 追加用户内容 |
+| `MessagesPending` | 构建请求时，或 Step 结束且没有工具调用时（`step_ended=True`） | 向 `messages` 追加用户内容；Step 结束时追加的消息会让 Run 继续 |
 | `LLMCallStarted` | 调用模型提供商之前 | 替换 `request`；设置 `LLMCallDecision.finish()` |
 | `LLMCallFinished` | 提供商调用成功或因普通异常失败 | `request` 和汇总后的 `result` |
 | `ToolCallStarted` | 工具执行之前 | 替换 `call`；设置 `deny` 或 `replace` |
