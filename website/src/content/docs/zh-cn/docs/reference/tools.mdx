@@ -178,36 +178,95 @@ tape.reset(archive=False)
 ### `subagent` {#subagent-tool}
 
 ```text
-subagent(prompt, model=None, session="temp", allowed_tools=None, allowed_skills=None)
+subagent(prompt, agent=None, description=None, model=None, reasoning_effort=None,
+         session="temp", allowed_tools=None, allowed_skills=None, background=False,
+         timeout_seconds=None)
 ```
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `prompt` | `str \| list` | 子 Agent 的初始输入 |
-| `model` | `str \| None` | 本次子运行的 `provider:model`；默认沿用当前配置 |
-| `session` | `str` | 子 Agent 的会话策略 |
-| `allowed_tools` | `list[str] \| None` | 可用工具；默认继承父 Agent 的工具，但排除 `subagent` |
-| `allowed_skills` | `list[str] \| None` | 可发现的技能；`[]` 禁用技能发现 |
+| `prompt` | `str \| list` | 交给子 Agent 的任务 |
+| `agent` | `str \| None` | [子 Agent 配置](/zh-cn/docs/app/subagents/#profiles)名；调用中未给出的参数取自配置 |
+| `description` | `str \| None` | 任务列表中显示的简短标签；默认取 prompt 第一行 |
+| `model` | `str \| None` | 子运行的 `provider:model`；默认取配置中的模型或当前配置 |
+| `reasoning_effort` | `str \| None` | 子 Agent 模型的推理强度 |
+| `session` | `str` | 子 Agent 的会话策略，默认 `"temp"` |
+| `allowed_tools` | `list[str] \| None` | 可用工具；默认为父 Agent 本轮的工具 |
+| `allowed_skills` | `list[str] \| None` | 可用技能；默认为父 Agent 本轮的技能，`[]` 禁用技能发现 |
+| `background` | `bool` | 立即返回任务 ID，在后台继续运行；默认 `False` |
+| `timeout_seconds` | `int \| None` | 超时即停止子 Agent；默认取配置中的时限，再取 `BUB_SUBAGENT_TIMEOUT_SECONDS` |
 
-工具名支持运行时名称和模型别名；技能名不区分大小写。
+工具名支持运行时名称和模型别名；技能名不区分大小写。子 Agent 的工具和技能不会超过父 Agent：默认就是父 Agent 本轮允许的范围，指定范围外的工具会报错。子 Agent 不能启动或管理子 Agent，`subagent` 和 `subagent.*` 始终被排除。
 
 | `session` | 行为 |
 | --- | --- |
-| `temp` | 创建 `temp/<id>` 会话，不合并新产生的 Tape 条目 |
-| `inherit` | 使用当前 `session_id`，写入同一会话历史 |
-| 其他字符串 | 使用指定的会话 ID |
+| `temp` | 新建空的 `temp/<task_id>` 会话，结束后丢弃 |
+| `fork` | 从当前对话（包括本轮已有内容）的副本开始，结束后丢弃；`inherit` 为其别名 |
+| 其他字符串 | 使用指定的会话 ID，会话会被保留，之后可用 `subagent.send` 继续 |
+
+fork 在调用时复制父 Agent 的 Tape，子 Agent 看不到父 Agent 之后记录的内容。每个子 Agent 拥有自己的轮次状态：父状态的浅拷贝，但去掉了父 Agent 的 steering 键、工具范围和运行中的 Tape，因此发给父 Agent 的 steering 消息仍归父 Agent。
 
 返回结构：
 
 ```python
 {
-    "session_id": "temp/1a2b3c4d",
+    "task_id": "sub-1a2b3c4d",
+    "session_id": "temp/sub-1a2b3c4d",
+    "status": "completed",  # queued、running、completed、failed 或 cancelled
     "output": "...",
     "errors": [],
 }
 ```
 
-`output` 只汇总文本增量。`temp` 只隔离对话记录和模型上下文，不隔离文件、网络或进程副作用。
+`output` 是子 Agent 的最终答案，即它最后一个没有工具调用的步骤的文本。前台子 Agent 失败且没有答案时抛出工具错误。后台子 Agent 立即以 `queued` 或 `running` 状态返回；结束时，父会话会收到一条 steering 消息：
+
+```text
+<subagent-notification task_id="sub-1a2b3c4d" status="completed">
+...
+</subagent-notification>
+```
+
+父 Agent 的轮次仍在进行时，会在下一步之前读到它；否则随会话的下一轮送达。用 `subagent.wait` 读过的结果不再发送通知。
+
+进程内同时运行的子 Agent 最多 `BUB_SUBAGENT_MAX_CONCURRENCY` 个，其余以 `queued` 状态排队。运行时退出，或对某个会话执行 `quit` 命令，会取消运行中的子 Agent。`temp` 或 `fork` 子 Agent 结束时，它启动的后台 Shell 会被停止。
+
+### `subagent.wait` {#subagent-wait}
+
+```text
+subagent.wait(task_ids=None, timeout_seconds=60)
+```
+
+返回任务结果，最多等待 `timeout_seconds` 让任务结束；`0` 只查看不等待。不传 `task_ids` 时覆盖本会话尚未读取的任务。超时后仍在运行的任务以当前状态返回。
+
+### `subagent.send` {#subagent-send}
+
+```text
+subagent.send(task_id, message, background=False)
+```
+
+给任务发消息。运行中的任务在下一步之前读到它。使用命名会话且已结束的任务会作为新任务继续该对话，工具范围受当前运行约束；已结束的 `temp` 或 `fork` 任务无法继续。
+
+### `subagent.cancel` {#subagent-cancel}
+
+```text
+subagent.cancel(task_id)
+```
+
+停止运行中的任务。状态变为 `cancelled`，已有的部分输出会保留。
+
+### 事件 {#subagent-events}
+
+每个任务都会在 Agent 的事件总线（`agent.events`）上发布事件，`state` 为发起它的那次运行的轮次状态：
+
+| 事件 | 时机 |
+| --- | --- |
+| `SubagentStarted` | 任务离开队列，子运行即将开始 |
+| `SubagentOutput` | 子运行产生一个流事件，见 `event` |
+| `SubagentFinished` | 任务以 `completed`、`failed` 或 `cancelled` 结束 |
+
+每个事件都带有 `task`（`SubagentTask`），包含 `task_id`、`session_id`、`parent_session_id`、`parent_call_id`、`description`、`model`、`profile`、`status`、`output`、`errors`、`usage`、步数和工具调用数以及时间戳。它们可从 `bub.builtin.subagents` 导入。处理器抛出的异常只会被记录，不会让子运行失败。
+
+子 Agent 与父 Agent 共享 `BubAgent`、插件 Hooks、模型凭据、工作区、`Environment`、文件和外部系统。会话策略只隔离对话记录和模型上下文，不隔离文件、网络或进程副作用。在对话中参数由模型生成，`allowed_tools` 本身不构成安全边界。
 
 ## 代码模式 与 spill {#code-and-spill}
 

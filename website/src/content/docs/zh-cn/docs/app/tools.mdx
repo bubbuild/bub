@@ -20,7 +20,8 @@ description: 了解 Bub 应用内置工具、工具调用方式以及如何配�
 | **会话管理** | `tape.info`、`tape.search` | 查看 Token 用量、检索历史会话记录 |
 | | `tape.handoff`、`tape.reset` | 移动上下文起点以压缩会话，或归档并重置上下文 |
 | | `spill.read` | 分块读取超出上下文上限的大型工具输出 |
-| **多任务协作**| [`subagent`](/zh-cn/docs/app/subagents/) | 启动子 Agent 在独立会话中并行处理任务 |
+| **多任务协作**| [`subagent`](/zh-cn/docs/app/subagents/) | 把任务委派给子 Agent，前台等待或后台运行 |
+| | `subagent.wait`、`subagent.send`、`subagent.cancel` | 读取后台结果、给子 Agent 发消息，或停止它 |
 | **代码模式** | `run_code` | 在 代码模式 开启时通过 Python 组合多个工具 |
 
 内置工具的详细参数及默认值见 [工具参考](/zh-cn/docs/reference/tools/)。

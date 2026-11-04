@@ -1,9 +1,9 @@
 ---
 title: Subagents
-description: Delegate tasks with the built-in subagent tool, choose a session strategy, and narrow the model, tools, and skills a subagent can use.
+description: Delegate tasks with the built-in subagent tool, run them in the background, define reusable subagent profiles, and narrow what a subagent can use.
 ---
 
-The Bub app includes a built-in `subagent` tool that lets the current agent delegate a specific subtask to another agent instance.
+The Bub app includes a built-in `subagent` tool that lets the current agent delegate a specific subtask to a child run of the same agent.
 
 Subagents are a good fit for tasks that generate a huge amount of intermediate context — **large-scale retrieval, long document reading, independent code review** — so that only the final conclusions return to the main session and intermediate details don't consume its context window.
 
@@ -18,41 +18,96 @@ Use the subagent tool to review the authentication flow:
 3. Return the review findings with the relevant file paths.
 ```
 
-The parent agent then calls the `subagent` tool; the child calls tools inside its own loop, finishes the analysis, and returns a summary to the parent.
+The parent agent then calls the `subagent` tool; the child calls tools inside its own loop, finishes the analysis, and returns its final answer to the parent. Only that answer, the text of the child's last step, comes back; the child's intermediate narration and tool calls stay out of the parent's context.
+
+The child sees only its `prompt` (and, with `session="fork"`, the conversation so far), so the prompt should be self-contained: say what to do, what to return, and any limits.
 
 Beyond asking by hand, you can also set a rule in the workspace `AGENTS.md` or in a skill (for example, "complex retrieval or code review should be delegated to a read-only subagent first, and the main agent only applies changes based on the review") to get **automatic delegation**.
 
 ## Choose a session strategy {#sessions}
 
-The `session` parameter decides how the child's session context is stored and who owns it:
+The `session` parameter decides what the child starts from and what is kept:
 
 | Session mode | Behavior | Use it for |
 | --- | --- | --- |
-| `temp` (default) | Creates a separate `temp/<id>` temporary session; intermediate records are not merged into the main session afterwards | **Most common.** One-off analysis or research that returns conclusions only and keeps the main context clean |
-| `inherit` | Reuses the parent agent's current `session_id` | When every interaction of the subtask must be recorded in full in the main session history |
-| A custom string | Uses that fixed session ID | Longer tasks whose child session you need to resume or inspect later |
+| `temp` (default) | A new, empty `temp/<task_id>` session, discarded afterwards | **Most common.** One-off analysis or research that returns conclusions only |
+| `fork` | Starts from a copy of the current conversation, including the current turn so far; discarded afterwards | Subtasks that need what the user and the parent already said, without the parent re-explaining it |
+| A custom string | Uses that fixed session ID, which is kept | Longer work you want to continue later with `subagent.send`, or inspect afterwards |
 
-:::tip
-The default `temp` mode returns only the final `output` text and any `errors` to the parent agent; every prompt and tool call produced inside the subtask stays out of the main conversation's context.
-:::
+`inherit` is accepted as an alias of `fork`. A fork copies the conversation at the moment of the call, so the child does not see what the parent does next, and nothing the child does is written back to the parent's history.
+
+## Run in the background {#background}
+
+By default the parent waits for the subagent. With `background=true`, the tool returns a task ID at once and the parent keeps working, so several subagents can run while the parent does something else:
+
+```text
+Start three background subagents, one per service, to check the logs for errors.
+Keep working on the migration; summarize their findings when they are done.
+```
+
+When a background task ends, its result reaches the parent session as a steering message:
+
+```text
+<subagent-notification task_id="sub-1a2b3c4d" status="completed">
+No errors in the payments service logs since the last deploy.
+</subagent-notification>
+```
+
+If the parent's turn is still running, it reads the notification before its next step. If the turn already ended, the notification arrives with the session's next turn. The parent can also manage tasks directly:
+
+| Tool | What it does |
+| --- | --- |
+| `subagent.wait` | Return results, waiting up to `timeout_seconds` (default 60; `0` only checks). Without `task_ids`, covers the session's unread tasks. A result read here sends no notification. |
+| `subagent.send` | Message a running task, which reads it before its next step; or continue a finished task that used a named session. |
+| `subagent.cancel` | Stop a running task. |
+
+At most `BUB_SUBAGENT_MAX_CONCURRENCY` subagents (default 4) run at once; later ones wait in a queue. `timeout_seconds` on the call, or `BUB_SUBAGENT_TIMEOUT_SECONDS` globally, stops a child that runs too long. Ending Bub, or the `,quit` command for a session, cancels its running subagents.
+
+## Define subagent profiles {#profiles}
+
+A profile is a reusable subagent: a markdown file in `.agents/agents/` in the workspace, or in `~/.agents/agents/` for every workspace. The front matter sets its configuration, and the body is added to the child's system prompt:
+
+```markdown title=".agents/agents/reviewer.md"
+---
+description: Reviews a change for bugs and reports findings without editing files
+model: openai:gpt-5-mini
+tools: [fs.read, bash, tape.search]
+skills: []
+timeout_seconds: 600
+---
+
+You review code. Read the relevant files, report concrete findings with file
+paths and line numbers, and never modify files.
+```
+
+| Field | Meaning |
+| --- | --- |
+| `description` | Required. Tells the parent when to use the profile |
+| `name` | Optional; defaults to the file name without `.md` |
+| `model`, `reasoning_effort` | The child's model and reasoning effort |
+| `tools`, `skills` | The child's allowed tools and skills (a list, or a comma-separated string) |
+| `timeout_seconds` | The child's time limit |
+
+When the `subagent` tool is available, the parent's system prompt lists the profiles, and the model uses one by passing its name as `agent`. Arguments given in the call take precedence over the profile. A workspace profile overrides a home profile with the same name.
 
 ## State sharing and capability boundaries {#boundaries}
 
-A subagent is derived from the same running instance as its parent. What it inherits and what stays isolated:
+A subagent is a child run of the same agent instance as its parent. What it inherits and what stays isolated:
 
 | Resource | Boundary | Notes and controls |
 | --- | --- | --- |
 | **Base instance** | Fully shared | Shares plugin hooks, model credentials, and `BubAgent` configuration |
 | **Execution environment** | Fully shared | Shares the workspace directory, local filesystem, Shell processes, and network access |
-| **Model selection** | Set separately | Defaults to the parent model; use `model` (e.g. `model="gpt-4o-mini"`) to downgrade to a lighter model |
-| **Tools and skills** | Narrowed by parameter | All available by default; use `allowed_tools` and `allowed_skills` to narrow the set |
-| **Conversation records** | Isolated per session strategy | Decided by `session`; `temp` returns only the final summary text to the parent |
+| **Model selection** | Set separately | Defaults to the profile's model or the parent's; use `model` to pick a lighter one |
+| **Tools and skills** | At most the parent's | Defaults to the parent run's tools and skills; `allowed_tools` and `allowed_skills` narrow them further. Children cannot start subagents |
+| **Turn state** | Copied | The child gets a copy of the parent's turn state with its own steering key, so messages sent to the parent stay with the parent |
+| **Conversation records** | Per session strategy | `temp` and `fork` are discarded; a named session is kept |
 
-Parameter types and defaults are listed in the [subagent reference](/docs/reference/tools/#subagent).
+Parameter types and defaults are listed in the [subagent reference](/docs/reference/tools/#subagent). Channels can observe subagents through [events](/docs/reference/tools/#subagent-events).
 
 ### Security limits {#security-limits}
 
 Like the parent, a subagent also runs in the local environment under the current user's privileges, and can affect the current system:
 
-1. A temporary session isolates only **conversation records and model context**, not files, network requests, or system processes. File changes and network requests made by the child have real system side effects and are not rolled back on exit just because `temp` was used.
-2. Parameters such as `allowed_tools` can restrict model behavior when needed, but **they are not an enforced security boundary**. To hard-block dangerous commands or out-of-scope tools, use [tool interception hooks](/docs/reference/hooks/#interception-through-pluginagenthooks); for physical isolation, configure a separate [execution environment](/docs/app/tools/#environment).
+1. A session strategy isolates only **conversation records and model context**, not files, network requests, or system processes. File changes and network requests made by the child have real system side effects and are not rolled back on exit.
+2. In chat, the model writes the `subagent` arguments, so `allowed_tools` restricts model behavior but **is not an enforced security boundary**. To hard-block dangerous commands or out-of-scope tools, use [tool interception hooks](/docs/reference/hooks/#interception-through-pluginagenthooks); for physical isolation, configure a separate [execution environment](/docs/app/tools/#environment).

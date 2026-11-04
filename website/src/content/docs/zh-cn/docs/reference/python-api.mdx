@@ -154,7 +154,11 @@ class ToolContext:
     code_mode: bool = False
     command: bool = False
     events: EventBus | None = field(default=None, repr=False, compare=False)
+    step_messages: list[republic.Message] = field(default_factory=list, repr=False, compare=False)
+    call_id: str | None = None
 ```
+
+`step_messages` 是发起调用的模型步骤发送的用户消息（Tape 要等工具调用结束后才记录它们）；`call_id` 是模型给这次调用的 ID，代码模式中的调用沿用 `run_code` 调用的 ID。
 
 ### `Tool` {#tools}
 

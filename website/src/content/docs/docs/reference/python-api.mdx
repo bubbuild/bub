@@ -88,7 +88,7 @@ from bub.core import Tool, ToolContext, tool
 
 `Tool` fields: `name`, `handler`, `description`, `parameters`, `context`, `exposure` (`auto` / `direct` / `code` / `command`), `renderer`, `output_schema`, and `deferred`.
 
-`@tool` / `tool(...)` constructs a `Tool` from a callable; `@tool(model=...)` uses a Pydantic parameter model. The decorator does not register globally; provide tools through `Agent(tools=[...])` or `provide_tools`. `ToolContext` contains `tape`, `run_id`, `state`, `code_mode`, `command`, and `events`.
+`@tool` / `tool(...)` constructs a `Tool` from a callable; `@tool(model=...)` uses a Pydantic parameter model. The decorator does not register globally; provide tools through `Agent(tools=[...])` or `provide_tools`. `ToolContext` contains `tape`, `run_id`, `state`, `code_mode`, `command`, `events`, `step_messages` (the user messages the calling model step sent, which the Tape records only after its tool calls finish), and `call_id` (the model's ID of the call; calls from code mode share the `run_code` call's ID).
 
 ```python
 from bub.core.tools import content_result, result_content

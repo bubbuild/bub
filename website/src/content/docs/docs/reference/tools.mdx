@@ -155,53 +155,97 @@ Clear the current Tape. With `archive=true`, first archive the main Tape and sid
 ### `subagent` {#subagent-tool}
 
 ```text
-subagent(prompt, model=None, session="temp", allowed_tools=None, allowed_skills=None)
+subagent(prompt, agent=None, description=None, model=None, reasoning_effort=None,
+         session="temp", allowed_tools=None, allowed_skills=None, background=False,
+         timeout_seconds=None)
 ```
 
 | Parameter | Type and default | Description |
 | --- | --- | --- |
-| `prompt` | String or content-block list, required | Initial input for the subagent |
-| `model` | `str \| None`, default `None` | `provider:model` for this child run; by default, uses the current configuration |
+| `prompt` | String or content-block list, required | The task for the subagent |
+| `agent` | `str \| None`, default `None` | Name of a [subagent profile](/docs/app/subagents/#profiles); its settings apply unless given here |
+| `description` | `str \| None`, default `None` | Short label shown in task lists; defaults to the prompt's first line |
+| `model` | `str \| None`, default `None` | `provider:model` for the child run; by default, the profile's model or the current configuration |
+| `reasoning_effort` | `str \| None`, default `None` | Reasoning effort of the child's model |
 | `session` | `str`, default `"temp"` | Session strategy for the subagent |
-| `allowed_tools` | `list[str] \| None`, default `None` | Tools available to the subagent; by default, allows the parent Agent's tools except `subagent` |
-| `allowed_skills` | `list[str] \| None`, default `None` | Skills discoverable by the subagent; unrestricted by default |
+| `allowed_tools` | `list[str] \| None`, default `None` | Tools the subagent may use; by default, the parent run's tools |
+| `allowed_skills` | `list[str] \| None`, default `None` | Skills the subagent may use; by default, the parent run's skills |
+| `background` | `bool`, default `False` | Return a task ID at once and keep running in the background |
+| `timeout_seconds` | `int \| None`, default `None` | Stop the child after this many seconds; defaults to the profile's limit, then `BUB_SUBAGENT_TIMEOUT_SECONDS` |
 
-Tool names can be runtime names or model aliases, so both `fs.read` and `fs_read` work; unknown names produce an error. Skill names are case-insensitive, and `allowed_skills=[]` disables skill discovery. To minimize tool access, explicitly provide a non-empty `allowed_tools` list.
+Tool names can be runtime names or model aliases, so both `fs.read` and `fs_read` work. A child never gets more than its parent: the tools default to the parent run's allowed tools, and naming a tool outside them is an error. Skill names are case-insensitive and are likewise narrowed to the parent's; `allowed_skills=[]` disables skill discovery. Children cannot start or manage subagents, so `subagent` and `subagent.*` are always excluded.
 
-`session` determines which session the subagent uses:
+`session` determines what the subagent starts from and what is kept:
 
 | Value | Behavior |
 | --- | --- |
-| `temp` | Creates a `temp/<id>` session; new Tape entries are not merged back into the parent session |
-| `inherit` | Uses the current `session_id`, recording the child task in the same session history |
-| Any other string | Uses the specified session ID, allowing the child session to be resumed or inspected later |
+| `temp` | Creates an empty `temp/<task_id>` session that is discarded afterwards |
+| `fork` | Starts from a copy of the current conversation, including the current turn so far, and is discarded afterwards; `inherit` is accepted as an alias |
+| Any other string | Uses that session ID; the session is kept and can be continued later with `subagent.send` |
 
-The default temporary session returns only final `output` and `errors` to the parent Agent and does not retain the subagent's intermediate conversation. With `inherit`, parent and child runs may write to the same session; avoid running them concurrently when a clear history matters, or use a separate named session. The session ID and workspace together generate the Tape name, with the same merge rules as calling `BubAgent.run_stream()` directly.
+A fork copies the parent's Tape when the call is made, so the child does not see what the parent records later. Each child gets its own turn state: a shallow copy of the parent's without the parent's steering key, tool scope or running Tape, so messages steered into the parent stay with the parent.
 
-A read-only review can be restricted as follows:
-
-```json
-{
-  "prompt": "Review the authentication flow. Do not modify files.",
-  "session": "temp",
-  "allowed_tools": ["fs.read", "bash"],
-  "allowed_skills": []
-}
-```
-
-This JSON shows the `subagent` tool arguments, not a command format to send manually. `allowed_tools` is the actual tool filter for the child run, but in chat, **the model still generates the arguments**. If permissions are a security boundary, also enforce constraints in `BubAgent.run_stream()` or `before_tool_call`; do not rely only on natural-language instructions.
-
-The tool returns `session_id`, collected text `output`, and `errors`:
+The tool returns:
 
 ```python
 {
-    "session_id": "temp/1a2b3c4d",
+    "task_id": "sub-1a2b3c4d",
+    "session_id": "temp/sub-1a2b3c4d",
+    "status": "completed",  # queued, running, completed, failed or cancelled
     "output": "...",
     "errors": [],
 }
 ```
 
-`output` collects only text deltas; other stream events remain observable through events and tracing. The subagent shares its `BubAgent`, plugin hooks, model credentials, workspace, `Environment`, files, and external systems with the parent Agent. Turn state is a shallow copy, so nested mutable objects may still be shared. A temporary session isolates **conversation records and model context**, not file, network, or process side effects; using `temp` does not roll back those effects. To isolate execution, provide a separate [execution environment](/docs/app/tools/#environment); for approval, use [tool interception](/docs/sdk/events/#control-tool-call).
+`output` is the child's final answer: the text of its last step that made no tool calls. A foreground subagent that fails without an answer raises a tool error. A background subagent returns at once with status `queued` or `running`; when it ends, the parent session receives its result as a steering message:
+
+```text
+<subagent-notification task_id="sub-1a2b3c4d" status="completed">
+...
+</subagent-notification>
+```
+
+A running parent turn reads it before its next step; otherwise it arrives with the session's next turn. Results read with `subagent.wait` send no notification.
+
+At most `BUB_SUBAGENT_MAX_CONCURRENCY` subagents run at once in the process; later ones wait with status `queued`. Ending the runtime, or the `quit` command for a session, cancels running subagents. When a `temp` or `fork` subagent ends, the background shells it started are stopped.
+
+### `subagent.wait` {#subagent-wait}
+
+```text
+subagent.wait(task_ids=None, timeout_seconds=60)
+```
+
+Return task results, waiting up to `timeout_seconds` for the tasks to finish; `0` checks without waiting. Without `task_ids`, it covers the session's tasks whose results were not read yet. Tasks still running after the timeout are returned with their current status.
+
+### `subagent.send` {#subagent-send}
+
+```text
+subagent.send(task_id, message, background=False)
+```
+
+Send a message to a task. A running task receives it before its next step. A finished task with a named session continues that conversation as a new task, bounded by the current run's tools; a finished `temp` or `fork` task cannot be continued.
+
+### `subagent.cancel` {#subagent-cancel}
+
+```text
+subagent.cancel(task_id)
+```
+
+Stop a running task. Its status becomes `cancelled`, and any partial output is kept.
+
+### Events {#subagent-events}
+
+Every task publishes events on the agent's event bus (`agent.events`), with the starting run's turn state as `state`:
+
+| Event | When |
+| --- | --- |
+| `SubagentStarted` | The task left the queue and its child run is starting |
+| `SubagentOutput` | The child run produced a stream event, available as `event` |
+| `SubagentFinished` | The task ended as `completed`, `failed` or `cancelled` |
+
+Each carries `task`, a `SubagentTask` with `task_id`, `session_id`, `parent_session_id`, `parent_call_id`, `description`, `model`, `profile`, `status`, `output`, `errors`, `usage`, step and tool-call counts, and timestamps. They are importable from `bub.builtin.subagents`. A failing handler is logged and does not fail the child run.
+
+The subagent shares its `BubAgent`, plugin hooks, model credentials, workspace, `Environment`, files, and external systems with the parent Agent. A session strategy isolates **conversation records and model context**, not file, network, or process side effects. To isolate execution, provide a separate [execution environment](/docs/app/tools/#environment); for approval, use [tool interception](/docs/sdk/events/#control-tool-call). In chat, **the model generates the arguments**, so `allowed_tools` is not a security boundary on its own.
 
 See [Subagents](/docs/app/subagents/) for complete usage examples.
 
