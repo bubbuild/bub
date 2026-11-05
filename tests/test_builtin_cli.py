@@ -40,7 +40,7 @@ def _terminal_output(monkeypatch: pytest.MonkeyPatch) -> StringIO:
 
 def _program_status(output: StringIO) -> dict[str, str]:
     frames = re.findall(r"\x1b]7501;([^\x1b\x07]*)(?:\x1b\\|\x07)", output.getvalue())
-    return dict(pair.split("=", 1) for pair in frames[-1].split(":"))
+    return dict(pair.split("=", 1) for pair in [frame for frame in frames if frame != "state=clear"][-1].split(":"))
 
 
 def _fake_result(answer: Any, command: str | None = "enter") -> InquirerResult[Any]:
@@ -322,6 +322,7 @@ def test_onboard_can_install_gateway_after_saving_config(tmp_path: Path, monkeyp
     assert f"Saved config to {config_file.resolve()}" in terminal_output.getvalue()
     assert "Installed and started the gateway with systemd" in terminal_output.getvalue()
     assert _program_status(terminal_output)["state"] == "done"
+    assert terminal_output.getvalue().endswith("\x1b]7501;state=clear\x1b\\")
     assert observed == {"workspace": tmp_path.resolve(), "channels": []}
 
 

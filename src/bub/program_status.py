@@ -7,6 +7,7 @@ from bub.application import CommandChanged, PromptChanged, PromptKind, WorkChang
 from bub.core.events import Event
 
 _RESULTS = {None: "working", "succeeded": "done", "failed": "error", "cancelled": "idle"}
+_CLEAR = "\x1b]7501;state=clear\x1b\\"
 
 
 class ProgramStatus:
@@ -16,9 +17,11 @@ class ProgramStatus:
 
     def __call__(self, event: Event) -> None:
         kind: PromptKind | None = None
+        finished = False
         match event:
             case CommandChanged(outcome):
                 state = "idle" if outcome == "succeeded" and self.listener else _RESULTS[outcome]
+                finished = outcome is not None
             case WorkChanged(busy, completed):
                 self.listener = True
                 state = "working" if busy else _RESULTS[completed] if completed else "idle"
@@ -32,5 +35,6 @@ class ProgramStatus:
             fields = f"state={state}:app=bub"
             if kind is not None:
                 fields += f":kind={kind}"
-            self.output.write(f"\x1b]7501;{fields}\x1b\\")
+            # The terminal outlives the command, so drop the record once the command ends.
+            self.output.write(f"\x1b]7501;{fields}\x1b\\{_CLEAR if finished else ''}")
             self.output.flush()

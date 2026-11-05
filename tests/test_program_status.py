@@ -9,10 +9,12 @@ import pytest
 import typer
 from typer.main import get_command
 
+from bub.application import CommandChanged
 from bub.channels.base import Channel
 from bub.channels.message import ChannelMessage
 from bub.framework import BubFramework
 from bub.hooks import hookimpl
+from bub.program_status import ProgramStatus
 
 
 class MessageChannel(Channel):
@@ -93,5 +95,35 @@ def test_listener_stays_working_until_accepted_messages_finish(tmp_path, monkeyp
 
     get_command(app).main(["--workspace", str(tmp_path), "gateway", "--enable-channel", "test"], standalone_mode=False)
 
-    assert reports(terminal)[-1]["state"] == "idle"
+    assert [item["state"] for item in reports(terminal)[-2:]] == ["idle", "clear"]
     assert all(item["state"] != "error" for item in reports(terminal))
+
+
+@pytest.mark.parametrize(
+    ("outcome", "listener", "state"),
+    [
+        ("succeeded", False, "done"),
+        ("succeeded", True, "idle"),
+        ("failed", False, "error"),
+        ("cancelled", True, "idle"),
+    ],
+)
+def test_finished_command_clears_its_record(outcome, listener, state, monkeypatch):
+    terminal = StringIO()
+    monkeypatch.setattr(terminal, "isatty", lambda: True)
+    reporter = ProgramStatus(terminal)
+    reporter.listener = listener
+
+    reporter(CommandChanged())
+    assert reports(terminal)[-1]["state"] == "working"
+
+    reporter(CommandChanged(outcome))
+    assert [item["state"] for item in reports(terminal)[-2:]] == [state, "clear"]
+
+
+def test_clear_is_not_written_to_redirected_output():
+    output = StringIO()
+
+    ProgramStatus(output)(CommandChanged("succeeded"))
+
+    assert output.getvalue() == ""
