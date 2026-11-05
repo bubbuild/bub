@@ -50,13 +50,14 @@ The plugin list printed by `bub hooks` follows pluggy's registration order, **no
 
 ## Turn Hooks {#turn-hooks}
 
-A single message-processing flow is called a **Turn**. The following nine hooks are triggered by `BubFramework.process_inbound()` and cover the whole process from determining the session to sending the reply.
+A single message-processing flow is called a **Turn**. The following ten hooks are triggered by `BubFramework.process_inbound()` and cover the whole process from determining the session to sending the reply.
 
 | Hook | What it does | Dispatch |
 | --- | --- | --- |
 | [`resolve_session`](#resolve_session) | Determines which session a message belongs to | First result |
 | [`load_state`](#load_state) | Restores the state needed for this Turn | Run all and merge results |
 | [`build_prompt`](#build_prompt) | Builds the prompt sent to the model | First result |
+| [`after_build_prompt`](#after_build_prompt) | Observes the prompt built for a message | Run all |
 | [`run_model`](#run_model) | Calls the model and returns the complete text | First result |
 | [`run_model_stream`](#run_model_stream) | Calls the model and returns streaming events | First result |
 | [`continue_prompt`](#continue_prompt) | Optionally appends a user message when the Agent continues running | First result |
@@ -118,6 +119,19 @@ Hooks that use the legacy prompt format (`run_model`, `run_model_stream`, `conti
 | Contains media | A list of `[{"type", "media_type", "url"}]` content blocks |
 
 `to_content()` still accepts legacy strings and content-block lists, and handles the format conversion. To convert back to the legacy format, use `bub.prompt.to_legacy_prompt()`.
+
+### `after_build_prompt` {#after_build_prompt}
+
+Observes the prompt content built for one inbound message, so a plugin can relate a model-facing user message to the message it came from.
+
+```python
+def after_build_prompt(self, message: Envelope, prompt: list[UserContent], session_id: str, state: TurnState) -> None:
+```
+
+- **Dispatch**: Run all.
+- **When it fires**: After `build_prompt` for the Turn's message, and for each steering message drained into a running Turn.
+- **Prompt format**: Receives a copy of the built content as `list[UserContent]`, not the legacy format.
+- **Return value**: Ignored.
 
 ### `run_model` {#run_model}
 
@@ -608,7 +622,7 @@ The concept page explains who intervenes in which direction; this section covers
 | `before_tool_call` | `ToolCallStarted` | Before every tool call; may `proceed(arguments)`, `replace(result)`, or `deny(message)` |
 | `after_tool_call` | `ToolCallFinished` | Fires on success, failure, denial, and replacement |
 | `continue_prompt` | `StepFinished` | Called only when `status == "continue"`; the result becomes `next_prompt` |
-| `provide_steering_inbox` | `MessagesPending` | Drains steering messages into the next step of the current Run |
+| `provide_steering_inbox` | `MessagesPending` | Drains steering messages into the next step of the current Run; each is built through `build_prompt` and `after_build_prompt` |
 
 Model-visible tool calls, including built-in tools such as `.tape.handoff`, also pass through `ToolCallStarted` / `ToolCallFinished`.
 

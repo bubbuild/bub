@@ -23,6 +23,7 @@ class SessionPlugin:
         self.store = InMemoryTapeStore()
         self.inbox = InMemorySteeringInbox()
         self.continued: list[Any] = []
+        self.built: list[tuple[Any, Any]] = []
 
     @hookimpl
     def system_prompt(self, prompt: Any, state: TurnState) -> str:
@@ -48,6 +49,10 @@ class SessionPlugin:
     @hookimpl
     def continue_prompt(self, prompt: Any, tape: Any, state: Any) -> None:
         self.continued.append(prompt)
+
+    @hookimpl
+    def after_build_prompt(self, message: Any, prompt: Any) -> None:
+        self.built.append((message["content"], prompt))
 
 
 @pytest.mark.asyncio
@@ -86,6 +91,7 @@ async def test_agent_plugins_connect_loop_hooks_to_core_agent(
         {"role": "user", "content": "late"},
     ]
     assert plugin.continued == ["hello"]
+    assert plugin.built == [("early", ["early"]), ("late", ["late"])]
     assert plugin.inbox.message_count(state) == 0
     assert state["session_id"] == "s1"
     assert (await agent.tape("s1").read_messages())[-1] == republic.assistant("two")

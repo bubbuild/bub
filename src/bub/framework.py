@@ -248,7 +248,11 @@ class BubFramework:
         )
         if not prompt:
             prompt = content_of(message)
-        return to_content(prompt)
+        content = to_content(prompt)
+        await self._hook_runtime.call_many(
+            "after_build_prompt", message=message, prompt=list(content), session_id=session_id, state=state
+        )
+        return content
 
     async def continue_prompt(self, prompt: list[UserContent] | None, tape: Tape, state: StreamState) -> str | None:
         """Return an optional user message for the next step of an agent loop."""
