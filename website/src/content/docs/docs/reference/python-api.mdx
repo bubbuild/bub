@@ -478,7 +478,7 @@ These events are published on `framework.events`, independently of `agent.events
 
 They are suitable for status bars and external UIs and do not carry detailed model-call payloads.
 
-`bub.program_status.ProgramStatus` is the builtin application event handler. The CLI automatically registers it on `framework.events` to emit OSC 7501 states on a TTY: `idle`, `working`, `blocked`, `done`, and `error`; prompt states also carry `kind`. Non-TTY output does not produce these control sequences.
+`bub.program_status.ProgramStatus` is the builtin application event handler. The CLI automatically registers it on `framework.events` to emit OSC 7501 states on a TTY: `idle`, `working`, `blocked`, `done`, and `error`; prompt states also carry `kind`. When a command ends it reports its final state and then `state=clear`, so a shell left in the terminal is not shown as an agent. Non-TTY output does not produce these control sequences.
 
 ### Interactive input {#inquirer}
 
