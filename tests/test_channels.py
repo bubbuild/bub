@@ -317,6 +317,14 @@ async def test_buffered_handler_filters_and_batches_ordinary_comma_text() -> Non
     assert handled == [",help\nhello"]
 
 
+def test_channel_message_batch_joins_text_and_falls_back_to_content() -> None:
+    wrapped = ChannelMessage(session_id="telegram:42", channel="telegram", content='{"message": "hello"}', text="hello")
+    plain = ChannelMessage(session_id="telegram:42", channel="telegram", content="world")
+
+    assert ChannelMessage.from_batch([wrapped, plain]).text == "hello\nworld"
+    assert ChannelMessage.from_batch([plain, plain]).text is None
+
+
 @pytest.mark.asyncio
 async def test_channel_manager_dispatch_uses_output_channel_and_preserves_metadata(load_config) -> None:
     _load_channel_config(load_config, enabled_channels="cli")
@@ -1871,6 +1879,7 @@ async def test_telegram_channel_build_message_wraps_payload_and_disables_outboun
     assert result.is_active is True
     assert '"message": "hello"' in result.content
     assert '"reply_to_message"' in result.content
+    assert result.text == "hello"
     assert result.lifespan is not None
 
 

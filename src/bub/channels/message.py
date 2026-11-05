@@ -46,6 +46,9 @@ class ChannelMessage:
     media: list[MediaItem] = field(default_factory=list)
     lifespan: contextlib.AbstractAsyncContextManager | None = None
     output_channel: str = ""
+    # What the sender wrote, for hooks that search or index messages, when ``content`` wraps it with channel
+    # metadata; ``None`` means ``content`` is that text.
+    text: str | None = None
 
     def __post_init__(self) -> None:
         self.context.update({"channel": "$" + self.channel, "chat_id": self.chat_id})
@@ -66,5 +69,8 @@ class ChannelMessage:
             raise ValueError("Batch cannot be empty")
         template = batch[-1]
         content = "\n".join(message.content for message in batch)
+        text = None
+        if any(message.text is not None for message in batch):
+            text = "\n".join(message.content if message.text is None else message.text for message in batch)
         media = [item for message in batch for item in message.media]
-        return replace(template, content=content, media=media)
+        return replace(template, content=content, media=media, text=text)
