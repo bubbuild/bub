@@ -23,6 +23,12 @@ def load_state(self, message: Envelope, session_id: str) -> TurnState:
 def build_prompt(self, message: Envelope, session_id: str, state: TurnState) -> list[UserContent] | LegacyPrompt:
 ```
 
+### `after_build_prompt` {#after_build_prompt}
+
+```python
+def after_build_prompt(self, message: Envelope, prompt: list[UserContent], session_id: str, state: TurnState) -> None:
+```
+
 ### `run_model` {#run_model}
 
 ```python
@@ -288,7 +294,7 @@ class ToolCallResult:
 | `before_tool_call` | `ToolCallStarted` | 每次工具调用前；可 `proceed(arguments)`、`replace(result)` 或 `deny(message)` |
 | `after_tool_call` | `ToolCallFinished` | 成功、失败、拒绝与替代都会触发 |
 | `continue_prompt` | `StepFinished` | 仅在 `status == "continue"` 时调用，结果写入 `next_prompt` |
-| `provide_steering_inbox` | `MessagesPending` | 排出待注入的 steering 消息，加入当前 Run 的下一步 |
+| `provide_steering_inbox` | `MessagesPending` | 排出待注入的 steering 消息，加入当前 Run 的下一步；每条消息经过 `build_prompt` 和 `after_build_prompt` 构造 |
 
 模型可见的工具调用（包括 `.tape.handoff` 这类内置工具）同样经过 `ToolCallStarted` / `ToolCallFinished`。
 

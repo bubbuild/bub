@@ -61,6 +61,18 @@ class BubHookSpecs:
         """
         raise NotImplementedError
 
+    @hookspec
+    def after_build_prompt(
+        self, message: Envelope, prompt: list[UserContent], session_id: str, state: TurnState
+    ) -> None:
+        """Observe the prompt content built for one inbound message.
+
+        Fires for the turn's message and for each steering message drained into a
+        running turn, so plugins can relate a model-facing user message to the
+        message it came from. ``prompt`` is a copy of the built content as
+        ``list[UserContent]``, not the legacy form. Return values are ignored.
+        """
+
     @hookspec(firstresult=True)
     def run_model(self, prompt: str | list[dict], session_id: str, state: TurnState) -> str:
         """Run model for one turn and return plain text output. Should not be implemented if `run_model_stream` is implemented."""

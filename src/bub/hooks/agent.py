@@ -44,9 +44,9 @@ class AgentPlugins:
     ``before/after_llm_call`` and ``before/after_tool_call`` interception hooks,
     ``continue_prompt`` and ``provide_steering_inbox`` (agent events), and ``load_state``
     and ``provide_environment`` (turn state). ``running()`` owns the lifespan, store and
-    steering inbox. Message-pipeline hooks such as ``build_prompt``,
-    ``run_model``, ``save_state`` and outbound rendering only run in
-    ``framework.process_inbound()``.
+    steering inbox. Drained steering messages are built through ``build_prompt`` and
+    ``after_build_prompt``. Other message-pipeline hooks such as ``run_model``,
+    ``save_state`` and outbound rendering only run in ``framework.process_inbound()``.
     """
 
     def __init__(self, framework: BubFramework | None = None, *, plugins: Iterable[object] | None = None) -> None:

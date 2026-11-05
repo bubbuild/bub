@@ -172,6 +172,33 @@ async def test_build_prompt_converts_legacy_content_blocks_by_value() -> None:
 
 
 @pytest.mark.asyncio
+async def test_after_build_prompt_observes_a_copy_of_the_built_content_with_its_message() -> None:
+    framework = BubFramework()
+    observed: list[tuple[Any, list[Any], str]] = []
+
+    class FramingPlugin:
+        @hookimpl
+        def build_prompt(self, message, session_id, state):
+            return f"[framed]\n{message['content']}"
+
+    class ObserverPlugin:
+        @hookimpl
+        async def after_build_prompt(self, message, prompt, session_id):
+            observed.append((message, list(prompt), session_id))
+            prompt.clear()
+            return ["ignored"]
+
+    framework.plugin_manager.register(FramingPlugin(), name="framing")
+    framework.plugin_manager.register(ObserverPlugin(), name="observer")
+    message = {"content": "hello"}
+
+    prompt = await framework.build_prompt(message, session_id="s", state={})
+
+    assert prompt == ["[framed]\nhello"]
+    assert observed == [(message, ["[framed]\nhello"], "s")]
+
+
+@pytest.mark.asyncio
 async def test_continue_prompt_awaits_high_priority_async_hook() -> None:
     framework = BubFramework()
     tape = cast(Any, SimpleNamespace(context=SimpleNamespace(state={})))
