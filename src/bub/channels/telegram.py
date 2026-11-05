@@ -258,13 +258,15 @@ class TelegramChannel(Channel):
             metadata["reply_to_message"] = reply_meta
             reply_media = _extract_media_items(reply_meta)
             media_items.extend(reply_media)
-        content = json.dumps({"message": content, **metadata}, ensure_ascii=False)
+        text = content
+        content = json.dumps({"message": text, **metadata}, ensure_ascii=False)
         is_active = MESSAGE_FILTER.filter(message) is not False
         return ChannelMessage(
             session_id=session_id,
             channel=self.name,
             chat_id=chat_id,
             content=content,
+            text=text,
             media=media_items,
             is_active=is_active,
             lifespan=self.start_typing(chat_id),
