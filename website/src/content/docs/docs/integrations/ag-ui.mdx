@@ -140,12 +140,12 @@ export function persistDemoSession(key: string, agent: HttpAgent) {
 <Tabs syncKey="bub-ag-ui-frontend">
 <TabItem label="assistant-ui">
 
-Create a project with the [official Starter](https://www.assistant-ui.com/docs/cli), select the default template, and install the AG-UI runtime:
+Create a project with the [official Starter](https://www.assistant-ui.com/docs/cli), select the default template, keep the Starter's `@assistant-ui/react` version, and install the AG-UI runtime:
 
 ```bash
 npx assistant-ui@latest create bub-assistant-ui
 cd bub-assistant-ui
-npm install @assistant-ui/react@0.15.33 @assistant-ui/react-ag-ui@0.1.2 @ag-ui/client@1.0.4
+npm install @assistant-ui/react-ag-ui@0.1.2 @ag-ui/client@1.0.4
 ```
 
 Add this rewrite to the configuration object in `next.config.ts`, keeping the Starter settings and `withAui` wrapper:
@@ -574,14 +574,14 @@ Add these properties to `compilerOptions` in both `tsconfig.json` and `tsconfig.
 "resolveJsonModule": true
 ```
 
-Replace `src/index.css` with the following, then install the UI components. The installer will add theme styles and component dependencies.
+Replace `src/index.css` with the following, then install the UI components with Radix. The installer will add theme styles and component dependencies.
 
 ```css title="src/index.css"
 @import "tailwindcss";
 ```
 
 ```bash
-npx shadcn@latest init
+npx shadcn@latest init --base radix
 npx ai-elements@latest add conversation message prompt-input tool suggestion
 ```
 

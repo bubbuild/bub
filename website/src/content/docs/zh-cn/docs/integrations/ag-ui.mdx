@@ -140,12 +140,12 @@ export function persistDemoSession(key: string, agent: HttpAgent) {
 <Tabs syncKey="bub-ag-ui-frontend">
 <TabItem label="assistant-ui">
 
-通过[官方 Starter](https://www.assistant-ui.com/docs/cli)创建项目，选择默认模板，再安装 AG-UI runtime：
+通过[官方 Starter](https://www.assistant-ui.com/docs/cli)创建项目，选择默认模板，保留 Starter 安装的 `@assistant-ui/react` 版本，再安装 AG-UI runtime：
 
 ```bash
 npx assistant-ui@latest create bub-assistant-ui
 cd bub-assistant-ui
-npm install @assistant-ui/react@0.15.33 @assistant-ui/react-ag-ui@0.1.2 @ag-ui/client@1.0.4
+npm install @assistant-ui/react-ag-ui@0.1.2 @ag-ui/client@1.0.4
 ```
 
 在 `next.config.ts` 的配置对象中添加以下 rewrite，保留 Starter 原有配置和 `withAui` 包装：
@@ -574,14 +574,14 @@ export default defineConfig({
 "resolveJsonModule": true
 ```
 
-用以下内容替换 `src/index.css`，然后安装 UI 组件。安装器会添加主题样式和组件依赖。
+用以下内容替换 `src/index.css`，然后选择 Radix 安装 UI 组件。安装器会添加主题样式和组件依赖。
 
 ```css title="src/index.css"
 @import "tailwindcss";
 ```
 
 ```bash
-npx shadcn@latest init
+npx shadcn@latest init --base radix
 npx ai-elements@latest add conversation message prompt-input tool suggestion
 ```
 
