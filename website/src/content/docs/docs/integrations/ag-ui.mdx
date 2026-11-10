@@ -4,13 +4,15 @@ description: Try Bub's experimental AG-UI support. Connect an AI chat frontend w
 sidebar:
   label: Web frontends with AG-UI
   badge: { text: 'App', variant: 'note' }
+tableOfContents:
+  maxHeadingLevel: 2
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-Bub's AG-UI integration is experimental. The `bub-ag-ui` plugin streams replies and tool calls to a web chat frontend. Bub manages model context; your application displays messages, handles browser tools, and saves UI history.
+The `bub-ag-ui` plugin connects Bub to a web chat frontend over AG-UI. You can stream replies and let Bub call tools in the browser. The integration is experimental.
 
-For a first chat, [start the plugin](#install), then follow the assistant-ui tab below. Each tab includes the setup and application adapter code for that frontend.
+This guide connects a chat UI and uses a weather tool to plan an afternoon in San Francisco. Start with the assistant-ui tab if you do not already have a frontend.
 
 ## Before you start {#before-you-start}
 
@@ -27,23 +29,18 @@ bub ag-ui --help
 bub ag-ui --host 127.0.0.1 --port 28201
 ```
 
-Keep the terminal open. The service accepts AG-UI requests at `http://127.0.0.1:28201/agent` and returns an SSE event stream. The frontend examples below connect to this service.
+Keep this terminal open. The frontend will send requests to `http://127.0.0.1:28201/agent` and receive streaming replies.
 
 ## 2. Connect a frontend {#choose-ui}
 
-Choose a frontend for your project:
+Choose one of the tabs below. Each example connects to the same Bub service, runs a `get_weather` tool in the browser, and saves the displayed conversation for page reloads. The weather data is a fixed demo forecast for San Francisco.
 
-| Frontend | Integration |
-| --- | --- |
-| assistant-ui | assistant-ui's AG-UI runtime connects to Bub; an application history adapter restores the chat UI. |
-| CopilotKit | React chat and frontend-tool APIs connect through an AG-UI agent. |
-| OpenUI | `AgentInterface` and its AG-UI parser work with an application adapter for tools and history. |
-| AI Elements | UI components render messages and tool state supplied by an `HttpAgent` bridge. |
-
-The examples use a browser tool named `get_weather`, which returns a fixed San Francisco forecast. The tool definition and data are shared by the three Vite projects. Save the following as `src/scenario.json` after creating your project; the assistant-ui provider includes it inline.
+The tabs use these shared files. Copy the files needed by your frontend after creating its project.
 
 <details>
-<summary>Weather tool and sample data</summary>
+<summary>Shared example files</summary>
+
+Save the weather tool and data as `src/scenario.json` for CopilotKit, OpenUI, and AI Elements. The assistant-ui example includes them in its provider.
 
 ```json title="src/scenario.json"
 {
@@ -68,12 +65,7 @@ The examples use a browser tool named `get_weather`, which returns a fixed San F
 }
 ```
 
-</details>
-
-For CopilotKit and OpenUI, add this `server` property to `defineConfig({...})` in the generated `vite.config.ts`. It serves the frontend on port 3000 and forwards `/api/*` to Bub after removing the `/api` prefix. The AI Elements tab includes this proxy in its full Vite configuration; assistant-ui uses a Next.js rewrite.
-
-<details>
-<summary>Vite proxy configuration</summary>
+For CopilotKit and OpenUI, add this `server` property to `defineConfig({...})` in `vite.config.ts`. It serves the frontend on port 3000 and forwards `/api/*` to Bub, removing the `/api` prefix. The other two tabs include their own proxy configuration.
 
 ```typescript title="vite.config.ts (server property)"
 server: {
@@ -90,16 +82,7 @@ server: {
 },
 ```
 
-</details>
-
-Each example keeps a stable `threadId` and saves SDK messages and shared state in `sessionStorage` after each run. Reloading the same browser tab restores the chat UI through `initialMessages` and `initialState`. This is demo storage for the frontend; Bub manages its own session context. A deployed application needs its own UI storage and user isolation.
-
-These examples support new messages and browser-tool continuation. Editing earlier messages and regenerating replies are unsupported. Disable those actions if your UI template exposes them.
-
-Save the helper below as `demo-session.ts`: in `app/` for assistant-ui, or in `src/` for the three Vite projects.
-
-<details>
-<summary>demo-session.ts</summary>
+Save this storage helper as `app/demo-session.ts` for assistant-ui, or `src/demo-session.ts` for the other frontends. It keeps the thread ID, messages, and state in the browser's `sessionStorage`.
 
 ```typescript title="demo-session.ts"
 import { HttpAgent, type Message } from "@ag-ui/client";
@@ -140,7 +123,11 @@ export function persistDemoSession(key: string, agent: HttpAgent) {
 <Tabs syncKey="bub-ag-ui-frontend">
 <TabItem label="assistant-ui">
 
-Create a project with the [official Starter](https://www.assistant-ui.com/docs/cli), select the default template, keep the Starter's `@assistant-ui/react` version, and install the AG-UI runtime:
+assistant-ui provides an AG-UI runtime for the connection and browser-tool calls.
+
+### Create the project {#assistant-ui-project}
+
+Use the [official Starter](https://www.assistant-ui.com/docs/cli), select the default template, and install the AG-UI runtime. Keep the Starter's `@assistant-ui/react` version.
 
 ```bash
 npx assistant-ui@latest create bub-assistant-ui
@@ -148,7 +135,9 @@ cd bub-assistant-ui
 npm install @assistant-ui/react-ag-ui@0.1.2 @ag-ui/client@1.0.4
 ```
 
-Add this rewrite to the configuration object in `next.config.ts`, keeping the Starter settings and `withAui` wrapper:
+### Connect to Bub {#assistant-ui-connect}
+
+Save the shared helper as `app/demo-session.ts`. Add this rewrite to the configuration object in `next.config.ts`, keeping the Starter settings and `withAui` wrapper:
 
 ```typescript title="next.config.ts (configuration property)"
 async rewrites() {
@@ -156,7 +145,7 @@ async rewrites() {
 },
 ```
 
-Create `app/BubRuntimeProvider.tsx`. The provider loads messages from the application’s demo storage, supplies them to the history adapter, and registers the weather tool. An SDK subscription saves messages and state when a run ends.
+Create `app/BubRuntimeProvider.tsx` to connect the runtime, restore displayed messages, and register the weather tool:
 
 <details>
 <summary>app/BubRuntimeProvider.tsx</summary>
@@ -258,7 +247,7 @@ export const Assistant = () => (
 );
 ```
 
-Start the frontend:
+### Start the frontend {#assistant-ui-start}
 
 ```bash
 npm run dev -- --hostname localhost --port 3000
@@ -267,9 +256,11 @@ npm run dev -- --hostname localhost --port 3000
 </TabItem>
 <TabItem label="CopilotKit">
 
-For local development, CopilotKit can connect directly through `agents__unsafe_dev_only`. For deployment, use a [CopilotKit runtime](https://docs.copilotkit.ai/backend/self-managed-agents) between the React app and Bub, as illustrated in the [LangChain integration guide](https://docs.langchain.com/oss/python/langchain/frontend/integrations/copilotkit).
+This example uses `CopilotChat` and `useFrontendTool` with the development-only `agents__unsafe_dev_only` connection. For deployment, use a [CopilotKit runtime](https://docs.copilotkit.ai/backend/self-managed-agents), as shown in the [LangChain integration guide](https://docs.langchain.com/oss/python/langchain/frontend/integrations/copilotkit).
 
-Create the React project and install the matching CopilotKit and AG-UI versions:
+### Create the project {#copilotkit-project}
+
+Create a React project and install the matching CopilotKit and AG-UI versions:
 
 ```bash
 npm create vite@latest bub-copilotkit -- --template react-ts
@@ -278,7 +269,9 @@ npm install
 npm install @copilotkit/react-core@1.85.0 @ag-ui/client@1.0.2 @ag-ui/core@1.0.2 rxjs@7.8.1 zod@3.25.76
 ```
 
-Add the shared Vite proxy and `src/scenario.json`. Create `src/BubHttpAgent.ts` to read an application snapshot during CopilotKit’s connect phase. These events restore the UI without making a backend request or starting a model run.
+### Connect to Bub {#copilotkit-connect}
+
+Save the shared files as `src/demo-session.ts` and `src/scenario.json`, then add the shared Vite proxy. Create `src/BubHttpAgent.ts` to restore displayed messages from browser storage without requesting them from Bub:
 
 <details>
 <summary>src/BubHttpAgent.ts</summary>
@@ -373,7 +366,7 @@ start().catch((error) => {
 });
 ```
 
-Start the frontend:
+### Start the frontend {#copilotkit-start}
 
 ```bash
 npm run dev
@@ -381,6 +374,10 @@ npm run dev
 
 </TabItem>
 <TabItem label="OpenUI">
+
+OpenUI provides `AgentInterface` and an AG-UI parser. The application code below connects them to Bub and handles browser-tool calls.
+
+### Create the project {#openui-project}
 
 Create a React project and install OpenUI:
 
@@ -391,7 +388,9 @@ npm install
 npm install @openuidev/react-ui@0.18.5 @openuidev/react-headless@0.18.5 @openuidev/react-lang@1.1.0 @ag-ui/client@1.0.4 zod@4 zustand@4
 ```
 
-Add the shared Vite proxy and `src/scenario.json`, then replace `src/main.tsx` with the code below. `AgentInterface` renders the chat, and `agUIAdapter()` parses the events. The application supplies `ChatStorage` for demo storage and `ChatLLM.send` for requests and browser-tool continuation.
+### Connect to Bub {#openui-connect}
+
+Save the shared files as `src/demo-session.ts` and `src/scenario.json`, then add the shared Vite proxy. Replace `src/main.tsx`:
 
 <details>
 <summary>src/main.tsx</summary>
@@ -522,9 +521,9 @@ createRoot(document.getElementById("root")!).render(
 
 </details>
 
-This example provides one saved thread and disables deletion. Its default renderer displays Markdown tables as plain text. For a different layout, see the [OpenUI agent example](https://github.com/thesysdev/openui/tree/main/examples/agent-frameworks/mastra).
+This example keeps one thread in the sidebar and disables deletion. Its default renderer displays Markdown tables as plain text. To customize the UI, see the [OpenUI agent example](https://github.com/thesysdev/openui/tree/main/examples/agent-frameworks/mastra).
 
-Start the frontend:
+### Start the frontend {#openui-start}
 
 ```bash
 npm run dev
@@ -532,6 +531,10 @@ npm run dev
 
 </TabItem>
 <TabItem label="AI Elements">
+
+AI Elements provides the UI components. The application uses `HttpAgent` to connect them to Bub and handle browser-tool calls.
+
+### Create the project {#ai-elements-project}
 
 Create a React project and install the AG-UI client and Tailwind CSS:
 
@@ -542,6 +545,8 @@ npm install
 npm install @ag-ui/client@1.0.4 ai@7.0.153
 npm install -D tailwindcss @tailwindcss/vite @types/node
 ```
+
+### Connect to Bub {#ai-elements-connect}
 
 Replace `vite.config.ts` to configure React, Tailwind, the `@` alias, and the Bub proxy:
 
@@ -574,7 +579,7 @@ Add these properties to `compilerOptions` in both `tsconfig.json` and `tsconfig.
 "resolveJsonModule": true
 ```
 
-Replace `src/index.css` with the following, then install the UI components with Radix. The installer will add theme styles and component dependencies.
+Replace `src/index.css` with the following, then install the UI components with Radix:
 
 ```css title="src/index.css"
 @import "tailwindcss";
@@ -585,7 +590,7 @@ npx shadcn@latest init --base radix
 npx ai-elements@latest add conversation message prompt-input tool suggestion
 ```
 
-Save the shared fixture as `src/scenario.json` and replace `src/main.tsx` with the code below. It subscribes to `HttpAgent` messages and maps text and tool calls into AI Elements components. The application also sends tool results and starts continuation runs. See the [AI Elements guide](https://docs.langchain.com/oss/python/langchain/frontend/integrations/ai-elements) for component usage.
+Save the shared files as `src/demo-session.ts` and `src/scenario.json`, then replace `src/main.tsx`. For component usage, see the [AI Elements guide](https://docs.langchain.com/oss/python/langchain/frontend/integrations/ai-elements).
 
 <details>
 <summary>src/main.tsx</summary>
@@ -795,7 +800,7 @@ start().catch((error) => {
 
 </details>
 
-Start the frontend:
+### Start the frontend {#ai-elements-start}
 
 ```bash
 npm run dev
@@ -804,23 +809,29 @@ npm run dev
 </TabItem>
 </Tabs>
 
-## 3. Send a message and continue after a reload {#verify}
+## 3. Try the conversation {#verify}
 
-Open `http://localhost:3000` with one frontend running and send the following request:
+With one frontend running, open `http://localhost:3000` and send this request:
 
 ```text
 Call get_weather for San Francisco, then suggest an afternoon plan using the demo forecast.
 ```
 
-Bub requests the browser tool, receives its result, and streams a reply. The OpenUI and AI Elements examples accept San Francisco only and stop after at most four continuation rounds; these limits belong to the example code.
+Bub calls the browser tool and uses its result to suggest an afternoon plan. The forecast is 18°C and partly cloudy; it is demo data, not live weather.
 
-After the reply finishes, reload the same browser tab, then ask a follow-up question. The application restores the displayed messages and shared state from `sessionStorage`; the saved `threadId` continues the existing Bub session. A fresh client without saved messages cannot reconstruct the earlier display history from Bub. In OpenUI, select the thread from the sidebar. Clearing the example's storage key starts a new conversation on the next reload.
+After the reply finishes, reload the same browser tab. Your messages should still be visible. In OpenUI, select the saved thread from the sidebar. Ask which city and temperature you discussed to continue the conversation.
 
-A persistent Bub tape store preserves completed conversation context and session settings across backend restarts. Keep the same default files or [database storage](/docs/integrations/storage/) to continue those conversations. Pending tool calls and human-input interrupts require the live execution and cannot resume after a restart. A browser snapshot restores the UI; it cannot recover pending execution or deleted server context.
+## Conversations and UI history {#tools-and-history}
+
+The examples save the thread ID, messages, and state in `sessionStorage`. Reloading restores the displayed conversation. A new browser tab without saved messages cannot retrieve earlier display history from Bub; the AG-UI service only exposes `POST /agent`.
+
+Bub manages the model's conversation context. Keep the same `threadId` to continue it, and retain Bub's default files or [database storage](/docs/integrations/storage/) across backend restarts. Browser storage restores the UI; it cannot recover deleted Bub context or unfinished tool calls. Keep the backend running until the reply finishes. The default turn timeout is 600 seconds, including time spent waiting for browser tools.
+
+To start a new conversation, clear the example's storage key and reload. Editing earlier messages and regenerating replies are unsupported; disable those actions if your UI template exposes them. For deployment, replace the demo storage with storage and user isolation suitable for your application.
 
 ## Use HttpAgent in your own frontend {#connect}
 
-If you are building your own UI, `@ag-ui/client` can manage the AG-UI connection and message state. This plain TypeScript example displays streamed text and creates a new thread on each reload.
+If you are building your own UI, use `@ag-ui/client` for the connection and message state. This plain TypeScript example displays streamed text and creates a new thread on each reload.
 
 <details>
 <summary>Minimal browser chat</summary>
@@ -909,29 +920,11 @@ export BUB_AG_UI_ORIGINS='["http://localhost:5173"]'
 
 Match the scheme, hostname, and port exactly. `localhost` and `127.0.0.1` are different origins.
 
-## Tools and session context {#tools-and-history}
-
-A frontend declares browser tools in the run's `tools` list. When Bub calls one, the frontend executes it, adds a result with the matching `toolCallId`, and starts another AG-UI run on the same thread. Keep the frontend tool definitions unchanged and include results for every pending call. assistant-ui and CopilotKit handle continuation through their runtimes; the OpenUI and AI Elements examples implement the requests in application code.
-
-`RUN_FINISHED` ends one HTTP run, which can leave Bub waiting for frontend results or human input. The next `POST /agent` attaches to that same live native execution. Tool results or interrupt responses can continue it without resending history or adding a user message. In a batch containing both backend and frontend tools, Bub emits and records the results together after all calls finish.
-
-Return results or interrupt responses to the same adapter before `max_run_seconds` expires. Its default is 600 seconds for the entire native turn, including time spent waiting for the frontend. Restarting or shutting down the adapter, or reaching the timeout, ends that execution; submitting its results afterward returns `RUN_ERROR`.
-
-A human-input pause sends `STATE_SNAPSHOT`, then `RUN_FINISHED` with `outcome.type: "interrupt"`. Send a `resume` entry for every pending interrupt; Bub emits the decision result through its native `TOOL_CALL_RESULT` event. Repeating an accepted response does not execute the work again or replay the answer. Its receipt can survive a restart with a persistent tape store, but a pending call cannot.
-
-Bub executes the conversation through its native stream and selects model context from its tape, preserving session settings, loaded tools, and handoff boundaries. Keep message IDs stable when the SDK sends earlier messages again: accepted input is not appended twice, and echoed assistant messages or old tool results do not replace Bub's records or bring earlier context back across a handoff.
-
-Changing an accepted user message with the same ID returns `RUN_ERROR`; the adapter does not provide edit or regenerate branches. A request containing only old history and no new input also returns `RUN_ERROR` without running the model.
-
-Message events update the SDK incrementally at run start and human-input pauses, so sending only new input does not replace messages already held by the client. The adapter exposes only `POST /agent`, with no display-history or replay endpoint.
-
-`agent.abortRun()` closes an active HTTP request and cancels its execution. Once a paused HTTP run has finished, aborting that old request cannot cancel the waiting native turn. Resolve its tool calls, or cancel its human-input interrupts through `resume`, before the turn timeout. Cancellation does not undo completed tool side effects.
-
 ## Deploy the service {#hosting}
 
-When listening on a non-loopback address, set `BUB_AG_UI_TOKEN`. Send `Authorization: Bearer <token>` with `POST /agent` requests. Keep the shared token on the application server, and configure `BUB_AG_UI_ORIGINS` if browsers connect to Bub directly.
+When listening on a non-loopback address, set `BUB_AG_UI_TOKEN` and send `Authorization: Bearer <token>` with requests. Keep the token on the application server. Configure `BUB_AG_UI_ORIGINS` if browsers connect to Bub directly.
 
-A shared token represents one user identity. For multiple users, embed the service with `create_app(..., authenticate=...)` and return a stable user identity from trusted authentication. Embedding and gateway setup are described in the [plugin README](https://github.com/bubbuild/bub-contrib/blob/main/packages/bub-ag-ui/README.md).
+A shared token represents one user identity. For multi-user authentication and gateway setup, follow the [plugin README](https://github.com/bubbuild/bub-contrib/blob/main/packages/bub-ag-ui/README.md).
 
 ## Troubleshooting {#troubleshooting}
 
@@ -941,5 +934,5 @@ A shared token represents one user identity. For multiple users, embed the servi
 | Browser requests fail | Check the frontend proxy, or match `BUB_AG_UI_ORIGINS` to the exact origin for direct connections. |
 | Requests return 401 or 403 | Check the Bearer header and authentication configuration. |
 | No reply appears | Test the model with `bub run "Say hello"` and check backend logs. |
-| A tool call has no follow-up reply | Check that its result carries the matching tool-call ID and that the frontend starts the next run. |
-| A run returns `RUN_ERROR` | Read the event’s error message. If another request is executing on the thread, wait for it or close that request before retrying. |
+| A tool call has no follow-up reply | Check that the frontend returns the tool result and continues the conversation. |
+| A run returns `RUN_ERROR` | Read the event's error message and check the backend logs. |

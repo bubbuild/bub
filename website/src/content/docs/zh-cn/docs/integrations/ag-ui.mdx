@@ -4,13 +4,15 @@ description: 尝试 Bub 的实验性 AG-UI 集成，按示例接入 AI 聊天前
 sidebar:
   label: 通过 AG-UI 接入 Web 前端
   badge: { text: '应用', variant: 'note' }
+tableOfContents:
+  maxHeadingLevel: 2
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-Bub 的 AG-UI 集成仍处于实验阶段。`bub-ag-ui` 插件将回复和工具调用以事件流发送到 Web 聊天前端。Bub 管理模型上下文，应用负责展示消息、执行浏览器工具并保存界面历史。
+`bub-ag-ui` 插件通过 AG-UI 将 Bub 接入 Web 聊天前端，让你接收流式回复，并让 Bub 调用浏览器中的工具。这项集成仍处于实验阶段。
 
-首次接入可以先[启动插件](#install)，再按下方 assistant-ui 标签页操作。每个标签页都包含相应前端的准备步骤和应用适配代码。
+本指南接入一个聊天界面，再用天气工具规划在旧金山的下午行程。如果还没有选定前端，可以从 assistant-ui 标签页开始。
 
 ## 开始之前 {#before-you-start}
 
@@ -27,23 +29,18 @@ bub ag-ui --help
 bub ag-ui --host 127.0.0.1 --port 28201
 ```
 
-保持终端运行。服务通过 `http://127.0.0.1:28201/agent` 接收 AG-UI 请求，以 SSE 事件流返回回复。下方各前端示例都连接这个服务。
+保持这个终端运行。前端将向 `http://127.0.0.1:28201/agent` 发送请求并接收流式回复。
 
 ## 2. 连接前端 {#choose-ui}
 
-根据项目需要选择一个前端：
+选择下方的一个标签页。每个示例都连接同一个 Bub 服务，在浏览器中执行 `get_weather` 工具，并保存界面中的对话以便刷新后恢复。天气数据是固定的旧金山演示预报。
 
-| 前端 | 接入方式 |
-| --- | --- |
-| assistant-ui | 使用 assistant-ui 提供的 AG-UI runtime 连接 Bub，由应用的历史适配器恢复聊天界面。 |
-| CopilotKit | 通过 AG-UI Agent 接入 React 聊天组件和前端工具 API。 |
-| OpenUI | 使用 `AgentInterface` 和 AG-UI 解析器，由应用适配工具调用和历史记录。 |
-| AI Elements | 由 `HttpAgent` 桥接消息和工具状态，交给 UI 组件渲染。 |
-
-示例使用名为 `get_weather` 的浏览器工具，返回固定的旧金山天气数据。三个 Vite 项目共用下方的工具定义和数据，创建项目后保存为 `src/scenario.json`；assistant-ui 的 provider 已内嵌这些内容。
+各标签页用到以下共用文件。创建项目后，复制所选前端需要的文件。
 
 <details>
-<summary>天气工具与示例数据</summary>
+<summary>共用示例文件</summary>
+
+CopilotKit、OpenUI 和 AI Elements 将天气工具及数据保存为 `src/scenario.json`。assistant-ui 示例已在 provider 中包含这些内容。
 
 ```json title="src/scenario.json"
 {
@@ -68,12 +65,7 @@ bub ag-ui --host 127.0.0.1 --port 28201
 }
 ```
 
-</details>
-
-CopilotKit 和 OpenUI 项目创建后，在生成的 `vite.config.ts` 的 `defineConfig({...})` 中添加以下 `server` 属性。前端运行在 3000 端口，代理将 `/api/*` 去掉 `/api` 前缀后转发给 Bub。AI Elements 的完整 Vite 配置已包含这个代理，assistant-ui 则使用 Next.js rewrite。
-
-<details>
-<summary>Vite 代理配置</summary>
+CopilotKit 和 OpenUI 在 `vite.config.ts` 的 `defineConfig({...})` 中添加以下 `server` 属性。前端运行在 3000 端口，代理将 `/api/*` 去掉 `/api` 前缀后转发给 Bub。另外两个标签页包含各自的代理配置。
 
 ```typescript title="vite.config.ts (server property)"
 server: {
@@ -90,16 +82,7 @@ server: {
 },
 ```
 
-</details>
-
-每个示例保留稳定的 `threadId`，并在每次 run 结束后将 SDK 消息和共享状态保存到 `sessionStorage`，以便在同一浏览器标签页刷新后，通过 `initialMessages` 和 `initialState` 恢复聊天界面。这是前端的演示存储，Bub 仍自行管理会话上下文。部署时，应用需要自行实现界面数据存储和用户隔离。
-
-这些示例支持发送新消息和浏览器工具续跑，不支持编辑旧消息或重新生成回复。如果 UI 模板提供这些操作，请禁用相应入口。
-
-将下面的辅助文件保存为 `demo-session.ts`：assistant-ui 放在 `app/` 下，三个 Vite 项目放在 `src/` 下。
-
-<details>
-<summary>demo-session.ts</summary>
+将存储辅助文件保存为 `app/demo-session.ts`（assistant-ui）或 `src/demo-session.ts`（其他前端）。它通过浏览器的 `sessionStorage` 保存会话 ID、消息和状态。
 
 ```typescript title="demo-session.ts"
 import { HttpAgent, type Message } from "@ag-ui/client";
@@ -140,7 +123,11 @@ export function persistDemoSession(key: string, agent: HttpAgent) {
 <Tabs syncKey="bub-ag-ui-frontend">
 <TabItem label="assistant-ui">
 
-通过[官方 Starter](https://www.assistant-ui.com/docs/cli)创建项目，选择默认模板，保留 Starter 安装的 `@assistant-ui/react` 版本，再安装 AG-UI runtime：
+assistant-ui 提供 AG-UI runtime，负责连接和浏览器工具调用。
+
+### 创建项目 {#assistant-ui-project}
+
+通过[官方 Starter](https://www.assistant-ui.com/docs/cli)创建项目，选择默认模板，再安装 AG-UI runtime。保留 Starter 安装的 `@assistant-ui/react` 版本。
 
 ```bash
 npx assistant-ui@latest create bub-assistant-ui
@@ -148,7 +135,9 @@ cd bub-assistant-ui
 npm install @assistant-ui/react-ag-ui@0.1.2 @ag-ui/client@1.0.4
 ```
 
-在 `next.config.ts` 的配置对象中添加以下 rewrite，保留 Starter 原有配置和 `withAui` 包装：
+### 连接 Bub {#assistant-ui-connect}
+
+将共用辅助文件保存为 `app/demo-session.ts`。在 `next.config.ts` 的配置对象中添加以下 rewrite，保留 Starter 原有配置和 `withAui` 包装：
 
 ```typescript title="next.config.ts (configuration property)"
 async rewrites() {
@@ -156,7 +145,7 @@ async rewrites() {
 },
 ```
 
-创建 `app/BubRuntimeProvider.tsx`。provider 从应用的演示存储加载消息，交给历史适配器，并注册天气工具。SDK 订阅在 run 结束后保存消息和状态。
+创建 `app/BubRuntimeProvider.tsx`，接入 runtime、恢复界面消息并注册天气工具：
 
 <details>
 <summary>app/BubRuntimeProvider.tsx</summary>
@@ -258,7 +247,7 @@ export const Assistant = () => (
 );
 ```
 
-启动前端：
+### 启动前端 {#assistant-ui-start}
 
 ```bash
 npm run dev -- --hostname localhost --port 3000
@@ -267,7 +256,9 @@ npm run dev -- --hostname localhost --port 3000
 </TabItem>
 <TabItem label="CopilotKit">
 
-本地开发时，可以通过 `agents__unsafe_dev_only` 直连。部署时需要在 React 应用和 Bub 之间配置 [CopilotKit runtime](https://docs.copilotkit.ai/backend/self-managed-agents)，连接方式可参考 [LangChain 集成指南](https://docs.langchain.com/oss/python/langchain/frontend/integrations/copilotkit)。
+此示例使用 `CopilotChat` 和 `useFrontendTool`，通过仅供开发使用的 `agents__unsafe_dev_only` 连接 Bub。部署时使用 [CopilotKit runtime](https://docs.copilotkit.ai/backend/self-managed-agents)，接法可参考 [LangChain 集成指南](https://docs.langchain.com/oss/python/langchain/frontend/integrations/copilotkit)。
+
+### 创建项目 {#copilotkit-project}
 
 创建 React 项目，并安装匹配的 CopilotKit 和 AG-UI 版本：
 
@@ -278,7 +269,9 @@ npm install
 npm install @copilotkit/react-core@1.85.0 @ag-ui/client@1.0.2 @ag-ui/core@1.0.2 rxjs@7.8.1 zod@3.25.76
 ```
 
-添加上方的 Vite 代理和 `src/scenario.json`。创建 `src/BubHttpAgent.ts`，在 CopilotKit 的 connect 阶段读取应用保存的快照。这里的事件只用于恢复界面，不会请求后端或启动模型运行。
+### 连接 Bub {#copilotkit-connect}
+
+将共用文件保存为 `src/demo-session.ts` 和 `src/scenario.json`，添加共用的 Vite 代理。创建 `src/BubHttpAgent.ts`，从浏览器存储恢复界面消息，无需向 Bub 请求历史：
 
 <details>
 <summary>src/BubHttpAgent.ts</summary>
@@ -373,7 +366,7 @@ start().catch((error) => {
 });
 ```
 
-启动前端：
+### 启动前端 {#copilotkit-start}
 
 ```bash
 npm run dev
@@ -381,6 +374,10 @@ npm run dev
 
 </TabItem>
 <TabItem label="OpenUI">
+
+OpenUI 提供 `AgentInterface` 和 AG-UI 解析器。下方应用代码将它们接入 Bub，并处理浏览器工具调用。
+
+### 创建项目 {#openui-project}
 
 创建 React 项目并安装 OpenUI：
 
@@ -391,7 +388,9 @@ npm install
 npm install @openuidev/react-ui@0.18.5 @openuidev/react-headless@0.18.5 @openuidev/react-lang@1.1.0 @ag-ui/client@1.0.4 zod@4 zustand@4
 ```
 
-添加上方的 Vite 代理和 `src/scenario.json`，再用以下代码替换 `src/main.tsx`。`AgentInterface` 展示聊天界面，`agUIAdapter()` 解析事件。应用通过 `ChatStorage` 读取演示存储，通过 `ChatLLM.send` 发起请求、执行浏览器工具并续跑。
+### 连接 Bub {#openui-connect}
+
+将共用文件保存为 `src/demo-session.ts` 和 `src/scenario.json`，添加共用的 Vite 代理，再替换 `src/main.tsx`：
 
 <details>
 <summary>src/main.tsx</summary>
@@ -522,9 +521,9 @@ createRoot(document.getElementById("root")!).render(
 
 </details>
 
-此示例提供一个保存的会话，未实现删除功能。默认渲染器会将 Markdown 表格显示为纯文本。调整界面时可参考 [OpenUI Agent 示例](https://github.com/thesysdev/openui/tree/main/examples/agent-frameworks/mastra)。
+此示例在侧栏保留一个会话，并禁用删除功能。默认渲染器会将 Markdown 表格显示为纯文本。调整界面时可参考 [OpenUI Agent 示例](https://github.com/thesysdev/openui/tree/main/examples/agent-frameworks/mastra)。
 
-启动前端：
+### 启动前端 {#openui-start}
 
 ```bash
 npm run dev
@@ -532,6 +531,10 @@ npm run dev
 
 </TabItem>
 <TabItem label="AI Elements">
+
+AI Elements 提供 UI 组件，应用通过 `HttpAgent` 将它们接入 Bub，并处理浏览器工具调用。
+
+### 创建项目 {#ai-elements-project}
 
 创建 React 项目，安装 AG-UI 客户端和 Tailwind CSS：
 
@@ -542,6 +545,8 @@ npm install
 npm install @ag-ui/client@1.0.4 ai@7.0.153
 npm install -D tailwindcss @tailwindcss/vite @types/node
 ```
+
+### 连接 Bub {#ai-elements-connect}
 
 替换 `vite.config.ts`，配置 React、Tailwind、`@` 别名和 Bub 代理：
 
@@ -574,7 +579,7 @@ export default defineConfig({
 "resolveJsonModule": true
 ```
 
-用以下内容替换 `src/index.css`，然后选择 Radix 安装 UI 组件。安装器会添加主题样式和组件依赖。
+用以下内容替换 `src/index.css`，然后选择 Radix 安装 UI 组件：
 
 ```css title="src/index.css"
 @import "tailwindcss";
@@ -585,7 +590,7 @@ npx shadcn@latest init --base radix
 npx ai-elements@latest add conversation message prompt-input tool suggestion
 ```
 
-将共用数据保存为 `src/scenario.json`，再用以下代码替换 `src/main.tsx`。代码订阅 `HttpAgent` 消息，将文本和工具调用映射到 AI Elements 组件，并负责回传工具结果和续跑。组件用法可参考 [AI Elements 指南](https://docs.langchain.com/oss/python/langchain/frontend/integrations/ai-elements)。
+将共用文件保存为 `src/demo-session.ts` 和 `src/scenario.json`，再替换 `src/main.tsx`。组件用法可参考 [AI Elements 指南](https://docs.langchain.com/oss/python/langchain/frontend/integrations/ai-elements)。
 
 <details>
 <summary>src/main.tsx</summary>
@@ -795,7 +800,7 @@ start().catch((error) => {
 
 </details>
 
-启动前端：
+### 启动前端 {#ai-elements-start}
 
 ```bash
 npm run dev
@@ -804,23 +809,29 @@ npm run dev
 </TabItem>
 </Tabs>
 
-## 3. 发送消息并在刷新后继续对话 {#verify}
+## 3. 开始对话 {#verify}
 
-每次启动一个前端，打开 `http://localhost:3000`，发送以下请求：
+启动一个前端后，打开 `http://localhost:3000`，发送以下请求：
 
 ```text
 Call get_weather for San Francisco, then suggest an afternoon plan using the demo forecast.
 ```
 
-Bub 会请求调用浏览器工具，收到结果后继续生成回复。OpenUI 和 AI Elements 示例只处理旧金山天气，最多续跑四轮，这些限制由示例代码设置。
+Bub 会调用浏览器工具，再根据结果建议下午的行程。预报为 18°C、局部多云，使用的是演示数据，不是实时天气。
 
-回复结束后，在同一标签页刷新并继续追问。应用从 `sessionStorage` 恢复界面中的消息和共享状态，保存的 `threadId` 则让请求继续使用原有的 Bub 会话。没有保存消息的新客户端无法从 Bub 获取旧消息来恢复聊天界面。OpenUI 需要从侧栏选择会话。清除对应示例的存储键后再刷新，即可创建新会话。
+回复结束后，在同一浏览器标签页刷新，消息应仍然可见。OpenUI 需要从侧栏选择保存的会话。继续询问刚才讨论的是哪个城市、多少度，即可接着聊下去。
 
-持久化的 Bub tape store 可以在后端重启后保留已完成的对话上下文和会话设置。保留同一份默认文件存储或[数据库存储](/zh-cn/docs/integrations/storage/)，即可继续这些对话。等待前端工具结果或人工输入的执行只能在当前适配器进程中继续，无法跨重启恢复。浏览器快照用于恢复 UI，无法恢复待完成的执行或已删除的服务端上下文。
+## 会话与界面历史 {#tools-and-history}
+
+示例将会话 ID、消息和状态保存在 `sessionStorage` 中，刷新后恢复界面中的对话。没有保存消息的新浏览器标签页无法向 Bub 获取旧的界面历史；AG-UI 服务只提供 `POST /agent`。
+
+Bub 自行管理模型的会话上下文。保留同一个 `threadId` 可以继续对话；后端重启时，需保留 Bub 的默认文件或[数据库存储](/zh-cn/docs/integrations/storage/)。浏览器存储用于恢复界面，无法恢复已删除的 Bub 上下文或未完成的工具调用。回复完成前应保持后端运行。每轮默认超时为 600 秒，包含等待浏览器工具的时间。
+
+清除示例的存储键并刷新，即可开始新会话。不支持编辑旧消息或重新生成回复；如果 UI 模板提供这些操作，请禁用相应入口。部署时，将演示存储替换为适合应用的数据存储和用户隔离方案。
 
 ## 在自己的前端中使用 HttpAgent {#connect}
 
-如果自行编写界面，可以用 `@ag-ui/client` 管理 AG-UI 连接和消息状态。下方纯 TypeScript 示例展示流式文本，每次刷新都会创建新会话。
+如果自行编写界面，可以用 `@ag-ui/client` 管理连接和消息状态。下方纯 TypeScript 示例展示流式文本，每次刷新都会创建新会话。
 
 <details>
 <summary>最小浏览器聊天示例</summary>
@@ -909,29 +920,11 @@ export BUB_AG_UI_ORIGINS='["http://localhost:5173"]'
 
 来源中的协议、主机名和端口都需要匹配。`localhost` 和 `127.0.0.1` 属于不同来源。
 
-## 工具与会话上下文 {#tools-and-history}
-
-前端在 run 的 `tools` 列表中声明浏览器工具。Bub 调用工具后，前端执行它，添加带有对应 `toolCallId` 的结果，再在同一个会话上发起下一次 AG-UI run。续跑时保持前端工具定义不变，并为所有待处理调用提供结果。assistant-ui 和 CopilotKit 通过各自的 runtime 完成续跑，OpenUI 和 AI Elements 示例则在应用代码中发起请求。
-
-`RUN_FINISHED` 表示一次 HTTP run 结束，此时 Bub 可能仍在等待前端结果或人工输入。下一次 `POST /agent` 连接到这次原生执行，提交工具结果或中断响应后继续运行，无需回传历史或添加用户消息。同一批调用同时包含后端和前端工具时，Bub 会等全部调用完成后统一发送并记录结果。
-
-工具结果或中断响应必须在 `max_run_seconds` 到期前发回同一个适配器实例。默认期限为 600 秒，从整个原生 turn 开始计算，包含等待前端的时间。适配器重启、关闭或运行超时都会终止这次执行；之后再提交对应结果会返回 `RUN_ERROR`。
-
-等待人工输入时，适配器发送 `STATE_SNAPSHOT`，随后发送 `outcome.type: "interrupt"` 的 `RUN_FINISHED`。为每个待处理中断提供一项 `resume` 后，Bub 通过原生 `TOOL_CALL_RESULT` 事件返回决策结果。重复提交已接受的响应不会再次执行或重放答案。持久化 tape store 可以在重启后保留响应回执，但不能恢复待完成的调用。
-
-Bub 通过原生流执行对话，并从 tape 中选择模型上下文，保留会话设置、已加载工具和 handoff 边界。SDK 再次发送旧消息时，应保留原来的消息 ID：已接受的输入不会重复追加，回传的 assistant 消息或旧工具结果也不会替换 Bub 的记录，或把 handoff 之前的内容重新放回上下文。
-
-修改已接受的用户消息并沿用同一个 ID 会返回 `RUN_ERROR`；适配器不提供编辑或重新生成分支。只包含旧历史、没有新输入的请求也会返回 `RUN_ERROR`，不会再次调用模型。
-
-运行开始和等待人工输入时，消息事件都会增量更新 SDK，因此只发送新输入不会替换客户端已有的消息。适配器只提供 `POST /agent`，不提供用于展示历史消息或回放的接口。
-
-`agent.abortRun()` 会关闭仍在进行的 HTTP 请求并取消对应执行。如果暂停的 HTTP run 已经结束，再取消这个旧请求无法终止等待中的原生 turn。应在 turn 超时前返回工具结果，或通过 `resume` 取消人工输入中断。取消不会撤销工具已经产生的副作用。
-
 ## 部署服务 {#hosting}
 
-监听非回环地址时，设置 `BUB_AG_UI_TOKEN`，并在 `POST /agent` 请求中发送 `Authorization: Bearer <token>`。共享 token 保存在应用服务器中；如果浏览器直接连接 Bub，还需配置 `BUB_AG_UI_ORIGINS`。
+监听非回环地址时，设置 `BUB_AG_UI_TOKEN`，并在请求中发送 `Authorization: Bearer <token>`。token 保存在应用服务器中。如果浏览器直接连接 Bub，还需配置 `BUB_AG_UI_ORIGINS`。
 
-共享 token 对应一个用户身份。多用户部署时，通过 `create_app(..., authenticate=...)` 嵌入服务，由可信认证返回稳定的用户标识。嵌入服务与网关配置见[插件 README](https://github.com/bubbuild/bub-contrib/blob/main/packages/bub-ag-ui/README.md)。
+共享 token 对应一个用户身份。多用户认证与网关配置见[插件 README](https://github.com/bubbuild/bub-contrib/blob/main/packages/bub-ag-ui/README.md)。
 
 ## 排障 {#troubleshooting}
 
@@ -941,5 +934,5 @@ Bub 通过原生流执行对话，并从 tape 中选择模型上下文，保留�
 | 浏览器请求失败 | 检查前端代理；直连时，检查 `BUB_AG_UI_ORIGINS` 是否与完整来源一致。 |
 | 请求返回 401 或 403 | 检查 Bearer 请求头和认证配置。 |
 | 没有回复 | 用 `bub run "Say hello"` 验证模型配置，并查看后端日志。 |
-| 工具调用后没有继续回复 | 检查结果是否携带对应的工具调用 ID，以及前端是否发起下一次 run。 |
-| 运行返回 `RUN_ERROR` | 查看事件中的错误信息；同一会话有请求执行时，等待它结束或关闭请求后再重试。 |
+| 工具调用后没有继续回复 | 检查前端是否返回工具结果并继续对话。 |
+| 运行返回 `RUN_ERROR` | 查看事件中的错误信息和后端日志。 |
