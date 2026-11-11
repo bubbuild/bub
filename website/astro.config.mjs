@@ -198,6 +198,7 @@ export default defineConfig({
               slug: 'docs/integrations/agent-plugins',
             },
             'docs/integrations/acp',
+            'docs/integrations/ag-ui',
             'docs/integrations/local-models',
             'docs/integrations/storage',
             'docs/integrations/observability',

@@ -1,0 +1,938 @@
+---
+title: 通过 AG-UI 为 Bub 接入 AI 聊天前端
+description: 尝试 Bub 的实验性 AG-UI 集成，按示例接入 AI 聊天前端，处理流式回复、浏览器工具和应用保存的界面历史。
+sidebar:
+  label: 通过 AG-UI 接入 Web 前端
+  badge: { text: '应用', variant: 'note' }
+tableOfContents:
+  maxHeadingLevel: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+`bub-ag-ui` 插件通过 AG-UI 将 Bub 接入 Web 聊天前端，让你接收流式回复，并让 Bub 调用浏览器中的工具。这项集成仍处于实验阶段。
+
+本指南接入一个聊天界面，再用天气工具规划在旧金山的下午行程。如果还没有选定前端，可以从 assistant-ui 标签页开始。
+
+## 开始之前 {#before-you-start}
+
+- 已[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并[配置可用模型](/zh-cn/docs/app/configure/)。
+- 安装 Node.js 和 npm，用于运行前端。
+
+## 1. 安装并启动插件 {#install}
+
+将插件安装到运行 Bub 的环境中，然后启动服务：
+
+```bash
+bub install bub-ag-ui@main
+bub ag-ui --help
+bub ag-ui --host 127.0.0.1 --port 28201
+```
+
+保持这个终端运行。前端将向 `http://127.0.0.1:28201/agent` 发送请求并接收流式回复。
+
+## 2. 连接前端 {#choose-ui}
+
+选择下方的一个标签页。每个示例都连接同一个 Bub 服务，在浏览器中执行 `get_weather` 工具，并保存界面中的对话以便刷新后恢复。天气数据是固定的旧金山演示预报。
+
+各标签页用到以下共用文件。创建项目后，复制所选前端需要的文件。
+
+<details>
+<summary>共用示例文件</summary>
+
+CopilotKit、OpenUI 和 AI Elements 将天气工具及数据保存为 `src/scenario.json`。assistant-ui 示例已在 provider 中包含这些内容。
+
+```json title="src/scenario.json"
+{
+  "name": "Weekend weather planner",
+  "tool": {
+    "name": "get_weather",
+    "description": "Return a fixed demonstration weather forecast for a city. This is sample data for UI compatibility testing, not live weather.",
+    "parameters": {
+      "type": "object",
+      "properties": {"city": {"type": "string", "description": "City to look up"}},
+      "required": ["city"],
+      "additionalProperties": false
+    }
+  },
+  "result": {
+    "city": "San Francisco",
+    "temperature_c": 18,
+    "condition": "Partly cloudy",
+    "source": "Fixed demo forecast; not live weather"
+  },
+  "prompt": "Call get_weather for San Francisco. Using that demo forecast, suggest a relaxed afternoon with a bookstore, coffee, and a sunset walk. Reply in English with the heading 'A slower afternoon', a three-row Markdown table (Time / Plan), and a short weather note. Keep it under 100 words. Use only get_weather; do not delegate or call other tools."
+}
+```
+
+CopilotKit 和 OpenUI 在 `vite.config.ts` 的 `defineConfig({...})` 中添加以下 `server` 属性。前端运行在 3000 端口，代理将 `/api/*` 去掉 `/api` 前缀后转发给 Bub。另外两个标签页包含各自的代理配置。
+
+```typescript title="vite.config.ts (server property)"
+server: {
+  host: "localhost",
+  port: 3000,
+  strictPort: true,
+  proxy: {
+    "/api": {
+      target: "http://127.0.0.1:28201",
+      changeOrigin: true,
+      rewrite: (path) => path.replace(/^\/api/, ""),
+    },
+  },
+},
+```
+
+将存储辅助文件保存为 `app/demo-session.ts`（assistant-ui）或 `src/demo-session.ts`（其他前端）。它通过浏览器的 `sessionStorage` 保存会话 ID、消息和状态。
+
+```typescript title="demo-session.ts"
+import { HttpAgent, type Message } from "@ag-ui/client";
+
+type DemoSession = {
+  threadId: string;
+  messages: Message[];
+  state: HttpAgent["state"];
+};
+
+// Demo storage for one browser tab. A deployed app supplies its own storage.
+export function readDemoSession(key: string): DemoSession {
+  const saved = sessionStorage.getItem(key);
+  if (saved) return JSON.parse(saved) as DemoSession;
+  const session = { threadId: crypto.randomUUID(), messages: [], state: {} };
+  sessionStorage.setItem(key, JSON.stringify(session));
+  return session;
+}
+
+export function persistDemoSession(key: string, agent: HttpAgent) {
+  const save = () =>
+    sessionStorage.setItem(
+      key,
+      JSON.stringify({
+        threadId: agent.threadId,
+        messages: agent.messages,
+        state: agent.state,
+      }),
+    );
+  return agent.subscribe({
+    onRunFinalized: save,
+  });
+}
+```
+
+</details>
+
+<Tabs syncKey="bub-ag-ui-frontend">
+<TabItem label="assistant-ui">
+
+assistant-ui 提供 AG-UI runtime，负责连接和浏览器工具调用。
+
+### 创建项目 {#assistant-ui-project}
+
+通过[官方 Starter](https://www.assistant-ui.com/docs/cli)创建项目，选择默认模板，再安装 AG-UI runtime。保留 Starter 安装的 `@assistant-ui/react` 版本。
+
+```bash
+npx assistant-ui@latest create bub-assistant-ui
+cd bub-assistant-ui
+npm install @assistant-ui/react-ag-ui@0.1.2 @ag-ui/client@1.0.4
+```
+
+### 连接 Bub {#assistant-ui-connect}
+
+将共用辅助文件保存为 `app/demo-session.ts`。在 `next.config.ts` 的配置对象中添加以下 rewrite，保留 Starter 原有配置和 `withAui` 包装：
+
+```typescript title="next.config.ts (configuration property)"
+async rewrites() {
+  return [{ source: "/api/:path*", destination: "http://127.0.0.1:28201/:path*" }];
+},
+```
+
+创建 `app/BubRuntimeProvider.tsx`，接入 runtime、恢复界面消息并注册天气工具：
+
+<details>
+<summary>app/BubRuntimeProvider.tsx</summary>
+
+```tsx title="app/BubRuntimeProvider.tsx"
+"use client";
+
+import { useEffect, useState, type ReactNode } from "react";
+import { HttpAgent } from "@ag-ui/client";
+import { useAgUiRuntime, fromAgUiMessages } from "@assistant-ui/react-ag-ui";
+import {
+  AssistantRuntimeProvider,
+  ExportedMessageRepository,
+  type ThreadHistoryAdapter,
+} from "@assistant-ui/react";
+import { readDemoSession, persistDemoSession } from "./demo-session";
+
+type Session = { agent: HttpAgent; history: ThreadHistoryAdapter };
+
+function ConnectedRuntime({ session, children }: { session: Session; children: ReactNode }) {
+  const runtime = useAgUiRuntime({ agent: session.agent, adapters: { history: session.history } });
+  useEffect(
+    () =>
+      runtime.registerModelContextProvider({
+        getModelContext: () => ({
+          tools: {
+            get_weather: {
+              description: "Return a fixed demo forecast for San Francisco, not live weather.",
+              parameters: {
+                type: "object",
+                properties: { city: { type: "string" } },
+                required: ["city"],
+              },
+              execute: async () => ({
+                city: "San Francisco",
+                temperature_c: 18,
+                condition: "Partly cloudy",
+                source: "Fixed demo forecast; not live weather",
+              }),
+            },
+          },
+        }),
+      }),
+    [runtime],
+  );
+  return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
+}
+
+export function BubRuntimeProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    try {
+      const key = "bub-assistant-ui-demo";
+      const saved = readDemoSession(key);
+      const agent = new HttpAgent({
+        url: "/api/agent",
+        threadId: saved.threadId,
+        initialMessages: saved.messages,
+        initialState: saved.state,
+      });
+      const subscription = persistDemoSession(key, agent);
+      setSession({
+        agent,
+        history: {
+          load: async () => ({
+            ...ExportedMessageRepository.fromArray(fromAgUiMessages(saved.messages)),
+            state: saved.state,
+          }),
+          // The SDK subscription saves the complete messages/state snapshot.
+          append: async () => {},
+        },
+      });
+      return () => subscription.unsubscribe();
+    } catch (cause) {
+      setError(String(cause));
+    }
+  }, []);
+  if (error) return <p role="alert">{error}</p>;
+  if (!session) return <p role="status">Loading conversation...</p>;
+  return <ConnectedRuntime session={session}>{children}</ConnectedRuntime>;
+}
+```
+
+</details>
+
+用以下内容替换 `app/assistant.tsx`，保留现有的 `app/page.tsx` 入口：
+
+```tsx title="app/assistant.tsx"
+"use client";
+
+import { BubRuntimeProvider } from "./BubRuntimeProvider";
+import { Thread } from "@/components/assistant-ui/elements/thread.aui";
+
+export const Assistant = () => (
+  <BubRuntimeProvider>
+    <div style={{ height: "100dvh" }}><Thread /></div>
+  </BubRuntimeProvider>
+);
+```
+
+### 启动前端 {#assistant-ui-start}
+
+```bash
+npm run dev -- --hostname localhost --port 3000
+```
+
+</TabItem>
+<TabItem label="CopilotKit">
+
+此示例使用 `CopilotChat` 和 `useFrontendTool`，通过仅供开发使用的 `agents__unsafe_dev_only` 连接 Bub。部署时使用 [CopilotKit runtime](https://docs.copilotkit.ai/backend/self-managed-agents)，接法可参考 [LangChain 集成指南](https://docs.langchain.com/oss/python/langchain/frontend/integrations/copilotkit)。
+
+### 创建项目 {#copilotkit-project}
+
+创建 React 项目，并安装匹配的 CopilotKit 和 AG-UI 版本：
+
+```bash
+npm create vite@latest bub-copilotkit -- --template react-ts
+cd bub-copilotkit
+npm install
+npm install @copilotkit/react-core@1.85.0 @ag-ui/client@1.0.2 @ag-ui/core@1.0.2 rxjs@7.8.1 zod@3.25.76
+```
+
+### 连接 Bub {#copilotkit-connect}
+
+将共用文件保存为 `src/demo-session.ts` 和 `src/scenario.json`，添加共用的 Vite 代理。创建 `src/BubHttpAgent.ts`，从浏览器存储恢复界面消息，无需向 Bub 请求历史：
+
+<details>
+<summary>src/BubHttpAgent.ts</summary>
+
+```typescript title="src/BubHttpAgent.ts"
+import { HttpAgent } from "@ag-ui/client";
+import { EventType, type BaseEvent, type RunAgentInput } from "@ag-ui/core";
+import { Observable } from "rxjs";
+import { readDemoSession } from "./demo-session";
+
+export const storageKey = "bub-copilotkit-demo";
+
+export class BubHttpAgent extends HttpAgent {
+  protected connect(input: RunAgentInput): Observable<BaseEvent> {
+    return new Observable((subscriber) => {
+      const saved = readDemoSession(storageKey);
+      // Local UI hydration only; no request or model run is started here.
+      subscriber.next({
+        type: EventType.RUN_STARTED,
+        threadId: input.threadId,
+        runId: input.runId,
+      } as BaseEvent);
+      subscriber.next({ type: EventType.MESSAGES_SNAPSHOT, messages: saved.messages } as BaseEvent);
+      subscriber.next({ type: EventType.STATE_SNAPSHOT, snapshot: saved.state } as BaseEvent);
+      subscriber.next({
+        type: EventType.RUN_FINISHED,
+        threadId: input.threadId,
+        runId: input.runId,
+      } as BaseEvent);
+      subscriber.complete();
+    });
+  }
+}
+```
+
+</details>
+
+替换 `src/main.tsx`。`useFrontendTool` 注册天气工具，并将执行结果返回给 Bub：
+
+```tsx title="src/main.tsx"
+import { createRoot } from "react-dom/client";
+import { BubHttpAgent, storageKey } from "./BubHttpAgent";
+import { readDemoSession, persistDemoSession } from "./demo-session";
+import { CopilotChat, CopilotKit, useFrontendTool } from "@copilotkit/react-core/v2";
+import "@copilotkit/react-core/v2/styles.css";
+import { z } from "zod";
+import scenario from "./scenario.json";
+
+const saved = readDemoSession(storageKey);
+const threadId = saved.threadId;
+function WeatherChat() {
+  useFrontendTool({
+    name: scenario.tool.name,
+    description: scenario.tool.description,
+    parameters: z.object({ city: z.string() }),
+    handler: async ({ city }) => {
+      console.info("COMPAT_TOOL_EXECUTED", "get_weather", city);
+      return scenario.result;
+    },
+  });
+  return (
+    <main style={{ height: "100dvh", minWidth: 0 }}>
+      <CopilotChat
+        agentId="bub"
+        threadId={threadId}
+        labels={{
+          welcomeMessageText: "Plan a slower afternoon with Bub.",
+          chatInputPlaceholder: "Ask about the demo forecast...",
+        }}
+      />
+    </main>
+  );
+}
+async function start() {
+  const bub = new BubHttpAgent({
+    agentId: "bub",
+    threadId,
+    url: "/api/agent",
+    initialMessages: saved.messages,
+    initialState: saved.state,
+  });
+  persistDemoSession(storageKey, bub);
+  createRoot(document.getElementById("root")!).render(
+    <CopilotKit agents__unsafe_dev_only={{ bub }} showDevConsole={false}>
+      <WeatherChat />
+    </CopilotKit>,
+  );
+}
+start().catch((error) => {
+  console.error(error);
+  document.getElementById("root")!.textContent = String(error);
+});
+```
+
+### 启动前端 {#copilotkit-start}
+
+```bash
+npm run dev
+```
+
+</TabItem>
+<TabItem label="OpenUI">
+
+OpenUI 提供 `AgentInterface` 和 AG-UI 解析器。下方应用代码将它们接入 Bub，并处理浏览器工具调用。
+
+### 创建项目 {#openui-project}
+
+创建 React 项目并安装 OpenUI：
+
+```bash
+npm create vite@latest bub-openui -- --template react-ts
+cd bub-openui
+npm install
+npm install @openuidev/react-ui@0.18.5 @openuidev/react-headless@0.18.5 @openuidev/react-lang@1.1.0 @ag-ui/client@1.0.4 zod@4 zustand@4
+```
+
+### 连接 Bub {#openui-connect}
+
+将共用文件保存为 `src/demo-session.ts` 和 `src/scenario.json`，添加共用的 Vite 代理，再替换 `src/main.tsx`：
+
+<details>
+<summary>src/main.tsx</summary>
+
+```tsx title="src/main.tsx"
+import { createRoot } from "react-dom/client";
+import { AgentInterface } from "@openuidev/react-ui";
+import {
+  agUIAdapter,
+  type ChatLLM,
+  type ChatStorage,
+  type Message as OpenMessage,
+} from "@openuidev/react-headless";
+import { HttpAgent, type Message } from "@ag-ui/client";
+import "@openuidev/react-ui/styles/index.css";
+import scenario from "./scenario.json";
+import { readDemoSession, persistDemoSession } from "./demo-session";
+
+const storageKey = "bub-openui-demo";
+const threadId = readDemoSession(storageKey).threadId;
+const baseThread = { id: threadId, title: "Weekend weather planner", createdAt: Date.now() };
+const storage: ChatStorage = {
+  thread: {
+    listThreads: async () => ({ threads: [baseThread] }),
+    createThread: async () => baseThread,
+    getMessages: async () => readDemoSession(storageKey).messages as OpenMessage[],
+    updateThread: async (thread) => thread,
+    deleteThread: async () => {
+      throw Error("Deletion is not enabled in this compatibility demo");
+    },
+  },
+};
+
+// OpenUI supplies the UI and AG-UI parser. This application bridge owns browser
+// tool execution and continuation; neither package is patched.
+const llm: ChatLLM = {
+  streamProtocol: agUIAdapter(),
+  send: async ({ messages, signal }) => {
+    const agent = new HttpAgent({
+      url: "/api/agent",
+      threadId,
+      initialMessages: messages as Message[],
+      initialState: readDemoSession(storageKey).state,
+    });
+    const subscription = persistDemoSession(storageKey, agent);
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const emit = (event: unknown) =>
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        const abort = () => agent.abortRun();
+        signal.addEventListener("abort", abort, { once: true });
+        (async () => {
+          try {
+            const executed = new Set<string>();
+            for (let round = 0; round < 4; round++) {
+              await agent.runAgent(
+                { tools: [scenario.tool] },
+                {
+                  onEvent: ({ event }) => {
+                    emit(event);
+                  },
+                },
+              );
+              if (signal.aborted) break;
+              const answered = new Set(
+                agent.messages.filter((m) => m.role === "tool").map((m) => m.toolCallId),
+              );
+              const pending = agent.messages
+                .flatMap((m) => (m.role === "assistant" ? (m.toolCalls ?? []) : []))
+                .filter((t) => !answered.has(t.id));
+              if (!pending.length) break;
+              for (const call of pending) {
+                if (call.function.name !== "get_weather" || executed.has(call.id))
+                  throw Error(`Unsupported or repeated browser tool: ${call.function.name}`);
+                const args = JSON.parse(call.function.arguments);
+                if (typeof args.city !== "string" || args.city.toLowerCase() !== "san francisco")
+                  throw Error("Demo fixture supports San Francisco only");
+                executed.add(call.id);
+                console.info("COMPAT_TOOL_EXECUTED", "get_weather", args.city);
+                const message = {
+                  id: crypto.randomUUID(),
+                  role: "tool" as const,
+                  toolCallId: call.id,
+                  content: JSON.stringify(scenario.result),
+                };
+                agent.addMessage(message);
+                emit({
+                  type: "TOOL_CALL_RESULT",
+                  messageId: message.id,
+                  toolCallId: call.id,
+                  content: message.content,
+                  role: "tool",
+                });
+              }
+              if (round === 3) throw Error("Browser tool continuation limit exceeded");
+            }
+            controller.close();
+          } catch (error) {
+            console.error(error);
+            controller.error(error);
+          } finally {
+            signal.removeEventListener("abort", abort);
+            subscription.unsubscribe();
+          }
+        })();
+      },
+      cancel() {
+        agent.abortRun();
+      },
+    });
+    return new Response(stream, { headers: { "Content-Type": "text/event-stream" } });
+  },
+};
+createRoot(document.getElementById("root")!).render(
+  <div style={{ height: "100dvh" }}>
+    <AgentInterface
+      llm={llm}
+      storage={storage}
+      agentName="Bub + OpenUI"
+      theme={{ mode: "light" }}
+      starterVariant="short"
+      starters={[{ displayText: "Plan a slower afternoon", prompt: scenario.prompt }]}
+    />
+  </div>,
+);
+```
+
+</details>
+
+此示例在侧栏保留一个会话，并禁用删除功能。默认渲染器会将 Markdown 表格显示为纯文本。调整界面时可参考 [OpenUI Agent 示例](https://github.com/thesysdev/openui/tree/main/examples/agent-frameworks/mastra)。
+
+### 启动前端 {#openui-start}
+
+```bash
+npm run dev
+```
+
+</TabItem>
+<TabItem label="AI Elements">
+
+AI Elements 提供 UI 组件，应用通过 `HttpAgent` 将它们接入 Bub，并处理浏览器工具调用。
+
+### 创建项目 {#ai-elements-project}
+
+创建 React 项目，安装 AG-UI 客户端和 Tailwind CSS：
+
+```bash
+npm create vite@latest bub-ai-elements -- --template react-ts
+cd bub-ai-elements
+npm install
+npm install @ag-ui/client@1.0.4 ai@7.0.153
+npm install -D tailwindcss @tailwindcss/vite @types/node
+```
+
+### 连接 Bub {#ai-elements-connect}
+
+替换 `vite.config.ts`，配置 React、Tailwind、`@` 别名和 Bub 代理：
+
+```typescript title="vite.config.ts"
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath } from "node:url";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  server: {
+    host: "localhost", port: 3000, strictPort: true,
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:28201",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
+    },
+  },
+});
+```
+
+在 `tsconfig.json` 和 `tsconfig.app.json` 的 `compilerOptions` 中添加以下属性：
+
+```json
+"paths": { "@/*": ["./src/*"] },
+"resolveJsonModule": true
+```
+
+用以下内容替换 `src/index.css`，然后选择 Radix 安装 UI 组件：
+
+```css title="src/index.css"
+@import "tailwindcss";
+```
+
+```bash
+npx shadcn@latest init --base radix
+npx ai-elements@latest add conversation message prompt-input tool suggestion
+```
+
+将共用文件保存为 `src/demo-session.ts` 和 `src/scenario.json`，再替换 `src/main.tsx`。组件用法可参考 [AI Elements 指南](https://docs.langchain.com/oss/python/langchain/frontend/integrations/ai-elements)。
+
+<details>
+<summary>src/main.tsx</summary>
+
+```tsx title="src/main.tsx"
+import { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { HttpAgent, type Message as AgMessage } from "@ag-ui/client";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
+import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputTextarea,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTools,
+  type PromptInputMessage,
+} from "@/components/ai-elements/prompt-input";
+import {
+  Tool,
+  ToolHeader,
+  ToolContent,
+  ToolInput,
+  ToolOutput,
+} from "@/components/ai-elements/tool";
+import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import type { ChatStatus } from "ai";
+import scenario from "./scenario.json";
+import { readDemoSession, persistDemoSession } from "./demo-session";
+import "./index.css";
+
+const storageKey = "bub-ai-elements-demo";
+function Chat({ agent }: { agent: HttpAgent }) {
+  const [messages, setMessages] = useState<AgMessage[]>(agent.messages);
+  const [status, setStatus] = useState<ChatStatus>("ready");
+  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  useEffect(
+    () =>
+      agent.subscribe({
+        onMessagesChanged: ({ messages }) => setMessages([...messages]),
+        onTextMessageContentEvent: () => {
+          setStatus("streaming");
+        },
+      }).unsubscribe,
+    [agent],
+  );
+  async function send(value: string) {
+    if (!value.trim() || status === "submitted" || status === "streaming") return;
+    setText("");
+    setError("");
+    setStatus("submitted");
+    agent.addMessage({ id: crypto.randomUUID(), role: "user", content: value });
+    try {
+      const executed = new Set<string>();
+      for (let round = 0; round < 4; round++) {
+        await agent.runAgent({ tools: [scenario.tool] });
+        const answered = new Set(
+          agent.messages.filter((m) => m.role === "tool").map((m) => m.toolCallId),
+        );
+        const pending = agent.messages
+          .flatMap((m) => (m.role === "assistant" ? (m.toolCalls ?? []) : []))
+          .filter((t) => !answered.has(t.id));
+        if (!pending.length) break;
+        for (const call of pending) {
+          if (call.function.name !== "get_weather" || executed.has(call.id))
+            throw Error(`Unsupported or repeated browser tool: ${call.function.name}`);
+          const args = JSON.parse(call.function.arguments);
+          if (typeof args.city !== "string" || args.city.toLowerCase() !== "san francisco")
+            throw Error("Demo fixture supports San Francisco only");
+          executed.add(call.id);
+          console.info("COMPAT_TOOL_EXECUTED", "get_weather", args.city);
+          agent.addMessage({
+            id: crypto.randomUUID(),
+            role: "tool",
+            toolCallId: call.id,
+            content: JSON.stringify(scenario.result),
+          });
+        }
+        if (round === 3) throw Error("Browser tool continuation limit exceeded");
+      }
+      setStatus("ready");
+    } catch (e) {
+      setError(String(e));
+      setStatus("error");
+      console.error(e);
+    }
+  }
+  const busy = status === "submitted" || status === "streaming";
+  // Conversation / message / composer layout adapted from the official chatbot
+  // example. Mock streaming and unsupported model/search/attachment controls are
+  // removed. AG-UI is an explicit application bridge, not an AI Elements runtime.
+  return (
+    <div className="relative flex h-dvh w-full flex-col divide-y overflow-hidden">
+      <Conversation>
+        <ConversationContent>
+          {messages
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((message) => (
+              <Message from={message.role as "user" | "assistant"} key={message.id}>
+                <div>
+                  {message.role === "assistant" &&
+                    message.toolCalls?.map((call) => {
+                      const result = messages.find(
+                        (m) => m.role === "tool" && m.toolCallId === call.id,
+                      );
+                      let input: unknown = {};
+                      try {
+                        input = JSON.parse(call.function.arguments || "{}");
+                      } catch {
+                        input = call.function.arguments;
+                      }
+                      return (
+                        <Tool key={call.id}>
+                          <ToolHeader
+                            type="dynamic-tool"
+                            toolName={call.function.name}
+                            state={
+                              result
+                                ? "output-available"
+                                : busy
+                                  ? "input-streaming"
+                                  : "input-available"
+                            }
+                          />
+                          <ToolContent>
+                            <ToolInput input={input} />
+                            {result && <ToolOutput output={result.content} errorText={undefined} />}
+                          </ToolContent>
+                        </Tool>
+                      );
+                    })}
+                  {typeof message.content === "string" && message.content && (
+                    <MessageContent>
+                      <MessageResponse>{message.content}</MessageResponse>
+                    </MessageContent>
+                  )}
+                </div>
+              </Message>
+            ))}
+          {error && (
+            <p role="alert" className="text-destructive">
+              {error}
+            </p>
+          )}
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
+      <div className="grid shrink-0 gap-4 pt-4">
+        {!messages.length && (
+          <Suggestions className="px-4">
+            <Suggestion
+              suggestion="Plan a slower afternoon"
+              onClick={() => void send(scenario.prompt)}
+            />
+          </Suggestions>
+        )}
+        <div className="w-full px-4 pb-4">
+          <PromptInput onSubmit={(message: PromptInputMessage) => send(message.text)}>
+            <PromptInputBody>
+              <PromptInputTextarea onChange={(e) => setText(e.target.value)} value={text} />
+            </PromptInputBody>
+            <PromptInputFooter>
+              <PromptInputTools>
+                <span className="text-xs text-muted-foreground">
+                  Bub · AG-UI bridge · Demo forecast
+                </span>
+              </PromptInputTools>
+              <PromptInputSubmit
+                status={status}
+                disabled={!busy && !text.trim()}
+                onStop={() => agent.abortRun()}
+              />
+            </PromptInputFooter>
+          </PromptInput>
+        </div>
+      </div>
+    </div>
+  );
+}
+async function start() {
+  const saved = readDemoSession(storageKey);
+  const agent = new HttpAgent({
+    url: "/api/agent",
+    threadId: saved.threadId,
+    initialMessages: saved.messages,
+    initialState: saved.state,
+  });
+  persistDemoSession(storageKey, agent);
+  createRoot(document.getElementById("root")!).render(
+    <TooltipProvider>
+      <Chat agent={agent} />
+    </TooltipProvider>,
+  );
+}
+start().catch((error) => {
+  console.error(error);
+  document.getElementById("root")!.textContent = String(error);
+});
+```
+
+</details>
+
+### 启动前端 {#ai-elements-start}
+
+```bash
+npm run dev
+```
+
+</TabItem>
+</Tabs>
+
+## 3. 开始对话 {#verify}
+
+启动一个前端后，打开 `http://localhost:3000`，发送以下请求：
+
+```text
+Call get_weather for San Francisco, then suggest an afternoon plan using the demo forecast.
+```
+
+Bub 会调用浏览器工具，再根据结果建议下午的行程。预报为 18°C、局部多云，使用的是演示数据，不是实时天气。
+
+回复结束后，在同一浏览器标签页刷新，消息应仍然可见。OpenUI 需要从侧栏选择保存的会话。继续询问刚才讨论的是哪个城市、多少度，即可接着聊下去。
+
+## 会话与界面历史 {#tools-and-history}
+
+示例将会话 ID、消息和状态保存在 `sessionStorage` 中，刷新后恢复界面中的对话。没有保存消息的新浏览器标签页无法向 Bub 获取旧的界面历史；AG-UI 服务只提供 `POST /agent`。
+
+Bub 自行管理模型的会话上下文。保留同一个 `threadId` 可以继续对话；后端重启时，需保留 Bub 的默认文件或[数据库存储](/zh-cn/docs/integrations/storage/)。浏览器存储用于恢复界面，无法恢复已删除的 Bub 上下文或未完成的工具调用。回复完成前应保持后端运行。每轮默认超时为 600 秒，包含等待浏览器工具的时间。
+
+清除示例的存储键并刷新，即可开始新会话。不支持编辑旧消息或重新生成回复；如果 UI 模板提供这些操作，请禁用相应入口。部署时，将演示存储替换为适合应用的数据存储和用户隔离方案。
+
+## 在自己的前端中使用 HttpAgent {#connect}
+
+如果自行编写界面，可以用 `@ag-ui/client` 管理连接和消息状态。下方纯 TypeScript 示例展示流式文本，每次刷新都会创建新会话。
+
+<details>
+<summary>最小浏览器聊天示例</summary>
+
+创建 Vite 项目：
+
+```bash
+npm create vite@latest bub-chat -- --template vanilla-ts
+cd bub-chat
+npm install
+npm install @ag-ui/client@1.0.4
+```
+
+替换 `src/main.ts`：
+
+```typescript title="src/main.ts"
+import { HttpAgent } from "@ag-ui/client";
+
+const root = document.querySelector<HTMLDivElement>("#app")!;
+root.innerHTML = `
+  <h1>Bub chat</h1>
+  <pre id="messages" aria-live="polite"></pre>
+  <form>
+    <label>Message <input name="message" required /></label>
+    <button>Send</button>
+  </form>
+  <p id="status" role="status"></p>
+`;
+
+const form = root.querySelector("form")!;
+const input = root.querySelector("input")!;
+const button = root.querySelector("button")!;
+const messages = root.querySelector<HTMLPreElement>("#messages")!;
+const status = root.querySelector<HTMLParagraphElement>("#status")!;
+const agent = new HttpAgent({
+  url: "http://127.0.0.1:28201/agent",
+  threadId: crypto.randomUUID(),
+});
+
+agent.subscribe({
+  onMessagesChanged: ({ messages: current }) => {
+    messages.textContent = current
+      .map((message) => `${message.role}: ${message.content ?? ""}`)
+      .join("\n\n");
+  },
+});
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const content = input.value.trim();
+  if (!content || button.disabled) return;
+
+  agent.addMessage({ id: crypto.randomUUID(), role: "user", content });
+  input.value = "";
+  button.disabled = true;
+  status.textContent = "Running...";
+  try {
+    await agent.runAgent({}, {
+      onRunErrorEvent: ({ event }) => {
+        status.textContent = event.message;
+      },
+    });
+    if (status.textContent === "Running...") status.textContent = "Ready";
+  } catch (error) {
+    status.textContent = String(error);
+  } finally {
+    button.disabled = false;
+    input.focus();
+  }
+});
+```
+
+启动 Vite，打开 `http://localhost:3000`：
+
+```bash
+npm run dev -- --host localhost --port 3000 --strictPort
+```
+
+</details>
+
+此示例直接请求 Bub，默认允许的来源为 `http://localhost:3000`。如果使用其他前端来源，在启动后端前设置 `BUB_AG_UI_ORIGINS`：
+
+```bash
+export BUB_AG_UI_ORIGINS='["http://localhost:5173"]'
+```
+
+来源中的协议、主机名和端口都需要匹配。`localhost` 和 `127.0.0.1` 属于不同来源。
+
+## 部署服务 {#hosting}
+
+监听非回环地址时，设置 `BUB_AG_UI_TOKEN`，并在请求中发送 `Authorization: Bearer <token>`。token 保存在应用服务器中。如果浏览器直接连接 Bub，还需配置 `BUB_AG_UI_ORIGINS`。
+
+共享 token 对应一个用户身份。多用户认证与网关配置见[插件 README](https://github.com/bubbuild/bub-contrib/blob/main/packages/bub-ag-ui/README.md)。
+
+## 排障 {#troubleshooting}
+
+| 现象 | 检查方法 |
+| --- | --- |
+| 没有 `ag-ui` 命令 | 在安装插件的环境中运行 `bub ag-ui --help`。 |
+| 浏览器请求失败 | 检查前端代理；直连时，检查 `BUB_AG_UI_ORIGINS` 是否与完整来源一致。 |
+| 请求返回 401 或 403 | 检查 Bearer 请求头和认证配置。 |
+| 没有回复 | 用 `bub run "Say hello"` 验证模型配置，并查看后端日志。 |
+| 工具调用后没有继续回复 | 检查前端是否返回工具结果并继续对话。 |
+| 运行返回 `RUN_ERROR` | 查看事件中的错误信息和后端日志。 |

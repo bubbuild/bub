@@ -1,0 +1,938 @@
+---
+title: Connect an AI chat frontend to Bub with AG-UI
+description: Try Bub's experimental AG-UI support. Connect an AI chat frontend with examples for streaming replies, browser tools, and UI history.
+sidebar:
+  label: Web frontends with AG-UI
+  badge: { text: 'App', variant: 'note' }
+tableOfContents:
+  maxHeadingLevel: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+The `bub-ag-ui` plugin connects Bub to a web chat frontend over AG-UI. You can stream replies and let Bub call tools in the browser. The integration is experimental.
+
+This guide connects a chat UI and uses a weather tool to plan an afternoon in San Francisco. Start with the assistant-ui tab if you do not already have a frontend.
+
+## Before you start {#before-you-start}
+
+- [Install the Bub application](/docs/getting-started/install/#app-install) and [configure a model](/docs/app/configure/).
+- Install Node.js and npm for the frontend.
+
+## 1. Install and start the plugin {#install}
+
+Install the plugin in the environment that runs Bub, then start the service:
+
+```bash
+bub install bub-ag-ui@main
+bub ag-ui --help
+bub ag-ui --host 127.0.0.1 --port 28201
+```
+
+Keep this terminal open. The frontend will send requests to `http://127.0.0.1:28201/agent` and receive streaming replies.
+
+## 2. Connect a frontend {#choose-ui}
+
+Choose one of the tabs below. Each example connects to the same Bub service, runs a `get_weather` tool in the browser, and saves the displayed conversation for page reloads. The weather data is a fixed demo forecast for San Francisco.
+
+The tabs use these shared files. Copy the files needed by your frontend after creating its project.
+
+<details>
+<summary>Shared example files</summary>
+
+Save the weather tool and data as `src/scenario.json` for CopilotKit, OpenUI, and AI Elements. The assistant-ui example includes them in its provider.
+
+```json title="src/scenario.json"
+{
+  "name": "Weekend weather planner",
+  "tool": {
+    "name": "get_weather",
+    "description": "Return a fixed demonstration weather forecast for a city. This is sample data for UI compatibility testing, not live weather.",
+    "parameters": {
+      "type": "object",
+      "properties": {"city": {"type": "string", "description": "City to look up"}},
+      "required": ["city"],
+      "additionalProperties": false
+    }
+  },
+  "result": {
+    "city": "San Francisco",
+    "temperature_c": 18,
+    "condition": "Partly cloudy",
+    "source": "Fixed demo forecast; not live weather"
+  },
+  "prompt": "Call get_weather for San Francisco. Using that demo forecast, suggest a relaxed afternoon with a bookstore, coffee, and a sunset walk. Reply in English with the heading 'A slower afternoon', a three-row Markdown table (Time / Plan), and a short weather note. Keep it under 100 words. Use only get_weather; do not delegate or call other tools."
+}
+```
+
+For CopilotKit and OpenUI, add this `server` property to `defineConfig({...})` in `vite.config.ts`. It serves the frontend on port 3000 and forwards `/api/*` to Bub, removing the `/api` prefix. The other two tabs include their own proxy configuration.
+
+```typescript title="vite.config.ts (server property)"
+server: {
+  host: "localhost",
+  port: 3000,
+  strictPort: true,
+  proxy: {
+    "/api": {
+      target: "http://127.0.0.1:28201",
+      changeOrigin: true,
+      rewrite: (path) => path.replace(/^\/api/, ""),
+    },
+  },
+},
+```
+
+Save this storage helper as `app/demo-session.ts` for assistant-ui, or `src/demo-session.ts` for the other frontends. It keeps the thread ID, messages, and state in the browser's `sessionStorage`.
+
+```typescript title="demo-session.ts"
+import { HttpAgent, type Message } from "@ag-ui/client";
+
+type DemoSession = {
+  threadId: string;
+  messages: Message[];
+  state: HttpAgent["state"];
+};
+
+// Demo storage for one browser tab. A deployed app supplies its own storage.
+export function readDemoSession(key: string): DemoSession {
+  const saved = sessionStorage.getItem(key);
+  if (saved) return JSON.parse(saved) as DemoSession;
+  const session = { threadId: crypto.randomUUID(), messages: [], state: {} };
+  sessionStorage.setItem(key, JSON.stringify(session));
+  return session;
+}
+
+export function persistDemoSession(key: string, agent: HttpAgent) {
+  const save = () =>
+    sessionStorage.setItem(
+      key,
+      JSON.stringify({
+        threadId: agent.threadId,
+        messages: agent.messages,
+        state: agent.state,
+      }),
+    );
+  return agent.subscribe({
+    onRunFinalized: save,
+  });
+}
+```
+
+</details>
+
+<Tabs syncKey="bub-ag-ui-frontend">
+<TabItem label="assistant-ui">
+
+assistant-ui provides an AG-UI runtime for the connection and browser-tool calls.
+
+### Create the project {#assistant-ui-project}
+
+Use the [official Starter](https://www.assistant-ui.com/docs/cli), select the default template, and install the AG-UI runtime. Keep the Starter's `@assistant-ui/react` version.
+
+```bash
+npx assistant-ui@latest create bub-assistant-ui
+cd bub-assistant-ui
+npm install @assistant-ui/react-ag-ui@0.1.2 @ag-ui/client@1.0.4
+```
+
+### Connect to Bub {#assistant-ui-connect}
+
+Save the shared helper as `app/demo-session.ts`. Add this rewrite to the configuration object in `next.config.ts`, keeping the Starter settings and `withAui` wrapper:
+
+```typescript title="next.config.ts (configuration property)"
+async rewrites() {
+  return [{ source: "/api/:path*", destination: "http://127.0.0.1:28201/:path*" }];
+},
+```
+
+Create `app/BubRuntimeProvider.tsx` to connect the runtime, restore displayed messages, and register the weather tool:
+
+<details>
+<summary>app/BubRuntimeProvider.tsx</summary>
+
+```tsx title="app/BubRuntimeProvider.tsx"
+"use client";
+
+import { useEffect, useState, type ReactNode } from "react";
+import { HttpAgent } from "@ag-ui/client";
+import { useAgUiRuntime, fromAgUiMessages } from "@assistant-ui/react-ag-ui";
+import {
+  AssistantRuntimeProvider,
+  ExportedMessageRepository,
+  type ThreadHistoryAdapter,
+} from "@assistant-ui/react";
+import { readDemoSession, persistDemoSession } from "./demo-session";
+
+type Session = { agent: HttpAgent; history: ThreadHistoryAdapter };
+
+function ConnectedRuntime({ session, children }: { session: Session; children: ReactNode }) {
+  const runtime = useAgUiRuntime({ agent: session.agent, adapters: { history: session.history } });
+  useEffect(
+    () =>
+      runtime.registerModelContextProvider({
+        getModelContext: () => ({
+          tools: {
+            get_weather: {
+              description: "Return a fixed demo forecast for San Francisco, not live weather.",
+              parameters: {
+                type: "object",
+                properties: { city: { type: "string" } },
+                required: ["city"],
+              },
+              execute: async () => ({
+                city: "San Francisco",
+                temperature_c: 18,
+                condition: "Partly cloudy",
+                source: "Fixed demo forecast; not live weather",
+              }),
+            },
+          },
+        }),
+      }),
+    [runtime],
+  );
+  return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
+}
+
+export function BubRuntimeProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    try {
+      const key = "bub-assistant-ui-demo";
+      const saved = readDemoSession(key);
+      const agent = new HttpAgent({
+        url: "/api/agent",
+        threadId: saved.threadId,
+        initialMessages: saved.messages,
+        initialState: saved.state,
+      });
+      const subscription = persistDemoSession(key, agent);
+      setSession({
+        agent,
+        history: {
+          load: async () => ({
+            ...ExportedMessageRepository.fromArray(fromAgUiMessages(saved.messages)),
+            state: saved.state,
+          }),
+          // The SDK subscription saves the complete messages/state snapshot.
+          append: async () => {},
+        },
+      });
+      return () => subscription.unsubscribe();
+    } catch (cause) {
+      setError(String(cause));
+    }
+  }, []);
+  if (error) return <p role="alert">{error}</p>;
+  if (!session) return <p role="status">Loading conversation...</p>;
+  return <ConnectedRuntime session={session}>{children}</ConnectedRuntime>;
+}
+```
+
+</details>
+
+Replace `app/assistant.tsx` with the following and keep the existing `app/page.tsx` entry:
+
+```tsx title="app/assistant.tsx"
+"use client";
+
+import { BubRuntimeProvider } from "./BubRuntimeProvider";
+import { Thread } from "@/components/assistant-ui/elements/thread.aui";
+
+export const Assistant = () => (
+  <BubRuntimeProvider>
+    <div style={{ height: "100dvh" }}><Thread /></div>
+  </BubRuntimeProvider>
+);
+```
+
+### Start the frontend {#assistant-ui-start}
+
+```bash
+npm run dev -- --hostname localhost --port 3000
+```
+
+</TabItem>
+<TabItem label="CopilotKit">
+
+This example uses `CopilotChat` and `useFrontendTool` with the development-only `agents__unsafe_dev_only` connection. For deployment, use a [CopilotKit runtime](https://docs.copilotkit.ai/backend/self-managed-agents), as shown in the [LangChain integration guide](https://docs.langchain.com/oss/python/langchain/frontend/integrations/copilotkit).
+
+### Create the project {#copilotkit-project}
+
+Create a React project and install the matching CopilotKit and AG-UI versions:
+
+```bash
+npm create vite@latest bub-copilotkit -- --template react-ts
+cd bub-copilotkit
+npm install
+npm install @copilotkit/react-core@1.85.0 @ag-ui/client@1.0.2 @ag-ui/core@1.0.2 rxjs@7.8.1 zod@3.25.76
+```
+
+### Connect to Bub {#copilotkit-connect}
+
+Save the shared files as `src/demo-session.ts` and `src/scenario.json`, then add the shared Vite proxy. Create `src/BubHttpAgent.ts` to restore displayed messages from browser storage without requesting them from Bub:
+
+<details>
+<summary>src/BubHttpAgent.ts</summary>
+
+```typescript title="src/BubHttpAgent.ts"
+import { HttpAgent } from "@ag-ui/client";
+import { EventType, type BaseEvent, type RunAgentInput } from "@ag-ui/core";
+import { Observable } from "rxjs";
+import { readDemoSession } from "./demo-session";
+
+export const storageKey = "bub-copilotkit-demo";
+
+export class BubHttpAgent extends HttpAgent {
+  protected connect(input: RunAgentInput): Observable<BaseEvent> {
+    return new Observable((subscriber) => {
+      const saved = readDemoSession(storageKey);
+      // Local UI hydration only; no request or model run is started here.
+      subscriber.next({
+        type: EventType.RUN_STARTED,
+        threadId: input.threadId,
+        runId: input.runId,
+      } as BaseEvent);
+      subscriber.next({ type: EventType.MESSAGES_SNAPSHOT, messages: saved.messages } as BaseEvent);
+      subscriber.next({ type: EventType.STATE_SNAPSHOT, snapshot: saved.state } as BaseEvent);
+      subscriber.next({
+        type: EventType.RUN_FINISHED,
+        threadId: input.threadId,
+        runId: input.runId,
+      } as BaseEvent);
+      subscriber.complete();
+    });
+  }
+}
+```
+
+</details>
+
+Replace `src/main.tsx`. `useFrontendTool` registers the weather tool and returns its result to Bub:
+
+```tsx title="src/main.tsx"
+import { createRoot } from "react-dom/client";
+import { BubHttpAgent, storageKey } from "./BubHttpAgent";
+import { readDemoSession, persistDemoSession } from "./demo-session";
+import { CopilotChat, CopilotKit, useFrontendTool } from "@copilotkit/react-core/v2";
+import "@copilotkit/react-core/v2/styles.css";
+import { z } from "zod";
+import scenario from "./scenario.json";
+
+const saved = readDemoSession(storageKey);
+const threadId = saved.threadId;
+function WeatherChat() {
+  useFrontendTool({
+    name: scenario.tool.name,
+    description: scenario.tool.description,
+    parameters: z.object({ city: z.string() }),
+    handler: async ({ city }) => {
+      console.info("COMPAT_TOOL_EXECUTED", "get_weather", city);
+      return scenario.result;
+    },
+  });
+  return (
+    <main style={{ height: "100dvh", minWidth: 0 }}>
+      <CopilotChat
+        agentId="bub"
+        threadId={threadId}
+        labels={{
+          welcomeMessageText: "Plan a slower afternoon with Bub.",
+          chatInputPlaceholder: "Ask about the demo forecast...",
+        }}
+      />
+    </main>
+  );
+}
+async function start() {
+  const bub = new BubHttpAgent({
+    agentId: "bub",
+    threadId,
+    url: "/api/agent",
+    initialMessages: saved.messages,
+    initialState: saved.state,
+  });
+  persistDemoSession(storageKey, bub);
+  createRoot(document.getElementById("root")!).render(
+    <CopilotKit agents__unsafe_dev_only={{ bub }} showDevConsole={false}>
+      <WeatherChat />
+    </CopilotKit>,
+  );
+}
+start().catch((error) => {
+  console.error(error);
+  document.getElementById("root")!.textContent = String(error);
+});
+```
+
+### Start the frontend {#copilotkit-start}
+
+```bash
+npm run dev
+```
+
+</TabItem>
+<TabItem label="OpenUI">
+
+OpenUI provides `AgentInterface` and an AG-UI parser. The application code below connects them to Bub and handles browser-tool calls.
+
+### Create the project {#openui-project}
+
+Create a React project and install OpenUI:
+
+```bash
+npm create vite@latest bub-openui -- --template react-ts
+cd bub-openui
+npm install
+npm install @openuidev/react-ui@0.18.5 @openuidev/react-headless@0.18.5 @openuidev/react-lang@1.1.0 @ag-ui/client@1.0.4 zod@4 zustand@4
+```
+
+### Connect to Bub {#openui-connect}
+
+Save the shared files as `src/demo-session.ts` and `src/scenario.json`, then add the shared Vite proxy. Replace `src/main.tsx`:
+
+<details>
+<summary>src/main.tsx</summary>
+
+```tsx title="src/main.tsx"
+import { createRoot } from "react-dom/client";
+import { AgentInterface } from "@openuidev/react-ui";
+import {
+  agUIAdapter,
+  type ChatLLM,
+  type ChatStorage,
+  type Message as OpenMessage,
+} from "@openuidev/react-headless";
+import { HttpAgent, type Message } from "@ag-ui/client";
+import "@openuidev/react-ui/styles/index.css";
+import scenario from "./scenario.json";
+import { readDemoSession, persistDemoSession } from "./demo-session";
+
+const storageKey = "bub-openui-demo";
+const threadId = readDemoSession(storageKey).threadId;
+const baseThread = { id: threadId, title: "Weekend weather planner", createdAt: Date.now() };
+const storage: ChatStorage = {
+  thread: {
+    listThreads: async () => ({ threads: [baseThread] }),
+    createThread: async () => baseThread,
+    getMessages: async () => readDemoSession(storageKey).messages as OpenMessage[],
+    updateThread: async (thread) => thread,
+    deleteThread: async () => {
+      throw Error("Deletion is not enabled in this compatibility demo");
+    },
+  },
+};
+
+// OpenUI supplies the UI and AG-UI parser. This application bridge owns browser
+// tool execution and continuation; neither package is patched.
+const llm: ChatLLM = {
+  streamProtocol: agUIAdapter(),
+  send: async ({ messages, signal }) => {
+    const agent = new HttpAgent({
+      url: "/api/agent",
+      threadId,
+      initialMessages: messages as Message[],
+      initialState: readDemoSession(storageKey).state,
+    });
+    const subscription = persistDemoSession(storageKey, agent);
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const emit = (event: unknown) =>
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        const abort = () => agent.abortRun();
+        signal.addEventListener("abort", abort, { once: true });
+        (async () => {
+          try {
+            const executed = new Set<string>();
+            for (let round = 0; round < 4; round++) {
+              await agent.runAgent(
+                { tools: [scenario.tool] },
+                {
+                  onEvent: ({ event }) => {
+                    emit(event);
+                  },
+                },
+              );
+              if (signal.aborted) break;
+              const answered = new Set(
+                agent.messages.filter((m) => m.role === "tool").map((m) => m.toolCallId),
+              );
+              const pending = agent.messages
+                .flatMap((m) => (m.role === "assistant" ? (m.toolCalls ?? []) : []))
+                .filter((t) => !answered.has(t.id));
+              if (!pending.length) break;
+              for (const call of pending) {
+                if (call.function.name !== "get_weather" || executed.has(call.id))
+                  throw Error(`Unsupported or repeated browser tool: ${call.function.name}`);
+                const args = JSON.parse(call.function.arguments);
+                if (typeof args.city !== "string" || args.city.toLowerCase() !== "san francisco")
+                  throw Error("Demo fixture supports San Francisco only");
+                executed.add(call.id);
+                console.info("COMPAT_TOOL_EXECUTED", "get_weather", args.city);
+                const message = {
+                  id: crypto.randomUUID(),
+                  role: "tool" as const,
+                  toolCallId: call.id,
+                  content: JSON.stringify(scenario.result),
+                };
+                agent.addMessage(message);
+                emit({
+                  type: "TOOL_CALL_RESULT",
+                  messageId: message.id,
+                  toolCallId: call.id,
+                  content: message.content,
+                  role: "tool",
+                });
+              }
+              if (round === 3) throw Error("Browser tool continuation limit exceeded");
+            }
+            controller.close();
+          } catch (error) {
+            console.error(error);
+            controller.error(error);
+          } finally {
+            signal.removeEventListener("abort", abort);
+            subscription.unsubscribe();
+          }
+        })();
+      },
+      cancel() {
+        agent.abortRun();
+      },
+    });
+    return new Response(stream, { headers: { "Content-Type": "text/event-stream" } });
+  },
+};
+createRoot(document.getElementById("root")!).render(
+  <div style={{ height: "100dvh" }}>
+    <AgentInterface
+      llm={llm}
+      storage={storage}
+      agentName="Bub + OpenUI"
+      theme={{ mode: "light" }}
+      starterVariant="short"
+      starters={[{ displayText: "Plan a slower afternoon", prompt: scenario.prompt }]}
+    />
+  </div>,
+);
+```
+
+</details>
+
+This example keeps one thread in the sidebar and disables deletion. Its default renderer displays Markdown tables as plain text. To customize the UI, see the [OpenUI agent example](https://github.com/thesysdev/openui/tree/main/examples/agent-frameworks/mastra).
+
+### Start the frontend {#openui-start}
+
+```bash
+npm run dev
+```
+
+</TabItem>
+<TabItem label="AI Elements">
+
+AI Elements provides the UI components. The application uses `HttpAgent` to connect them to Bub and handle browser-tool calls.
+
+### Create the project {#ai-elements-project}
+
+Create a React project and install the AG-UI client and Tailwind CSS:
+
+```bash
+npm create vite@latest bub-ai-elements -- --template react-ts
+cd bub-ai-elements
+npm install
+npm install @ag-ui/client@1.0.4 ai@7.0.153
+npm install -D tailwindcss @tailwindcss/vite @types/node
+```
+
+### Connect to Bub {#ai-elements-connect}
+
+Replace `vite.config.ts` to configure React, Tailwind, the `@` alias, and the Bub proxy:
+
+```typescript title="vite.config.ts"
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath } from "node:url";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  server: {
+    host: "localhost", port: 3000, strictPort: true,
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:28201",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
+    },
+  },
+});
+```
+
+Add these properties to `compilerOptions` in both `tsconfig.json` and `tsconfig.app.json`:
+
+```json
+"paths": { "@/*": ["./src/*"] },
+"resolveJsonModule": true
+```
+
+Replace `src/index.css` with the following, then install the UI components with Radix:
+
+```css title="src/index.css"
+@import "tailwindcss";
+```
+
+```bash
+npx shadcn@latest init --base radix
+npx ai-elements@latest add conversation message prompt-input tool suggestion
+```
+
+Save the shared files as `src/demo-session.ts` and `src/scenario.json`, then replace `src/main.tsx`. For component usage, see the [AI Elements guide](https://docs.langchain.com/oss/python/langchain/frontend/integrations/ai-elements).
+
+<details>
+<summary>src/main.tsx</summary>
+
+```tsx title="src/main.tsx"
+import { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { HttpAgent, type Message as AgMessage } from "@ag-ui/client";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
+import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputTextarea,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTools,
+  type PromptInputMessage,
+} from "@/components/ai-elements/prompt-input";
+import {
+  Tool,
+  ToolHeader,
+  ToolContent,
+  ToolInput,
+  ToolOutput,
+} from "@/components/ai-elements/tool";
+import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import type { ChatStatus } from "ai";
+import scenario from "./scenario.json";
+import { readDemoSession, persistDemoSession } from "./demo-session";
+import "./index.css";
+
+const storageKey = "bub-ai-elements-demo";
+function Chat({ agent }: { agent: HttpAgent }) {
+  const [messages, setMessages] = useState<AgMessage[]>(agent.messages);
+  const [status, setStatus] = useState<ChatStatus>("ready");
+  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  useEffect(
+    () =>
+      agent.subscribe({
+        onMessagesChanged: ({ messages }) => setMessages([...messages]),
+        onTextMessageContentEvent: () => {
+          setStatus("streaming");
+        },
+      }).unsubscribe,
+    [agent],
+  );
+  async function send(value: string) {
+    if (!value.trim() || status === "submitted" || status === "streaming") return;
+    setText("");
+    setError("");
+    setStatus("submitted");
+    agent.addMessage({ id: crypto.randomUUID(), role: "user", content: value });
+    try {
+      const executed = new Set<string>();
+      for (let round = 0; round < 4; round++) {
+        await agent.runAgent({ tools: [scenario.tool] });
+        const answered = new Set(
+          agent.messages.filter((m) => m.role === "tool").map((m) => m.toolCallId),
+        );
+        const pending = agent.messages
+          .flatMap((m) => (m.role === "assistant" ? (m.toolCalls ?? []) : []))
+          .filter((t) => !answered.has(t.id));
+        if (!pending.length) break;
+        for (const call of pending) {
+          if (call.function.name !== "get_weather" || executed.has(call.id))
+            throw Error(`Unsupported or repeated browser tool: ${call.function.name}`);
+          const args = JSON.parse(call.function.arguments);
+          if (typeof args.city !== "string" || args.city.toLowerCase() !== "san francisco")
+            throw Error("Demo fixture supports San Francisco only");
+          executed.add(call.id);
+          console.info("COMPAT_TOOL_EXECUTED", "get_weather", args.city);
+          agent.addMessage({
+            id: crypto.randomUUID(),
+            role: "tool",
+            toolCallId: call.id,
+            content: JSON.stringify(scenario.result),
+          });
+        }
+        if (round === 3) throw Error("Browser tool continuation limit exceeded");
+      }
+      setStatus("ready");
+    } catch (e) {
+      setError(String(e));
+      setStatus("error");
+      console.error(e);
+    }
+  }
+  const busy = status === "submitted" || status === "streaming";
+  // Conversation / message / composer layout adapted from the official chatbot
+  // example. Mock streaming and unsupported model/search/attachment controls are
+  // removed. AG-UI is an explicit application bridge, not an AI Elements runtime.
+  return (
+    <div className="relative flex h-dvh w-full flex-col divide-y overflow-hidden">
+      <Conversation>
+        <ConversationContent>
+          {messages
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((message) => (
+              <Message from={message.role as "user" | "assistant"} key={message.id}>
+                <div>
+                  {message.role === "assistant" &&
+                    message.toolCalls?.map((call) => {
+                      const result = messages.find(
+                        (m) => m.role === "tool" && m.toolCallId === call.id,
+                      );
+                      let input: unknown = {};
+                      try {
+                        input = JSON.parse(call.function.arguments || "{}");
+                      } catch {
+                        input = call.function.arguments;
+                      }
+                      return (
+                        <Tool key={call.id}>
+                          <ToolHeader
+                            type="dynamic-tool"
+                            toolName={call.function.name}
+                            state={
+                              result
+                                ? "output-available"
+                                : busy
+                                  ? "input-streaming"
+                                  : "input-available"
+                            }
+                          />
+                          <ToolContent>
+                            <ToolInput input={input} />
+                            {result && <ToolOutput output={result.content} errorText={undefined} />}
+                          </ToolContent>
+                        </Tool>
+                      );
+                    })}
+                  {typeof message.content === "string" && message.content && (
+                    <MessageContent>
+                      <MessageResponse>{message.content}</MessageResponse>
+                    </MessageContent>
+                  )}
+                </div>
+              </Message>
+            ))}
+          {error && (
+            <p role="alert" className="text-destructive">
+              {error}
+            </p>
+          )}
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
+      <div className="grid shrink-0 gap-4 pt-4">
+        {!messages.length && (
+          <Suggestions className="px-4">
+            <Suggestion
+              suggestion="Plan a slower afternoon"
+              onClick={() => void send(scenario.prompt)}
+            />
+          </Suggestions>
+        )}
+        <div className="w-full px-4 pb-4">
+          <PromptInput onSubmit={(message: PromptInputMessage) => send(message.text)}>
+            <PromptInputBody>
+              <PromptInputTextarea onChange={(e) => setText(e.target.value)} value={text} />
+            </PromptInputBody>
+            <PromptInputFooter>
+              <PromptInputTools>
+                <span className="text-xs text-muted-foreground">
+                  Bub · AG-UI bridge · Demo forecast
+                </span>
+              </PromptInputTools>
+              <PromptInputSubmit
+                status={status}
+                disabled={!busy && !text.trim()}
+                onStop={() => agent.abortRun()}
+              />
+            </PromptInputFooter>
+          </PromptInput>
+        </div>
+      </div>
+    </div>
+  );
+}
+async function start() {
+  const saved = readDemoSession(storageKey);
+  const agent = new HttpAgent({
+    url: "/api/agent",
+    threadId: saved.threadId,
+    initialMessages: saved.messages,
+    initialState: saved.state,
+  });
+  persistDemoSession(storageKey, agent);
+  createRoot(document.getElementById("root")!).render(
+    <TooltipProvider>
+      <Chat agent={agent} />
+    </TooltipProvider>,
+  );
+}
+start().catch((error) => {
+  console.error(error);
+  document.getElementById("root")!.textContent = String(error);
+});
+```
+
+</details>
+
+### Start the frontend {#ai-elements-start}
+
+```bash
+npm run dev
+```
+
+</TabItem>
+</Tabs>
+
+## 3. Try the conversation {#verify}
+
+With one frontend running, open `http://localhost:3000` and send this request:
+
+```text
+Call get_weather for San Francisco, then suggest an afternoon plan using the demo forecast.
+```
+
+Bub calls the browser tool and uses its result to suggest an afternoon plan. The forecast is 18°C and partly cloudy; it is demo data, not live weather.
+
+After the reply finishes, reload the same browser tab. Your messages should still be visible. In OpenUI, select the saved thread from the sidebar. Ask which city and temperature you discussed to continue the conversation.
+
+## Conversations and UI history {#tools-and-history}
+
+The examples save the thread ID, messages, and state in `sessionStorage`. Reloading restores the displayed conversation. A new browser tab without saved messages cannot retrieve earlier display history from Bub; the AG-UI service only exposes `POST /agent`.
+
+Bub manages the model's conversation context. Keep the same `threadId` to continue it, and retain Bub's default files or [database storage](/docs/integrations/storage/) across backend restarts. Browser storage restores the UI; it cannot recover deleted Bub context or unfinished tool calls. Keep the backend running until the reply finishes. The default turn timeout is 600 seconds, including time spent waiting for browser tools.
+
+To start a new conversation, clear the example's storage key and reload. Editing earlier messages and regenerating replies are unsupported; disable those actions if your UI template exposes them. For deployment, replace the demo storage with storage and user isolation suitable for your application.
+
+## Use HttpAgent in your own frontend {#connect}
+
+If you are building your own UI, use `@ag-ui/client` for the connection and message state. This plain TypeScript example displays streamed text and creates a new thread on each reload.
+
+<details>
+<summary>Minimal browser chat</summary>
+
+Create a Vite project:
+
+```bash
+npm create vite@latest bub-chat -- --template vanilla-ts
+cd bub-chat
+npm install
+npm install @ag-ui/client@1.0.4
+```
+
+Replace `src/main.ts`:
+
+```typescript title="src/main.ts"
+import { HttpAgent } from "@ag-ui/client";
+
+const root = document.querySelector<HTMLDivElement>("#app")!;
+root.innerHTML = `
+  <h1>Bub chat</h1>
+  <pre id="messages" aria-live="polite"></pre>
+  <form>
+    <label>Message <input name="message" required /></label>
+    <button>Send</button>
+  </form>
+  <p id="status" role="status"></p>
+`;
+
+const form = root.querySelector("form")!;
+const input = root.querySelector("input")!;
+const button = root.querySelector("button")!;
+const messages = root.querySelector<HTMLPreElement>("#messages")!;
+const status = root.querySelector<HTMLParagraphElement>("#status")!;
+const agent = new HttpAgent({
+  url: "http://127.0.0.1:28201/agent",
+  threadId: crypto.randomUUID(),
+});
+
+agent.subscribe({
+  onMessagesChanged: ({ messages: current }) => {
+    messages.textContent = current
+      .map((message) => `${message.role}: ${message.content ?? ""}`)
+      .join("\n\n");
+  },
+});
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const content = input.value.trim();
+  if (!content || button.disabled) return;
+
+  agent.addMessage({ id: crypto.randomUUID(), role: "user", content });
+  input.value = "";
+  button.disabled = true;
+  status.textContent = "Running...";
+  try {
+    await agent.runAgent({}, {
+      onRunErrorEvent: ({ event }) => {
+        status.textContent = event.message;
+      },
+    });
+    if (status.textContent === "Running...") status.textContent = "Ready";
+  } catch (error) {
+    status.textContent = String(error);
+  } finally {
+    button.disabled = false;
+    input.focus();
+  }
+});
+```
+
+Start Vite and open `http://localhost:3000`:
+
+```bash
+npm run dev -- --host localhost --port 3000 --strictPort
+```
+
+</details>
+
+This example calls Bub directly. Bub allows `http://localhost:3000` by default. For another frontend origin, set `BUB_AG_UI_ORIGINS` before starting the backend:
+
+```bash
+export BUB_AG_UI_ORIGINS='["http://localhost:5173"]'
+```
+
+Match the scheme, hostname, and port exactly. `localhost` and `127.0.0.1` are different origins.
+
+## Deploy the service {#hosting}
+
+When listening on a non-loopback address, set `BUB_AG_UI_TOKEN` and send `Authorization: Bearer <token>` with requests. Keep the token on the application server. Configure `BUB_AG_UI_ORIGINS` if browsers connect to Bub directly.
+
+A shared token represents one user identity. For multi-user authentication and gateway setup, follow the [plugin README](https://github.com/bubbuild/bub-contrib/blob/main/packages/bub-ag-ui/README.md).
+
+## Troubleshooting {#troubleshooting}
+
+| Symptom | Check |
+| --- | --- |
+| `ag-ui` command is missing | Run `bub ag-ui --help` in the environment where the plugin is installed. |
+| Browser requests fail | Check the frontend proxy, or match `BUB_AG_UI_ORIGINS` to the exact origin for direct connections. |
+| Requests return 401 or 403 | Check the Bearer header and authentication configuration. |
+| No reply appears | Test the model with `bub run "Say hello"` and check backend logs. |
+| A tool call has no follow-up reply | Check that the frontend returns the tool result and continues the conversation. |
+| A run returns `RUN_ERROR` | Read the event's error message and check the backend logs. |
