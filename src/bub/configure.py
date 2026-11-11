@@ -50,11 +50,25 @@ def load(config_file: Path) -> dict[str, Any]:
     """Load config from a file."""
     import yaml
 
+    from bub.errors import BubError, ErrorKind
+
     _global_config.clear()
     _config_data.clear()
     if config_file.exists():
-        with config_file.open() as f:
-            _config_data.update(yaml.safe_load(f) or {})
+        try:
+            with config_file.open(encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except (yaml.YAMLError, UnicodeDecodeError) as exc:
+            raise BubError(
+                ErrorKind.CONFIG, f"Invalid config file {config_file}: {exc}"
+            ) from exc
+        if data is not None and not isinstance(data, dict):
+            raise BubError(
+                ErrorKind.CONFIG,
+                f"Invalid config file {config_file}: expected a mapping, "
+                f"got {type(data).__name__}",
+            )
+        _config_data.update(data or {})
     return _config_data
 
 
