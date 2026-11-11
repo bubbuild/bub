@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from republic.errors import UnsupportedFeatureError
 
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.builtin.store import FuzzyFileTapeStore
@@ -308,7 +309,7 @@ async def test_builtin_model_options_list_configured_and_keyed_providers(tmp_pat
         listed.append(provider)
         if provider == "broken":
             raise RuntimeError("no listing")
-        return [f"{provider}:gpt-5", f"{provider}:gpt-5-mini"]
+        return [f"{provider}:gpt-5", f"{provider}:gpt-5-mini", f"{provider}:gpt-5"]
 
     with pytest.MonkeyPatch.context() as monkeypatch:
         for name in list(os.environ):
@@ -324,11 +325,16 @@ async def test_builtin_model_options_list_configured_and_keyed_providers(tmp_pat
 
         assert options is not None
         assert options.current_model == "openai:gpt-5"
-        assert [item.id for item in options.models] == [
-            f"{provider}:{model}"
-            for provider in ("openai", "anthropic", "deepseek")
-            for model in ("gpt-5", "gpt-5-mini")
+        expected_models = [
+            "openai:gpt-5",
+            "anthropic:claude-sonnet-4-5",
+            "openai:gpt-5-mini",
+            "anthropic:gpt-5",
+            "anthropic:gpt-5-mini",
+            "deepseek:gpt-5",
+            "deepseek:gpt-5-mini",
         ]
+        assert [item.id for item in options.models] == expected_models
 
         tape = agent.tape(session_tape_name("session", impl.framework.workspace))
         await tape.append_event("model_switch", {"model": "broken:model"})
@@ -336,8 +342,43 @@ async def test_builtin_model_options_list_configured_and_keyed_providers(tmp_pat
 
         assert options is not None
         assert options.current_model == "broken:model"
-        assert [item.id for item in options.models][:2] == ["broken:model", "openai:gpt-5"]
+        assert [item.id for item in options.models] == ["broken:model", *expected_models]
         assert listed[3:] == ["broken", "openai", "anthropic", "deepseek"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "listing_error", [UnsupportedFeatureError, RuntimeError, None], ids=["unsupported", "failed", "empty"]
+)
+async def test_builtin_model_options_keep_configured_models_without_discovery(
+    tmp_path: Path, load_config, monkeypatch: pytest.MonkeyPatch, listing_error: type[Exception] | None
+) -> None:
+    from bub.builtin.model import BubModel
+
+    async def list_models(self: BubModel, provider: str) -> list[str]:
+        if listing_error is not None:
+            raise listing_error("Model listing unavailable")
+        return []
+
+    monkeypatch.setattr(BubModel, "list_models", list_models)
+    config_file = load_config(
+        "model: example:primary\nfallback_models:\n  - example:fallback\n  - example:primary\n  - example:fallback"
+    )
+    _, impl, agent = _build_impl(tmp_path, config_file=config_file)
+
+    options = await impl.provide_model_options(session_id="session")
+
+    assert options is not None
+    assert options.current_model == "example:primary"
+    assert [item.id for item in options.models] == ["example:primary", "example:fallback"]
+
+    tape = agent.tape(session_tape_name("session", impl.framework.workspace))
+    await tape.append_event("model_switch", {"model": "example:session"})
+    options = await impl.provide_model_options(session_id="session")
+
+    assert options is not None
+    assert options.current_model == "example:session"
+    assert [item.id for item in options.models] == ["example:session", "example:primary", "example:fallback"]
 
 
 def test_system_prompt_appends_workspace_agents_file(tmp_path: Path) -> None:
