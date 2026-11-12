@@ -27,7 +27,7 @@ from bub.core.events import (
     ToolCallFinished,
     ToolCallStarted,
 )
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.store import InMemoryTapeStore
 from bub.core.tools import Tool
 from bub.errors import BubError
 from tests.model_fakes import ProviderService, chat_events, sse, tool_events
@@ -82,7 +82,7 @@ async def test_core_agent_pending_messages_continue_the_run_with_next_prompt(
         republic.assistant("second"),
     ]
     tape = agent.tape("session")
-    entries = await tape.store.fetch_all(tape.query().kinds("event"))
+    entries = await tape.query().kinds("event").all()
     assert [entry.payload["data"]["status"] for entry in entries if entry.payload["name"] == "loop.step"] == [
         "continue",
         "ok",
@@ -157,7 +157,7 @@ async def test_core_agent_runs_tool_loop_and_emits_events(provider_service: Prov
     tape = agent.tape("session")
     roles = [message.role for message in await tape.read_messages()]
     assert roles[-4:] == ["user", "assistant", "tool", "assistant"]
-    names = [entry.payload["name"] for entry in await tape.store.fetch_all(tape.query().kinds("event"))]
+    names = [entry.payload["name"] for entry in await tape.query().kinds("event").all()]
     assert names.index("loop.start") < names.index("loop.step.start") < names.index("run") < names.index("loop.finish")
 
 
@@ -314,7 +314,8 @@ def test_tapes_share_the_agent_store() -> None:
     agent = Agent(store=store)
 
     assert agent.tape("a").store is agent.tape("b").store
-    assert isinstance(Agent().tape("a").store, AsyncTapeStoreAdapter)
+    assert agent.tape("a").store is store
+    assert isinstance(Agent().tape("a").store, InMemoryTapeStore)
 
 
 @pytest.mark.asyncio
@@ -331,7 +332,7 @@ async def test_leaving_run_early_closes_the_stream_and_merges_the_fork(provider_
 
     messages = await agent.tape("early").read_messages()
     assert [message.role for message in messages] == []
-    names = [entry.payload["name"] for entry in await agent.tape("early").store.fetch_all(agent.tape("early").query())]
+    names = [entry.payload["name"] for entry in await agent.tape("early").query().all()]
     assert "loop.start" in names
     assert "loop.finish" in names
     assert [(event.status, event.steps) for event in finished] == [("cancelled", 1)]
@@ -473,9 +474,7 @@ async def test_command_prompt_calls_the_tool_without_the_model() -> None:
     ]
     tape = agent.tape("commands")
     (command,) = [
-        entry.payload["data"]
-        for entry in await tape.store.fetch_all(tape.query().kinds("event"))
-        if entry.payload["name"] == "command"
+        entry.payload["data"] for entry in await tape.query().kinds("event").all() if entry.payload["name"] == "command"
     ]
     assert (command["name"], command["status"], command["output"]) == ("greet", "ok", "hello ada?")
 

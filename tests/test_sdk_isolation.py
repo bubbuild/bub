@@ -116,7 +116,7 @@ async def test_prefixed_commands_render_structured_results(framework: BubFramewo
 
     assert output == "found"
     tape = agent.tape(session_tape_name("sdk", framework.workspace))
-    events = list(await tape.store.fetch_all(tape.query().kinds("event")))
+    events = await tape.query().kinds("event").all()
     recorded = [entry.payload["data"] for entry in events if entry.payload.get("name") == "command"]
     assert len(recorded) == 1
     assert recorded[0]["output"] == "found"
@@ -216,4 +216,4 @@ async def test_builtin_channels_create_the_agent_with_the_running_store(framewor
     async with framework.running():
         await cli._agent.tape("early").append_event("probe", {})  # type: ignore[attr-defined]
 
-    assert store.list_tapes() == ["early"]
+    assert (await store.list_tapes()) == ["early"]

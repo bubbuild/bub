@@ -656,16 +656,17 @@ async def snapshot_tape(tape: Tape, step_messages: Iterable[republic.Message] = 
     model step that called it, and does not see what the parent records later.
     """
     from bub.core.sidecars import sidecar_tape_name
-    from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+    from bub.core.store import InMemoryTapeStore
     from bub.core.tape import TapeEntry
 
     store = InMemoryTapeStore()
     for name in (tape.name, *(sidecar_tape_name(tape.name, sidecar.name) for sidecar in tape.sidecars)):
-        for entry in await tape.store.fetch_all(tape.scoped(name).query()):
-            store.append(name, entry.copy())
+        async with tape.scoped(name).query().stream() as entries:
+            async for entry in entries:
+                await store.append(name, entry.copy())
     for message in step_messages:
-        store.append(tape.name, TapeEntry.message(message.to_dict()))
-    return replace(tape, store=AsyncTapeStoreAdapter(store))
+        await store.append(tape.name, TapeEntry.message(message.to_dict()))
+    return replace(tape, store=store)
 
 
 async def _build_request(param: SubAgentInput, context: ToolContext) -> tuple[_RunRequest, SubagentProfile | None]:

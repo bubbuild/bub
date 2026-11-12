@@ -10,7 +10,7 @@ import pytest
 from bub.builtin.hook_impl import AGENTS_FILE_NAME, DEFAULT_SYSTEM_PROMPT, BuiltinImpl
 from bub.builtin.store import FuzzyFileTapeStore
 from bub.channels.message import ChannelMessage
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.store import InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext, session_tape_name
 from bub.framework import BubFramework
 from bub.streaming import AsyncStreamEvents, StreamEvent
@@ -31,7 +31,7 @@ class RecordingLifespan:
 
 def _fake_tape(home: Path) -> Tape:
     return Tape(
-        store=AsyncTapeStoreAdapter(InMemoryTapeStore()),
+        store=InMemoryTapeStore(),
         context=TapeContext(),
     )
 

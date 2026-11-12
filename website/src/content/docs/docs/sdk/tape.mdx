@@ -74,7 +74,7 @@ Run the program again with the same storage directory and Tape name to read the 
 | --- | --- | --- |
 | `InMemoryTapeStore` (default) | Current Agent instance and process | Tests and temporary scripts |
 | `FileTapeStore` | One `.jsonl` file per Tape | Single-machine CLIs, development, and single-node services |
-| Custom `TapeStore` / `AsyncTapeStore` | Defined by the host | Redis, SQL, and distributed storage |
+| Custom `TapeStore` + `TapeAccess` | Defined by the host | Redis, SQL, and distributed storage |
 
 :::note[Notes]
 

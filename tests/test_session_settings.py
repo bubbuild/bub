@@ -5,13 +5,13 @@ from pathlib import Path
 import pytest
 
 from bub.builtin.settings import load_session_settings, set_session_setting
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.store import InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
 from bub.core.tools import ToolContext
 
 
 def _context(tmp_path: Path) -> ToolContext:
-    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("session")
+    tape = Tape(InMemoryTapeStore(), TapeContext()).scoped("session")
     return ToolContext(tape=tape, run_id="run-1", state={})
 
 
@@ -26,7 +26,7 @@ async def test_session_settings_round_trip_through_switch_events(tmp_path: Path)
 
     assert context.state == {"model": "openai:gpt-4o", "reasoning_effort": "high", "code_mode": False}
     assert await load_session_settings(context.tape) == context.state
-    events = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
+    events = await context.tape.query().kinds("event").all()
     assert events[0].payload == {"name": "model_switch", "data": {"model": "openai:gpt-4o"}}
 
 

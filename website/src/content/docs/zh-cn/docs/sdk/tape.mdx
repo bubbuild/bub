@@ -76,7 +76,7 @@ agent = Agent(
 | --- | --- | --- |
 | `InMemoryTapeStore`（默认） | 当前 Agent 实例与进程 | 测试、临时脚本 |
 | `FileTapeStore` | 每个 Tape 一个 `.jsonl` 文件 | 单机 CLI、开发环境、单节点服务 |
-| 自定义 `TapeStore` / `AsyncTapeStore` | 由宿主实现决定 | Redis、SQL、分布式存储 |
+| 自定义 `TapeStore` + `TapeAccess` | 由宿主实现决定 | Redis、SQL、分布式存储 |
 
 :::note[注意事项]
 

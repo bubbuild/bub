@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, TypedDict
 from bub.core.agent import Agent
 from bub.core.events import MessagesPending, StepFinished
 from bub.core.sidecars import TapeSidecar
-from bub.core.store import AsyncTapeStore, TapeStore
+from bub.core.store import TapeAccess
 from bub.core.system_prompt import PromptContext
 from bub.core.tape import TapeContext
 from bub.envelope import Envelope, field_of, normalize_envelope
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 class AgentComponents(TypedDict, total=False):
     """Agent constructor arguments provided by plugin hooks."""
 
-    store: TapeStore | AsyncTapeStore
+    store: TapeAccess
     context: TapeContext
     sidecars: Sequence[TapeSidecar]
 

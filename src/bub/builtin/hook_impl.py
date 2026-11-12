@@ -22,7 +22,7 @@ from bub.core.commands import strip_command_prefix
 from bub.core.context import default_tape_context
 from bub.core.events import ToolCall, ToolCallDecision, ToolCallResult
 from bub.core.sidecars import TapeSidecar
-from bub.core.store import TapeStore
+from bub.core.store import TapeAccess
 from bub.core.tape import TapeContext, session_tape_name
 from bub.core.tools import Tool, is_content_result, render_result
 from bub.envelope import Envelope, content_of, field_of
@@ -276,7 +276,7 @@ class BuiltinImpl:
         return LocalEnvironment(workspace)
 
     @hookimpl
-    def provide_tape_store(self) -> TapeStore:
+    def provide_tape_store(self) -> TapeAccess:
         import bub
         from bub.builtin.store import FuzzyFileTapeStore
 

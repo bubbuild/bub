@@ -12,7 +12,8 @@ from pydantic_settings import SettingsConfigDict
 
 from bub import config
 from bub.configure import Settings
-from bub.core.tape import Tape, TapeEntry, TapeQuery
+from bub.core.store import TapeQuery
+from bub.core.tape import Tape, TapeEntry
 from bub.core.tools import ToolContext, tool
 from bub.errors import BubError, ErrorKind
 
@@ -194,7 +195,7 @@ class SpillStore:
             .limit(1)
         )
         try:
-            entries = list(await tape.store.fetch_all(query))
+            entries = await query.all()
         except BubError as exc:
             if exc.kind is ErrorKind.NOT_FOUND:
                 return None
@@ -238,7 +239,7 @@ class SpillStore:
             .limit(stop - start)
         )
         try:
-            entries = list(await tape.store.fetch_all(query))
+            entries = await query.all()
         except BubError as exc:
             if exc.kind is ErrorKind.NOT_FOUND:
                 raise IncompleteSpillError(f"missing chunk {start} for handle {handle!r}") from exc

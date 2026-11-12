@@ -314,7 +314,7 @@ def system_prompt(self, prompt: str | list[dict], state: TurnState) -> str:
 Provides the Tape store used to record conversations.
 
 ```python
-def provide_tape_store(self) -> TapeStore | AsyncTapeStore | None:
+def provide_tape_store(self) -> TapeAccess | None:
 ```
 
 - **Dispatch**: First result; may return a generator.
@@ -656,7 +656,7 @@ The difference between listening on the EventBus directly and using interception
 
 ```python
 class AgentComponents(TypedDict, total=False):
-    store: TapeStore | AsyncTapeStore
+    store: TapeAccess
     context: TapeContext
     sidecars: Sequence[TapeSidecar]
 ```

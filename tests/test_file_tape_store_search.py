@@ -9,6 +9,7 @@ from bub.core.store import TapeQuery
 from bub.core.tape import TapeEntry
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("content", "query", "matches"),
     [
@@ -23,21 +24,22 @@ from bub.core.tape import TapeEntry
         ("deployment configuration", "   ", False),
     ],
 )
-def test_file_search_matches_persisted_payload(tmp_path: Path, content: str, query: str, matches: bool) -> None:
+async def test_file_search_matches_persisted_payload(tmp_path: Path, content: str, query: str, matches: bool) -> None:
     store = FuzzyFileTapeStore(tmp_path)
-    store.append("session", TapeEntry.message({"role": "user", "content": content}))
+    (await store.append("session", TapeEntry.message({"role": "user", "content": content})))
 
     # Reopen the store so the query exercises persisted data rather than its write cache.
     reopened = FuzzyFileTapeStore(tmp_path)
     search = TapeQuery("session", reopened).query(query)
-    entries = list(search.all())
+    entries = await search.all()
 
     assert [entry.payload["content"] for entry in entries] == ([content] if matches else [])
-    assert search._query == query
+    assert search.spec.text == query
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("limit", [1, 2, 10])
-def test_fuzzy_search_preserves_filters_order_deduplication_and_limit(tmp_path: Path, limit: int) -> None:
+async def test_fuzzy_search_preserves_filters_order_deduplication_and_limit(tmp_path: Path, limit: int) -> None:
     store = FuzzyFileTapeStore(tmp_path)
     entries = [
         TapeEntry.message({"content": "deployment before anchor"}),
@@ -51,7 +53,7 @@ def test_fuzzy_search_preserves_filters_order_deduplication_and_limit(tmp_path: 
         TapeEntry.message({"content": "deployment after anchor"}),
     ]
     for entry in entries:
-        store.append("session", entry)
+        (await store.append("session", entry))
     search = (
         TapeQuery("session", store)
         .between_anchors("start", "end")
@@ -61,26 +63,28 @@ def test_fuzzy_search_preserves_filters_order_deduplication_and_limit(tmp_path: 
         .limit(limit)
     )
 
-    assert [entry.id for entry in search.all()] == [5, 4][:limit]
-    assert search._query == "deploymnt"
-    assert search._limit == limit
+    assert [entry.id for entry in (await search.all())] == [5, 4][:limit]
+    assert search.spec.text == "deploymnt"
+    assert search.spec.limit == limit
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("last", [False, True])
-def test_fuzzy_search_preserves_after_anchor_selection(tmp_path: Path, last: bool) -> None:
+async def test_fuzzy_search_preserves_after_anchor_selection(tmp_path: Path, last: bool) -> None:
     store = FuzzyFileTapeStore(tmp_path)
-    store.append("session", TapeEntry.message({"content": "deployment before"}))
-    store.append("session", TapeEntry.anchor("checkpoint"))
-    store.append("session", TapeEntry.message({"content": "deployment after"}))
+    (await store.append("session", TapeEntry.message({"content": "deployment before"})))
+    (await store.append("session", TapeEntry.anchor("checkpoint")))
+    (await store.append("session", TapeEntry.message({"content": "deployment after"})))
     search = TapeQuery("session", store).query("deploymnt")
     search = search.last_anchor() if last else search.after_anchor("checkpoint")
 
-    assert [entry.id for entry in search.all()] == [3]
+    assert [entry.id for entry in (await search.all())] == [3]
 
 
-def test_unqueried_file_search_retains_chronological_order(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_unqueried_file_search_retains_chronological_order(tmp_path: Path) -> None:
     store = FuzzyFileTapeStore(tmp_path)
     for content in ("first", "second", "third"):
-        store.append("session", TapeEntry.message({"content": content}))
+        (await store.append("session", TapeEntry.message({"content": content})))
 
-    assert [entry.id for entry in TapeQuery("session", store).limit(2).all()] == [1, 2]
+    assert [entry.id for entry in (await TapeQuery("session", store).limit(2).all())] == [1, 2]

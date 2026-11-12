@@ -21,7 +21,7 @@ from bub.channels.contracts import ChannelRouter, MessageHandler
 from bub.configure import DEFAULT_HOME
 from bub.core.events import Event, EventBus
 from bub.core.sidecars import TapeSidecar
-from bub.core.store import AsyncTapeStore, TapeStore
+from bub.core.store import TapeAccess
 from bub.core.tape import Tape, TapeContext
 from bub.core.tools import Tool, collect_tools
 from bub.envelope import Envelope, content_of, field_of, unpack_batch
@@ -102,7 +102,7 @@ class BubFramework:
         self.events = EventBus()
         self._plugin_status: dict[str, PluginStatus] = {}
         self._channel_router: ChannelRouter | None = None
-        self._tape_store: TapeStore | AsyncTapeStore | None = None
+        self._tape_store: TapeAccess | None = None
         self._steering_inbox: SteeringInbox | None = None
         self._environments: dict[str, Environment | None] = {}
         self.default_command: str | None = None
@@ -527,7 +527,7 @@ class BubFramework:
             for lifespan in self._hook_runtime.call_many_sync("provide_lifespan"):
                 await maybe_context_manager(lifespan, stack)
             tape_store = self._hook_runtime.call_first_sync("provide_tape_store")
-            # Allow plugins to return either TapeStore/AsyncTapeStore instances or context managers for them
+            # Allow plugins to return TapeAccess instances or context managers for them
             # This benefits plugins that need to initialize and clean up resources with the tape store.
             self._tape_store = await maybe_context_manager(tape_store, stack)
 
@@ -570,7 +570,7 @@ class BubFramework:
             if isinstance(result, Exception):
                 logger.opt(exception=result).warning("Failed to close environment {!r}", environment)
 
-    def get_tape_store(self) -> TapeStore | AsyncTapeStore | None:
+    def get_tape_store(self) -> TapeAccess | None:
         """Return the store acquired by ``running()``, or None when unavailable."""
         return self._tape_store
 

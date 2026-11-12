@@ -8,7 +8,7 @@ import pytest
 import bub.builtin.tools as builtin_tools
 from bub.builtin.environment import environment_from_state
 from bub.builtin.shell_manager import ShellManager
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.store import InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
 from bub.core.tools import ToolContext
 from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, Environment, LocalEnvironment, LocalProcess, Process
@@ -60,7 +60,7 @@ class RecordingEnvironment(LocalEnvironment):
 
 
 def _context(tmp_path: Path, environment: Environment) -> ToolContext:
-    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+    tape = Tape(InMemoryTapeStore(), TapeContext()).scoped("test-tape")
     return ToolContext(
         tape=tape, run_id="run", state={"_runtime_workspace": str(tmp_path), ENVIRONMENT_STATE_KEY: environment}
     )

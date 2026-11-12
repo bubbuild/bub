@@ -1,6 +1,8 @@
 import subprocess
 import sys
 
+import pytest
+
 from bub.builtin.store import FuzzyFileTapeStore
 from bub.core.store import FileTapeStore, TapeQuery
 from bub.core.tape import TapeEntry
@@ -20,24 +22,26 @@ def test_importing_core_loads_no_app_dependencies() -> None:
     assert result.stdout.splitlines() == ["[]", "False"]
 
 
-def _search(store: FileTapeStore, text: str) -> list[str]:
-    return [entry.payload["content"] for entry in store.fetch_all(TapeQuery("tape", store).query(text))]
+async def _search(store: FileTapeStore, text: str) -> list[str]:
+    return [entry.payload["content"] for entry in (await TapeQuery("tape", store).query(text).all())]
 
 
-def _write_messages(store: FileTapeStore) -> None:
+async def _write_messages(store: FileTapeStore) -> None:
     for content in ["deploy the gateway", "unrelated", "deploy the gateway", "deploy again"]:
-        store.append("tape", TapeEntry.message({"role": "user", "content": content}))
+        (await store.append("tape", TapeEntry.message({"role": "user", "content": content})))
 
 
-def test_core_file_store_matches_text_in_order(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_core_file_store_matches_text_in_order(tmp_path) -> None:
     store = FileTapeStore(tmp_path)
-    _write_messages(store)
+    await _write_messages(store)
 
-    assert _search(store, "deploy") == ["deploy the gateway", "deploy the gateway", "deploy again"]
+    assert await _search(store, "deploy") == ["deploy the gateway", "deploy the gateway", "deploy again"]
 
 
-def test_builtin_file_store_returns_newest_unique_matches_first(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_builtin_file_store_returns_newest_unique_matches_first(tmp_path) -> None:
     store = FuzzyFileTapeStore(tmp_path)
-    _write_messages(store)
+    await _write_messages(store)
 
-    assert _search(store, "deploy") == ["deploy again", "deploy the gateway"]
+    assert await _search(store, "deploy") == ["deploy again", "deploy the gateway"]

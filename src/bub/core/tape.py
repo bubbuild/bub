@@ -22,21 +22,13 @@ __all__ = [
     "LAST_ANCHOR",
     "AnchorSelector",
     "AnchorSummary",
-    "AsyncTapeStore",
-    "AsyncTapeStoreAdapter",
     "ContextSelector",
-    "InMemoryQueryMixin",
-    "InMemoryTapeStore",
     "SelectedMessages",
     "Tape",
     "TapeContext",
     "TapeEntry",
     "TapeInfo",
-    "TapeQuery",
-    "TapeStore",
-    "UnavailableTapeStore",
     "build_messages",
-    "is_async_tape_store",
     "session_tape_name",
     "to_message",
     "to_messages",
@@ -44,41 +36,7 @@ __all__ = [
 ]
 
 if TYPE_CHECKING:
-    from bub.core.store import (
-        AsyncTapeStore,
-        AsyncTapeStoreAdapter,
-        InMemoryQueryMixin,
-        InMemoryTapeStore,
-        TapeQuery,
-        TapeStore,
-        UnavailableTapeStore,
-        is_async_tape_store,
-    )
-
-
-_STORE_EXPORTS = frozenset({
-    "AsyncTapeStore",
-    "AsyncTapeStoreAdapter",
-    "InMemoryQueryMixin",
-    "InMemoryTapeStore",
-    "TapeQuery",
-    "TapeStore",
-    "UnavailableTapeStore",
-    "is_async_tape_store",
-})
-
-
-def __getattr__(name: str) -> Any:
-    if name not in _STORE_EXPORTS:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-    from bub.core import store
-
-    return getattr(store, name)
-
-
-def __dir__() -> list[str]:
-    return sorted({*globals(), *_STORE_EXPORTS})
+    from bub.core.store import TapeAccess, TapeQuery
 
 
 def utc_now() -> str:
@@ -295,7 +253,7 @@ def session_tape_name(session_id: str, workspace: Path) -> str:
 class Tape:
     """Tape abstraction for recording agent interactions."""
 
-    store: AsyncTapeStore
+    store: TapeAccess
     context: TapeContext
     sidecars: tuple[TapeSidecar, ...] = field(default=(), repr=False)
     _name: str | None = field(default=None, repr=False)
@@ -312,7 +270,7 @@ class Tape:
     def scoped(self, name: str, context: TapeContext | None = None) -> Tape:
         return replace(self, context=context or self.context, _name=name)
 
-    def query(self) -> TapeQuery[AsyncTapeStore]:
+    def query(self) -> TapeQuery:
         from bub.core.store import TapeQuery
 
         return TapeQuery(tape=self.name, store=self.store)
@@ -330,7 +288,7 @@ class Tape:
         return sidecar_tape_name(self.name, name)
 
     async def info(self) -> TapeInfo:
-        entries = list(await self.store.fetch_all(self.query()))
+        entries = await self.query().all()
         anchors = [(i, entry) for i, entry in enumerate(entries) if entry.kind == "anchor"]
         if anchors:
             last_anchor = anchors[-1][1].payload.get("name")
@@ -372,12 +330,12 @@ class Tape:
         )
 
     async def ensure_bootstrap_anchor(self) -> None:
-        anchors = list(await self.store.fetch_all(self.query().kinds("anchor")))
+        anchors = await self.query().kinds("anchor").all()
         if not anchors:
             await self.handoff(name="session/start", state={"owner": "human"})
 
     async def anchors(self, limit: int = 20) -> list[AnchorSummary]:
-        entries = list(await self.store.fetch_all(self.query().kinds("anchor")))
+        entries = await self.query().kinds("anchor").all()
         results: list[AnchorSummary] = []
         for entry in entries[-limit:]:
             name = str(entry.payload.get("name", "-"))
@@ -386,8 +344,8 @@ class Tape:
             results.append(AnchorSummary(name=name, state=state_dict))
         return results
 
-    async def search(self, query: TapeQuery[AsyncTapeStore]) -> list[TapeEntry]:
-        return list(await self.store.fetch_all(query))
+    async def search(self, query: TapeQuery) -> list[TapeEntry]:
+        return await query.all()
 
     async def append_event(self, name: str, payload: dict[str, Any], **meta: Any) -> None:
         tracing.event(f"bub.{name}", **payload)
@@ -395,7 +353,7 @@ class Tape:
 
     async def read_messages(self) -> list[republic.Message]:
         query = self.context.build_query(self.query())
-        entries = await self.store.fetch_all(query)
+        entries = await query.all()
         context_entries = (entry for entry in entries if entry.meta.get("context") is not False)
         messages = build_messages(context_entries, self.context)
         if inspect.isawaitable(messages):
@@ -420,7 +378,7 @@ class Tape:
 
     async def last_system_prompt(self) -> str | None:
         """Return the content of the latest system entry on the tape."""
-        entries = list(await self.store.fetch_all(self.query().kinds("system")))
+        entries = await self.query().kinds("system").all()
         if not entries:
             return None
         content = entries[-1].payload.get("content")

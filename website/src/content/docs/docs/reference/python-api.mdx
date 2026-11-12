@@ -42,7 +42,7 @@ Agent(
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `model` | `None` | Default model: a Republic chat model (`republic.ChatModel`) or `ModelClient`; can also be supplied for each `run` |
-| `store` | New `InMemoryTapeStore` | Synchronous `TapeStore` or `AsyncTapeStore` |
+| `store` | New `InMemoryTapeStore` | Async `TapeAccess`; canonical backends also implement `TapeStore` |
 | `tools` | `()` | Initial `Tool` objects and provider-executed tools such as `republic.tools.WebSearch()`; later entries override earlier entries with the same name |
 | `system_prompt` | `()` | Text, `PromptSection`, or `SystemPrompt`; rendered once per Run before the first model Step, then reused by later Steps |
 | `context` | `default_tape_context()` | Strategy for selecting Tape entries as model messages |
@@ -119,23 +119,18 @@ from bub.prompt import UserContent
 ```python
 from bub.core import Tape, TapeContext, default_tape_context, session_tape_name
 from bub.core.store import (
-    AsyncTapeStore,
-    AsyncTapeStoreAdapter,
-    FileTapeStore,
-    InMemoryQueryMixin,
-    InMemoryTapeStore,
-    TapeQuery,
+    FileTapeStore, InMemoryTapeStore, TapeAccess,
+    TapeOffset, TapeQuery, TapeQueryExecutor, TapeQuerySpec, TapeRecord,
     TapeStore,
-    is_async_tape_store,
 )
 from bub.core.tape import AnchorSummary, TapeEntry, TapeInfo
 ```
 
-A `Tape` is a read-write view of a named Tape, made of three parts: `store` (`AsyncTapeStore`, which persists entries), `context` (`TapeContext`, which decides the entries `read_messages()` selects), and `sidecars` (sibling tapes mounted on the Tape). When constructing one directly, bind a name with `scoped(name)` first:
+A `Tape` is a read-write view of a named Tape, made of three parts: `store` (`TapeAccess`, which queries and writes entries), `context` (`TapeContext`, which decides the entries `read_messages()` selects), and `sidecars` (sibling tapes mounted on the Tape). When constructing one directly, bind a name with `scoped(name)` first:
 
 ```python
 tape = Tape(
-    store=AsyncTapeStoreAdapter(InMemoryTapeStore()),
+    store=InMemoryTapeStore(),
     context=default_tape_context(),
 ).scoped("demo")
 ```
@@ -192,26 +187,52 @@ Factories: `TapeEntry.message(...)`, `system(content)`, `anchor(name, state=None
 
 ```python
 class TapeStore(Protocol):
-    def list_tapes(self) -> list[str]: ...
-    def reset(self, tape: str) -> None: ...
-    def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
-    def append(self, tape: str, entry: TapeEntry) -> None: ...
+    async def append(self, tape: str, entry: TapeEntry) -> TapeRecord: ...
+    async def tail(self, tape: str) -> TapeOffset: ...
+    def stream(
+        self, tape: str, *, start: TapeOffset | None = None,
+        stop: TapeOffset | None = None,
+    ) -> AbstractAsyncContextManager[AsyncIterator[TapeRecord]]: ...
 
-class AsyncTapeStore(Protocol):
-    async def list_tapes(self) -> list[str]: ...
+class TapeQueryExecutor(Protocol):
+    def select(
+        self, tape: str, spec: TapeQuerySpec,
+    ) -> AbstractAsyncContextManager[AsyncIterator[TapeEntry]]: ...
+
+class TapeAccess(TapeQueryExecutor, Protocol):
+    async def append(self, tape: str, entry: TapeEntry) -> TapeRecord: ...
     async def reset(self, tape: str) -> None: ...
-    async def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
-    async def append(self, tape: str, entry: TapeEntry) -> None: ...
+    async def list_tapes(self) -> list[str]: ...
 ```
 
-| Method | Contract |
-| --- | --- |
-| `list_tapes()` | Returns existing Tape names; internal physical tapes such as sidecars need not be listed |
-| `append(tape, entry)` | Appends an entry and assigns an `id` starting at `1` and increasing monotonically within that Tape; do not rely on the caller's `entry.id` |
-| `fetch_all(query)` | Returns entries matching `TapeQuery` in recording order; the async version is still `async def` returning `Iterable`, not an async iterator |
-| `reset(tape)` | Deletes the Tape's records and ID progression, so the next `append` starts again at `1` |
+All store operations are async. A canonical backend implements both `TapeStore` (physical log) and `TapeAccess` (query/write view). `Agent(store=...)` and `Tape` accept `TapeAccess`; `ForkTapeStore` implements only that view contract because its parent can change between queries. There is no synchronous-store adapter.
 
-`Agent(store=...)` accepts both synchronous and asynchronous implementations; synchronous ones are called through `AsyncTapeStoreAdapter` with `asyncio.to_thread()` to avoid blocking the event loop. `is_async_tape_store(store)` detects the type by checking whether `append` is a coroutine function. Database connections and transactions remain the implementation's responsibility.
+- `append` returns the stored entry and its own end boundary, not a separately observed tail. IDs restart at 1 after reset.
+- `TapeOffset.token` is opaque and serializable. It binds a backend-specific log identity and committed position. Use tokens returned by the store unchanged; record alignment is guaranteed when they are produced, not rechecked when they are used. Do not construct, order or increment tokens.
+- `stream` reads `[start, stop)`. With no start it begins at the current log's beginning; with no stop it replays then follows future appends. An explicit stop is a fixed committed boundary.
+- Creating a stream performs no I/O. `async with` yields an async iterator and closes it on exit. Built-in stores use standard async generators and context managers, not a custom stream lifecycle. If reading in a separate task, cancel and await that task before leaving the context; the store does not manage caller-owned tasks.
+- Reset replaces the log identity, so old offsets cannot open a new range. Records already scanned are not revalidated or retracted one by one; a handoff is an ordinary append. File-identity limitations are listed below.
+- `list_tapes` is the catalog operation; physical sidecars need not be listed. `reset` clears records and replaces the log.
+
+For a finite read, capture `store.tail(name)` and pass that cut to `store.stream(name, stop=cut)`. Queries do this when their context is entered; raw consumers choose when to capture their cut. Processing a record is not acknowledged by its offset, and reconnecting does not provide exactly-once delivery.
+
+```python
+store = FileTapeStore(Path("./sessions"))
+
+# Capture a finite cut, then consume the same physical stream.
+cut = await store.tail("demo")
+async with store.stream("demo", stop=cut) as records:
+    async for record in records:
+        print(record.entry)
+
+# Persist the opaque token and resume after that boundary.
+cut = await store.tail("demo")
+async with store.stream("demo", start=cut) as records:
+    async for record in records:
+        print(record.entry)
+        checkpoint = record.offset.token
+        break
+```
 
 #### `TapeQuery` {#tapequery}
 
@@ -226,29 +247,42 @@ class AsyncTapeStore(Protocol):
 | `kinds(*kinds)` | Specified entry kinds |
 | `limit(value)` | Maximum number of entries; applied after the other filters |
 
-Multiple conditions are combined with AND. A query for a missing anchor fails with `BubError(kind=NOT_FOUND)`; a malformed date fails with `INVALID_INPUT`.
+Date, text, and kind filters are combined with AND. Anchor conditions retain their precedence: between anchors, then latest anchor, then named anchor. A named anchor uses its last occurrence; between anchors uses the first end after the last start, excluding both boundaries. A query for a missing anchor fails with `BubError(kind=NOT_FOUND)`; a malformed date fails with `INVALID_INPUT`.
 
 `after_anchor` and `last_anchor` return entries after the named or latest anchor, excluding the boundary anchor itself. A missing anchor raises `BubError(kind=NOT_FOUND)`. The default query therefore does not pass the boundary anchor to the projection. When reading without anchor filtering, such as with `anchor=None`, the selector can receive anchor entries; the default selector converts any anchor it receives into an `[Anchor created: …]` assistant message. A raw `TapeQuery` does not apply `TapeContext`'s `context=False` filter.
 
-For a synchronous store, `all()` returns an `Iterable` directly; for an asynchronous store, await it. A query from `Tape.query()` is always bound to an `AsyncTapeStore`:
+`InMemoryTapeStore` and `FileTapeStore` queries consume the physical stream once, without an index or a preparation scan. Plain text/kind/date filters emit incrementally and stop when a positive limit is reached. `limit(0)` consumes no records. Invalid entry dates fail when the selected record is consumed, not when the query is opened; invalid date arguments still fail on entry.
+
+Anchor queries must reach the finite cut to know which start is the last. They retain the candidate range, replace it when a later start arrives, then filter and emit it. This is one pass over the log, not constant-memory or immediate-result streaming: the candidate can span most of the log. Repeated queries scan again; there is no warm-index shortcut. The app's `FuzzyFileTapeStore` still collects candidates for newest-first, deduplicated fuzzy ranking; it is not incremental-result streaming.
+
+File reads are offset-based range scans: one finite worker opens the file, checks identity and size once, seeks to the requested position, and reads a buffered range. It closes the file and releases the instance-local mutex before records are yielded. There is no per-record reopen or identity check. A later scan detects reset or replacement; previously scanned records may still be consumed. Cancelling a read stops waiting for the worker, not the underlying file operation; the worker releases its own resources when it finishes.
+
+`TapeQuery.spec` is an immutable `TapeQuerySpec`; `stream()` opens a finite result iterator, and `await all()` collects that iterator into a list and closes it. Query results have no durable offset or follow mode: search may reorder results, and forks are dynamic views.
 
 ```python
 query = tape.query().query("error").kinds("event", "error").limit(20)
-entries = list(await query.all())
+entries = await query.all()
+async with query.stream() as entries:
+    async for entry in entries:
+        print(entry)
 ```
 
-`InMemoryQueryMixin` can provide the filters above for simple backends that implement only `read(tape) -> list[TapeEntry] | None`; database backends should usually push filtering down into the query itself.
+Custom backends implement `select(tape, spec)` alongside the physical log operations, preserving finite-cut and query semantics. Built-in stores compute query views over the same finite physical stream; there is no separate backend query-reading path.
+
+Fork queries preserve their existing overlay rules: the current parent query is prepared first, local anchor/kind filtering is applied, then results are concatenated and limited. Local text/date/between-anchor filters are not global filters over the combined view. Missing parent anchors allow a local-only view; other parent errors and cancellation propagate. Merge writes sidecars before the main Tape, runs on exceptional context exit too, and is neither transactional nor idempotent.
 
 #### Built-in stores {#builtin-stores}
 
 | Class | Constructor | Behavior |
 | --- | --- | --- |
-| `InMemoryTapeStore` | `InMemoryTapeStore()` | In-process dictionary; `read()` returns copies of entries; lost when the process exits |
-| `FileTapeStore` | `FileTapeStore(directory: Path)` | One `<tape>.jsonl` per Tape; creates the directory in the constructor; one thread lock per file; `list_tapes()` returns only files whose name contains exactly one `__` (framework session names), excluding sidecars and unqualified names; no cross-process lock |
-| `AsyncTapeStoreAdapter` | `AsyncTapeStoreAdapter(store)` | Adapts a synchronous `TapeStore` to `AsyncTapeStore` |
-| `InMemoryQueryMixin` | Mixin | Provides in-memory filtering for a store that implements only `read()` |
+| `InMemoryTapeStore` | `InMemoryTapeStore()` | Event-loop-owned logs; incremental replay and notifications; lost on process exit |
+| `FileTapeStore` | `FileTapeStore(directory: Path, *, poll_interval=0.05)` | JSONL records only; instance-local mutexes, no metadata or lock files; finite file I/O runs off the event loop |
 
-`FileTapeStore` uses the Tape name directly as a file name, so names must be safe as paths; multi-tenant or web services should use controlled identifiers. See [Tape and memory](/docs/sdk/tape/#storage).
+`FileTapeStore` creates files on operation entry (including an empty log when taking its first tail), locates committed newline boundaries without decoding history, and polls for external appends. Offsets are computed from the resolved path, device/inode, and byte position. They survive reopening the same file, but are not portable backup checkpoints. Reset replaces the JSONL file; an inode change or a position beyond the current size is rejected. Inode reuse, in-place edits, and truncation followed by regrowth are not reliably detectable and are outside this contract.
+
+Incomplete final lines are not committed and must be completed or repaired before appending. Append closes the file before returning; it does not call `fsync` or promise crash-durable delivery. Operations on the same Tape within one store instance use an in-memory mutex. There is no coordination between store instances or processes: callers must prevent overlapping writes or resets to the same file. JSONL is the only persisted log data: neither `.state` nor `.lock` files are used, and leftover files from earlier implementations are left untouched.
+
+`list_tapes()` retains the file catalog convention: only names containing exactly one `__` (framework session names) are listed. Sidecars and unqualified names remain directly addressable. Names must be nonempty file names, not paths; applications must still enforce tenant isolation. See [Tape and memory](/docs/sdk/tape/#storage).
 
 ### `EventBus` {#events}
 

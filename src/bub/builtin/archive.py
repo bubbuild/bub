@@ -28,8 +28,9 @@ async def _write_archive(tape: Tape, tape_name: str, directory: Path, stamp: str
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{tape_name}.jsonl.{stamp}.bak"
     with path.open("w", encoding="utf-8") as f:
-        for entry in await tape.store.fetch_all(TapeQuery(tape=tape_name, store=tape.store)):
-            f.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+        async with TapeQuery(tape=tape_name, store=tape.store).stream() as entries:
+            async for entry in entries:
+                f.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
     return path
 
 

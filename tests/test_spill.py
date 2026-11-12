@@ -22,7 +22,7 @@ from bub.builtin.spill import (
 from bub.builtin.tools import render_tools_prompt
 from bub.core.context import default_tape_context
 from bub.core.events import EventBus, ToolCallFinished
-from bub.core.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore, TapeStore
+from bub.core.store import FileTapeStore, InMemoryTapeStore, TapeStore
 from bub.core.tape import Tape
 from bub.core.tools import Tool, ToolContext, ToolExecutor, model_tools
 from bub.errors import BubError
@@ -69,7 +69,7 @@ def _page_field(page: str, name: str) -> str:
 
 def _root_tape(tmp_path: Path, store: TapeStore, *, threshold: int = 1) -> Tape:
     spill = SpillStore(SpillSettings(threshold=threshold))
-    return Tape(AsyncTapeStoreAdapter(store), default_tape_context(), sidecars=(spill,)).scoped("session")
+    return Tape(store, default_tape_context(), sidecars=(spill,)).scoped("session")
 
 
 async def _read_page(
@@ -332,7 +332,7 @@ async def test_tape_archive_preserves_spilled_results_and_clears_the_session(tmp
     assert handle in main_archive.read_text(encoding="utf-8")
     assert handle in spill_archives[0].read_text(encoding="utf-8")
     assert "no spilled tool result" in await _read_page(_spill_context(tape=root), handle)
-    events = [entry.payload for entry in await root.store.fetch_all(root.query().kinds("event"))]
+    events = [entry.payload for entry in await root.query().kinds("event").all()]
     assert [(event["name"], event["data"]["status"]) for event in events if event["name"].startswith("sidecar.")] == [
         ("sidecar.reset", "ok"),
         ("sidecar.archive", "ok"),
@@ -415,7 +415,7 @@ async def test_result_spill_without_tool_availability_keeps_full_output(tmp_path
     )
 
     assert execution.tool_results == [output]
-    assert list(await root.store.fetch_all(root.scoped(root.sidecar_tape_name(SPILL_SIDECAR_NAME)).query())) == []
+    assert await root.scoped(root.sidecar_tape_name(SPILL_SIDECAR_NAME)).query().all() == []
 
 
 @pytest.mark.asyncio

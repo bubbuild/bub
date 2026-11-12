@@ -23,7 +23,7 @@ from bub.builtin.codemode import (
     write_tool_stub,
 )
 from bub.core.events import EventBus, ToolCallStarted
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.store import InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
 from bub.core.tools import Tool, ToolContext, ToolExecutor, model_tools, tool
 from bub.environment import ENVIRONMENT_STATE_KEY, CallTool, CodeFailed, LocalEnvironment, LocalProcess
@@ -55,7 +55,7 @@ def get_order(order_id: str, include_items: bool = False, *, context: ToolContex
 def _context(
     tmp_path: Path, tools: list[Tool] | None = None, *, events: EventBus | None = None, **state: Any
 ) -> ToolContext:
-    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+    tape = Tape(InMemoryTapeStore(), TapeContext()).scoped("test-tape")
     if tools is not None:
         state[CODE_TOOLS_STATE_KEY] = model_tools(tools)
     return ToolContext(tape=tape, run_id="run-1", state=state, events=events)
@@ -210,7 +210,7 @@ async def test_code_mode_command_records_session_switch(tmp_path: Path) -> None:
     assert set_code_mode.exposure == "command"
     assert result == "Session code mode enabled (applies from the next turn)."
     assert context.state["code_mode"] is True
-    entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
+    entries = await context.tape.query().kinds("event").all()
     assert [entry.payload for entry in entries] == [{"name": "code_mode_switch", "data": {"code_mode": True}}]
 
 

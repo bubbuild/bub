@@ -37,7 +37,7 @@ from bub.core.events import (
 from bub.core.model import Model, ModelClient, is_context_length_error, model_client
 from bub.core.recorder import TapeRecorder
 from bub.core.sidecars import TapeSidecar
-from bub.core.store import AsyncTapeStore, AsyncTapeStoreAdapter, InMemoryTapeStore, TapeStore, is_async_tape_store
+from bub.core.store import InMemoryTapeStore, TapeAccess
 from bub.core.system_prompt import PromptContext, PromptSection, SystemPrompt
 from bub.core.tape import Tape, TapeContext
 from bub.core.tools import Tool, ToolContext, ToolExecutor, model_tools
@@ -102,7 +102,7 @@ class Agent:
         self,
         *,
         model: Model | None = None,
-        store: TapeStore | AsyncTapeStore | None = None,
+        store: TapeAccess | None = None,
         tools: Iterable[Tool | BuiltinTool] = (),
         system_prompt: SystemPrompt | PromptSection | Iterable[PromptSection] = (),
         context: TapeContext | None = None,
@@ -124,7 +124,7 @@ class Agent:
         if store is None:
             store = InMemoryTapeStore()
         self._tapes = Tape(
-            store if is_async_tape_store(store) else AsyncTapeStoreAdapter(store),
+            store,
             context or default_tape_context(),
             sidecars=tuple(sidecars),
         )

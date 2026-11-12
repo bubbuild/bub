@@ -116,7 +116,7 @@ def system_prompt(self, prompt: str | list[dict], state: TurnState) -> str:
 ### `provide_tape_store` {#provide_tape_store}
 
 ```python
-def provide_tape_store(self) -> TapeStore | AsyncTapeStore | None:
+def provide_tape_store(self) -> TapeAccess | None:
 ```
 
 ### `provide_lifespan` {#provide_lifespan}
@@ -350,7 +350,7 @@ class PluginAgentHooks:
 
 ```python
 class AgentComponents(TypedDict, total=False):
-    store: TapeStore | AsyncTapeStore
+    store: TapeAccess
     context: TapeContext
     sidecars: Sequence[TapeSidecar]
 ```

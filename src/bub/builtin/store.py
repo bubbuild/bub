@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import replace
 
-from bub.core.store import FileTapeStore, TapeQuery
+from bub.core.store import FileTapeStore, TapeQuerySpec
 from bub.core.tape import TapeEntry
 from bub.utils import get_entry_text
 
@@ -19,13 +20,22 @@ MAX_FUZZY_CANDIDATES = 128
 class FuzzyFileTapeStore(FileTapeStore):
     """:class:`~bub.core.store.FileTapeStore` whose text queries also match approximately."""
 
-    def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]:
-        if not query._query:
-            result: Iterable[TapeEntry] = super().fetch_all(query)
-            return result
-        unlimited_query = replace(query, _query=None, _limit=None)
-        entries: Iterable[TapeEntry] = super().fetch_all(unlimited_query)
-        return self._filter_entries(list(entries), query._query, query._limit or 20)
+    @asynccontextmanager
+    async def select(self, tape: str, spec: TapeQuerySpec) -> AsyncIterator[AsyncIterator[TapeEntry]]:
+        if not spec.text:
+            async with super().select(tape, spec) as entries:
+                yield entries
+            return
+        structural = replace(spec, text=None, limit=None)
+        async with super().select(tape, structural) as entries:
+            matches = self._filter_entries([entry async for entry in entries], spec.text, spec.limit or 20)
+
+        async def results() -> AsyncGenerator[TapeEntry, None]:
+            for entry in matches:
+                yield entry
+
+        async with aclosing(results()) as selected:
+            yield selected
 
     def _filter_entries(self, entries: list[TapeEntry], query: str, limit: int) -> list[TapeEntry]:
         normalized_query = query.strip().lower()

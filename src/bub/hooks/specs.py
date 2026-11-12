@@ -20,7 +20,7 @@ from bub.core.events import (
     ToolCallResult,
 )
 from bub.core.sidecars import TapeSidecar
-from bub.core.store import AsyncTapeStore, TapeStore
+from bub.core.store import TapeAccess
 from bub.core.tape import Tape, TapeContext
 from bub.envelope import Envelope
 from bub.environment import Environment
@@ -201,7 +201,7 @@ class BubHookSpecs:
         raise NotImplementedError
 
     @hookspec(firstresult=True)
-    def provide_tape_store(self) -> TapeStore | AsyncTapeStore | None:
+    def provide_tape_store(self) -> TapeAccess | None:
         """Provide a tape store instance for Bub's conversation recording feature."""
         raise NotImplementedError
 

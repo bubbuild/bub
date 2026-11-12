@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from bub.builtin.settings import DEFAULT_MODEL, AgentSettings, load_settings
 from bub.builtin.spill import SpillSettings
 from bub.configure import ensure_config
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.store import InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
 from bub.prompt import to_content
 from tests.model_fakes import ProviderService, StepRunner, chat_events, sse
@@ -186,7 +186,7 @@ model: openrouter:openrouter/free
 
 
 async def _run(settings: AgentSettings, tmp_path: Path) -> str:
-    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("settings")
+    tape = Tape(InMemoryTapeStore(), TapeContext(anchor=None)).scoped("settings")
     events = [
         event
         async for event in StepRunner(settings).run(

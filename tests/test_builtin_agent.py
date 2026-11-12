@@ -17,7 +17,7 @@ from bub.builtin.steering import InMemorySteeringInbox
 from bub.core import PromptContext
 from bub.core.context import default_tape_context
 from bub.core.events import StepFinished
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.store import InMemoryTapeStore
 from bub.core.tape import Tape, session_tape_name
 from bub.core.tools import Tool, tool
 from bub.prompt import UserContent
@@ -56,7 +56,7 @@ def _make_agent(*tools: Tool) -> BubAgent:
     )
     with patch("bub.builtin.agent.load_settings", return_value=settings):
         agent = BubAgent(framework)
-    agent.__dict__["_tapes"] = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context())
+    agent.__dict__["_tapes"] = Tape(InMemoryTapeStore(), default_tape_context())
     return agent
 
 

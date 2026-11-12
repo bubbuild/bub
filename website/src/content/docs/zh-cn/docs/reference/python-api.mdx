@@ -13,7 +13,7 @@ class Agent:
         self,
         *,
         model: Model | None = None,
-        store: TapeStore | AsyncTapeStore | None = None,
+        store: TapeAccess | None = None,
         tools: Iterable[Tool | BuiltinTool] = (),
         system_prompt: SystemPrompt | PromptSection | Iterable[PromptSection] = (),
         context: TapeContext | None = None,
@@ -388,7 +388,7 @@ class AnchorSummary:
 ```python
 @dataclass(frozen=True)
 class Tape:
-    store: AsyncTapeStore
+    store: TapeAccess
     context: TapeContext
     sidecars: tuple[TapeSidecar, ...] = field(default=(), repr=False)
 
@@ -397,10 +397,10 @@ class Tape:
 
     def with_context(self, context: TapeContext) -> Tape: ...
     def scoped(self, name: str, context: TapeContext | None = None) -> Tape: ...
-    def query(self) -> TapeQuery[AsyncTapeStore]: ...
+    def query(self) -> TapeQuery: ...
     async def info(self) -> TapeInfo: ...
     async def anchors(self, limit: int = 20) -> list[AnchorSummary]: ...
-    async def search(self, query: TapeQuery[AsyncTapeStore]) -> list[TapeEntry]: ...
+    async def search(self, query: TapeQuery) -> list[TapeEntry]: ...
     async def append_event(self, name: str, payload: dict[str, Any], **meta: Any) -> None: ...
     async def read_messages(self) -> list[republic.Message]: ...
 
@@ -442,33 +442,65 @@ def sidecar_tape_name(owner: str, sidecar: str) -> str: ...
 
 Sidecar 由配套 Tape `<owner>__sidecar__<name>` 承载：随主 Tape 分支、合并和重置，条目不进入主上下文。挂载方式见 [Sidecar](/zh-cn/docs/sdk/tape/#sidecars)，应用层的提供方式见 [`provide_tape_sidecar`](/zh-cn/docs/reference/hooks/#provide_tape_sidecar)。
 
-### `TapeStore` {#tape-store}
+### 存储协议 {#tape-store}
 
 ```python
 class TapeStore(Protocol):
-    def list_tapes(self) -> list[str]: ...
-    def reset(self, tape: str) -> None: ...
-    def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
-    def append(self, tape: str, entry: TapeEntry) -> None: ...
+    async def append(self, tape: str, entry: TapeEntry) -> TapeRecord: ...
+    async def tail(self, tape: str) -> TapeOffset: ...
+    def stream(
+        self, tape: str, *, start: TapeOffset | None = None,
+        stop: TapeOffset | None = None,
+    ) -> AbstractAsyncContextManager[AsyncIterator[TapeRecord]]: ...
+
+class TapeQueryExecutor(Protocol):
+    def select(
+        self, tape: str, spec: TapeQuerySpec,
+    ) -> AbstractAsyncContextManager[AsyncIterator[TapeEntry]]: ...
+
+class TapeAccess(TapeQueryExecutor, Protocol):
+    async def append(self, tape: str, entry: TapeEntry) -> TapeRecord: ...
+    async def reset(self, tape: str) -> None: ...
+    async def list_tapes(self) -> list[str]: ...
 ```
 
-### `AsyncTapeStore`
+存储操作统一为异步。物理后端同时实现 `TapeStore`（日志）与 `TapeAccess`（查询和写入视图）；`Agent(store=...)` 和 `Tape` 使用 `TapeAccess`。动态父视图的 `ForkTapeStore` 只实现视图协议，不伪造可持续追加的整体游标；不再提供同步存储适配器。
+
+- `append` 返回已存储条目和**该条目之后**的边界，不是再次读取的并发 tail。reset 后 ID 从 1 开始。
+- `TapeOffset.token` 是不透明且可序列化的边界，绑定后端的日志身份与已提交位置。原样使用存储返回的 token；记录边界在生成时保证，使用时不再回读文件复查。不要手工构造、比较大小或做加减。
+- `stream` 读取 `[start, stop)`。省略 start 从当前日志开头开始；省略 stop 则回放后等待新追加。有 stop 的读取固定在该边界。
+- 创建流没有 I/O；`async with` 提供异步迭代器，并在退出时关闭它。内置存储使用标准异步生成器和上下文管理器，不再维护自定义流生命周期。如果另起任务读取，调用方须在退出上下文前取消并等待该任务；存储层不管理调用方的任务。
+- reset 替换日志身份，旧游标不能用来打开新的 range；已经扫描出的记录不再逐条复查或撤回。handoff 只是追加。文件身份的保证范围见下文。
+- `list_tapes` 返回目录中的 Tape 名称，可排除物理 sidecar；`reset` 清空数据并替换日志。
+
+有限读取直接先取 `store.tail(name)`，再传给 `store.stream(name, stop=cut)`。查询在进入上下文时取边界；原始日志消费者自行选择捕获边界的时机。游标不是业务处理确认，重连也不保证 exactly-once。
 
 ```python
-class AsyncTapeStore(Protocol):
-    async def list_tapes(self) -> list[str]: ...
-    async def reset(self, tape: str) -> None: ...
-    async def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
-    async def append(self, tape: str, entry: TapeEntry) -> None: ...
+store = FileTapeStore(Path("./sessions"))
+
+# Capture a finite cut, then consume the same physical stream.
+cut = await store.tail("demo")
+async with store.stream("demo", stop=cut) as records:
+    async for record in records:
+        print(record.entry)
+
+# Persist the opaque token and resume after that boundary.
+cut = await store.tail("demo")
+async with store.stream("demo", start=cut) as records:
+    async for record in records:
+        print(record.entry)
+        checkpoint = record.offset.token
+        break
 ```
 
 ### `TapeQuery` {#tapequery}
 
 ```python
 @dataclass(frozen=True)
-class TapeQuery[T: TapeStore | AsyncTapeStore]:
+class TapeQuery:
     tape: str
-    store: T
+    store: TapeQueryExecutor
+    spec: TapeQuerySpec
 
     def query(self, value: str) -> Self: ...
     def after_anchor(self, name: str) -> Self: ...
@@ -478,11 +510,8 @@ class TapeQuery[T: TapeStore | AsyncTapeStore]:
     def kinds(self, *kinds: str) -> Self: ...
     def limit(self, value: int) -> Self: ...
 
-    @overload
-    def all(self: TapeQuery[TapeStore]) -> Iterable[TapeEntry]: ...
-
-    @overload
-    async def all(self: TapeQuery[AsyncTapeStore]) -> Iterable[TapeEntry]: ...
+    def stream(self) -> AbstractAsyncContextManager[AsyncIterator[TapeEntry]]: ...
+    async def all(self) -> list[TapeEntry]: ...
 ```
 
 | 过滤条件 | 语义 |
@@ -496,54 +525,30 @@ class TapeQuery[T: TapeStore | AsyncTapeStore]:
 
 `after_anchor` / `last_anchor` 返回指定或最近一个 anchor **之后**的条目，不包含边界 anchor 本身；anchor 不存在时抛出 `BubError(kind=NOT_FOUND)`。因此默认投影不会收到边界 anchor。使用 `anchor=None` 等不过滤 anchor 的读取方式时，选择器可能收到 anchor 条目，默认选择器会把它转换为 `[Anchor created: …]` 助手消息。直接使用 `TapeQuery` 时不叠加 `TapeContext` 的 `context=False` 过滤。
 
-### `InMemoryQueryMixin`
+`InMemoryTapeStore` 与 `FileTapeStore` 的查询单遍消费物理流，不维护索引，也不预扫描。普通 text/kind/date 过滤边读边输出，达到正数 limit 即停止；`limit(0)` 不消费记录。条目日期非法时，在消费到所选记录时才报错，不在打开查询时提前检查；查询参数中的非法日期仍在进入时校验。
 
-```python
-class InMemoryQueryMixin:
-    def read(self, tape: str) -> list[TapeEntry] | None: ...
-    def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
-```
+anchor 查询必须读到有限边界，才能确定最后一次 start。执行时保留当前候选范围，遇到更晚的 start 就替换，最后过滤并输出候选条目。这是日志单遍读取，不代表常量内存或立即出结果：候选范围可能接近整条日志。重复查询重新扫描，不再有热索引捷径。应用层 `FuzzyFileTapeStore` 仍需收集候选条目，实现最新优先、去重和模糊排序，并非逐条输出的过滤器。
 
-### `InMemoryTapeStore` {#builtin-stores}
+文件读取按 offset 扫描 range：一次有限的线程操作打开文件、在入口检查一次身份和大小、seek 到指定位置，再连续读取一段。扫描结束后关闭文件并释放实例内互斥锁，随后迭代这些记录；不再逐条重新打开或核对身份。后续扫描会发现 reset 或替换，已经扫描出的记录仍可被消费。取消读取只停止等待，不中止底层文件操作；线程完成时自行释放资源。
 
-```python
-class InMemoryTapeStore(InMemoryQueryMixin):
-    def __init__(self) -> None: ...
-    def list_tapes(self) -> list[str]: ...
-    def reset(self, tape: str) -> None: ...
-    def read(self, tape: str) -> list[TapeEntry] | None: ...
-    def append(self, tape: str, entry: TapeEntry) -> None: ...
-```
+`TapeQuery.spec` 为不可变值。`stream()` 返回有限查询结果；`all()` 只负责收集并关闭该流。查询结果没有持久游标或 follow 模式。anchor 条件优先级为 between、last、named；同名 anchor 取最后一次，between 取最后 start 后第一个 end。
 
-### `AsyncTapeStoreAdapter`
+自定义后端在物理日志操作之外实现 `select(tape, spec)`，保持有限读取边界和查询语义。内置存储从同一条有限物理 stream 计算查询视图，没有独立的后端查询读取路径。
 
-```python
-class AsyncTapeStoreAdapter:
-    def __init__(self, store: TapeStore) -> None: ...
-    async def list_tapes(self) -> list[str]: ...
-    async def reset(self, tape: str) -> None: ...
-    async def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
-    async def append(self, tape: str, entry: TapeEntry) -> None: ...
-```
+fork 保持现有语义：每次查询准备当前 parent 结果，再处理 local 的 anchor/kinds，拼接后应用 limit；local 的 text/date/between 并不是组合视图上的全局过滤。parent 缺少 anchor 时仍可读取 local；其他 parent 错误与取消会向上传播。merge 先 sidecar 后主 Tape，异常退出也尝试合并；它不是事务，也不保证幂等。
 
-### `FileTapeStore`
+### 内置存储 {#builtin-stores}
 
-```python
-class FileTapeStore(InMemoryQueryMixin):
-    def __init__(self, directory: Path) -> None: ...
-    def list_tapes(self) -> list[str]: ...
-    def reset(self, tape: str) -> None: ...
-    def append(self, tape: str, entry: TapeEntry) -> None: ...
-    def read(self, tape: str) -> list[TapeEntry] | None: ...
-```
+| 类 | 构造方式 | 行为 |
+| --- | --- | --- |
+| `InMemoryTapeStore` | `InMemoryTapeStore()` | 事件循环内的日志；增量读取与通知；进程退出后丢失 |
+| `FileTapeStore` | `FileTapeStore(directory: Path, *, poll_interval=0.05)` | 仅 JSONL 数据；实例内互斥，无元数据或锁文件；有限文件 I/O 在线程中执行 |
 
-### `is_async_tape_store`
+文件在操作进入时按需创建，首次取 tail 也会创建空日志。文件后端通过换行符定位提交边界，不解码历史，并通过轮询发现外部追加。offset 由解析后的文件路径、设备/inode 和字节位置计算。同一文件重新打开后仍可续读，但它不是可移植的备份检查点。reset 替换 JSONL 文件；inode 变化或位置超出当前文件大小会报错。inode 复用、原地改写和截断后重新增长无法可靠识别，不在保证范围内。
 
-```python
-def is_async_tape_store(
-    store: TapeStore | AsyncTapeStore,
-) -> TypeIs[AsyncTapeStore]: ...
-```
+末尾半行不提交，追加前须补齐或修复。append 返回前关闭文件，不调用 `fsync`，也不承诺崩溃后的落盘保证。同一 store 实例对同一个 Tape 的操作使用内存互斥锁；不同实例或进程之间不做协调，调用方必须避免对同一个文件重叠写入或 reset。JSONL 是唯一持久化的日志数据：不使用 `.state` 或 `.lock` 文件，也不会自动清理旧实现遗留的文件。
+
+`list_tapes()` 只列出恰好含一个 `__` 的框架会话名；sidecar 与普通名称仍可直接读写。Tape 名必须是非空文件名而非路径；应用仍须自行落实租户隔离。
 
 ### `EventBus` {#events}
 
@@ -1056,7 +1061,7 @@ class BubFramework:
     async def running(self) -> AsyncGenerator[contextlib.AsyncExitStack, None]: ...
 
     async def get_environment(self, session_id: str) -> Environment | None: ...
-    def get_tape_store(self) -> TapeStore | AsyncTapeStore | None: ...
+    def get_tape_store(self) -> TapeAccess | None: ...
     def get_tape_sidecars(self) -> tuple[TapeSidecar, ...]: ...
     def get_tools(self) -> tuple[Tool, ...]: ...
     def get_steering_inbox(self) -> SteeringInbox | None: ...
@@ -1079,7 +1084,7 @@ class BubAgent(core.Agent):
         framework: BubFramework,
         *,
         tools: Collection[Tool] | None = None,
-        tape_store: TapeStore | AsyncTapeStore | None = None,
+        tape_store: TapeAccess | None = None,
         skill_dirs: Collection[Path] | None = None,
         command_prefix: str | None = None,
     ) -> None: ...

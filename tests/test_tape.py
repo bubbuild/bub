@@ -6,37 +6,18 @@ import pytest
 import republic
 
 from bub.core.context import default_tape_context
-from bub.core.store import AsyncTapeStoreAdapter, ForkTapeStore, InMemoryTapeStore
+from bub.core.store import ForkTapeStore, InMemoryTapeStore, TapeQuery
 from bub.core.tape import Tape, TapeContext, TapeEntry, to_messages
-
-
-def test_tape_reexports_legacy_store_objects() -> None:
-    from bub.core import store, tape
-
-    expected_exports = {
-        "AsyncTapeStore",
-        "AsyncTapeStoreAdapter",
-        "InMemoryQueryMixin",
-        "InMemoryTapeStore",
-        "TapeQuery",
-        "TapeStore",
-        "UnavailableTapeStore",
-        "is_async_tape_store",
-    }
-
-    assert expected_exports <= set(dir(tape))
-    for name in expected_exports:
-        assert getattr(tape, name) is getattr(store, name)
 
 
 @pytest.mark.asyncio
 async def test_legacy_tool_call_without_content_replays_with_its_result(tmp_path: Path) -> None:
     store = InMemoryTapeStore()
-    tape = Tape(AsyncTapeStoreAdapter(store), default_tape_context()).scoped("test-tape")
+    tape = Tape(store, default_tape_context()).scoped("test-tape")
     await tape.ensure_bootstrap_anchor()
     calls = [{"id": "call-1", "name": "inspect", "arguments": "{}"}]
-    store.append("test-tape", TapeEntry(id=0, kind="tool_call", payload={"calls": calls}))
-    store.append("test-tape", TapeEntry.tool_result(["files found"]))
+    (await store.append("test-tape", TapeEntry(id=0, kind="tool_call", payload={"calls": calls})))
+    (await store.append("test-tape", TapeEntry.tool_result(["files found"])))
 
     call = republic.ToolCall("call-1", "inspect", "{}")
     assert await tape.read_messages() == [
@@ -48,14 +29,14 @@ async def test_legacy_tool_call_without_content_replays_with_its_result(tmp_path
 @pytest.mark.asyncio
 async def test_chat_completions_tool_calls_from_older_tapes_replay_with_their_results(tmp_path: Path) -> None:
     store = InMemoryTapeStore()
-    tape = Tape(AsyncTapeStoreAdapter(store), default_tape_context()).scoped("test-tape")
+    tape = Tape(store, default_tape_context()).scoped("test-tape")
     await tape.ensure_bootstrap_anchor()
     calls = [
         {"id": "call-1", "type": "function", "function": {"name": "fs_read", "arguments": '{"path": "a.txt"}'}},
         {"id": "call-2", "type": "function", "function": {"name": "tape_info", "arguments": {}}},
     ]
-    store.append("test-tape", TapeEntry.tool_call(calls, content="Let me look."))
-    store.append("test-tape", TapeEntry.tool_result(["hello", {"entries": 3}]))
+    (await store.append("test-tape", TapeEntry.tool_call(calls, content="Let me look.")))
+    (await store.append("test-tape", TapeEntry.tool_result(["hello", {"entries": 3}])))
 
     read = republic.ToolCall("call-1", "fs_read", '{"path": "a.txt"}')
     info = republic.ToolCall("call-2", "tape_info", "{}")
@@ -69,7 +50,7 @@ async def test_chat_completions_tool_calls_from_older_tapes_replay_with_their_re
 @pytest.mark.asyncio
 @pytest.mark.parametrize("content", ["", "done"])
 async def test_text_only_response_remains_a_standalone_assistant_message(tmp_path: Path, content: str) -> None:
-    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context()).scoped("test-tape")
+    tape = Tape(InMemoryTapeStore(), default_tape_context()).scoped("test-tape")
     await tape.ensure_bootstrap_anchor()
     await tape.record_chat(run_id="run-1", system_prompt=None, new_messages=[], response_text=content)
 
@@ -79,7 +60,7 @@ async def test_text_only_response_remains_a_standalone_assistant_message(tmp_pat
 @pytest.mark.asyncio
 async def test_tape_fork_binds_temporary_fork_store_to_scoped_tape(tmp_path: Path) -> None:
     parent = InMemoryTapeStore()
-    root = Tape(AsyncTapeStoreAdapter(parent), TapeContext()).scoped("test-tape")
+    root = Tape(parent, TapeContext()).scoped("test-tape")
 
     async with root.fork_tape(merge_back=True) as forked:
         first_store = forked.store
@@ -88,9 +69,9 @@ async def test_tape_fork_binds_temporary_fork_store_to_scoped_tape(tmp_path: Pat
         assert first_store is not root.store
 
         await forked.append_event("step", {"value": 1})
-        assert parent.read("test-tape") is None
+        assert (await TapeQuery("test-tape", parent).all()) == []
 
-    assert [entry.payload["name"] for entry in parent.read("test-tape") or []] == ["step"]
+    assert [entry.payload["name"] for entry in (await TapeQuery("test-tape", parent).all()) or []] == ["step"]
 
     async with root.fork_tape(merge_back=False) as forked:
         second_store = forked.store
@@ -98,12 +79,12 @@ async def test_tape_fork_binds_temporary_fork_store_to_scoped_tape(tmp_path: Pat
 
     assert isinstance(second_store, ForkTapeStore)
     assert second_store is not first_store
-    assert [entry.payload["data"]["value"] for entry in parent.read("test-tape") or []] == [1]
+    assert [entry.payload["data"]["value"] for entry in (await TapeQuery("test-tape", parent).all()) or []] == [1]
 
 
 @pytest.mark.asyncio
 async def test_tape_info_reports_last_token_cache_hit_rate(tmp_path: Path) -> None:
-    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+    tape = Tape(InMemoryTapeStore(), TapeContext()).scoped("test-tape")
     await tape.record_chat(
         run_id="run-1",
         system_prompt=None,
@@ -125,7 +106,7 @@ async def test_tape_info_reports_last_token_cache_hit_rate(tmp_path: Path) -> No
 
 @pytest.mark.asyncio
 async def test_tape_info_omits_cache_hit_rate_when_usage_has_no_cache_details(tmp_path: Path) -> None:
-    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+    tape = Tape(InMemoryTapeStore(), TapeContext()).scoped("test-tape")
     await tape.record_chat(
         run_id="run-1",
         system_prompt=None,
@@ -149,7 +130,7 @@ async def test_context_excluded_entries_do_not_reach_custom_context_selectors(tm
         ]
 
     tape = Tape(
-        AsyncTapeStoreAdapter(InMemoryTapeStore()),
+        InMemoryTapeStore(),
         TapeContext(anchor=None, select=select_events),
     ).scoped("test-tape")
     await tape.append_event("visible", {})
@@ -160,7 +141,7 @@ async def test_context_excluded_entries_do_not_reach_custom_context_selectors(tm
 
 @pytest.mark.asyncio
 async def test_new_messages_round_trip_through_the_tape(tmp_path: Path) -> None:
-    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context()).scoped("test-tape")
+    tape = Tape(InMemoryTapeStore(), default_tape_context()).scoped("test-tape")
     await tape.ensure_bootstrap_anchor()
     prompt = republic.user("Describe this.", republic.image(b"png-bytes", media_type="image/png"))
     await tape.record_chat(run_id="run-1", system_prompt=None, new_messages=[prompt], response_text="A picture.")

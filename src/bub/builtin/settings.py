@@ -227,7 +227,7 @@ async def load_session_settings(tape: Tape) -> dict[str, Any]:
     """Return the latest recorded value of each session setting; empty values clear it."""
     keys = {_switch_event(key): key for key in SESSION_SETTINGS}
     settings: dict[str, Any] = {}
-    for entry in await tape.store.fetch_all(tape.query().kinds("event")):
+    for entry in await tape.query().kinds("event").all():
         key = keys.get(entry.payload.get("name", ""))
         data = entry.payload.get("data")
         if key is None or not isinstance(data, dict) or key not in data:

@@ -12,7 +12,7 @@ import pytest
 from bub.builtin.settings import AgentSettings
 from bub.channels.message import ChannelMessage, MediaItem
 from bub.core.context import default_tape_context
-from bub.core.store import AsyncTapeStoreAdapter, FileTapeStore, InMemoryTapeStore
+from bub.core.store import FileTapeStore, InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
 from bub.core.tools import Tool
 from bub.errors import BubError, ErrorKind
@@ -53,7 +53,7 @@ async def test_channel_media_reaches_gemini_and_survives_tape_reload(
         )
     async with provider_service.client() as client:
         runner = StepRunner(AgentSettings(client_args={"http_client": client}))
-        tape = Tape(AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("media")
+        tape = Tape(FileTapeStore(tmp_path), default_tape_context()).scoped("media")
         await tape.ensure_bootstrap_anchor()
         events = [
             event
@@ -61,7 +61,7 @@ async def test_channel_media_reaches_gemini_and_survives_tape_reload(
                 tape=tape, model="google:test", tools=[], system_prompt=None, prompt=to_content(prompt)
             )
         ]
-        reopened = Tape(AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("media")
+        reopened = Tape(FileTapeStore(tmp_path), default_tape_context()).scoped("media")
         follow_up = [
             event
             async for event in runner.run(
@@ -102,13 +102,13 @@ async def test_consumer_close_releases_the_request_and_respects_client_ownership
         if external_client:
             client_args["http_client"] = client
         runner = StepRunner(AgentSettings(client_args=client_args))
-        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("cancel")
+        tape = Tape(InMemoryTapeStore(), TapeContext(anchor=None)).scoped("cancel")
         events = runner.run(tape=tape, model="openai:test", tools=[], system_prompt=None, prompt=to_content("hello"))
         assert (await anext(events)).data == {"delta": "first"}
         await events.aclose()
         assert closed.is_set()
         assert client.is_closed is not external_client
-        assert not await tape.store.fetch_all(tape.query().kinds("message"))
+        assert not await tape.query().kinds("message").all()
 
 
 @pytest.mark.asyncio
@@ -122,7 +122,7 @@ async def test_primary_success_does_not_require_an_available_fallback(
                 fallback_models=["not-installed:test"], client_args={"http_client": client, "api_format": "chat"}
             )
         )
-        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("fallback")
+        tape = Tape(InMemoryTapeStore(), TapeContext(anchor=None)).scoped("fallback")
         events = [
             event
             async for event in runner.run(
@@ -158,7 +158,7 @@ async def test_fresh_process_replays_tool_signatures_to_the_provider(
     )
     async with provider_service.client() as client:
         runner = StepRunner(AgentSettings(client_args={"http_client": client}))
-        tape = Tape(AsyncTapeStoreAdapter(FileTapeStore(tmp_path)), default_tape_context()).scoped("persisted")
+        tape = Tape(FileTapeStore(tmp_path), default_tape_context()).scoped("persisted")
         await tape.ensure_bootstrap_anchor()
         _ = [
             event
@@ -177,7 +177,7 @@ import httpx2
 from bub.core.context import default_tape_context
 from tests.model_fakes import StepRunner
 from bub.builtin.settings import AgentSettings
-from bub.core.store import FileTapeStore, AsyncTapeStoreAdapter
+from bub.core.store import FileTapeStore
 from bub.core.tape import Tape
 async def main():
     bodies = []
@@ -187,7 +187,7 @@ async def main():
         return httpx2.Response(200, headers={"content-type": "text/event-stream"}, text="data: " + json.dumps(event) + "\\n\\n")
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(respond)) as client:
         directory = Path(sys.argv[1])
-        tape = Tape(AsyncTapeStoreAdapter(FileTapeStore(directory)), default_tape_context()).scoped("persisted")
+        tape = Tape(FileTapeStore(directory), default_tape_context()).scoped("persisted")
         runner = StepRunner(AgentSettings(client_args={"http_client": client}))
         events = [event async for event in runner.run(tape=tape, model="google:test", tools=[], system_prompt=None, prompt=["Continue."])]
     print(json.dumps({"request": bodies[0], "result": events[-1].data}))
@@ -208,7 +208,7 @@ async def test_media_urls_preserve_explicit_mime_types(tmp_path: Path, provider_
     provider_service.reply(sse([{"candidates": [{"content": {"parts": [{"text": "ready"}]}, "finishReason": "STOP"}]}]))
     async with provider_service.client() as client:
         runner = StepRunner(AgentSettings(client_args={"http_client": client}))
-        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("urls")
+        tape = Tape(InMemoryTapeStore(), TapeContext(anchor=None)).scoped("urls")
         events = [
             event
             async for event in runner.run(
@@ -247,7 +247,7 @@ async def test_invalid_content_fails_without_a_provider_request(
 ) -> None:
     async with provider_service.client() as client:
         runner = StepRunner(AgentSettings(client_args={"http_client": client}))
-        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("invalid")
+        tape = Tape(InMemoryTapeStore(), TapeContext(anchor=None)).scoped("invalid")
         with pytest.raises(BubError) as exc:
             _ = [
                 event

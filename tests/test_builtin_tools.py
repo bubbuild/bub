@@ -28,14 +28,14 @@ from bub.builtin.tools import (
     set_reasoning_effort,
     tape_info,
 )
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.store import InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
 from bub.core.tools import Tool, ToolContext, ToolExecutor, is_content_result, result_content, tool
 from bub.errors import ErrorKind
 
 
 def _tool_context(tmp_path, **state) -> ToolContext:
-    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+    tape = Tape(InMemoryTapeStore(), TapeContext()).scoped("test-tape")
     return ToolContext(tape=tape, run_id="test-run", state={"_runtime_workspace": str(tmp_path), **state})
 
 
@@ -155,7 +155,7 @@ async def test_set_model_writes_model_into_state_and_records_on_tape(tmp_path) -
     assert result == "Session model set to openai:gpt-4o (applies from the next turn)."
     # The switch is also persisted as a `model_switch` event on the session
     # tape, which load_state recovers on the next turn / after restart.
-    entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
+    entries = await context.tape.query().kinds("event").all()
     switches = [entry for entry in entries if entry.kind == "event" and entry.payload.get("name") == "model_switch"]
     assert len(switches) == 1
     assert switches[0].payload.get("data") == {"model": "openai:gpt-4o"}
@@ -189,7 +189,7 @@ async def test_set_reasoning_effort_writes_state_and_records_on_tape(tmp_path) -
 
     assert context.state["reasoning_effort"] == "high"
     assert result == "Session reasoning effort set to high (applies from the next turn)."
-    entries = list(await context.tape.store.fetch_all(context.tape.query().kinds("event")))
+    entries = await context.tape.query().kinds("event").all()
     switches = [
         entry for entry in entries if entry.kind == "event" and entry.payload.get("name") == "reasoning_effort_switch"
     ]

@@ -11,6 +11,10 @@ By installing the [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-c
 Changing the storage backend **does not** migrate existing JSONL files automatically. After switching to the new database, old sessions will not appear in the new database's `tape.search`, and the original files remain under `tapes/` in the Bub directory.
 :::
 
+:::caution[Plugin protocol migration]
+This guide requires a plugin version implementing the async stream-first storage contracts described below. Older store plugins must be migrated before use; there is no compatibility adapter. Check the plugin version before switching the application backend.
+:::
+
 ## Before you start {#before-you-start}
 
 - You have [installed the Bub application](/docs/getting-started/install/#app-install) and configured a working model.
@@ -114,8 +118,8 @@ In production, test concurrent writes and connection pool timeout settings in ad
 
 | Protocol | Where it is used |
 | --- | --- |
-| `bub.core.store.TapeStore` | Synchronous implementation passed to `Agent(store=...)` |
-| `bub.core.store.AsyncTapeStore` | Asynchronous implementation; recommended for databases and remote storage |
+| `bub.core.store.TapeStore` | Async physical log: append, tail, stream |
+| `bub.core.store.TapeAccess` | Async query/write view passed to `Agent(store=...)`; canonical backends implement both |
 | `provide_tape_store` | Application-level replacement; the built-in app returns `FuzzyFileTapeStore` |
 
 Full method signatures are in the [Python API](/docs/reference/python-api/#tape-store). At minimum a backend must isolate entries by Tape name, preserve append order, support `reset()`, and let `TapeQuery`'s anchor filters work. Forks are built on top of any store by `ForkTapeStore`, so the backend does not implement them.

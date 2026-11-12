@@ -8,7 +8,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from bub.core.events import EventBus, ToolCallFinished, ToolCallStarted
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.store import InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
 from bub.core.tools import Tool, ToolContext, ToolExecutor, collect_tools, model_tools, tool
 from bub.errors import BubError
@@ -173,7 +173,7 @@ async def test_tool_decorator_registers_tools_only_while_collecting() -> None:
 
 
 def _context(tmp_path, *, code_mode: bool = False) -> ToolContext:
-    tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext()).scoped("test-tape")
+    tape = Tape(InMemoryTapeStore(), TapeContext()).scoped("test-tape")
     return ToolContext(tape=tape, run_id="run-1", code_mode=code_mode)
 
 

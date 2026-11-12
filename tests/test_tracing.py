@@ -15,7 +15,7 @@ from bub import tracing
 from bub.builtin.agent import BubAgent
 from bub.builtin.settings import AgentSettings
 from bub.core.context import default_tape_context
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.store import InMemoryTapeStore
 from bub.core.tape import Tape, session_tape_name
 from bub.core.tools import Tool, ToolContext, ToolExecutor
 from bub.framework import BubFramework
@@ -46,7 +46,7 @@ def agent(tmp_path: Path, provider_transport: ProviderService) -> BubAgent:
     framework.load_builtin_hooks()
     agent = BubAgent(framework)
     agent.settings = AgentSettings(model="openai:test", api_key="unused", client_args={"api_format": "chat"})
-    agent.__dict__["_tapes"] = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), default_tape_context())
+    agent.__dict__["_tapes"] = Tape(InMemoryTapeStore(), default_tape_context())
     return agent
 
 
@@ -105,9 +105,7 @@ async def test_agent_trajectory_has_parallel_tools_messages_and_tape_links(
     assert [m["role"] for m in messages] == ["assistant", "tool", "tool", "assistant"]
     assert messages[-1]["parts"] == [{"type": "text", "content": "done"}]
     assert any(e.name == "bub.loop.step" for e in root.events)
-    entries = await agent.tape(session_tape_name("trace-test", workspace_from_state({}))).store.fetch_all(
-        agent.tape(session_tape_name("trace-test", workspace_from_state({}))).query()
-    )
+    entries = await agent.tape(session_tape_name("trace-test", workspace_from_state({}))).query().all()
     assert any(e.meta.get("trace_id") == f"{root.context.trace_id:032x}" for e in entries)
 
 
@@ -186,9 +184,7 @@ async def test_close_before_first_iteration_releases_tape(spans: Any, agent: Bub
     await events.aclose()
     assert len(spans.get_finished_spans()) == 1
     # Fork contents were merged by the close callback even though the generator never started.
-    entries = await agent.tape(session_tape_name("unused", workspace_from_state({}))).store.fetch_all(
-        agent.tape(session_tape_name("unused", workspace_from_state({}))).query()
-    )
+    entries = await agent.tape(session_tape_name("unused", workspace_from_state({}))).query().all()
     assert any(e.payload.get("name") == "loop.start" for e in entries)
 
 
@@ -206,9 +202,7 @@ async def test_setup_failure_releases_tape_and_finishes_agent_span(
     (span,) = spans.get_finished_spans()
     assert span.status.status_code.name == "ERROR"
     assert span.attributes["error.type"] == "ValueError"
-    entries = await agent.tape(session_tape_name("setup-failure", workspace_from_state({}))).store.fetch_all(
-        agent.tape(session_tape_name("setup-failure", workspace_from_state({}))).query()
-    )
+    entries = await agent.tape(session_tape_name("setup-failure", workspace_from_state({}))).query().all()
     assert any(e.payload.get("name") == "setup.started" for e in entries)
     assert tracing.current_span() is None
 

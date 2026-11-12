@@ -12,7 +12,7 @@ import republic
 from republic.errors import StreamIncompleteError
 
 from bub.builtin.settings import AgentSettings
-from bub.core.store import AsyncTapeStoreAdapter, InMemoryTapeStore
+from bub.core.store import InMemoryTapeStore
 from bub.core.tape import Tape, TapeContext
 from bub.core.tools import Tool, ToolExecutor
 from bub.errors import BubError
@@ -274,7 +274,7 @@ class TestModelRunnerHookIntegration:
             ),
             hooks=hooks,
         )
-        tape = Tape(AsyncTapeStoreAdapter(InMemoryTapeStore()), TapeContext(anchor=None)).scoped("t1")
+        tape = Tape(InMemoryTapeStore(), TapeContext(anchor=None)).scoped("t1")
         return runner, tape
 
     @pytest.mark.asyncio
@@ -298,7 +298,7 @@ class TestModelRunnerHookIntegration:
             pass
         assert provider_transport.body()["model"] == "new"
         assert provider_transport.body()["max_tokens"] == 42
-        entries = list(await tape.store.fetch_all(tape.query().kinds("event")))
+        entries = await tape.query().kinds("event").all()
         run_events = [e for e in entries if e.payload.get("name") == "run"]
         assert run_events[-1].payload["data"]["model"] == "anthropic:new"
 

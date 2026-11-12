@@ -11,6 +11,10 @@ Bub 默认采用本地 JSONL 文件持久化会话 Tape。
 更换存储后端**不会**自动迁移现有的 JSONL 文件。切换到新数据库后，旧会话不会出现在新库的 `tape.search` 中，原文件依然保留在 Bub 目录的 `tapes/` 下。
 :::
 
+:::caution[插件协议迁移]
+本指南要求插件版本已实现下文的异步 stream-first 存储协议。旧版存储插件需要先迁移，没有兼容适配器；切换应用后端前请确认插件版本。
+:::
+
 ## 开始之前 {#before-you-start}
 
 - 已[安装 Bub 应用](/zh-cn/docs/getting-started/install/#app-install)，并正确配置模型。
@@ -114,8 +118,8 @@ sqlite3 "$PWD/bub-tapes.db" \
 
 | 协议 | 使用位置 |
 | --- | --- |
-| `bub.core.store.TapeStore` | 同步实现，传给 `Agent(store=...)` |
-| `bub.core.store.AsyncTapeStore` | 异步实现，推荐用于数据库与远程存储 |
+| `bub.core.store.TapeStore` | 异步物理日志：append、tail、stream |
+| `bub.core.store.TapeAccess` | 传给 `Agent(store=...)` 的异步查询/写入视图；物理后端同时实现两个协议 |
 | `provide_tape_store` | 应用层替换，内置应用默认返回 `FuzzyFileTapeStore` |
 
 完整方法签名见 [Python API](/zh-cn/docs/reference/python-api/#tape-store)。实现时至少要保证：按 Tape 名称隔离条目、保持追加顺序、支持 `reset()`，并能让 `TapeQuery` 的 anchor 过滤生效。分支由 `ForkTapeStore` 在现有存储之上构建，后端不需要自行实现。

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import bub.core as core
 from bub.builtin.settings import load_settings
-from bub.core.store import AsyncTapeStore, TapeStore
+from bub.core.store import TapeAccess
 from bub.core.tape import Tape, session_tape_name
 from bub.core.tools import Tool, model_tools
 from bub.framework import BubFramework
@@ -45,7 +45,7 @@ class BubAgent(core.Agent):
         framework: BubFramework,
         *,
         tools: Collection[Tool] | None = None,
-        tape_store: TapeStore | AsyncTapeStore | None = None,
+        tape_store: TapeAccess | None = None,
         skill_dirs: Collection[Path] | None = None,
         command_prefix: str | None = None,
     ) -> None:
