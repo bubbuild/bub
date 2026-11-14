@@ -17,14 +17,17 @@ async def wait_until_stopped[T](coro: Coroutine[None, None, T], stop_event: asyn
     """Run a coroutine until a stop event is set."""
     task = asyncio.create_task(coro)
     waiter = asyncio.create_task(stop_event.wait())
-    _ = await asyncio.wait({task, waiter}, return_when=asyncio.FIRST_COMPLETED)
-    if stop_event.is_set():
-        task.cancel()
-        await task
-        raise asyncio.CancelledError("Operation cancelled due to stop event")
-    else:
-        waiter.cancel()
+    try:
+        _ = await asyncio.wait({task, waiter}, return_when=asyncio.FIRST_COMPLETED)
+        if stop_event.is_set():
+            task.cancel()
+            await task
+            raise asyncio.CancelledError("Operation cancelled due to stop event")
         return task.result()
+    finally:
+        task.cancel()
+        waiter.cancel()
+        await asyncio.gather(task, waiter, return_exceptions=True)
 
 
 def workspace_from_state(state: TurnState) -> Path:
