@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import os
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from republic.errors import AuthenticationError
-from republic.providers import CodexAuth
+from republic.providers import CodexAuth, GitHubCLIAuth, GrokAuth
 
 app = typer.Typer(name="login", help="Account authentication")
 
@@ -27,7 +29,7 @@ def login_codex(
     codex_home: Annotated[Path | None, typer.Option("--codex-home", help="Codex credential directory")] = None,
 ) -> None:
     """Log in with the Codex CLI using file credential storage."""
-    try:
+    with _login_result():
         if codex_home is None:
             auth = asyncio.run(CodexAuth.login(executable=executable, device_auth=device_auth))
         else:
@@ -42,9 +44,34 @@ def login_codex(
             except subprocess.CalledProcessError as exc:
                 raise AuthenticationError(f"Codex login failed (exit {exc.returncode})") from None
             auth = CodexAuth.from_file(home / "auth.json")
+    typer.echo(f"account_id: {auth.account_id}")
+    typer.echo("Use BUB_MODEL=codex:<model> for ChatGPT plan access.")
+
+
+@app.command("grok")
+def login_grok(
+    executable: Annotated[str, typer.Option("--executable", help="Grok CLI executable")] = "grok",
+    device_auth: Annotated[bool, typer.Option("--device-auth", help="Use device authorization")] = False,
+) -> None:
+    """Log in with the official Grok CLI; Republic maintains its credentials."""
+    with _login_result():
+        asyncio.run(GrokAuth.login(executable=executable, device_auth=device_auth))
+    typer.echo("Use BUB_MODEL=grok:<model> to select this provider.")
+
+
+@app.command("github-copilot")
+def login_github_copilot() -> None:
+    """Log in with GitHub CLI; Republic reuses its credentials."""
+    with _login_result():
+        asyncio.run(GitHubCLIAuth.login())
+    typer.echo("Use BUB_MODEL=github-copilot:<model> to select this provider.")
+
+
+@contextmanager
+def _login_result() -> Iterator[None]:
+    try:
+        yield
     except AuthenticationError as exc:
         typer.secho(f"login: failed: {exc}", fg="red", err=True)
         raise typer.Exit(1) from None
     typer.echo("login: ok")
-    typer.echo(f"account_id: {auth.account_id}")
-    typer.echo("Use BUB_MODEL=codex:<model> for ChatGPT plan access.")

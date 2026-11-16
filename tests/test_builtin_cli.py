@@ -638,6 +638,31 @@ def test_login_command_reports_the_authenticated_account(
     assert "test-token" not in result.stdout
 
 
+@pytest.mark.parametrize("provider,auth_class", [("grok", "GrokAuth"), ("github-copilot", "GitHubCLIAuth")])
+@pytest.mark.parametrize("fails", [False, True])
+def test_login_reports_success_or_failure(
+    monkeypatch: pytest.MonkeyPatch, provider: str, auth_class: str, fails: bool
+) -> None:
+    from republic.errors import AuthenticationError
+
+    import bub.builtin.auth as auth
+
+    async def login(**kwargs: Any) -> None:
+        if fails:
+            raise AuthenticationError("Login cancelled")
+
+    monkeypatch.setattr(getattr(auth, auth_class), "login", login)
+    result = CliRunner().invoke(_create_app(), ["login", provider])
+
+    assert result.exit_code == (1 if fails else 0)
+    if fails:
+        assert "login: failed: Login cancelled" in result.stderr
+        assert "login: ok" not in result.stdout
+    else:
+        assert "login: ok" in result.stdout
+        assert f"BUB_MODEL={provider}:" in result.stdout
+
+
 def test_login_rejects_unknown_provider() -> None:
     result = CliRunner().invoke(_create_app(), ["login", "github"])
 
