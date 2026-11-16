@@ -311,6 +311,17 @@ export BUB_MODEL=codex:<model>
 
 Do not set `BUB_API_KEY` at the same time. On failure it prints `login: failed: ...` and exits with code `1`. Credentials are usually written to `$CODEX_HOME/auth.json` or `~/.codex/auth.json`.
 
+## Other account logins {#account-logins}
+
+```bash
+bub login grok [--executable grok] [--device-auth]
+bub login github-copilot
+```
+
+Grok uses the official Grok CLI; GitHub Copilot uses `gh auth login`. Install the corresponding CLI first. Republic reuses its credentials and handles token refresh or exchange. Bub adds no credential store.
+
+Select a model with `BUB_MODEL=grok:<model>` or `BUB_MODEL=github-copilot:<model>`, without setting an API key. Login does not change the configured model. GitHub Copilot access requires an eligible account and subscription.
+
 ## `bub plugins` {#bub-plugins}
 
 Prints each discovered plugin with the package and version that provide it.

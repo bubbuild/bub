@@ -236,6 +236,17 @@ Use BUB_MODEL=codex:<model> for ChatGPT plan access.
 
 使用时设置 `BUB_MODEL=codex:<model>`，不要同时设置 `BUB_API_KEY`。失败时输出 `login: failed: ...` 并以退出码 `1` 结束。
 
+## 其他账号登录 {#account-logins}
+
+```bash
+bub login grok [--executable grok] [--device-auth]
+bub login github-copilot
+```
+
+Grok 使用官方 Grok CLI；GitHub Copilot 使用 `gh auth login`。请先安装对应 CLI。Republic 复用其凭据并处理令牌刷新或交换，Bub 不增加凭据存储。
+
+登录后设置 `BUB_MODEL=grok:<model>` 或 `BUB_MODEL=github-copilot:<model>`，无需配置 API key。登录命令不会修改模型配置。GitHub Copilot 需要账号具有相应订阅及访问权限。
+
 ## `bub plugins` {#bub-plugins}
 
 列出已发现的插件及其包和版本号。
