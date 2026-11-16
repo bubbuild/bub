@@ -30,11 +30,26 @@ class BufferedMessageHandler:
             self._timer.cancel()
         self._timer = self._loop.call_later(timeout, self._event.set)
 
+    def _clear_processing(self, task: asyncio.Task | None = None) -> None:
+        if task is None or self._in_processing is task:
+            self._in_processing = None
+
+    def _ensure_processing(self) -> None:
+        if self._in_processing is None or self._in_processing.done():
+            task = asyncio.create_task(self._process())
+            task.add_done_callback(self._clear_processing)
+            self._in_processing = task
+
     async def _process(self) -> None:
-        await self._event.wait()
-        message = ChannelMessage.from_batch(self._pending_messages)
-        self._pending_messages.clear()
-        self._in_processing = None
+        current = asyncio.current_task()
+        try:
+            await self._event.wait()
+            if not self._pending_messages:
+                return
+            message = ChannelMessage.from_batch(self._pending_messages)
+            self._pending_messages.clear()
+        finally:
+            self._clear_processing(current)
         await self._handler(message)
 
     async def __call__(self, message: ChannelMessage) -> None:
@@ -60,9 +75,8 @@ class BufferedMessageHandler:
                 "session.message received active session_id={}, content={}", message.session_id, message.content
             )
             self._reset_timer(self.debounce_seconds)
-            if self._in_processing is None:
-                self._in_processing = asyncio.create_task(self._process())
-        elif self._last_active_time is not None and self._in_processing is None:
+            self._ensure_processing()
+        elif self._last_active_time is not None and (self._in_processing is None or self._in_processing.done()):
             logger.info("session.receive followup session_id={} message={}", message.session_id, message.content)
             self._reset_timer(self.max_wait_seconds)
-            self._in_processing = asyncio.create_task(self._process())
+            self._ensure_processing()
