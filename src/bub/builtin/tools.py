@@ -358,6 +358,8 @@ async def fs_write(path: str, content: str, *, context: ToolContext) -> str:
 @tool(context=True, name="fs.edit", exposure="direct")
 async def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: ToolContext) -> str:
     """Edit a text file by replacing old text with new text. You can specify the line number to start searching for the old text."""
+    if start < 0:
+        raise ValueError("start must be non-negative")
     environment = environment_from_state(context.state)
     resolved_path = environment.resolve_path(path)
     text = await environment.read_text(resolved_path)
@@ -366,7 +368,7 @@ async def fs_edit(path: str, old: str, new: str, start: int = 0, *, context: Too
     if old not in to_replace:
         raise ValueError(f"'{old}' not found in {resolved_path} from line {start}")
     replaced = to_replace.replace(old, new)
-    if prev:
+    if start > 0:
         replaced = prev + "\n" + replaced
     if text.endswith(("\n", "\r")):
         replaced += "\n"
