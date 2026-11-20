@@ -190,8 +190,7 @@ class BuiltinImpl:
         if not current:
             return None
         models = await settings.chat_model().list_all_models(settings.model_providers(current))
-        if current not in models:
-            models.insert(0, current)
+        models = list(dict.fromkeys([current, settings.model, *(settings.fallback_models or []), *models]))
         return ModelOptions(models=[ModelChoice(id=model, name=model) for model in models], current_model=current)
 
     def _read_agents_file(self, state: TurnState) -> str:
