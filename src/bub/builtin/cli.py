@@ -11,7 +11,6 @@ import sys
 from functools import lru_cache
 from importlib import metadata
 from pathlib import Path
-from typing import Any
 from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 
@@ -270,47 +269,32 @@ BUB_CONTRIB_REPO = "https://github.com/bubbuild/bub-contrib.git"
 
 @config()
 class InstallSettings(Settings):
-    """Settings read by ``bub install`` when it resolves a package from bub-contrib."""
-
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
-    # Kept untyped so a bad value never fails validation for other commands or when a config is saved;
-    # only ``bub install name@ref`` inspects it.
-    bub_contrib_repo: Any = None
-
-
-def _invalid_contrib_repo() -> typer.BadParameter:
-    return typer.BadParameter(
-        "Invalid bub-contrib repository setting: BUB_CONTRIB_REPO (or bub_contrib_repo in config.yml) must be an "
-        "https:// or ssh:// Git URL without a ref, query, fragment, or credentials."
-    )
+    model_config = SettingsConfigDict(env_prefix="BUB_", extra="ignore")
+    # Validate only when the install shorthand uses this value.
+    contrib_repo: object = None
 
 
 def _contrib_repo() -> str:
-    """Return the Git URL that ``bub install name@ref`` resolves ``packages/name`` from."""
-    configured = ensure_config(InstallSettings).bub_contrib_repo
-    if configured is None:
+    value = ensure_config(InstallSettings).contrib_repo
+    if value is None:
         return BUB_CONTRIB_REPO
-    if not isinstance(configured, str):
-        raise _invalid_contrib_repo()
-    repo = configured.strip()
-    if not repo:  # an empty value in ``.env`` means "use the default"
-        return BUB_CONTRIB_REPO
-    if any(char.isspace() for char in repo):
-        raise _invalid_contrib_repo()
+    error = "BUB_CONTRIB_REPO (config.yml: contrib_repo) must be a Git URL without credentials, a query, or a fragment."
+    if not isinstance(value, str):
+        raise typer.BadParameter(error)
+    repo = value.strip() or BUB_CONTRIB_REPO
     try:
-        parsed = urlsplit(repo)
-        has_password = parsed.password is not None
-        has_user = parsed.username is not None
-    except ValueError as exc:  # urlsplit rejects e.g. an unbalanced bracket in the host
-        raise _invalid_contrib_repo() from exc
-    # The ref and subdirectory are appended to this URL, so anything that would break the
-    # resulting requirement is refused instead of being rewritten.
-    if parsed.scheme not in {"https", "ssh"} or not parsed.hostname or not parsed.path.strip("/"):
-        raise _invalid_contrib_repo()
-    if parsed.query or parsed.fragment or "@" in parsed.path or has_password:
-        raise _invalid_contrib_repo()
-    if parsed.scheme == "https" and has_user:
-        raise _invalid_contrib_repo()
+        url = urlsplit(repo)
+    except ValueError:
+        raise typer.BadParameter(error) from None
+    # Require an authority for remote URLs so we can check for credentials before calling uv.
+    if (
+        (url.scheme != "file" and not url.netloc)
+        or "?" in repo
+        or "#" in repo
+        or url.password is not None
+        or (url.username is not None and url.scheme != "ssh")
+    ):
+        raise typer.BadParameter(error)
     return repo.rstrip("/")
 
 

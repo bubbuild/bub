@@ -166,13 +166,7 @@ bub install [OPTIONS] [SPECS]...
 | `https://github.com/owner/repo.git@ref` | 带前缀的 Git URL，保留 ref |
 | `git@...` 或 `https://...` | 加 `git+` 前缀 |
 
-`package@ref` 从 `BUB_CONTRIB_REPO` 解析仓库地址；未设置时读取 `config.yml` 顶层的 `bub_contrib_repo`，默认仍是 `https://github.com/bubbuild/bub-contrib.git`，因此 fork 或镜像只需改这一项：
-
-```bash
-BUB_CONTRIB_REPO=https://git.example.com/acme/bub-contrib.git bub install bub-mcp@main
-```
-
-该值必须是 `https://` 或 `ssh://` 的 Git URL，且不带 ref、查询串、片段或凭据，因为命令会在其后拼接 ref 与 `packages/<name>` 子目录。非法值只影响 `package@ref`，其他包规格和其他命令行为不变。
+`package@ref` 默认使用官方 `bub-contrib` 仓库。若要使用 fork 或镜像，可设置 `config.yml` 顶层的 `contrib_repo`，或用 `BUB_CONTRIB_REPO` 覆盖。请填写不带 ref、查询参数、片段或内联凭据的仓库 URL。
 
 `owner/repo@ref` 不受支持；为任意 GitHub 仓库固定版本时使用完整 URL。
 

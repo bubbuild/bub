@@ -35,7 +35,6 @@ Settings instances are cached within the process. After the first `ensure_config
 | --- | --- | --- |
 | `BUB_HOME` | `~/.bub` | `bub.home`; setting it in `.env` also works |
 | `BUB_PROJECT` | `<BUB_HOME>/bub-project` | Project directory for `bub install` / `uninstall` / `update` |
-| `BUB_CONTRIB_REPO` | `https://github.com/bubbuild/bub-contrib.git` | bub-contrib Git URL for `bub install name@ref`; `bub_contrib_repo` in `config.yml` is the fallback |
 
 Typer reads `BUB_PROJECT`. The default project directory is created automatically when missing; an explicitly selected alternative directory should already exist.
 
@@ -47,7 +46,6 @@ Every YAML key has a corresponding environment variable, which takes precedence.
 | --- | --- | --- | --- |
 | `BUB_HOME` | `~/.bub` | — | [Runtime paths](#runtime-paths) |
 | `BUB_PROJECT` | `<BUB_HOME>/bub-project` | — | [Runtime paths](#runtime-paths) |
-| `BUB_CONTRIB_REPO` | `https://github.com/bubbuild/bub-contrib.git` | `bub_contrib_repo` | [Runtime paths](#runtime-paths) |
 | `BUB_MODEL` | `openrouter:openrouter/free` | `model` | [AgentSettings](#agent-settings) |
 | `BUB_COMMAND_PREFIX` | `,` | `command_prefix` | [Command prefix](#command-prefix) |
 | `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | [Models and fallback](#model-routing) |
