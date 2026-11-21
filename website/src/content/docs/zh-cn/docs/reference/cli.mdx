@@ -166,7 +166,7 @@ bub install [OPTIONS] [SPECS]...
 | `https://github.com/owner/repo.git@ref` | 带前缀的 Git URL，保留 ref |
 | `git@...` 或 `https://...` | 加 `git+` 前缀 |
 
-`package@ref` 默认使用官方 `bub-contrib` 仓库。若要使用 fork 或镜像，可设置 `config.yml` 顶层的 `contrib_repo`，或用 `BUB_CONTRIB_REPO` 覆盖。可使用 `uv` 支持的 Git URL，例如 `ssh://git@example.com/org/repo.git#subdirectory=plugins/mcp`。`package@ref` 提供 ref；未设置 `#subdirectory=` 时默认使用 `packages/package`，设为 `.` 则使用仓库根目录。 私有仓库请使用 SSH 密钥或 Git 凭据助手，不要在 URL 中嵌入凭据。
+`package@ref` 默认使用官方 `bub-contrib` 仓库。若要使用 fork 或镜像，可设置 `config.yml` 顶层的 `contrib_repo`，或用 `BUB_CONTRIB_REPO` 覆盖。可使用 `uv` 支持的 Git URL，例如 `ssh://git@example.com/org/repo.git#subdirectory=plugins/mcp`。`package@ref` 提供 ref；未设置 `#subdirectory=` 时默认使用 `packages/package`，设为 `.` 则使用仓库根目录。私有仓库请使用 SSH 密钥或 Git 凭据助手，不要在 URL 中嵌入凭据。
 
 `owner/repo@ref` 不受支持；为任意 GitHub 仓库固定版本时使用完整 URL。
 
