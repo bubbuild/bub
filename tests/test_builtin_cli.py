@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 from io import StringIO
 from pathlib import Path
@@ -759,9 +760,17 @@ def _run_install(tmp_path: Path, *specs: str) -> tuple[Result, Mock]:
 @pytest.mark.parametrize(
     ("yaml_repo", "env_repo", "expected"),
     [
-        (None, None, "https://github.com/bubbuild/bub-contrib.git"),
-        ("https://example.com/mirror.git", None, "https://example.com/mirror.git"),
-        ("https://example.com/mirror.git", "https://example.com/fork.git", "https://example.com/fork.git"),
+        (None, None, "git+https://github.com/bubbuild/bub-contrib.git@main#subdirectory=packages/bub-mcp"),
+        (
+            "https://example.com/mirror.git",
+            None,
+            "git+https://example.com/mirror.git@main#subdirectory=packages/bub-mcp",
+        ),
+        (
+            "https://example.com/mirror.git",
+            "git+ssh://git@example.com/fork.git#subdirectory=plugins/mcp",
+            "git+ssh://git@example.com/fork.git@main#subdirectory=plugins/mcp",
+        ),
     ],
 )
 def test_install_resolves_contrib_shorthand(
@@ -773,27 +782,26 @@ def test_install_resolves_contrib_shorthand(
     if env_repo is not None:
         monkeypatch.setenv("BUB_CONTRIB_REPO", env_repo)
 
-    result, uv = _run_install(tmp_path, "bub-mcp@main")
-
-    assert result.exit_code == 0, result.output
-    uv.assert_called_once_with("add", "--active", f"git+{expected}@main#subdirectory=packages/bub-mcp", cwd=tmp_path)
-
-
-def test_install_rejects_inline_credentials_only_for_contrib_shorthand(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("BUB_CONTRIB_REPO", "https://user:fake-token@example.com/fork.git")
-
-    result, uv = _run_install(tmp_path, "bub-mcp@main")
-    assert result.exit_code == 2
-    assert "BUB_CONTRIB_REPO" in result.output
-    assert "fake-token" not in result.output
-    uv.assert_not_called()
-
     explicit = "https://example.com/plugin.git@v1"
-    result, uv = _run_install(tmp_path, "bub-mcp", explicit)
+    result, uv = _run_install(tmp_path, "bub-mcp@main", "plain-package", explicit)
+
     assert result.exit_code == 0, result.output
-    uv.assert_called_once_with("add", "--active", "bub-mcp", f"git+{explicit}", cwd=tmp_path)
+    uv.assert_called_once_with("add", "--active", expected, "plain-package", f"git+{explicit}", cwd=tmp_path)
+
+
+def test_uv_failure_message_does_not_echo_arguments(tmp_path: Path, monkeypatch, capsys) -> None:
+    def fail(command, **kwargs):
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(cli, "_find_uv", lambda: "uv")
+    monkeypatch.setattr(cli, "_is_in_venv", lambda: True)
+    monkeypatch.setattr(cli.subprocess, "run", fail)
+
+    with pytest.raises(typer.Exit) as exc:
+        cli._uv("add", "git+https://user:fake-token@example.com/repo.git", cwd=tmp_path)
+
+    assert exc.value.exit_code == 1
+    assert capsys.readouterr().err == "Command 'uv add' failed with exit code 1.\n"
 
 
 @pytest.mark.parametrize("initial_prompt", [None, "Explain this project", "你好 Bub"])

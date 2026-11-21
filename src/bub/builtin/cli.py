@@ -260,8 +260,9 @@ def _uv(*args: str, cwd: Path) -> subprocess.CompletedProcess:
     try:
         return subprocess.run([uv_executable, *args], env=env, check=True, cwd=cwd)
     except subprocess.CalledProcessError as e:
-        typer.secho(f"Command 'uv {' '.join(args)}' failed with exit code {e.returncode}.", err=True, fg="red")
-        raise typer.Exit(e.returncode) from e
+        # uv reports the details; do not echo arguments that may contain credentials.
+        typer.secho(f"Command 'uv {args[0]}' failed with exit code {e.returncode}.", err=True, fg="red")
+        raise typer.Exit(e.returncode) from None
 
 
 BUB_CONTRIB_REPO = "https://github.com/bubbuild/bub-contrib.git"
@@ -274,28 +275,16 @@ class InstallSettings(Settings):
     contrib_repo: object = None
 
 
-def _contrib_repo() -> str:
+def _contrib_requirement(name: str, ref: str) -> str:
     value = ensure_config(InstallSettings).contrib_repo
-    if value is None:
-        return BUB_CONTRIB_REPO
-    error = "BUB_CONTRIB_REPO (config.yml: contrib_repo) must be a Git URL without credentials, a query, or a fragment."
-    if not isinstance(value, str):
-        raise typer.BadParameter(error)
-    repo = value.strip() or BUB_CONTRIB_REPO
-    try:
-        url = urlsplit(repo)
-    except ValueError:
-        raise typer.BadParameter(error) from None
-    # Require an authority for remote URLs so we can check for credentials before calling uv.
-    if (
-        (url.scheme != "file" and not url.netloc)
-        or "?" in repo
-        or "#" in repo
-        or url.password is not None
-        or (url.username is not None and url.scheme != "ssh")
-    ):
-        raise typer.BadParameter(error)
-    return repo.rstrip("/")
+    if value is not None and not isinstance(value, str):
+        raise typer.BadParameter("Set BUB_CONTRIB_REPO (config.yml: contrib_repo) to a Git URL.")
+    repo = (value or "").strip() or BUB_CONTRIB_REPO
+    base, _, fragment = repo.removeprefix("git+").partition("#")
+    path, separator, query = base.partition("?")
+    if not any(part.startswith("subdirectory=") for part in fragment.split("&")):
+        fragment = f"{fragment}&subdirectory=packages/{name}" if fragment else f"subdirectory=packages/{name}"
+    return f"git+{path}@{ref}{separator}{query}#{fragment}"
 
 
 def _build_requirement(spec: str) -> str:
@@ -311,8 +300,7 @@ def _build_requirement(spec: str) -> str:
         # Assume it's a package name in bub-contrib
         name, has_ref, ref = spec.partition("@")
         if has_ref:
-            ref = f"@{ref}"
-            return f"git+{_contrib_repo()}{ref}#subdirectory=packages/{name}"
+            return _contrib_requirement(name, ref)
         else:  # PyPI package name
             return name
 
