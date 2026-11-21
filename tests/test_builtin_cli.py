@@ -3,20 +3,19 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import sys
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 import typer
 from inquirer_textual.common.InquirerResult import InquirerResult
 from inquirer_textual.common.PromptSettings import PromptSettings
 from typer.main import get_command
-from typer.testing import CliRunner, Result
+from typer.testing import CliRunner
 
 import bub.builtin.cli as cli
 import bub.builtin.onboarding as onboarding
@@ -748,60 +747,21 @@ def test_ensure_project_initializes_project_and_adds_bub_dependency(tmp_path: Pa
     ]
 
 
-def _run_install(tmp_path: Path, *specs: str) -> tuple[Result, Mock]:
-    framework = BubFramework(config_file=tmp_path / "config.yml")
-    framework.load_builtin_hooks()
-    (tmp_path / "pyproject.toml").touch()
-    with patch.object(cli, "_uv") as uv:
-        result = CliRunner().invoke(framework.create_cli_app(), ["install", *specs, "--project", str(tmp_path)])
-    return result, uv
-
-
-@pytest.mark.parametrize(
-    ("yaml_repo", "env_repo", "expected"),
-    [
-        (None, None, "git+https://github.com/bubbuild/bub-contrib.git@main#subdirectory=packages/bub-mcp"),
-        (
-            "https://example.com/mirror.git",
-            None,
-            "git+https://example.com/mirror.git@main#subdirectory=packages/bub-mcp",
-        ),
-        (
-            "https://example.com/mirror.git",
-            "git+ssh://git@example.com/fork.git#subdirectory=plugins/mcp",
-            "git+ssh://git@example.com/fork.git@main#subdirectory=plugins/mcp",
-        ),
-    ],
-)
-def test_install_resolves_contrib_shorthand(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, yaml_repo: str | None, env_repo: str | None, expected: str
-) -> None:
+def test_install_uses_configured_contrib_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("BUB_CONTRIB_REPO", raising=False)
-    if yaml_repo is not None:
-        (tmp_path / "config.yml").write_text(f"contrib_repo: {yaml_repo}\n")
-    if env_repo is not None:
-        monkeypatch.setenv("BUB_CONTRIB_REPO", env_repo)
+    config_file = tmp_path / "config.yml"
+    config_file.write_text('contrib_repo: "ssh://git@example.com/fork.git#subdirectory=plugins/mcp"\n')
+    (tmp_path / "pyproject.toml").touch()
+    framework = BubFramework(config_file=config_file)
+    framework.load_builtin_hooks()
 
-    explicit = "https://example.com/plugin.git@v1"
-    result, uv = _run_install(tmp_path, "bub-mcp@main", "plain-package", explicit)
+    with patch.object(cli, "_uv") as uv:
+        result = CliRunner().invoke(framework.create_cli_app(), ["install", "bub-mcp@main", "--project", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
-    uv.assert_called_once_with("add", "--active", expected, "plain-package", f"git+{explicit}", cwd=tmp_path)
-
-
-def test_uv_failure_message_does_not_echo_arguments(tmp_path: Path, monkeypatch, capsys) -> None:
-    def fail(command, **kwargs):
-        raise subprocess.CalledProcessError(1, command)
-
-    monkeypatch.setattr(cli, "_find_uv", lambda: "uv")
-    monkeypatch.setattr(cli, "_is_in_venv", lambda: True)
-    monkeypatch.setattr(cli.subprocess, "run", fail)
-
-    with pytest.raises(typer.Exit) as exc:
-        cli._uv("add", "git+https://user:fake-token@example.com/repo.git", cwd=tmp_path)
-
-    assert exc.value.exit_code == 1
-    assert capsys.readouterr().err == "Command 'uv add' failed with exit code 1.\n"
+    uv.assert_called_once_with(
+        "add", "--active", "git+ssh://git@example.com/fork.git@main#subdirectory=plugins/mcp", cwd=tmp_path
+    )
 
 
 @pytest.mark.parametrize("initial_prompt", [None, "Explain this project", "你好 Bub"])

@@ -260,9 +260,8 @@ def _uv(*args: str, cwd: Path) -> subprocess.CompletedProcess:
     try:
         return subprocess.run([uv_executable, *args], env=env, check=True, cwd=cwd)
     except subprocess.CalledProcessError as e:
-        # uv reports the details; do not echo arguments that may contain credentials.
-        typer.secho(f"Command 'uv {args[0]}' failed with exit code {e.returncode}.", err=True, fg="red")
-        raise typer.Exit(e.returncode) from None
+        typer.secho(f"Command 'uv {' '.join(args)}' failed with exit code {e.returncode}.", err=True, fg="red")
+        raise typer.Exit(e.returncode) from e
 
 
 BUB_CONTRIB_REPO = "https://github.com/bubbuild/bub-contrib.git"
@@ -297,7 +296,6 @@ def _build_requirement(spec: str) -> str:
         ref = "".join(rest)
         return f"git+https://github.com/{repo}.git{ref}"
     else:
-        # Assume it's a package name in bub-contrib
         name, has_ref, ref = spec.partition("@")
         if has_ref:
             return _contrib_requirement(name, ref)
@@ -363,17 +361,16 @@ def _ensure_project(project: Path) -> None:
 def install(
     specs: list[str] = typer.Argument(
         default_factory=list,
-        help="Package specification to install, can be a git URL, owner/repo, or package name in bub-contrib.",
+        help="Package to install: a PyPI name, Git URL, owner/repo, or name@ref from the configured contrib repository.",
     ),
     project: Path = project_opt,
 ) -> None:
     """Install a plugin into Bub's environment, or sync the environment if no specifications are provided."""
-    requirements = [_build_requirement(spec) for spec in specs]
     _ensure_project(project)
-    if not requirements:
+    if not specs:
         _uv("sync", "--active", "--inexact", cwd=project)
     else:
-        _uv("add", "--active", *requirements, cwd=project)
+        _uv("add", "--active", *map(_build_requirement, specs), cwd=project)
 
 
 def uninstall(
