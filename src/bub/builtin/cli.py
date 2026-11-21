@@ -15,6 +15,7 @@ from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 
 import typer
+from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
 from bub import Settings, __version__, config, configure, ensure_config
@@ -268,16 +269,13 @@ BUB_CONTRIB_REPO = "https://github.com/bubbuild/bub-contrib.git"
 
 
 @config()
-class InstallSettings(Settings):
+class ContribSettings(Settings):
     model_config = SettingsConfigDict(env_prefix="BUB_", extra="ignore")
-    # Validate only when the install shorthand uses this value.
-    contrib_repo: object = None
+    contrib_repo: str | None = Field(default=None, description="Git repository URL for `bub install name@ref`.")
 
 
 def _contrib_requirement(name: str, ref: str) -> str:
-    value = ensure_config(InstallSettings).contrib_repo
-    if value is not None and not isinstance(value, str):
-        raise typer.BadParameter("Set BUB_CONTRIB_REPO (config.yml: contrib_repo) to a Git URL.")
+    value = ensure_config(ContribSettings).contrib_repo
     repo = (value or "").strip() or BUB_CONTRIB_REPO
     base, _, fragment = repo.removeprefix("git+").partition("#")
     path, separator, query = base.partition("?")
