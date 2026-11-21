@@ -747,6 +747,132 @@ def test_ensure_project_initializes_project_and_adds_bub_dependency(tmp_path: Pa
     ]
 
 
+def _install_app(tmp_path: Path) -> typer.Typer:
+    framework = BubFramework(config_file=tmp_path / "config.yml")
+    framework.load_hooks()
+    return framework.create_cli_app()
+
+
+def _run_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> tuple[Any, list[tuple[str, ...]]]:
+    app = _install_app(tmp_path)
+    captured: list[tuple[str, ...]] = []
+
+    def fake_uv(*uv_args: str, cwd: Path) -> None:
+        assert cwd == tmp_path / "project"
+        captured.append(uv_args)
+
+    (tmp_path / "project").mkdir()
+    monkeypatch.setattr(cli, "_uv", fake_uv)
+    monkeypatch.setattr(cli, "_ensure_project", lambda _project: None)
+    result = CliRunner().invoke(app, ["install", *args, "--project", os.fspath(tmp_path / "project")])
+    return result, captured
+
+
+def test_install_resolves_package_ref_from_the_default_contrib_repo(tmp_path: Path, monkeypatch) -> None:
+    result, captured = _run_install(tmp_path, monkeypatch, "bub-mcp@main")
+
+    assert result.exit_code == 0, result.output
+    assert captured == [
+        ("add", "--active", "git+https://github.com/bubbuild/bub-contrib.git@main#subdirectory=packages/bub-mcp"),
+    ]
+
+
+def test_install_treats_an_empty_contrib_repo_setting_as_unset(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("BUB_CONTRIB_REPO", "  ")
+
+    result, captured = _run_install(tmp_path, monkeypatch, "bub-mcp@main")
+
+    assert result.exit_code == 0, result.output
+    assert captured == [
+        ("add", "--active", "git+https://github.com/bubbuild/bub-contrib.git@main#subdirectory=packages/bub-mcp"),
+    ]
+
+
+def test_install_uses_the_contrib_repo_setting_from_the_environment(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "config.yml").write_text("bub_contrib_repo: https://config.example.com/mirror/bub-contrib\n")
+    monkeypatch.setenv("BUB_CONTRIB_REPO", "https://env.example.com/acme/bub-contrib.git")
+
+    result, captured = _run_install(tmp_path, monkeypatch, "bub-mcp@main")
+
+    assert result.exit_code == 0, result.output
+    assert captured == [
+        ("add", "--active", "git+https://env.example.com/acme/bub-contrib.git@main#subdirectory=packages/bub-mcp"),
+    ]
+
+
+def test_install_reads_the_contrib_repo_setting_from_the_config_file(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "config.yml").write_text("bub_contrib_repo: https://git.example.com/mirror/bub-contrib\n")
+
+    result, captured = _run_install(tmp_path, monkeypatch, "bub-mcp@v0.2.0")
+
+    assert result.exit_code == 0, result.output
+    assert captured == [
+        ("add", "--active", "git+https://git.example.com/mirror/bub-contrib@v0.2.0#subdirectory=packages/bub-mcp"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("specs", "expected"),
+    [
+        (
+            ("bub-mcp", "owner/repo", "git@github.com:owner/repo.git"),
+            (
+                "add",
+                "--active",
+                "bub-mcp",
+                "git+https://github.com/owner/repo.git",
+                "git+git@github.com:owner/repo.git",
+            ),
+        ),
+        ((), ("sync", "--active", "--inexact")),
+    ],
+)
+def test_invalid_contrib_repo_does_not_affect_other_specs_or_commands(
+    tmp_path: Path, monkeypatch, specs: tuple[str, ...], expected: tuple[str, ...]
+) -> None:
+    monkeypatch.setenv("BUB_CONTRIB_REPO", "ftp://not-a-git-url")
+
+    result, captured = _run_install(tmp_path, monkeypatch, *specs)
+
+    assert result.exit_code == 0, result.output
+    assert captured == [expected]
+
+    other = CliRunner().invoke(_install_app(tmp_path), ["plugins"])
+    assert other.exit_code == 0, other.output
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "ftp://example.com/bub-contrib.git",
+        "https://example.com",
+        "https://[example.com/bub-contrib.git",
+        "https://example.com/bub-contrib.git@main",
+        "https://example.com/bub-contrib.git?ref=main",
+        "not-a-url",
+        "https://example.com/bub contrib",
+    ],
+)
+def test_install_rejects_an_invalid_contrib_repo(tmp_path: Path, monkeypatch, value: str) -> None:
+    monkeypatch.setenv("BUB_CONTRIB_REPO", value)
+
+    result, captured = _run_install(tmp_path, monkeypatch, "bub-mcp@main")
+
+    assert result.exit_code == 2
+    assert "Invalid bub-contrib repository setting" in result.output
+    assert captured == []
+
+
+def test_invalid_contrib_repo_error_does_not_echo_credentials(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("BUB_CONTRIB_REPO", "https://user:s3cret-token@git.example.com/acme/bub-contrib.git")
+
+    result, captured = _run_install(tmp_path, monkeypatch, "bub-mcp@main")
+
+    assert result.exit_code == 2
+    assert "s3cret-token" not in result.output
+    assert captured == []
+
+
 @pytest.mark.parametrize("initial_prompt", [None, "Explain this project", "你好 Bub"])
 def test_chat_accepts_optional_initial_prompt(initial_prompt: str | None, monkeypatch) -> None:
     from bub.channels.manager import ChannelManager

@@ -207,6 +207,14 @@ Package spec resolution:
 | `https://github.com/owner/repo.git@ref` | A prefixed Git URL that preserves the ref |
 | `git@...` or `https://...` | Prefixed with `git+` |
 
+`package@ref` resolves against `BUB_CONTRIB_REPO`, or the top-level `bub_contrib_repo` in `config.yml` when the variable is unset; the default is `https://github.com/bubbuild/bub-contrib.git`, so forks and mirrors only need that one setting:
+
+```bash
+BUB_CONTRIB_REPO=https://git.example.com/acme/bub-contrib.git bub install bub-mcp@main
+```
+
+The value must be an `https://` or `ssh://` Git URL without a ref, query, fragment, or credentials, because the ref and `packages/<name>` subdirectory are appended to it. An invalid value fails only `package@ref`; other spec forms and other commands are unaffected.
+
 To pin any GitHub repository, use the full URL:
 
 ```bash

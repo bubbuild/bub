@@ -11,12 +11,14 @@ import sys
 from functools import lru_cache
 from importlib import metadata
 from pathlib import Path
+from typing import Any
 from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 
 import typer
+from pydantic_settings import SettingsConfigDict
 
-from bub import __version__, configure
+from bub import Settings, __version__, config, configure, ensure_config
 from bub.builtin.auth import app as login_app  # noqa: F401
 from bub.channels.message import ChannelMessage
 from bub.envelope import field_of
@@ -266,6 +268,52 @@ def _uv(*args: str, cwd: Path) -> subprocess.CompletedProcess:
 BUB_CONTRIB_REPO = "https://github.com/bubbuild/bub-contrib.git"
 
 
+@config()
+class InstallSettings(Settings):
+    """Settings read by ``bub install`` when it resolves a package from bub-contrib."""
+
+    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
+    # Kept untyped so a bad value never fails validation for other commands or when a config is saved;
+    # only ``bub install name@ref`` inspects it.
+    bub_contrib_repo: Any = None
+
+
+def _invalid_contrib_repo() -> typer.BadParameter:
+    return typer.BadParameter(
+        "Invalid bub-contrib repository setting: BUB_CONTRIB_REPO (or bub_contrib_repo in config.yml) must be an "
+        "https:// or ssh:// Git URL without a ref, query, fragment, or credentials."
+    )
+
+
+def _contrib_repo() -> str:
+    """Return the Git URL that ``bub install name@ref`` resolves ``packages/name`` from."""
+    configured = ensure_config(InstallSettings).bub_contrib_repo
+    if configured is None:
+        return BUB_CONTRIB_REPO
+    if not isinstance(configured, str):
+        raise _invalid_contrib_repo()
+    repo = configured.strip()
+    if not repo:  # an empty value in ``.env`` means "use the default"
+        return BUB_CONTRIB_REPO
+    if any(char.isspace() for char in repo):
+        raise _invalid_contrib_repo()
+    try:
+        parsed = urlsplit(repo)
+        has_password = parsed.password is not None
+        has_user = parsed.username is not None
+    except ValueError as exc:  # urlsplit rejects e.g. an unbalanced bracket in the host
+        raise _invalid_contrib_repo() from exc
+    # The ref and subdirectory are appended to this URL, so anything that would break the
+    # resulting requirement is refused instead of being rewritten.
+    if parsed.scheme not in {"https", "ssh"} or not parsed.hostname or not parsed.path.strip("/"):
+        raise _invalid_contrib_repo()
+    if parsed.query or parsed.fragment or "@" in parsed.path or has_password:
+        raise _invalid_contrib_repo()
+    if parsed.scheme == "https" and has_user:
+        raise _invalid_contrib_repo()
+    return repo.rstrip("/")
+
+
 def _build_requirement(spec: str) -> str:
     if spec.startswith(("git@", "https://")):
         # Git URL
@@ -280,7 +328,7 @@ def _build_requirement(spec: str) -> str:
         name, has_ref, ref = spec.partition("@")
         if has_ref:
             ref = f"@{ref}"
-            return f"git+{BUB_CONTRIB_REPO}{ref}#subdirectory=packages/{name}"
+            return f"git+{_contrib_repo()}{ref}#subdirectory=packages/{name}"
         else:  # PyPI package name
             return name
 
@@ -348,11 +396,12 @@ def install(
     project: Path = project_opt,
 ) -> None:
     """Install a plugin into Bub's environment, or sync the environment if no specifications are provided."""
+    requirements = [_build_requirement(spec) for spec in specs]
     _ensure_project(project)
-    if not specs:
+    if not requirements:
         _uv("sync", "--active", "--inexact", cwd=project)
     else:
-        _uv("add", "--active", *map(_build_requirement, specs), cwd=project)
+        _uv("add", "--active", *requirements, cwd=project)
 
 
 def uninstall(
