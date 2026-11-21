@@ -63,6 +63,14 @@ def _message_type(message: Message) -> str:
     return "unknown"
 
 
+def _slice_utf16(text: str, offset: int, length: int) -> str:
+    """Slice ``text`` using Telegram Bot API UTF-16 code-unit offsets."""
+    if offset < 0 or length <= 0:
+        return ""
+    encoded = text.encode("utf-16-le")
+    return encoded[offset * 2 : (offset + length) * 2].decode("utf-16-le", errors="ignore")
+
+
 class BubMessageFilter(filters.MessageFilter):
     GROUP_CHAT_TYPES: ClassVar[set[str]] = {"group", "supergroup"}
 
@@ -95,13 +103,14 @@ class BubMessageFilter(filters.MessageFilter):
         return False
 
     def _mentions_bot(self, message: Message, bot_id: int, bot_username: str) -> bool:
-        content = self._content(message).lower()
+        raw_content = self._content(message)
+        content = raw_content.lower()
         mentions_by_keyword = "bub" in content or bool(bot_username and f"@{bot_username}" in content)
 
         entities = [*(getattr(message, "entities", None) or ()), *(getattr(message, "caption_entities", None) or ())]
         for entity in entities:
             if entity.type == "mention" and bot_username:
-                mention_text = content[entity.offset : entity.offset + entity.length]
+                mention_text = _slice_utf16(raw_content, entity.offset, entity.length)
                 if mention_text.lower() == f"@{bot_username}":
                     return True
                 continue
@@ -286,7 +295,7 @@ class TelegramChannel(Channel):
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-            del self._typing_tasks[chat_id]
+            self._typing_tasks.pop(chat_id, None)
 
     async def _typing_loop(self, chat_id: str) -> None:
         while True:
@@ -349,7 +358,7 @@ class TelegramMessageParser:
             elif entity.type == "url":
                 offset = getattr(entity, "offset", 0)
                 length = getattr(entity, "length", 0)
-                candidate = source_text[offset : offset + length].strip()
+                candidate = _slice_utf16(source_text, offset, length).strip()
                 url = candidate or None
 
             if url and url not in links:

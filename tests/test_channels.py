@@ -2017,3 +2017,61 @@ async def test_cli_model_command_completes_available_or_typed_provider_models() 
     assert await complete(",model relay:o") == ["relay:o3"]
     assert await complete(",model openai:gpt-4o extra") == []
     assert fetched == ["available for openai:gpt-4o", "relay"]
+
+
+@pytest.mark.asyncio
+async def test_telegram_parser_extracts_url_after_emoji_utf16_offset() -> None:
+    parser = TelegramMessageParser()
+    text = "See 🔥 https://example.com/path"
+    prefix_utf16_len = len("See 🔥 ".encode("utf-16-le")) // 2
+    url = "https://example.com/path"
+    message = SimpleNamespace(
+        message_id=1,
+        text=text,
+        caption=None,
+        entities=[SimpleNamespace(type="url", offset=prefix_utf16_len, length=len(url))],
+        caption_entities=None,
+        from_user=SimpleNamespace(id=7, username="alice", full_name="Alice", is_bot=False),
+        date=None,
+    )
+
+    _, metadata = await parser.parse(message)
+
+    assert metadata["links"] == [url]
+
+
+def test_bub_message_filter_handles_mention_after_emoji_utf16_offset() -> None:
+    bot = SimpleNamespace(id=1, username="HelperBot")
+    text = "🎉 @HelperBot hi"
+    offset = len("🎉 ".encode("utf-16-le")) // 2
+    message = SimpleNamespace(
+        chat=SimpleNamespace(type="group"),
+        text=text,
+        caption=None,
+        entities=[SimpleNamespace(type="mention", offset=offset, length=len("@HelperBot"))],
+        caption_entities=[],
+        reply_to_message=None,
+        get_bot=lambda: bot,
+    )
+
+    assert BubMessageFilter().filter(message) is True
+
+
+@pytest.mark.asyncio
+async def test_telegram_channel_stop_while_typing_does_not_raise_key_error(load_config) -> None:
+    _load_channel_config(load_config, telegram_value="test-token")
+    channel = TelegramChannel(lambda message: None)
+
+    async def send_chat_action(chat_id: str, action: str) -> None:
+        return None
+
+    channel._app = SimpleNamespace(
+        bot=SimpleNamespace(send_chat_action=send_chat_action),
+        updater=None,
+        stop=_async_return(None),
+        shutdown=_async_return(None),
+    )
+
+    async with channel.start_typing("42"):
+        await channel.stop()
+
