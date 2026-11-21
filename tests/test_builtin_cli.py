@@ -747,6 +747,23 @@ def test_ensure_project_initializes_project_and_adds_bub_dependency(tmp_path: Pa
     ]
 
 
+def test_install_uses_configured_contrib_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BUB_CONTRIB_REPO", raising=False)
+    config_file = tmp_path / "config.yml"
+    config_file.write_text('contrib_repo: "ssh://git@example.com/fork.git#subdirectory=plugins/mcp"\n')
+    (tmp_path / "pyproject.toml").touch()
+    framework = BubFramework(config_file=config_file)
+    framework.load_builtin_hooks()
+
+    with patch.object(cli, "_uv") as uv:
+        result = CliRunner().invoke(framework.create_cli_app(), ["install", "bub-mcp@main", "--project", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    uv.assert_called_once_with(
+        "add", "--active", "git+ssh://git@example.com/fork.git@main#subdirectory=plugins/mcp", cwd=tmp_path
+    )
+
+
 @pytest.mark.parametrize("initial_prompt", [None, "Explain this project", "你好 Bub"])
 def test_chat_accepts_optional_initial_prompt(initial_prompt: str | None, monkeypatch) -> None:
     from bub.channels.manager import ChannelManager

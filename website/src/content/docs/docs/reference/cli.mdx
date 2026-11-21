@@ -202,10 +202,12 @@ Package spec resolution:
 | Form | Resolves to |
 | --- | --- |
 | `package` | PyPI package name |
-| `package@ref` | The `packages/package` subdirectory of `bub-contrib`, pinned to `ref` |
+| `package@ref` | A package from the configured contrib repository, pinned to `ref` |
 | `owner/repo` | `https://github.com/owner/repo.git` |
 | `https://github.com/owner/repo.git@ref` | A prefixed Git URL that preserves the ref |
 | `git@...` or `https://...` | Prefixed with `git+` |
+
+`package@ref` uses the official `bub-contrib` repository by default. To use a fork or mirror, set the top-level `contrib_repo` in `config.yml` or override it with `BUB_CONTRIB_REPO`. Use a Git URL accepted by `uv`, such as `ssh://git@example.com/org/repo.git#subdirectory=plugins/mcp`. `package@ref` supplies the ref and defaults to `packages/package` unless the URL sets `#subdirectory=` (use `.` for the repository root). For private repositories, use an SSH key or Git credential helper rather than putting credentials in the URL.
 
 To pin any GitHub repository, use the full URL:
 

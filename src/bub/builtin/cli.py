@@ -15,8 +15,10 @@ from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 
 import typer
+from pydantic import Field
+from pydantic_settings import SettingsConfigDict
 
-from bub import __version__, configure
+from bub import Settings, __version__, config, configure, ensure_config
 from bub.builtin.auth import app as login_app  # noqa: F401
 from bub.channels.message import ChannelMessage
 from bub.envelope import field_of
@@ -266,6 +268,22 @@ def _uv(*args: str, cwd: Path) -> subprocess.CompletedProcess:
 BUB_CONTRIB_REPO = "https://github.com/bubbuild/bub-contrib.git"
 
 
+@config()
+class ContribSettings(Settings):
+    model_config = SettingsConfigDict(env_prefix="BUB_", extra="ignore")
+    contrib_repo: str | None = Field(default=None, description="Git repository URL for `bub install name@ref`.")
+
+
+def _contrib_requirement(name: str, ref: str) -> str:
+    value = ensure_config(ContribSettings).contrib_repo
+    repo = (value or "").strip() or BUB_CONTRIB_REPO
+    base, _, fragment = repo.removeprefix("git+").partition("#")
+    path, separator, query = base.partition("?")
+    if not any(part.startswith("subdirectory=") for part in fragment.split("&")):
+        fragment = f"{fragment}&subdirectory=packages/{name}" if fragment else f"subdirectory=packages/{name}"
+    return f"git+{path}@{ref}{separator}{query}#{fragment}"
+
+
 def _build_requirement(spec: str) -> str:
     if spec.startswith(("git@", "https://")):
         # Git URL
@@ -276,11 +294,9 @@ def _build_requirement(spec: str) -> str:
         ref = "".join(rest)
         return f"git+https://github.com/{repo}.git{ref}"
     else:
-        # Assume it's a package name in bub-contrib
         name, has_ref, ref = spec.partition("@")
         if has_ref:
-            ref = f"@{ref}"
-            return f"git+{BUB_CONTRIB_REPO}{ref}#subdirectory=packages/{name}"
+            return _contrib_requirement(name, ref)
         else:  # PyPI package name
             return name
 
@@ -343,7 +359,7 @@ def _ensure_project(project: Path) -> None:
 def install(
     specs: list[str] = typer.Argument(
         default_factory=list,
-        help="Package specification to install, can be a git URL, owner/repo, or package name in bub-contrib.",
+        help="Package to install: a PyPI name, Git URL, owner/repo, or name@ref from the configured contrib repository.",
     ),
     project: Path = project_opt,
 ) -> None:
