@@ -1,54 +1,54 @@
 ---
 title: What is Bub?
-description: A lightweight agent runtime written in Python. Run it as-is, or embed it in your own program.
+description: A lightweight Python agent runtime. Run it as a CLI or embed the SDK in your own application.
 ---
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-Bub is a lightweight agent runtime written in Python. It ships with a ready-to-use CLI app and a composable SDK, so you can run it directly or embed agent capabilities in your own programs.
+Bub is a lightweight agent runtime written in Python. It ships with a ready-to-use CLI app and a composable SDK, so you can run it out of the box or embed agent capabilities in your own programs.
 
 An agent is at heart a loop: the model reads the context and decides which tool to call, the tool result goes back into the context, and the model reads it again. The loop ends when the model stops asking for tools and answers directly.
 
-So an agent rests on four things: a **model**, **tools**, a **context**, and the **loop** that drives them. Working from that shared understanding, Bub keeps a small core and builds a ready-to-run application around it:
+So an agent rests on four core parts: a **model**, **tools**, a **context**, and the **loop** that drives them. Working from that idea, Bub keeps a small core and builds a ready-to-run application around it:
 
 <CardGrid>
-  <Card title="The core layer" icon="puzzle">
-    Composable agent capabilities, including the loop, tools, context, the event bus, and the model client.
+  <Card title="Core layer" icon="puzzle">
+    Composable agent kernel providing the loop, tools, context (Tape), event bus, and model client.
   </Card>
-  <Card title="The app layer" icon="rocket">
-    A harness on top of the core that provides configuration, plugins, hooks, skills, message channels, and a gateway.
+  <Card title="App layer" icon="rocket">
+    Application harness on top of the core, providing configuration, plugins, hooks, skills, channels, and a gateway.
   </Card>
 </CardGrid>
 
 Which one should you use?
 
-- If you want to **combine Bub with your existing codebase or service**, use the core layer [SDK](/docs/sdk/) directly;
-- If you want **Bub to work out of the box**, use the app layer [App](/docs/app/workspace/).
+- If you want to **embed Bub in an existing codebase or service**, start with the core [SDK](/docs/sdk/).
+- If you want **Bub ready to run out of the box**, use the [CLI app](/docs/app/workspace/).
 
 :::tip
-The two are not exclusive. When you need to, you can even [reuse the Bub app inside the SDK](/docs/integrations/reuse-app/#model-stage).
+The two are not mutually exclusive. When you need to, you can even [reuse Bub app capabilities](/docs/integrations/reuse-app/#model-stage) inside an SDK service.
 :::
 
 ## Features {#features}
 
-Bub is built around simplicity, composability, and extensibility. You can combine its capabilities as needed or build your own agent on top of it. Its key features include:
+Bub is built around simplicity, composability, and extensibility—you can combine its parts as needed or build your own agent on top of it:
 
 <CardGrid>
   <Card title="Append-only context" icon="database">
-    Conversation history is appended to the [tape](/docs/concepts/tape/) without modifying existing entries.
+    Conversation history is appended to the [Tape](/docs/concepts/tape/) without mutating existing entries.
   </Card>
   <Card title="Event-driven" icon="analytics">
-    Every model and tool call emits events when it starts, finishes, and returns a result, so you can observe, modify, or intervene in the run.
+    Every model and tool call emits events so you can observe, modify arguments, or intercept execution.
   </Card>
   <Card title="Tools are functions" icon="code-branch">
-    Write tools as ordinary Python functions and take advantage of the existing Python ecosystem.
+    Define tools as standard Python functions and use any library in the Python ecosystem.
   </Card>
   <Card title="Pluggable" icon="setting">
-    Capabilities can be extended through plugins. A plugin can provide a tool, an event listener, a message channel, or a complete set of skills.
+    Extend tools, event listeners, message channels, and skills through plugins.
   </Card>
 </CardGrid>
 
 :::tip
-Explore the [Agent loop](/docs/concepts/agent/) to understand Bub's core execution model.
+Explore [The Agent loop](/docs/concepts/agent/) to see how Bub's core execution model works.
 :::
 
-Now you can explore the Bub docs freely, or follow the next page and start your own journey with Bub.
+Now you can explore the docs freely, or head to the next page to start your journey with Bub.

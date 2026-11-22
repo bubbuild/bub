@@ -1,24 +1,15 @@
 ---
 title: Store conversation history in a database
-description: Use the SQLAlchemy tape store plugin to save Bub's Tape conversation history to SQLite or another relational database.
+description: Use the bub-tapestore-sqlalchemy plugin to store Bub session Tapes in SQLite, PostgreSQL, or MySQL.
 ---
 
-By default, Bub persists conversation Tapes as local JSONL files.
+By default, the Bub app persists conversation Tapes as local JSONL files under `~/.bub/tapes/`.
 
-By installing the [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy) plugin, you can switch the application to SQLite, PostgreSQL, or any relational database supported by SQLAlchemy, while keeping `,tape.info`, `,tape.search`, session branching, and Sidecar behavior exactly the same.
+By installing [`bub-tapestore-sqlalchemy`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-tapestore-sqlalchemy), you can switch seamlessly to SQLite, PostgreSQL, or any SQLAlchemy-supported relational database while keeping `,tape.info`, `,tape.search`, forks, and sidecars unchanged.
 
-:::caution[Existing data]
-Changing the storage backend **does not** migrate existing JSONL files automatically. After switching to the new database, old sessions will not appear in the new database's `tape.search`, and the original files remain under `tapes/` in the Bub directory.
+:::caution[Existing files are not migrated]
+Switching storage backends **does not** import existing local JSONL files automatically (existing files remain in `~/.bub/tapes/`).
 :::
-
-## Before you start {#before-you-start}
-
-- You have [installed the Bub application](/docs/getting-started/install/#app-install) and configured a working model.
-- (Optional) Install the `sqlite3` command line tool for querying and inspecting tables directly.
-- Confirm the current Bub home path:
-  ```bash
-  printf '%s\n' "${BUB_HOME:-$HOME/.bub}"
-  ```
 
 ## 1. Install the plugin {#install}
 
@@ -29,44 +20,41 @@ bub install bub-tapestore-sqlalchemy@main
 bub hooks
 ```
 
-Run `bub hooks` to check that the extension point is mounted:
+Verify `tapestore-sqlalchemy` appears before `builtin` under `provide_tape_store`:
 
 ```text
 provide_tape_store: tapestore-sqlalchemy, builtin
 ```
 
-Higher-priority implementations are listed first. Seeing `tapestore-sqlalchemy` means the plugin is active and will override the built-in file store.
+Higher-priority implementations appear first, so seeing `tapestore-sqlalchemy` confirms the plugin is active and overrides the built-in file store.
 
-## 2. Configure the database {#configure}
+## 2. Configure the database URL {#configure}
 
-The plugin uses `<BUB_HOME>/tapes.db` by default. To make demonstration and verification easier, this guide points it at the current working directory:
+The plugin defaults to `<BUB_HOME>/tapes.db`. Set `BUB_TAPESTORE_SQLALCHEMY_URL` to any SQLAlchemy connection URL (using a local SQLite file here as an example):
 
 ```bash
 export BUB_TAPESTORE_SQLALCHEMY_URL="sqlite+pysqlite:///$PWD/bub-tapes.db"
 ```
 
-- `sqlite+pysqlite` uses the SQLite driver built into the Python standard library, with no extra dependencies.
-- The URL must follow standard SQLAlchemy connection string conventions; here `$PWD` is used to build an absolute path.
-
-### Optional settings {#optional-settings}
+Optional settings:
 
 | Environment variable | Default | Description |
 | --- | --- | --- |
-| `BUB_TAPESTORE_SQLALCHEMY_ECHO` | `false` | Set to `true` to print executed SQL statements for development and debugging. |
-| `BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS` | `{}` | JSON object passed to `create_engine(connect_args=...)` (for example, timeout settings). |
+| `BUB_TAPESTORE_SQLALCHEMY_ECHO` | `false` | Set `true` to log executed SQL statements |
+| `BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS` | `{}` | JSON object passed to `create_engine(connect_args=...)` (e.g. timeouts) |
 
-To make the settings persist, add the variables to a `.env` file at the workspace root. The plugin initializes the required table schema automatically on first connection.
+To persist these settings across sessions, add them to your workspace `.env` file. Tables are created automatically on first connection.
 
 ## 3. Verify writes and reads {#verify}
 
-Run one session, then use the built-in command to check whether the Tape was written to the database:
+Run a turn and inspect the Tape:
 
 ```bash
-bub run "Say hello in one sentence and indicate that this turn of the conversation is stored in the database."
+bub run "Say hello in one sentence to verify database storage."
 bub run ",tape.info"
 ```
 
-The output should include the Tape name, entry count, and anchor status for this session:
+Example output:
 
 ```text
 name: 86774b31b96845a4__0b871d5e50e7c192
@@ -76,76 +64,63 @@ last_anchor: session/start
 entries_since_last_anchor: 8
 ```
 
-Use `sqlite3` to inspect the physical records in the database:
+Inspect the SQLite tables directly with `sqlite3`:
 
 ```bash
-# Query the Tape session list
-sqlite3 "$PWD/bub-tapes.db" \
-  "SELECT name, last_entry_id FROM tapes ORDER BY name;"
+sqlite3 "$PWD/bub-tapes.db" "SELECT name, last_entry_id FROM tapes ORDER BY name;"
+sqlite3 "$PWD/bub-tapes.db" "SELECT entry_id, anchor_name, entry_date FROM tape_entries WHERE kind = 'anchor';"
 ```
 
-```bash
-# Query anchor records
-sqlite3 "$PWD/bub-tapes.db" \
-  "SELECT entry_id, anchor_name, entry_date FROM tape_entries WHERE kind = 'anchor';"
-```
+The `tapes` table tracks session metadata, while `tape_entries` records each Turn, model reply, and tool call entry by entry.
 
-The `tapes` table maintains metadata for all sessions; the `tape_entries` table records the specific content of each Turn, model answer, and tool call entry by entry.
+## 4. Connect PostgreSQL or MySQL {#other-databases}
 
-## 4. Connect another database {#other-databases}
-
-The plugin is built on SQLAlchemy and supports connecting to relational databases such as PostgreSQL and MySQL:
-
-1. **Install the driver** (install the corresponding database driver in the environment where `bub` runs):
+1. **Install the database driver in Bub's environment** (PostgreSQL example):
    ```bash
-   # For example, PostgreSQL
    uv add "psycopg[binary]"
    ```
-2. **Configure the connection string**:
+2. **Set the connection URL**:
    ```bash
    export BUB_TAPESTORE_SQLALCHEMY_URL="postgresql+psycopg://user:YOUR_DB_PASSWORD@localhost:5432/bub_db"
    ```
 
-In production, test concurrent writes and connection pool timeout settings in advance to keep the service stable.
+In production, test concurrent writes and connection-pool timeouts ahead of time to keep the service stable.
 
-## Implement your own store backend {#custom-store}
+## Implement a custom store backend {#custom-store}
 
-`core.Agent` and the built-in app depend only on the store protocol, so implementing it swaps the backend entirely. For the difference between "the Tape keeps history" and "TapeContext projects context", see [Tape and model context](/docs/concepts/tape/#history-and-context).
+`core.Agent` and the built-in app depend only on the store protocol, so you can back Tapes with Redis or another service by implementing it (for the difference between Tape history and context projection, see [Tape and model context](/docs/concepts/tape/#history-and-context)):
 
-| Protocol | Where it is used |
+| Protocol / Hook | Where it is used |
 | --- | --- |
-| `bub.core.store.TapeStore` | Synchronous implementation passed to `Agent(store=...)` |
-| `bub.core.store.AsyncTapeStore` | Asynchronous implementation; recommended for databases and remote storage |
-| `provide_tape_store` | Application-level replacement; the built-in app returns `FuzzyFileTapeStore` |
+| `bub.core.store.TapeStore` | Synchronous store passed to `Agent(store=...)` |
+| `bub.core.store.AsyncTapeStore` | Asynchronous store (recommended for databases and network I/O) |
+| `provide_tape_store` | App-layer plugin hook replacing the default `FuzzyFileTapeStore` |
 
-Full method signatures are in the [Python API](/docs/reference/python-api/#tape-store). At minimum a backend must isolate entries by Tape name, preserve append order, support `reset()`, and let `TapeQuery`'s anchor filters work. Forks are built on top of any store by `ForkTapeStore`, so the backend does not implement them.
+See [Python API: `TapeStore`](/docs/reference/python-api/#tape-store) for method signatures and contracts. Forks are built on top of any store by `ForkTapeStore`, so custom backends do not need to implement branching themselves.
 
-## Storage in the built-in app {#app-storage}
+## Store resolution in the built-in app {#app-storage}
 
-The built-in app supplies `FuzzyFileTapeStore` through `provide_tape_store`, with `~/.bub/tapes/` as the default directory. It derives the Tape name from both workspace path and session ID, so same-named sessions in different workspaces do not share history.
+The built-in app provides `FuzzyFileTapeStore` (`~/.bub/tapes/`) via `provide_tape_store` and hashes the workspace path with the session ID so same-named sessions in different workspaces remain separate.
 
-`BubAgent` chooses its store in this order:
+`BubAgent` selects its store in this order:
 
-1. An explicitly supplied `tape_store`;
-2. The store returned by `framework.get_tape_store()` when the Agent is created;
-3. The in-memory store when neither is available.
+1. An explicit `tape_store` passed to `BubAgent(...)`;
+2. `framework.get_tape_store()` at instantiation time (must be inside `async with framework.running():`);
+3. `InMemoryTapeStore`.
 
-Create `BubAgent` inside `framework.running()` when it should use the store supplied by that scope. Replace storage with `provide_tape_store`, and replace the projection strategy with `build_tape_context`.
-
-The built-in app restores session settings such as model, reasoning effort, and code mode from the Tape. Persist any other application state explicitly.
+The built-in app restores session-level settings—such as model, reasoning effort, and code mode—from the Tape automatically; persist any other custom state explicitly via `load_state` and `save_state`.
 
 ## Troubleshooting {#troubleshooting}
 
-| Common issue | Possible cause | Solution |
+| Symptom | Possible cause | Fix |
 | --- | --- | --- |
-| `tapestore-sqlalchemy` is missing from `bub hooks` | The plugin was installed into a different Python environment | Check `command -v bub` and make sure `bub install` ran in the virtual environment you are using. |
-| SQLite reports that the database is locked (Database is locked) | Concurrent writes from multiple processes exceed what SQLite can handle | Configure a busy timeout, or switch to a relational database better suited to high concurrency, such as PostgreSQL. |
-| Connecting to PostgreSQL raises `ModuleNotFoundError` | The corresponding database driver is not installed | Run `uv add "psycopg[binary]"` in the Bub environment to install the driver. |
-| Tables cannot be created, or permission is denied | The target path or remote database user lacks permission to create tables | Confirm that the file directory is writable by the current user, or grant the database user `CREATE TABLE` permission. |
+| `tapestore-sqlalchemy` missing from `bub hooks` | Installed in a different Python environment | Check `command -v bub` and run `bub install` in that environment |
+| SQLite `Database is locked` | High multi-process write concurrency | Increase timeout in `BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS` or switch to PostgreSQL |
+| `ModuleNotFoundError` | Missing database driver | Install the driver in Bub's environment (e.g. `uv add "psycopg[binary]"`) |
 
 ## Cleanup {#cleanup}
 
-To restore Bub's default file storage mode, clear the environment variables and delete the test database:
+To switch back to Bub's default local file store, clear the environment variables and remove the test database:
 
 ```bash
 unset BUB_TAPESTORE_SQLALCHEMY_URL BUB_TAPESTORE_SQLALCHEMY_ECHO BUB_TAPESTORE_SQLALCHEMY_CONNECT_ARGS

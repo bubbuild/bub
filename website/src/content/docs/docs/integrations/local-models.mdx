@@ -1,60 +1,51 @@
 ---
 title: Connect a local llama.cpp model
-description: Start a local llama.cpp server and drive a Bub Agent with a local GGUF model through the standard OpenAI-compatible endpoint.
+description: Start a local llama.cpp server with Docker and drive Bub through its OpenAI-compatible endpoint.
 ---
 
-In offline, private deployment, or data-privacy scenarios, you can run an open-source model locally to drive Bub.
+For offline, private-deployment, or privacy-sensitive workloads, you can run an open-source model locally to drive Bub.
 
-Bub ships with a standard OpenAI-compatible Provider. This means that as long as the local inference engine exposes a `/v1/chat/completions` endpoint (for example `llama.cpp`, `vLLM`, or `Ollama`), Bub can call local models as seamlessly as it calls cloud models.
+Bub ships with a built-in OpenAI-compatible provider, so any local inference server exposing `/v1/chat/completions` (such as `llama.cpp`, `vLLM`, or `Ollama`) works just as seamlessly as a cloud model.
 
 ```mermaid
 flowchart LR
     Bub["Bub Agent"]
-    OpenAI["OpenAI-compatible layer"]
-    LocalServer["Local inference service (e.g. llama.cpp)"]
-    Model["GGUF model\n(CPU / GPU inference)"]
+    OpenAI["OpenAI-compatible client"]
+    LocalServer["Local inference server (e.g. llama.cpp)"]
+    Model["GGUF model\n(CPU / GPU)"]
 
     Bub --> OpenAI
     OpenAI -->|"HTTP"| LocalServer
     LocalServer --> Model
 ```
 
-This guide demonstrates the setup with `llama.cpp` and the excellent open-source model [`ggml-org/gemma-4-E2B-it-GGUF`](https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF) (Q8 quantized version).
+This guide uses `llama.cpp` with [`ggml-org/gemma-4-E2B-it-GGUF`](https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF) (Q8 quantized).
 
 :::tip[Choosing a local model]
-
-Agents rely on multi-turn tool calling and long-context reasoning:
-
-- For lightweight testing, a model around 4B can verify basic conversational connectivity.
-- If you need reliable tool calling and code generation, choose a model above 7B/8B that has been fine-tuned on instructions and tools (for example `Qwen2.5-Coder-7B-Instruct` or `Llama-3.1-8B-Instruct`).
+- **Connectivity tests**: a ~4B model is enough to verify basic chat responses.
+- **Multi-step tool calling and coding**: use a 7B/8B+ instruction-tuned model with strong tool-calling support (such as `Qwen2.5-Coder-7B-Instruct` or `Llama-3.1-8B-Instruct`).
 :::
 
-## Before you begin {#before-you-start}
+## Before you start {#before-you-start}
 
-- You have [installed the Bub application](/docs/getting-started/install/#app-install).
-- Docker is installed and the Docker daemon is running properly.
-- It is recommended to reserve at least 8 GB of available memory on the machine (the Q8 quantized model file takes about 5 GB, and you also need room for the context KV cache).
-- Download the GGUF model files to the local directory `~/.cache/llama.cpp/`:
+- [Install the Bub app](/docs/getting-started/install/#app-install) and Docker.
+- Ensure at least 8 GB of free RAM (~5 GB for the Q8 model weights plus KV cache headroom).
+- Download the GGUF files into `~/.cache/llama.cpp/`:
 
 ```text
 ~/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_gemma-4-E2B-it-Q8_0.gguf
 ~/.cache/llama.cpp/ggml-org_gemma-4-E2B-it-GGUF_mmproj-gemma-4-E2B-it-Q8_0.gguf
 ```
 
-*(Here `mmproj` is the multimodal vision projection model; if you only handle plain-text interaction, you can skip downloading this file.)*
+*(`mmproj` is the multimodal vision projector; omit it and the `--mmproj` flag if you only need text chat.)*
 
-## 1. Start llama-server {#start-server}
+## 1. Start `llama-server` {#start-server}
 
-To secure the local service endpoint, generate a random API key:
+Generate a local API key and start the `llama.cpp` server container:
 
 ```bash
 export LLAMA_API_KEY="local-$(openssl rand -hex 8)"
-echo "Generated local key: $LLAMA_API_KEY"
-```
 
-Start the `llama.cpp` server container with Docker:
-
-```bash
 docker run --rm -it \
   -p 127.0.0.1:8080:8080 \
   -v "$HOME/.cache/llama.cpp:/models:ro" \
@@ -67,24 +58,18 @@ docker run --rm -it \
   --mmproj /models/ggml-org_gemma-4-E2B-it-GGUF_mmproj-gemma-4-E2B-it-Q8_0.gguf
 ```
 
-**Key parameters**:
-- `-p 127.0.0.1:8080:8080`: binds only to the host loopback address, so other machines on the LAN cannot reach it.
-- `--alias`: defines the model alias requested in `/v1/chat/completions`.
-- When the terminal prints `server is listening on http://0.0.0.0:8080`, the model has been loaded into memory successfully.
+- `-p 127.0.0.1:8080:8080`: binds only to localhost.
+- `--alias`: sets the model name expected by `/v1/chat/completions`.
+- The server is ready when it prints `server is listening on http://0.0.0.0:8080`.
 
-## 2. Verify the service endpoint {#verify-endpoint}
+## 2. Verify the local endpoint {#verify-endpoint}
 
 In another terminal window, use `curl` to verify that the local service is ready:
 
 ```bash
-# Verify the model list
 curl -sS http://127.0.0.1:8080/v1/models \
   -H "Authorization: Bearer $LLAMA_API_KEY"
-```
 
-Send a minimal chat completion request:
-
-```bash
 curl -sS http://127.0.0.1:8080/v1/chat/completions \
   -H "Authorization: Bearer $LLAMA_API_KEY" \
   -H "Content-Type: application/json" \
@@ -95,11 +80,11 @@ curl -sS http://127.0.0.1:8080/v1/chat/completions \
   }'
 ```
 
-If the response is JSON containing `choices[0].message.content`, the local OpenAI-compatible service is running correctly.
+A JSON response containing `choices[0].message.content` confirms the server is working.
 
-## 3. Configure Bub {#configure-bub}
+## 3. Configure and run Bub {#configure-bub}
 
-Set Bub's environment variables so that requests for the OpenAI provider are redirected to the local endpoint:
+Point Bub's OpenAI provider settings at the local server:
 
 ```bash
 export BUB_OPENAI_API_BASE="http://127.0.0.1:8080/v1"
@@ -107,9 +92,8 @@ export BUB_OPENAI_API_KEY="$LLAMA_API_KEY"
 export BUB_MODEL="openai:gemma-4-E2B-it"
 ```
 
-:::note[Using another inference framework (such as Ollama)]
-
-If you prefer [Ollama](https://ollama.com/), simply start Ollama and point the environment variables at its compatible endpoint (no custom API key needed):
+:::note[Using Ollama]
+If you prefer [Ollama](https://ollama.com/), simply start Ollama and point Bub at its default port `11434` (no custom API key needed):
 ```bash
 export BUB_OPENAI_API_BASE="http://127.0.0.1:11434/v1"
 export BUB_OPENAI_API_KEY="ollama"
@@ -117,46 +101,46 @@ export BUB_MODEL="openai:qwen2.5-coder:7b"
 ```
 :::
 
-Run a Bub task once for end-to-end verification:
+Run a prompt for end-to-end verification:
 
 ```bash
-bub run "Introduce yourself in one sentence and mention that you are a local model."
+bub run "Introduce yourself in one sentence and mention that you are running locally."
 ```
 
-Watch the terminal output. If it starts with `[cli:local]` and prints the model's reply, the whole chain is working.
+Watch the terminal output: if it starts with `[cli:local]` and prints the model's reply, Bub is connected to your local model.
 
-## 4. Tune performance {#tune}
+## 4. Performance tuning {#tune}
 
-Agent workflows have specific requirements for context window and memory. Depending on your hardware, you can tune the following parameters in the startup command:
+Agent workflows place specific demands on context window and memory. Tune these flags based on your hardware:
 
-| Tuning goal | Specific measure | Reason and effect |
+| Goal | Flag / adjustment | Effect |
 | --- | --- | --- |
-| **Expand the context window** | Add `--ctx-size 8192` or larger | The Agent's system prompt, tool definitions, and Tape history are long, so the default 2048 is easily exceeded. |
-| **Reduce memory usage** | Switch to a `Q4_K_M` quantized GGUF | VRAM/memory usage halves, inference is significantly faster, and accuracy loss is minimal. |
-| **GPU hardware acceleration** | Mount the GPU and add `--n-gpu-layers 33` | Offload computation layers to VRAM, improving inference speed by several times to tens of times. |
-| **Text-only acceleration** | Remove the `--mmproj` parameter and the corresponding image mapping | Skip image modality initialization overhead and reduce system memory usage. |
+| **Larger context window** | Add `--ctx-size 8192` (or higher) | System prompts, tool schemas, and Tape history easily exceed a 2048 default |
+| **Lower memory usage** | Use a `Q4_K_M` quantized GGUF | Roughly halves RAM/VRAM usage and speeds up inference |
+| **GPU offload** | Pass GPU devices and `--n-gpu-layers 33` | Offloads model layers to GPU VRAM |
+| **Text-only mode** | Remove `--mmproj` | Skips vision projector memory overhead |
 
 :::caution
-Do not blindly increase `--ctx-size` without limit. The memory consumed by the KV cache is proportional to context length, so make sure to leave enough physical memory to prevent the system from triggering OOM.
+Do not increase `--ctx-size` without checking available RAM. KV cache memory scales with context length, so leave enough physical memory to avoid OOM crashes.
 :::
 
 ## Troubleshooting {#troubleshooting}
 
-| Symptom | Possible cause | Solution |
+| Symptom | Possible cause | Fix |
 | --- | --- | --- |
-| `curl` returns `401 Unauthorized` | The API key in the request header does not match the one used at container startup | Confirm the `LLAMA_API_KEY` value, or check `--api-key` in `docker run`. |
-| The model is reported as not found or returns 404 | The model alias in the request does not match the service | Check that the name after `BUB_MODEL` exactly matches the `--alias` used when starting the container. |
-| Cannot call tools or outputs garbled text | The model is too small or was not fine-tuned for Function Calling | Switch to a model above 7B/8B that is fine-tuned for tool calling (such as Qwen2.5-Coder or Llama-3.1). |
-| The service crashes or exits when starting the container or during inference | Insufficient physical memory or VRAM causes OOM | Lower `--ctx-size`, or switch to a model file with a smaller quantization level (such as `Q4_K_M`). |
+| `401 Unauthorized` | API key mismatch | Ensure `LLAMA_API_KEY` matches the container's `--api-key` |
+| `404` or model not found | Alias mismatch | Ensure `BUB_MODEL=openai:<alias>` matches `--alias` |
+| Tool calls fail or output is malformed | Model is too small or lacks tool-calling tuning | Switch to a 7B/8B+ model tuned for tool calling |
+| Container crashes during startup or inference | Out of memory (OOM) | Lower `--ctx-size` or use a `Q4_K_M` quantization |
 
 ## Cleanup {#cleanup}
 
-After testing, press `Ctrl+C` in the terminal running the Docker container to stop it, and clear the environment variable overrides in the current terminal:
+When you finish testing, press `Ctrl+C` in the container terminal to stop the server and unset the environment overrides:
 
 ```bash
 unset BUB_API_BASE BUB_API_KEY BUB_OPENAI_API_BASE BUB_OPENAI_API_KEY BUB_MODEL LLAMA_API_KEY
 ```
 
 :::note
-After clearing the environment variables, Bub reverts to the default cloud model configuration. Tape session history generated during testing remains in Bub's data directory.
+After clearing these environment variables, Bub reverts to your default cloud model configuration. Any Tape session history created during testing remains in Bub's data directory.
 :::

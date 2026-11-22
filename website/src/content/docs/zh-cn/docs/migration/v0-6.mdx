@@ -1,20 +1,18 @@
 ---
 title: 升级到 0.6.0
-description: 0.6.0 内核与应用依赖分离的迁移说明。
+description: 0.6.0 核心层与应用层依赖拆分迁移说明。
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-0.6.0 之前版本的 `bub` 包含应用和内核两个部分；从 0.6.0 开始，安装 `bub` 时仅包含内核，而应用挪到了 `app` 可选依赖中。如果你需要使用 Bub 应用层的能力（如配置、插件、hooks、技能、消息渠道、网关等），请在安装时加上 `bub[app]`。
+自 0.6.0 起，`bub` 包拆分为核心层与应用层：默认安装 `bub` 仅包含核心层（`bub.core`）；CLI、配置、插件、Hooks、技能、渠道和网关等应用层功能移入可选依赖 `bub[app]`。
 
-## 升级指南 {#upgrade-guide}
+如需使用 Bub CLI 或应用层功能，请升级并安装 `bub[app]`。
 
-根据你当前的安装方式，选择下面的升级方法：
+## 升级命令 {#upgrade-guide}
 
 <Tabs>
-<TabItem label="uv">
-
-用 `uv tool` 安装的：
+<TabItem label="uv tool">
 
 ```bash
 uv tool install --upgrade --force "bub[app]"
@@ -23,8 +21,6 @@ uv tool install --upgrade --force "bub[app]"
 </TabItem>
 <TabItem label="虚拟环境">
 
-在已经激活的虚拟环境里：
-
 ```bash
 uv pip install --upgrade "bub[app]"
 ```
@@ -32,7 +28,7 @@ uv pip install --upgrade "bub[app]"
 </TabItem>
 <TabItem label="pyproject.toml">
 
-插件或发行版改 `pyproject.toml` 里的依赖：
+插件或发行版请将依赖改为 `bub[app]`：
 
 ```toml title="pyproject.toml" ins="bub[app]"
 dependencies = ["bub[app]>=0.6.0"]
@@ -41,6 +37,6 @@ dependencies = ["bub[app]>=0.6.0"]
 </TabItem>
 </Tabs>
 
-## 升级验证 {#verify-upgrade}
+## 验证升级 {#verify-upgrade}
 
-升级完成后在去[终端](/zh-cn/docs/app/terminal/)命令行中输入 `bub --help`、快速开始一轮对话或再用 `bub hooks` 看插件加载情况。
+升级后运行 `bub --help` 或 `bub hooks` 确认 CLI 与插件加载正常。

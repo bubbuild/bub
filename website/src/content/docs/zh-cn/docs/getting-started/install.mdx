@@ -1,11 +1,11 @@
 ---
 title: 安装 Bub
-description: 跟着文档一步步安装 Bub，提供了多种安装途径。
+description: 跟着文档一步步安装 Bub，按需选择 CLI 应用或 Python SDK。
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-Bub 有 CLI 和 SDK 两种使用方式，因此可以根据你的需要选择对应安装方式。
+Bub 有 CLI 和 SDK 两种使用方式，你可以根据自己的需求选择对应的安装途径。
 
 ## 安装 CLI 应用 {#app-install}
 
@@ -34,17 +34,17 @@ uv tool update-shell
 </TabItem>
 </Tabs>
 
-使用安装脚本时，脚本会安装 uv 和 Python 3.12，并把 `bub[app]` 安装到当前环境中。`app` 是 Bub 的可选依赖组，包含 CLI、渠道和插件等应用层能力；只使用 SDK 时不需要它。
+使用安装脚本时，它会自动安装 `uv` 和 Python 3.12，并把 `bub[app]` 安装到当前环境中。`app` 是 Bub 的可选依赖组，包含 CLI、消息渠道和插件等应用层能力；如果只使用 SDK，则不需要它。
 
-完成后执行 `bub --help`，再运行 `bub onboard` 开始配置。
+安装完成后，先运行 `bub --help` 验证一下，再执行 `bub onboard` 开始初始配置。
 
 :::tip
-如果当前环境提示找不到命令，请检查环境变量是否包含了可执行文件所在路径，或者手动把 `~/.local/bin` 加入 PATH。
+如果提示找不到 `bub` 命令，请检查环境变量是否包含了可执行文件所在路径，或手动将 `~/.local/bin` 加入 `PATH`。
 :::
 
 ## 安装 SDK {#agent-install}
 
-自 0.6.0 起，Bub 默认只包含核心。可以用包管理工具把 Bub 安装到项目中，这里以 uv 为例：
+自 0.6.0 起，`bub` 包默认只包含核心层。用你习惯的包管理器把它添加到项目中即可，这里以 `uv` 为例：
 
 ```bash
 uv add bub
@@ -62,3 +62,7 @@ uv sync
 ```
 
 之后执行 `uv run bub` 运行即可。
+
+---
+
+完成安装后，继续阅读[快速上手](/zh-cn/docs/getting-started/quickstart/)。

@@ -1,6 +1,6 @@
 ---
 title: Bub 是什么？
-description: 一个由 Python 构建的轻量级 Agent 运行时。可以直接运行，也可以嵌入你自己的程序。
+description: 基于 Python 的轻量级 Agent 运行时。可作为 CLI 直接运行，或作为 SDK 嵌入你的程序。
 ---
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
@@ -8,47 +8,47 @@ Bub 是一个由 Python 构建的轻量级 Agent 运行时。它自带一个开�
 
 Agent 的本质是一个循环：模型读取上下文并决定调用哪个工具，工具的结果写回上下文，再交给模型；当模型不再请求工具、直接给出答案时，循环结束。
 
-构成一个 Agent 的核心有四个：**模型**、**工具**、**上下文**，以及驱动它们的**循环**。所以在这样的共识下 Bub 设计了精简的内核，并围绕内核构建出了一个开箱即用的应用。
+构成一个 Agent 的核心有四个：**模型**、**工具**、**上下文**，以及驱动它们的**循环**。围绕这四个核心部件，Bub 设计了精简的内核，并构建出一套开箱即用的应用：
 
 <CardGrid>
   <Card title="核心层" icon="puzzle">
-    提供可自由组合的 Agent 能力，如循环、工具、上下文、事件总线、模型客户端等。
+    可组合的 Agent 内核，包含循环、工具、上下文（Tape）、事件总线和模型客户端。
   </Card>
   <Card title="应用层" icon="rocket">
-    在核心层之上的 Harness，提供配置、插件、hooks、技能、消息渠道、网关等能力。
+    核心层之上的完整应用，提供配置、插件、Hooks、技能、消息渠道和网关。
   </Card>
 </CardGrid>
 
 如何选择？
 
-- 如果你想**把 Bub 与你现有的代码库或服务相结合**，那么请直接使用 Bub 核心层的 [SDK](/zh-cn/docs/sdk/)；
-- 如果你想**开箱即用 Bub**，那么请直接使用 Bub 应用层的 [App](/zh-cn/docs/app/workspace/)。
+- 如果你想**把 Bub 嵌入现有的代码库或服务**，可以直接使用核心层的 [SDK](/zh-cn/docs/sdk/)；
+- 如果你想**开箱即用 Bub**，直接使用应用层的 [CLI 应用](/zh-cn/docs/app/workspace/) 即可。
 
 :::tip
-二者并不互斥，必要时你甚至可以在 SDK 中[复用 Bub 应用](/zh-cn/docs/integrations/reuse-app/#model-stage)。
+二者并不互斥，必要时你甚至可以在 SDK 中按需[复用 Bub 应用层能力](/zh-cn/docs/integrations/reuse-app/#model-stage)。
 :::
 
 ## 特性 {#features}
 
-Bub 秉持着简单、可组合、可扩展的设计理念，意味着你可以自由组合 Bub 的能力，或在 Bub 的基础上构建自己的 Agent，所以 Bub 有以下特性：
+Bub 秉持着简单、可组合、可扩展的设计理念——你可以自由组合它的能力，也可以在它之上构建属于自己的 Agent。它有以下几个核心特性：
 
 <CardGrid>
   <Card title="追加式上下文" icon="database">
-     会话内容以追加方式（append-only）写入 [tape](/zh-cn/docs/concepts/tape)，不修改已有记录。
+    会话记录以追加（append-only）方式写入 [Tape](/zh-cn/docs/concepts/tape/)，不修改已有记录。
   </Card>
   <Card title="事件驱动" icon="analytics">
-    每次一模型与工具调用的发出开始、结束和结果都以事件形式被观测、改写或介入。
+    模型与工具调用的每个阶段都会触发事件，支持观测、改写参数或拦截执行。
   </Card>
   <Card title="工具即函数" icon="code-branch">
-    工具以函数形式存在，直接使用 Python 原生代码驱动，复用社区生态能力。
+    用普通 Python 函数定义工具，直接复用现有 Python 生态。
   </Card>
-  <Card title="插件化" icon="setting">
-    能力可以通过插件进行扩展。插件可以是一个工具、事件监听器、消息渠道，或完整的技能集合。
+  <Card title="插件扩展" icon="setting">
+    通过插件扩展工具、事件处理器、消息渠道和技能。
   </Card>
 </CardGrid>
 
 :::tip
-查阅 [Agent 循环](/zh-cn/docs/concepts/agent/)以了解 Bub 的核心执行模型。
+查阅 [Agent 循环](/zh-cn/docs/concepts/agent/)，进一步了解 Bub 的核心执行模型。
 :::
 
-现在你可以开始自由探索 Bub 文档，或者跟着下一页，开始你的 Bub 之旅。
+现在你可以自由探索 Bub 文档，或者跟着下一页，开启你的 Bub 之旅。

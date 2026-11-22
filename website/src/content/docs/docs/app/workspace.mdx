@@ -1,11 +1,11 @@
 ---
 title: Workspace
-description: How to use Bub within a workspace.
+description: Run Bub inside a workspace directory and configure project rules with AGENTS.md.
 ---
 
-By default, Bub runs in a workspace, which is simply a directory. It reads information and instructions about the current workspace from there.
+By default, Bub runs in a workspace—which is simply your current directory—and reads files and instructions from there.
 
-## Prepare a workspace (optional) {#prepare-workspace}
+## Configure AGENTS.md (optional) {#prepare-workspace}
 
 If you don't have a project yet and are just getting started with Bub, create a directory first:
 
@@ -14,26 +14,26 @@ mkdir hello-bub
 cd hello-bub
 ```
 
-Then create an `AGENTS.md` file in that directory and write the following content into it:
+Then create an `AGENTS.md` file in the workspace root with rules for the project:
 
-```
+```markdown title="AGENTS.md"
 You are the Bub agent for this workspace.
 Read the relevant content before editing files.
 Keep replies short and specific.
 ```
 
-From then on, each time Bub runs, it reads these rules from the instructions so the model can follow them in its output. After trying the example, keep editing this file and see how the model's output changes under different rules.
+From then on, whenever Bub starts a session, it automatically reads `AGENTS.md` and injects it into the system prompt. After trying the example, feel free to keep tweaking this file and see how the model's replies change under different rules.
 
 :::tip
-`AGENTS.md` is a simple open format introduced by OpenAI for guiding coding agents, much like the `README.md` file that many projects have. Learn more about [AGENTS.md](https://agents.md/).
+`AGENTS.md` is a simple open format introduced by OpenAI for guiding coding agents—much like a `README.md` for AI agents. Learn more at [agents.md](https://agents.md/).
 :::
 
-## Check commands {#check-commands}
+## Check available commands {#check-commands}
 
-Now try listing the commands available in Bub from the terminal in a workspace:
+Now try listing the built-in commands available in your workspace from the terminal:
 
 ```bash
 bub run ",help"
 ```
 
-From then on, any input that starts with a `,` comma calls the related command. You can change it to any character you like in the [settings](/docs/reference/settings/#agent-settings).
+From then on, any input starting with `,` (comma) skips the model and runs the command or tool directly. Of course, you can change it to any character you like via [`BUB_COMMAND_PREFIX`](/docs/reference/settings/#command-prefix).

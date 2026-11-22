@@ -1,9 +1,9 @@
 ---
 title: CLI
-description: bub 命令、参数、默认值、退出码和服务安装行为。
+description: bub 命令行子命令、参数选项、默认值、退出码与后台服务安装参考。
 ---
 
-`bub` 由应用层提供，需要安装 `app` 可选依赖。本页只列内置命令；插件可以通过 `register_cli_commands` 增加命令。
+`bub` 命令行工具由应用层提供，需[安装](/zh-cn/docs/getting-started/install/#app-install) `bub[app]` 可选依赖。本页列出所有内置命令；第三方插件可通过 `register_cli_commands` Hook 注册额外子命令，实际可用命令以 `bub --help` 输出为准。
 
 ## 全局选项 {#global-options}
 
@@ -13,63 +13,81 @@ bub [OPTIONS] COMMAND [ARGS]...
 
 | 选项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `--workspace`, `-w` | 路径 | 当前工作目录 | 设置工具工作目录、技能发现和相对路径解析的基准 |
-| `--version`, `-V` | 开关 | — | 显示 Bub 版本并退出 |
-| `--help` | 开关 | — | 显示帮助 |
+| `--workspace`, `-w` | 路径 | 当前工作目录 | 设置 `BubFramework.workspace`（影响工具默认工作目录、技能发现与相对路径解析） |
+| `--version`, `-V` | 开关 | — | 打印当前安装的 Bub 版本号并退出 |
+| `--help` | 开关 | — | 显示帮助信息并退出 |
 
-`--workspace` 不改变 `BUB_HOME` 或配置文件位置。
-
-不带命令时执行 `BubFramework.default_command`，内置默认值为 `chat`。缺少 `app` 依赖时，进程打印缺失包和安装命令后以退出码 `1` 结束。
+- `--workspace` 不会改变 `BUB_HOME` 数据目录或 `~/.bub/config.yml` 配置文件的位置。
+- 不带子命令直接运行 `bub`（或 `bub -w PATH`）时，会执行 `BubFramework.default_command`（内置默认为 `chat`，即启动交互式终端会话）。
+- 若当前环境未安装 `app` 可选依赖，运行 `bub` 会打印缺失依赖与安装提示，并以退出码 `1` 退出。
 
 ## `bub run` {#bub-run}
 
-处理一条消息的完整 Turn，并将 `TurnResult.outbounds` 打印到 stdout；不启动渠道管理器。
+处理单条消息的完整 Turn（解析会话、构造提示词、调用模型与工具、保存状态并生成回复），将 `TurnResult.outbounds` 打印到标准输出后退出。不启动 `ChannelManager`。
 
 ```text
 bub run [OPTIONS] MESSAGE
 ```
 
-| 参数与选项 | 类型 | 默认值 | 说明 |
+| 参数 / 选项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `MESSAGE` | 文本 | 必填 | 消息正文；以命令前缀开头时执行命令 |
-| `--channel` | 文本 | `cli` | 入站渠道名 |
-| `--chat-id` | 文本 | `local` | 入站聊天 ID |
+| `MESSAGE` | 文本 | 必填 | 消息正文；以命令前缀（默认 `,`）开头时直接执行内部命令 |
+| `--channel` | 文本 | `cli` | 入站消息渠道标识 |
+| `--chat-id` | 文本 | `local` | 入站消息聊天 ID |
 | `--sender-id` | 文本 | `human` | 写入 `context.sender_id` |
-| `--session-id` | 文本 | `<channel>:<chat-id>` | 覆盖会话 ID |
+| `--session-id` | 文本 | `<channel>:<chat-id>` | 显式指定会话 ID（用于跨入口共享历史） |
 
 输出格式：
 
 ```text
 [channel:chat_id]
-<正文>
+<回复正文>
 ```
 
-- 不启动 `mcp.lifecycle`、`acp-server` 等渠道或后台服务。
-- 不自动发送回复到聊天平台。
-- 仍执行 `provide_tape_store`、`provide_lifespan` 和 `provide_steering_inbox` 的资源作用域。
-- 模型阶段使用非流式 `HookRuntime.run_model`。
+示例：
+
+```bash
+bub run "Summarize this repository."
+bub run --channel web --chat-id demo "Continue the previous topic."
+bub run --session-id shared:demo ",tape.info"
+```
+
+由于 `bub run` 不启动 `ChannelManager`：
+
+- **不启动常驻后台服务**：`mcp.lifecycle`、`acp-server` 和外部聊天渠道监听器不会启动；
+- **不向外部平台发消息**：结果仅打印到终端 stdout；
+- **仍初始化核心资源作用域**：`provide_tape_store`、`provide_lifespan` 和 `provide_steering_inbox` 会正常进入并在结束时清理；
+- **使用非流式模型调用**：调用 `HookRuntime.run_model`。
+
+注意：当模型阶段报错或未返回文本时，`bub run` 会记录错误日志并打印回退文本，进程仍可能以退出码 `0` 结束。在脚本中调用时，请同时检查 `stderr` 和输出内容，不要仅凭退出码判断模型调用是否成功。
 
 ## `bub chat` {#bub-chat}
 
-启动交互式 REPL，启用 `cli` 渠道并附加已启用的 `Lifecycle` 渠道。
+启动交互式终端会话（REPL），启用 `cli` 渠道，并自动启动所有已启用的 `Lifecycle` 后台服务（如 MCP 连接）。
 
 ```text
 bub chat [OPTIONS] [INITIAL_PROMPT]
 ```
 
-| 参数与选项 | 类型 | 默认值 | 说明 |
+| 参数 / 选项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `INITIAL_PROMPT` | 文本 | — | REPL 启动后立即提交 |
+| `INITIAL_PROMPT` | 文本 | — | 可选；进入 REPL 后立即自动发送的第一条消息 |
 | `--chat-id` | 文本 | `local` | CLI 聊天 ID |
 | `--session-id` | 文本 | `cli_session` | 会话 ID |
 
-`chat` 强制流式输出并忽略 `BUB_STREAM_OUTPUT`。没有 `cli` 渠道时以退出码 `1` 结束。
+- `bub chat` 始终开启流式输出（忽略 `BUB_STREAM_OUTPUT`）。
+- 若插件移除了 `cli` 渠道，命令会报错并以退出码 `1` 退出。
+- 会话内命令前缀由 `BUB_COMMAND_PREFIX` 控制（默认 `,`），输入 `,help` 查看所有命令。
 
-REPL 命令前缀由 `BUB_COMMAND_PREFIX` 决定，默认为 `,`；`,help` 列出当前命令。
+```bash
+bub chat
+bub chat "What changed in this repository?"
+bub chat --session-id shared:demo
+```
 
 ## `bub gateway` {#bub-gateway}
 
-启动渠道管理器并常驻运行已启用的渠道。
+启动渠道管理器并常驻运行所有已启用的外部消息渠道（如 Telegram、飞书、Discord）。
 
 ```text
 bub gateway [OPTIONS]
@@ -77,46 +95,50 @@ bub gateway [OPTIONS]
 
 | 选项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `--enable-channel` | 文本，可重复 | 读取 `BUB_ENABLED_CHANNELS` | 限定或排除渠道 |
-| `--install` | 开关 | 关闭 | 安装并启动当前用户的后台服务 |
-| `--uninstall` | 开关 | 关闭 | 停止并卸载后台服务 |
+| `--enable-channel` | 文本（可重复） | 读取 `BUB_ENABLED_CHANNELS` | 指定要启用的渠道，或用 `!name` 排除某个渠道 |
+| `--install` | 开关 | 关闭 | 将网关注册并启动为当前操作系统用户的后台服务 |
+| `--uninstall` | 开关 | 关闭 | 停止并卸载已安装的后台网关服务 |
 
-`--install` 与 `--uninstall` 互斥。命令行渠道选择优先于 `BUB_ENABLED_CHANNELS`。
+`--install` 与 `--uninstall` 互斥；命令行 `--enable-channel` 优先级高于 `BUB_ENABLED_CHANNELS`。
 
-### 渠道选择 {#channel-selection}
+### 渠道选择规则 {#channel-selection}
 
-`BUB_ENABLED_CHANNELS` 使用逗号分隔；`--enable-channel` 可以重复。
+`BUB_ENABLED_CHANNELS` 用逗号分隔多个渠道名；`--enable-channel` 可重复传入多次：
 
-| `enabled_channels` | 结果 |
+| 配置值 | 实际启动的渠道 |
 | --- | --- |
-| `all` | 所有 `enabled` 且不属于 `Interface` 的渠道，减去 `!name` |
-| 显式普通渠道 | 列表中 `enabled` 且未被排除的渠道 |
-| 显式普通渠道 + Lifecycle | 先选择普通渠道，再附加所有已启用的 `Lifecycle` |
-| 只有 Lifecycle | 只启动这些 Lifecycle |
-| 只有 `!name` | 没有包含项，启动失败 |
+| `all`（默认） | 所有 `enabled=True` 且不属于 `Interface` 的渠道与 `Lifecycle` 服务，减去 `!name` 排除项 |
+| 显式指定普通渠道名 | 列表中 `enabled=True` 且未被排除的普通渠道，并自动附带所有已启用的 `Lifecycle` 服务 |
+| 仅指定 `Lifecycle` 名称 | 仅启动指定的 `Lifecycle` 后台服务 |
+| 仅有 `!name` 排除项 | 无任何包含项，报错退出（退出码 `1`） |
 
-`Interface` 是需要显式选择的用户界面，例如 `cli`；`Lifecycle` 是后台服务，例如 `mcp.lifecycle`。没有可启用渠道时以退出码 `1` 结束。
+- `Interface` 是交互界面渠道（如 `cli`），需显式指定才会启动，`all` 模式下不启动；
+- `Lifecycle` 是伴随网关运行的后台服务（如 `mcp.lifecycle`、`agent-plugins.mcp`）；
+- 最终无任何可启动渠道时，打印 `No channels are enabled...` 并以退出码 `1` 退出。
 
-Shell 中排除项应加引号，例如 `'!mcp.lifecycle'`。
+```bash
+bub gateway
+bub gateway --enable-channel telegram
+bub gateway --enable-channel telegram --enable-channel discord
+bub gateway --enable-channel telegram --enable-channel '!mcp.lifecycle'
+```
 
-### 后台服务 {#gateway-service}
+在 Shell 中使用 `!` 排除渠道时请加单引号（如 `'!mcp.lifecycle'`），防止被 Shell 展开。
 
-| 平台 | 安装方式 | 位置或行为 |
+### 后台服务安装 {#gateway-service}
+
+| 操作系统 | 安装方式 | 服务位置或行为 |
 | --- | --- | --- |
-| Linux | systemd 用户单元 | `${XDG_CONFIG_HOME:-~/.config}/systemd/user/bub-gateway.service` |
-| Windows | 计划任务 | 任务名 `Bub Gateway`，当前用户登录时启动 |
-| macOS | 不支持 `--install` | 使用 launchd、tmux 或[容器部署](/zh-cn/docs/app/deploy/) |
+| Linux | systemd 用户服务 | `${XDG_CONFIG_HOME:-~/.config}/systemd/user/bub-gateway.service`（失败自动重启） |
+| Windows | Windows 计划任务 | 任务名 `Bub Gateway`，当前用户登录时自启，失败自动重启 |
+| macOS | 不支持 `--install` | 请使用 `launchd`、`tmux` 或 [Docker 部署](/zh-cn/docs/app/deploy/) |
 
-Linux 单元使用 `Restart=on-failure`、`RestartSec=5s` 和 `WantedBy=default.target`；安装时执行 `daemon-reload`、`enable` 和 `restart`。
-
-- 服务固定当前 Python 解释器、工作区和显式 `--enable-channel` 参数。
-- 重复安装会替换现有单元或任务并重启。
-- `--uninstall` 在服务不存在时也视为成功。
-- Linux 注销后仍需运行时，执行 `loginctl enable-linger "$USER"`。
+- 安装时会记录当前 Python 解释器路径、工作区目录和 `--enable-channel` 参数；更换环境或工作区后需重新运行 `bub gateway --install`。
+- Linux 下如需退出 SSH 后保持服务运行，请执行 `loginctl enable-linger "$USER"`。
 
 ## `bub onboard` {#bub-onboard}
 
-交互式生成配置并写入 `BubFramework.config_file`，默认为 `~/.bub/config.yml`；不启动渠道。
+运行交互式配置向导，生成或更新配置文件（默认 `~/.bub/config.yml`）。
 
 ```text
 bub onboard [OPTIONS] [PLUGIN_NAME]
@@ -124,99 +146,99 @@ bub onboard [OPTIONS] [PLUGIN_NAME]
 
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `PLUGIN_NAME` | 文本 | 无 | 只运行指定插件的 `onboard_config` |
+| `PLUGIN_NAME` | 文本 | 无 | 可选；仅运行指定插件的 `onboard_config` 向导 |
 
-不带插件名时依次运行内置模型配置和其他已注册插件的配置；指定插件名时跳过网关服务安装询问。
+不传 `PLUGIN_NAME` 时依次运行内置模型向导及所有已注册插件的向导；传入 `PLUGIN_NAME` 时仅运行该插件向导，并跳过末尾的后台服务安装询问。
 
-| 选择或操作 | 写入行为 |
+模型向导写入规则：
+
+| 向导操作 | 写入结果 |
 | --- | --- |
-| OpenAI 兼容服务或本地端点 | 写入 `openai:<model>`、`api_base` 和 `client_args.api_format: chat` |
-| OpenAI 官方 API 使用非官方地址 | 地址重置为 `https://api.openai.com/v1` |
-| Base URL 留空 | 保留提供商默认地址，不写入空值 |
-| Base URL 显式输入 | 即使等于默认值也写入 |
-| API key 留空 | 保留当前地址的 key，或继续使用环境变量 |
-| Base URL 改变 | 清空此前填写的 key |
-| 选择 Codex | 跳过模型发现，手动输入模型 ID |
+| 选择 OpenAI 兼容服务或本地端点 | 写入 `openai:<model>`、`api_base`，并设置 `client_args.api_format: chat` |
+| 选择 OpenAI 官方 API 但此前填过非官方地址 | 重置为 `https://api.openai.com/v1` |
+| Base URL 留空 | 使用提供商默认地址，不向 YAML 写入空值 |
+| Base URL 显式输入 | 写入 YAML（修改了 Base URL 时会自动清空旧 API Key） |
+| API Key 留空 | 保留当前地址已有 Key，或依赖运行时环境变量 |
+| 选择 Codex | 跳过在线模型列表拉取，直接提示输入模型 ID |
 
-连接检查只调用模型列表端点，超时 10 秒，不验证工具调用能力。全部配置经过 `configure.validate` 后才写盘。
-
-| 退出码 | 含义 |
-| --- | --- |
-| `0` | 已保存，或用户拒绝安装网关 |
-| `1` | 配置校验、写入、插件解析或网关安装失败 |
+连通性检查仅请求模型列表端点（超时 10 秒），不发起对话生成请求。所有配置合并并通过 `configure.validate` 校验后落盘。成功退出码为 `0`，失败为 `1`。
 
 ## `bub install` {#bub-install}
 
-安装插件到 Bub 管理的 uv 项目；不带参数时同步该项目。
+将插件安装到 Bub 托管的 `uv` 项目目录中；不传参数时同步该项目的现有依赖。
 
 ```text
 bub install [OPTIONS] [SPECS]...
 ```
 
-| 参数与选项 | 类型 | 默认值 | 说明 |
+| 参数 / 选项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `SPECS` | 位置参数 | 空 | 要安装的包或 Git 来源 |
-| `--project` | 路径 | `$BUB_HOME/bub-project` 或 `~/.bub/bub-project` | 插件项目目录；也可使用 `BUB_PROJECT` |
+| `SPECS` | 位置参数 | 空 | PyPI 包名、官方扩展名或 Git 仓库地址 |
+| `--project` | 路径 | `$BUB_HOME/bub-project`（默认 `~/.bub/bub-project`） | 托管插件项目目录（也可通过 `BUB_PROJECT` 设置） |
 
-| 包规格 | 解析为 |
+支持的包规格格式：
+
+| 格式 | 解析目标 |
 | --- | --- |
 | `package` | PyPI 包名 |
-| `package@ref` | 从配置的 contrib 仓库安装，固定到 `ref` |
+| `package@ref` | 官方 [`bub-contrib`](https://github.com/bubbuild/bub-contrib) 仓库的 `packages/package` 子目录，固定到分支或标签 `ref` |
 | `owner/repo` | `https://github.com/owner/repo.git` |
-| `https://github.com/owner/repo.git@ref` | 带前缀的 Git URL，保留 ref |
-| `git@...` 或 `https://...` | 加 `git+` 前缀 |
+| `https://github.com/owner/repo.git@ref` | 带版本引用的 Git 仓库 URL（注意简写不支持 `owner/repo@ref`，需传完整 URL） |
+| `git@...` 或 `https://...` | 自动添加 `git+` 前缀后交给 `uv` |
 
 `package@ref` 默认使用官方 `bub-contrib` 仓库。若要使用 fork 或镜像，可设置 `config.yml` 顶层的 `contrib_repo`，或用 `BUB_CONTRIB_REPO` 覆盖。可使用 `uv` 支持的 Git URL，例如 `ssh://git@example.com/org/repo.git#subdirectory=plugins/mcp`。`package@ref` 提供 ref；未设置 `#subdirectory=` 时默认使用 `packages/package`，设为 `.` 则使用仓库根目录。私有仓库请使用 SSH 密钥或 Git 凭据助手，不要在 URL 中嵌入凭据。
 
 `owner/repo@ref` 不受支持；为任意 GitHub 仓库固定版本时使用完整 URL。
 
-| 命令 | uv 调用 |
+```bash
+bub install bub-mcp@main
+bub install bub-discord
+bub install https://github.com/owner/repo.git@v1.2.0
+bub install
+```
+
+插件管理命令底层执行的 `uv` 命令：
+
+| Bub 命令 | 底层 `uv` 命令 |
 | --- | --- |
-| `bub install`（无规格） | `uv sync --active --inexact` |
+| `bub install`（无参数） | `uv sync --active --inexact` |
 | `bub install <specs>` | `uv add --active <requirements>` |
 | `bub uninstall <packages>` | `uv remove --active <packages>` |
-| `bub update` | `uv sync --active --upgrade --inexact` |
+| `bub update`（无参数） | `uv sync --active --upgrade --inexact` |
 | `bub update <packages>` | `uv sync --active --inexact --upgrade-package ...` |
 
-前置条件：
-
-- `uv` 位于 `PATH`、当前 Python scripts 目录或 `~/.local/bin`。
-- Bub 运行在虚拟环境中。
-- 显式传入的 `--project` 目录必须存在。
-
-前置条件不满足时以退出码 `1` 结束；uv 失败时返回 uv 的退出码。
+前置条件：系统已安装 `uv`、当前 `bub` 运行在虚拟环境中（`sys.prefix != sys.base_prefix`），且显式传入的 `--project` 目录已存在。
 
 ## `bub uninstall` {#bub-uninstall}
 
-从托管项目卸载一个或多个插件，不修改系统 Python 或 Bub 自身所在环境。
+从托管插件项目中卸载插件：
 
 ```text
 bub uninstall [OPTIONS] PACKAGES...
 ```
 
-| 参数与选项 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `PACKAGES` | 位置参数 | 必填 | 与项目声明一致的包名 |
-| `--project` | 路径 | `$BUB_HOME/bub-project` 或 `~/.bub/bub-project` | 插件项目目录；也可使用 `BUB_PROJECT` |
+```bash
+bub uninstall bub-discord
+```
 
 ## `bub update` {#bub-update}
 
-升级托管项目中的插件；不带包名时升级全部依赖。
+升级托管插件项目中的插件（不传包名时升级全部已安装插件）：
 
 ```text
 bub update [OPTIONS] [PACKAGES]...
 ```
 
-| 参数与选项 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `PACKAGES` | 位置参数 | 全部依赖 | 只升级指定包 |
-| `--project` | 路径 | `$BUB_HOME/bub-project` 或 `~/.bub/bub-project` | 插件项目目录；也可使用 `BUB_PROJECT` |
+```bash
+bub update
+bub update bub-mcp
+```
 
-升级不会自动迁移插件配置或 Tape 数据。
+升级后请重启正在运行的 `bub chat` 或 `bub gateway` 进程。
 
 ## `bub login codex` {#bub-login-codex}
 
-通过 Codex CLI 配置 ChatGPT 套餐凭据。
+通过 OpenAI Codex CLI 登录并配置 ChatGPT 账号凭据：
 
 ```text
 bub login codex [OPTIONS]
@@ -224,70 +246,53 @@ bub login codex [OPTIONS]
 
 | 选项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `--executable` | 文本 | `codex` | Codex CLI 可执行文件 |
-| `--device-auth` | 开关 | 关闭 | 使用设备授权流程 |
-| `--codex-home` | 路径 | `$CODEX_HOME` 或 `~/.codex` | 凭据目录 |
+| `--executable` | 文本 | `codex` | Codex CLI 可执行文件路径 |
+| `--device-auth` | 开关 | 关闭 | 使用设备码（Device Auth）登录 |
+| `--codex-home` | 路径 | `$CODEX_HOME` 或 `~/.codex` | 存放 `auth.json` 的目录 |
 
-成功输出：
-
-```text
-login: ok
-account_id: <id>
-Use BUB_MODEL=codex:<model> for ChatGPT plan access.
-```
-
-使用时设置 `BUB_MODEL=codex:<model>`，不要同时设置 `BUB_API_KEY`。失败时输出 `login: failed: ...` 并以退出码 `1` 结束。
+登录成功后设置 `BUB_MODEL=codex:<model>` 即可使用，**切勿**同时设置 `BUB_API_KEY`。
 
 ## 其他账号登录 {#account-logins}
+
+复用 Grok CLI 或 GitHub CLI 的登录凭据（需先安装对应官方 CLI 工具）：
 
 ```bash
 bub login grok [--executable grok] [--device-auth]
 bub login github-copilot
 ```
 
-Grok 使用官方 Grok CLI；GitHub Copilot 使用 `gh auth login`。请先安装对应 CLI。Republic 复用其凭据并处理令牌刷新或交换，Bub 不增加凭据存储。
-
-登录后设置 `BUB_MODEL=grok:<model>` 或 `BUB_MODEL=github-copilot:<model>`，无需配置 API key。登录命令不会修改模型配置。GitHub Copilot 需要账号具有相应订阅及访问权限。
+登录后将模型设为 `BUB_MODEL=grok:<model>` 或 `BUB_MODEL=github-copilot:<model>` 即可（无需设置 API Key）。
 
 ## `bub plugins` {#bub-plugins}
 
-列出已发现的插件及其包和版本号。
+列出已发现的插件及其所属 Python 包名与版本号：
 
 ```text
 bub plugins [OPTIONS] [NAMES]...
 ```
 
-| 参数与选项 | 类型 | 默认值 | 说明 |
+| 参数 / 选项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `NAMES` | 文本 | 全部插件 | `bub` entry-point 组中的插件名 |
-| `--version-only` | 开关 | 关闭 | 每行只输出一个插件的版本号 |
+| `NAMES` | 文本 | 全部插件 | 只查询指定名称的插件 |
+| `--version-only` | 开关 | 关闭 | 每行仅输出版本号（无元数据时输出 `-`） |
 
-默认每行输出 `name  distribution version`；内置 Hook 显示为 `builtin`，加载失败的插件附带 `(failed: <error>)`。名称不存在时以退出码 `1` 结束。
-
-`--version-only` 在插件没有包元数据时输出 `-`。
+默认每行输出 `name  distribution version`（加载失败时附带 `(failed: <error>)`）。查询不存在的插件名时退出码为 `1`。
 
 ## `bub hooks` {#bub-hooks}
 
-打印 Hook 实现映射；该命令隐藏且不启动渠道。
+打印所有 Hook 及其绑定的插件列表（用于调试的隐藏命令，不显示在 `bub --help` 中）：
 
-```text
+```bash
 bub hooks
 ```
 
-```text
-<hook>: <implementation>, <implementation>
-```
+输出格式为 `<hook_name>: <implementation>, ...`，实现名称按 **pluggy 注册顺序**排列。注意注册顺序与运行时执行顺序相反，详见 [Hooks 参考：执行优先级](/zh-cn/docs/reference/hooks/#priority-and-dispatch)。
 
-实现按 pluggy 注册顺序输出，Hook 名按字母排序；没有实现时输出 `(no hook implementations)`。该顺序不是实际执行顺序。
-
-## 退出码 {#exit-codes}
+## 退出码汇总 {#exit-codes}
 
 | 场景 | 退出码 |
 | --- | --- |
-| 命令成功 | `0` |
-| Typer 参数错误 | `2` |
-| 缺少 `app` 可选依赖 | `1`，进程在 Typer 前退出 |
-| 没有可启用渠道、插件失败、配置失败 | `1` |
-| `bub install` / `uninstall` / `update` 的 uv 失败 | uv 的退出码 |
-
-`bub run` 的模型错误可能只写入日志并返回回退文本，因此脚本还应检查 stderr 和实际输出。
+| 执行成功 | `0` |
+| 命令行参数解析错误（Typer） | `2` |
+| 缺少 `bub[app]` 依赖、无启用渠道、配置/登录/插件查询失败 | `1` |
+| `bub install` / `uninstall` / `update` 中 `uv` 执行失败 | 透传 `uv` 退出码 |

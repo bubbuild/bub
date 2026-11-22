@@ -1,9 +1,11 @@
 ---
 title: Install Bub
-description: Install Bub step by step, with several install paths to choose from.
+description: Install Bub step by step—choose the CLI app or the Python SDK.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Bub can be used as a CLI app or as a Python SDK, so pick the install path that fits your workflow.
 
 ## Install the CLI app {#app-install}
 
@@ -32,17 +34,17 @@ uv tool update-shell
 </TabItem>
 </Tabs>
 
-The install script installs uv and Python 3.12, and puts `bub[app]` into your current environment. `app` is an optional dependency group that bundles the application-layer capabilities such as the CLI, channels, and plugins; you do not need it if you only use the SDK.
+The install script sets up `uv`, Python 3.12, and `bub[app]` for you. The `app` extra bundles application-layer capabilities such as the CLI, channels, and plugins; you do not need it if you only use the core SDK.
 
-When it finishes, run `bub --help`, then run `bub onboard` to start configuring.
+When it finishes, run `bub --help` to verify the install, then run `bub onboard` to configure your model.
 
 :::tip
-If the command is not found, check whether the environment variables include the directory that holds the executable, or add `~/.local/bin` to PATH yourself.
+If `bub` is not found, check that the install directory is on your `PATH`, or add `~/.local/bin` to `PATH` yourself.
 :::
 
 ## Install the SDK {#agent-install}
 
-From 0.6.0 on, Bub ships the core only. Use your package manager to add Bub to your project as a dependency. Here is uv:
+From 0.6.0 on, the base `bub` package ships the core kernel only. Add it to your project with your package manager—here is `uv`:
 
 ```bash
 uv add bub

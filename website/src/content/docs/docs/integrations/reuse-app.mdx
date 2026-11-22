@@ -1,47 +1,49 @@
 ---
 title: Reuse Bub in a service
-description: Choose a reuse layer by ownership, from tools and Agent hooks to BubAgent streams and complete Turns.
+description: "Reuse Bub app-layer capabilities in your Python service: from individual plugin tools and Agent loop hooks to BubAgent streams and complete Turns."
 sidebar:
-    badge: { text: 'SDK', variant: 'note' }
+    badge: { text: 'SDK', variant: 'tip' }
 ---
 
-When embedding Bub in an existing service, the key question is not “which entry point has the most features?” It is **which assembly and lifecycle responsibilities remain with the host**. You can reuse one tool or let Bub process a complete message Turn.
+When embedding Bub in an existing Python service, you can use the minimal [`bub.core.Agent`](/docs/sdk/) kernel or reuse capabilities from the Bub app layer — including configuration loading, skill discovery, plugin hooks, built-in tools, and the full Turn message pipeline.
 
-The app-layer entry points on this page require the [`app` optional dependencies](/docs/getting-started/install/#app-install) and configured model credentials (for example, `REPUBLIC_OPENAI_API_KEY`):
+The key question is not which entry point has the most features, but **which assembly and lifecycle responsibilities remain with your host service**.
+
+App-layer entry points require the [`app` optional dependencies](/docs/getting-started/install/#app-install) and configured model credentials (such as `REPUBLIC_OPENAI_API_KEY`):
 
 ```bash
 uv add "bub[app]"
 ```
 
-If you only need the model loop, tools, and Tape, start with the [core SDK](/docs/sdk/).
+If you only need the core model–tool–Tape loop without app configuration, skills, or plugins, start with the [core SDK](/docs/sdk/).
 
 <a id="choose-a-depth"></a>
 
 ## Choose a reuse layer {#choose-a-reuse-layer}
 
-| Capability to reuse | Entry point | What the host still owns |
-| --- | --- | --- |
-| One tool implementation | Import a public tool and pass it to `core.Agent` | Model, Tape, Run, and resource lifetime |
-| Plugin hooks for the Agent loop | `AgentPlugins.attach()` | Driving Runs, inbound/outbound messages, and same-session concurrency |
-| App configuration, skills, tool policies, and commands | `BubAgent.run_stream()` | Consuming and closing streams, reply delivery, complete Turn state, and same-session concurrency |
-| Complete Turn from inbound message to outbound result | `BubFramework.process_inbound()` | Service lifetime, model configuration, exceptions, concurrency, and delivery not delegated to a channel |
-| Supplied CLI or gateway | `bub run` / `bub chat` / `bub gateway`, or a custom entry point | Configuration, credentials, deployment, and extensions, but no application-loop code |
+Bub offers five reuse entry points depending on which responsibilities remain with your host service. These are parallel entry points rather than a mandatory upgrade path—start at the smallest layer that meets your needs:
 
-These are alternative entry points, not a mandatory upgrade path. Start at the smallest layer that meets your needs.
+| Capability to reuse | Entry point | What the host service still owns |
+| --- | --- | --- |
+| **CLI or persistent gateway** | `bub run` / `bub chat` / `bub gateway`, or a custom CLI wrapper | Config, credentials, and deployment; no Python loop code needed |
+| **Complete message Turn** (inbound message to outbound replies) | `BubFramework.process_inbound()` | Service lifetime, top-level error handling, per-session locking, and custom reply delivery |
+| **App config, skills, tool allowlists, and commands** (host consumes the stream) | `BubAgent.run_stream()` | Consuming and closing the stream, delivering replies, cross-Turn state persistence, and per-session locking |
+| **Plugin hooks for the `core.Agent` loop** | `AgentPlugins.attach()` | Driving `agent.run()`, inbound/outbound messages, and per-session locking |
+| **Single tool function** | Import the tool and pass it to `core.Agent(tools=[...])` | Model connection, Tape store, Run loop, and all resource lifetimes |
 
 :::note
-Installing a plugin package does not mean every entry point executes all its capabilities. Lower layers can reuse tools and Agent hooks; channels, CLI, and the complete message pipeline run only in their corresponding runtimes. A plugin may also depend on other hooks, state fields, or background services, so follow its documentation.
+Installing a plugin package only activates the extension points supported by the entry point you call. Lower layers (`AgentPlugins`, `BubAgent`) reuse tools and Agent loop hooks, whereas message channels, CLI commands, and outer Turn hooks run only in `BubFramework` or `bub gateway`.
 :::
 
 <a id="process-inbound"></a>
 
-## Recommended starting point: run a complete Turn {#run-a-complete-turn}
+## Run a complete Turn: `BubFramework.process_inbound()` {#run-a-complete-turn}
 
-Use `process_inbound()` when Bub should own session resolution, the initial prompt, model stage, state saving, and outbound-message assembly.
+If you want Bub to handle the entire flow—session resolution, prompt construction, model and tool execution, state saving, and outbound message assembly—start with `BubFramework.process_inbound()`.
 
 Create `embedded.py`:
 
-```python title="embedded.py"
+```python title="embedded.py" {12-17}
 import asyncio
 
 from bub import BubFramework
@@ -75,21 +77,22 @@ Run it:
 uv run python embedded.py
 ```
 
-Call `load_hooks()` once at startup to load builtin implementations and installed plugins. `framework.running()` owns resources such as plugin lifetimes, Tape storage, and the `SteeringInbox`; keep it open for the embedded service lifetime rather than entering it once per request.
+Key usage rules:
 
-`process_inbound()` returns a complete `TurnResult`, not an event iterator. This example binds no sending channel, so the host reads and delivers `result.outbounds`. If an installed `dispatch_outbound` plugin also sends messages, prevent duplicate delivery between the plugin and host.
-
-`stream_output=True` selects and consumes the streaming model path, then still returns a `TurnResult`. A bound Router can wrap the event stream with `wrap_stream()`, but **`stream_output=True` does not require a Router**.
+- **Call `load_hooks()` once at startup**: loads built-in implementations and installed entry-point plugins.
+- **Keep `framework.running()` open for the service lifetime**: this async context manager holds plugin lifespans, the Tape store, and the `SteeringInbox`. Enter it at service startup/shutdown (e.g., FastAPI `lifespan`), not per request.
+- **Read replies from `result.outbounds`**: `process_inbound()` returns an aggregated `TurnResult`. If an installed `dispatch_outbound` plugin also sends messages, avoid sending duplicates from your host code.
+- **Enable the streaming model path**: passing `stream_output=True` runs `run_model_stream` internally and still returns a `TurnResult` (a bound `ChannelRouter` can also observe incremental events via `wrap_stream()`; **`stream_output=True` works with or without a Router**).
 
 <a id="reuse-bubagent"></a>
 
-## Reuse only the model stage: BubAgent.run_stream {#model-stage}
+## Reuse only the model stage: `BubAgent.run_stream()` {#model-stage}
 
-Use `BubAgent.run_stream()` when you want Bub's configuration, skills, tool policies, and commands but prefer to handle the event stream yourself.
+Use `BubAgent.run_stream()` when you want Bub's app configuration, skill discovery, tool filtering, and comma commands, but want to iterate the event stream yourself (for example, to stream SSE frames to a frontend).
 
-`run_stream()` returns `AsyncStreamEvents`. It does not implement the async context-manager protocol, so use `contextlib.aclosing()` to close it on early exit and exceptions:
+`run_stream()` returns an `AsyncStreamEvents` async iterator (not a context manager). **Always wrap it with `contextlib.aclosing()`** so the stream closes cleanly on early exit or exceptions:
 
-```python
+```python collapse={1-7} {14-19,21}
 import asyncio
 import contextlib
 
@@ -121,23 +124,25 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Construct `BubAgent` inside `framework.running()` so it can use storage provided by that scope. Reuse one Agent across sessions; per-Turn tool, skill, and state choices belong in call arguments or TurnState.
+Instantiate `BubAgent` inside `async with framework.running():` so it picks up the active Tape store, and reuse the same `BubAgent` instance across sessions.
 
-Compared with a complete Turn, this direct entry point:
+Compared with `process_inbound()`, `BubAgent.run_stream()`:
 
-- still resolves the session Tape, binds the runtime Agent, and loads state through hooks when `state=None`;
-- can still execute direct commands;
-- skips initial inbound `build_prompt`, `save_state`, outbound rendering, and dispatch;
-- does not coordinate same-session concurrency;
-- does not close the stream for you, and the first `final` ends only one Step.
+- **Still runs**: resolves `session_id` to a session Tape, binds the runtime Agent, runs `load_state` hooks when `state=None`, and executes comma commands;
+- **Skips**: initial `build_prompt`, `save_state`, `render_outbound`, `dispatch_outbound`, and per-session concurrency locking;
+- **Stream rules**: close the stream with `aclosing()`; a `final` event ends only one Step, while the full run finishes when the `async for` loop ends.
 
-Builtin system instructions do not ask the model to reply through channel skills. The channel manager behind `bub gateway` and `bub chat` registers a `system_prompt` hook that adds that instruction only to the Turns it runs. A service calling `process_inbound()` itself can register its own hook to describe how replies are delivered. Replacing `agent.system_prompt` wholesale also removes prompt sections for plugins, skills, deferred tools, and code mode.
+:::tip[System prompt note]
+Default system instructions do not ask the model to reply via channel skills (such as `telegram`); that instruction is added only by `ChannelManager` in `bub gateway` and `bub chat`. When calling `run_stream()` or `process_inbound()` in your own service, the model replies with normal text. Do not overwrite `agent.system_prompt` directly, as that removes prompt sections for plugins, skills, deferred tools, and code mode.
+:::
 
 <a id="run-stream-options"></a>
 
-### Narrow tools and skills per call {#narrow-tools-and-skills}
+### Limit tools and skills per request {#narrow-tools-and-skills}
 
-```python
+Pass `allowed_tools` and `allowed_skills` to `BubAgent.run_stream()` to restrict which tools and skills the model can use on a given call:
+
+```python collapse={1-12} ins={27-28}
 import asyncio
 import contextlib
 
@@ -177,24 +182,26 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-| Parameter | `None` | Empty collection |
+| Parameter | `None` (default) | Empty collection (`[]` or `set()`) |
 | --- | --- | --- |
-| `allowed_tools` | Every tool on the instance | No tools |
-| `allowed_skills` | Default skill discovery | Skill discovery disabled |
+| `allowed_tools` | All tools on the Agent instance | Disable all tools for this call |
+| `allowed_skills` | All discovered skills | Disable all skills for this call |
 
-Unknown names raise `ValueError`. Filtering covers direct model calls and code mode, but comma commands use the Agent instance's tools and are not limited by `allowed_tools`; enforce permissions in `before_tool_call` when every execution path must be constrained.
+Passing an unknown tool name raises `ValueError`. Keep three rules in mind:
 
-These restrictions are reliable only when host code chooses the arguments. Letting the model generate a subagent's allowlist is not a security boundary.
-
-Passing `state` explicitly skips `load_state` hooks. When you need normal session recovery plus request metadata, build the state with `framework.build_state()` instead of replacing it with a new dictionary. See the [Python API](/docs/reference/python-api/#framework) for the complete `_runtime_agent` and state form.
+1. `allowed_tools` restricts model tool calls and code mode, but **does not restrict direct comma commands** (such as `,fs.read`). Enforce permissions in `before_tool_call` if every execution path must be gated.
+2. Allowlists are reliable only when set by **host code**; letting the model generate a subagent's `allowed_tools` in chat is not a security boundary.
+3. Passing `state` explicitly to `run_stream(state=...)` skips `load_state` hooks. To combine normal state loading with custom request fields, call `await framework.build_state(message, session_id)` first and add your keys to the returned dict (see [Python API](/docs/reference/python-api/#framework)).
 
 <a id="components"></a>
 
-## Reuse only tools or Agent hooks {#reuse-tools-or-hooks}
+## Reuse only tools or Agent loop hooks {#reuse-tools-or-hooks}
 
-### Tool implementations {#tool-implementations}
+### 1. Reuse plugin tools directly in `core.Agent` {#tool-implementations}
 
-An existing `core.Agent` can import builtin tools or public constructors supplied by plugins. The example below reuses only the search tool from `bub-web-search`. Install the dependencies and configure search and model credentials first:
+If your service uses the core `bub.core.Agent` but you want a tool from a Bub plugin, you can import that tool directly and pass it to `Agent(tools=[...])` without starting `BubFramework`.
+
+The example below reuses only `web.search` from `bub-web-search`. Install the dependencies and set your credentials first:
 
 ```bash
 uv add "bub[app]" \
@@ -205,9 +212,9 @@ export BUB_SEARCH_JINA_API_KEY=jina_...
 export REPUBLIC_OPENAI_API_KEY=sk-...
 ```
 
-Save the following script as `search_agent.py`:
+Save as `search_agent.py`:
 
-```python title="search_agent.py"
+```python title="search_agent.py" collapse={1-10} {13,19}
 import asyncio
 from pathlib import Path
 
@@ -248,17 +255,17 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Run `uv run python search_agent.py` to record the session in `sessions/`. This reuses only the selected search tool; the host still owns the model, Tape, event stream, and resource lifetime. See [`bub-web-search`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-web-search) for more details.
+Run `uv run python search_agent.py` to record the session in `sessions/`. Here only the tool function is reused; the host still owns the model, Tape store, and event stream. See [`bub-web-search`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-web-search) for more details.
 
 <a id="other-hooks"></a>
 
-### Agent-loop hooks {#agent-loop-hooks}
+### 2. Attach plugin hooks to `core.Agent` with `AgentPlugins` {#agent-loop-hooks}
 
-`AgentPlugins` connects plugin hooks to a core Agent's events, prompts, tools, and run state:
+If you want to reuse not only tools but also loop-related plugin hooks (`system_prompt`, `provide_tools`, `before_llm_call`, `before_tool_call`, etc.) on a `core.Agent`, use `AgentPlugins` (see [Hooks reference: Event mapping](/docs/reference/hooks/#event-mapping)).
 
-The following is a complete minimal plugin example. Save it as `agent_hooks.py`; install `bub[app]` and configure `REPUBLIC_OPENAI_API_KEY` first:
+Save the minimal example below as `agent_hooks.py`:
 
-```python title="agent_hooks.py" wrap
+```python title="agent_hooks.py" wrap collapse={1-10} {21-25}
 import asyncio
 
 import republic
@@ -297,48 +304,43 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-`PlainTextPlugin` is a minimal custom plugin: its `system_prompt` hook adds an instruction to the Agent. `AgentPlugins(plugins=[...])` registers only the plugins listed; it does not load Bub's builtin hooks or installed plugins. To load those, create a `BubFramework`, call `load_hooks()`, and pass it to `AgentPlugins`. The mechanisms behind these hooks are described in [Agent events](/docs/concepts/events/#app-hooks).
-
 Run it with `uv run python agent_hooks.py`.
 
-`components()` returns an ordinary kwargs dictionary and does not resolve duplicate arguments. The example explicitly overrides `store` with a dictionary merge; passing the same keyword twice raises an error.
+Key rules for `AgentPlugins`:
 
-Resources such as storage and the `SteeringInbox` are available only inside `plugins.running()`. Call `attach()` before registering your own event handlers so those handlers observe hook modifications.
+- **Explicit plugin list vs. auto-discovery**: `AgentPlugins(plugins=[...])` registers only the listed plugin instances. To load all installed entry-point plugins and built-in hooks, create `framework = BubFramework()`, call `framework.load_hooks()`, and pass `AgentPlugins(framework)`.
+- **Merge `components()`**: `plugins.components()` returns a dict with `store`, `context`, and `sidecars`. Merge overrides with `{**plugins.components(), "store": ...}` before passing to `Agent()`.
+- **Run inside `plugins.running()`**: call `plugins.attach(agent)` before registering your own `agent.events.on(...)` handlers so your handlers see hook modifications.
+- **Covers loop hooks only**: `attach()` does not run outer Turn stages (`build_prompt`, `save_state`, `render_outbound`, `dispatch_outbound`). If a plugin requires companion tools (e.g., `bub-context-budget` requires the `tape.handoff` tool) or persistent connections (e.g., [`bub-mcp`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp#embedding)), wire those components explicitly.
 
-`attach()` connects the Agent loop; it does not automatically provide the complete Turn's initial `build_prompt`, `run_model` / `run_model_stream`, `save_state`, outbound rendering, or dispatch. Specific paths such as steering can still call `build_prompt`, and builtin error reporting can call `dispatch_outbound`, so plugin hosts should check when each hook executes.
+## Bind a `ChannelRouter` for channel delivery {#bind-a-router}
 
-For example, `bub-context-budget` uses model-call hooks to ask the model to call `tape.handoff` as the context approaches its limit. In addition to `attach()`, provide the `tape.handoff` tool to the Agent; the reminder itself does not enforce compaction. This illustrates why a plugin may need more than `attach()`; see the [`tape.handoff` reference](/docs/reference/tools/#tape-handoff).
+If your host service already handles reply delivery (for example, returning an HTTP response), reading `TurnResult.outbounds` is all you need—no Router required.
 
-Plugins such as MCP that hold persistent connections have an independent lifecycle; `attach()` does not replace connecting, starting, and stopping them. See [`bub-mcp`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp#embedding) for embedding.
+Implement `ChannelRouter` and call `framework.bind_channel_router(router)` only when Bub channels should own outbound delivery and stream wrapping:
 
-<a id="bind-a-router"></a>
-
-## Bind a Router for channel delivery {#bind-a-router}
-
-If the host already has sending logic, use `TurnResult.outbounds` directly. Implement and bind a `ChannelRouter` when Bub channels should own outbound delivery and stream wrapping:
-
-- `dispatch_output()` performs delivery. Returning `False` does not trigger an automatic retry or fallback; `process_inbound()` still returns the rendered `outbounds`.
-- `wrap_stream()` must return an async iterable and preserve the model events Bub should continue processing; `model_output` is aggregated from text deltas yielded by the wrapped stream.
-- `admit_channel_message()` belongs to the `ChannelManager` admission path. Calling `process_inbound()` directly does not automatically perform admission or session queueing.
+- `dispatch_output()`: delivers outbound messages; returning `False` does not trigger an automatic retry, and `process_inbound()` still returns `outbounds`.
+- `wrap_stream()`: wraps the event stream and yields the model events Bub aggregates into `model_output`.
+- `admit_channel_message()`: used by `ChannelManager` admission; calling `process_inbound()` directly does not run admission or queueing automatically.
 
 See the [Python API](/docs/reference/python-api/#framework) and [Turn concepts](/docs/concepts/turn/) for contracts.
 
 <a id="lifecycle-and-concurrency"></a>
 
-## Lifecycle, failure, and concurrency checklist {#lifecycle-failure-concurrency}
+## Production checklist {#lifecycle-failure-concurrency}
 
-Whichever app-layer entry point you choose, verify these boundaries:
+Whichever app-layer entry point you choose, verify these seven boundaries before deploying to production:
 
-1. **Initialize once**: call `load_hooks()` during service assembly, not on every request.
-2. **Use one running scope**: do not overlap `running()` on one Framework. `ChannelManager.listen_and_run()` already enters it, so do not nest another scope.
-3. **Configuration is not an isolation boundary**: separate Frameworks can separate plugin sets, but application configuration remains process-wide and cached.
-4. **The host catches exceptions**: both `run_stream()` iteration and `process_inbound()` can raise; complete-Turn error hooks do not replace host exception handling.
-5. **Coordinate each session explicitly**: neither direct entry point serializes by `session_id`. Use host locks or ChannelManager admission with `follow_up`.
-6. **Close streams**: consume them fully on the normal path and use `aclosing()` on early exit. `temp/` sessions do not merge Tape; ordinary sessions merge on close by default, including partial records.
-7. **Side effects are not transactional**: later model failure, cancellation, or discarded Tape records do not undo external tool side effects.
+1. **Call `load_hooks()` once at startup**: do not re-register plugins on every request.
+2. **Use a single `running()` scope**: do not overlap `running()` scopes on the same `BubFramework` (`ChannelManager.listen_and_run()` enters `running()` internally).
+3. **Settings are cached process-wide**: multiple `BubFramework` instances isolate plugin sets, but `Settings` instances are cached per process.
+4. **Catch exceptions in the host**: `run_stream()` and `process_inbound()` raise exceptions on failure; `on_error` hooks only log errors and do not suppress exceptions.
+5. **Serialize same-session concurrency**: lock per `session_id` in your host (e.g., `asyncio.Lock`), or use `ChannelManager` with `follow_up` admission.
+6. **Close event streams**: wrap streams with `contextlib.aclosing()`. Except for `temp/` sessions, ordinary sessions merge written fork records back into the main Tape on stream close.
+7. **External side effects do not roll back**: model errors, cancellation, or discarding a Tape fork do not undo file edits, HTTP calls, or database writes already performed by tools.
 
 <a id="cli"></a>
 
-## Run or publish the CLI {#run-or-publish-cli}
+## Run or package the CLI {#run-or-publish-cli}
 
-If you do not need embedded code, use `bub run`, `bub chat`, or `bub gateway` directly. To own the command name, declare `[project.scripts]` that calls the Bub entry point and ship plugins and skills in the same distribution. See [Packaging and distribution](/docs/app/distribution/).
+If you do not need to embed Bub inside another Python service, run `bub run`, `bub chat`, or `bub gateway` directly. To package it under your own command name (such as `my-bub`) bundled with custom plugins and skills for your team, see [Packaging and distribution](/docs/app/distribution/).

@@ -1,45 +1,39 @@
 ---
 title: Deployment
-description: Run the Bub gateway and cloud sandbox, covering Docker Compose and Daemon service modes.
+description: Deploy the Bub gateway and isolated sandbox using Docker Compose or a system daemon service.
 ---
 
 import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Bub can be used interactively in a local terminal (see [Terminal interaction](/docs/app/terminal/)), or deployed to a server to run as a long-lived process:
+Bub works interactively in your local terminal (see [Terminal interaction](/docs/app/terminal/)), and you can also deploy it to a server as a long-running service:
 
-- **Persistent gateway (Gateway)**: listen on channels such as Telegram and Feishu around the clock and respond to messages.
-- **Cloud isolated sandbox (Remote Workspace)**: provide a complete development toolchain inside an isolated container, accessed through the terminal with `bub chat`, keeping the host machine safe.
+- **Persistent message gateway**: listen on Telegram, Feishu, or Discord 24/7 and reply to messages.
+- **Containerized sandbox**: run development toolchains inside an isolated container and attach via `bub chat` without exposing the host filesystem.
 
-There are two main deployment approaches:
+Comparison of the two deployment modes:
 
-| Approach | Scenario | Advantages |
+| Mode | Best for | Key benefits |
 | --- | --- | --- |
-| **Docker Compose** (recommended) | Cloud servers, VPS, NAS, local containers | Works out of the box with Node/pnpm/Python/Git and other toolchains included; isolated environment, easy to back up and upgrade |
-| **Daemon mode** | Linux / Windows hosts that already have a Python environment | Low resource usage; register as a system background service in one step with `bub gateway --install` |
-
----
+| **Docker Compose** (recommended) | Cloud VMs, VPS, NAS, local containers | Bundles Python, `uv`, Git, Node.js, and pnpm; isolates the host; easy to back up and upgrade |
+| **System daemon** | Linux / Windows hosts with an existing Python environment | Low overhead; registers as a user service in one command via `bub gateway --install` |
 
 ## Before you start {#before-you-start}
 
-Complete the following preparation before deploying:
-
-1. **Model configuration**: specify `BUB_MODEL` and `BUB_API_KEY` in `.env`. See [Configuration](/docs/app/configure/) for details.
-2. **Channel credentials and allowlist**: when connecting channels such as Telegram, **always configure an allowlist** (for example `BUB_TELEGRAM_ALLOW_USERS`) to prevent unauthorized access from consuming tokens.
-3. **Data persistence**: session state (Tape), history, and plugins are stored in the data directory (host `~/.bub`, container `/data`). Make sure persistent storage is in place when deploying.
+1. **Model credentials**: set `BUB_MODEL` and `BUB_API_KEY` in `.env` (see [Configuration](/docs/app/configure/)).
+2. **Channel allowlists**: **always configure an allowlist** (such as `BUB_TELEGRAM_ALLOW_USERS`) so unauthorized users cannot invoke your agent.
+3. **Persistent data volume**: mount the data directory (host `~/.bub`, container `/data`) to preserve session Tapes and managed plugins across restarts.
 
 :::caution[Security warning]
-Never leave the allowlist empty in a production deployment! If the allowlist is empty, anyone who can find the bot can send it commands and invoke Agent tools.
+Never deploy to production with an empty allowlist. Without an allowlist, anyone who finds your bot can send prompts and run Agent tools.
 :::
 
----
+## Docker Compose deployment {#docker-compose}
 
-## Docker Compose {#docker-compose}
+The official image (`ghcr.io/bubbuild/bub`) comes preinstalled with Python 3.12, `uv`, Git, Node.js, and pnpm.
 
-The official image (`ghcr.io/bubbuild/bub`) bundles Python 3.12, `uv`, Git, Node.js, pnpm, and common command-line tools. The host only needs to provide configuration files and storage volumes.
+### 1. Prepare configuration {#configure}
 
-### 1. Configure the environment {#configure}
-
-Fetch [`docker-compose.yml`](https://github.com/bubbuild/bub/blob/main/docker-compose.yml) and [`env.example`](https://github.com/bubbuild/bub/blob/main/env.example) into the deployment directory:
+Download [`docker-compose.yml`](https://github.com/bubbuild/bub/blob/main/docker-compose.yml) and [`env.example`](https://github.com/bubbuild/bub/blob/main/env.example):
 
 ```bash
 mkdir -p bub-deploy && cd bub-deploy
@@ -48,71 +42,61 @@ curl -O https://raw.githubusercontent.com/bubbuild/bub/main/env.example
 cp env.example .env
 ```
 
-Fill in the core parameters in `.env`:
+Edit `.env`:
 
-```bash
+```bash title=".env"
 # Model
 BUB_MODEL=openrouter:openrouter/free
 BUB_API_KEY=sk-or-...
 
-# Channel (Telegram as an example)
+# Channel (Telegram example)
 BUB_TELEGRAM_TOKEN=123456789:your-telegram-bot-token
 BUB_TELEGRAM_ALLOW_USERS=123456789,your_telegram_username
 
-# Host data directory and workspace (optional)
+# Optional host paths
 # BUB_HOME_HOST=~/.bub
 # BUB_WORKSPACE_PATH=.
 ```
 
-`docker compose` reads `.env` from the current directory automatically. Never commit an `.env` containing tokens to a public repository.
+### 2. Review volume mounts {#volumes}
 
-### 2. Mount directories {#volumes}
+`docker-compose.yml` mounts three directories by default:
 
-By default, `docker-compose.yml` contains three volume mounts:
-
-```yaml
+```yaml title="docker-compose.yml"
 volumes:
   - ${BUB_WORKSPACE_PATH:-.}:/workspace
   - ${BUB_HOME_HOST:-${HOME}/.bub}:/data
   - ${BUB_AGENT_HOME:-${HOME}/.agents}:/root/.agents
 ```
 
-| Container path | Corresponding host path | Description |
+| Container path | Host path | Purpose |
 | --- | --- | --- |
-| `/workspace` | `BUB_WORKSPACE_PATH` (default current directory) | **Workspace**: the directory where the Agent executes commands and reads/writes files |
-| `/data` | `BUB_HOME_HOST` (default `~/.bub`) | **Data directory**: stores Tape, history, and managed plugins (`/data/bub-project`) |
-| `/root/.agents` | `BUB_AGENT_HOME` (default `~/.agents`) | **Global skills**: Agent skills directory reused across projects |
+| `/workspace` | `BUB_WORKSPACE_PATH` (default `.`) | **Workspace**: directory where the Agent reads/writes files and runs commands |
+| `/data` | `BUB_HOME_HOST` (default `~/.bub`) | **Data directory** (`BUB_HOME=/data`): stores session Tapes and managed plugins |
+| `/root/.agents` | `BUB_AGENT_HOME` (default `~/.agents`) | **Global skills**: shared skills across workspaces |
 
-`BUB_HOME=/data` is set inside the container, so session data and plugins survive container destruction and recreation.
-
-:::danger[Isolation precautions]
-The workspace determines the file scope the Agent can reach. **Never** mount the host root `/` or any directory containing sensitive keys into `/workspace`.
+:::danger[Do not mount sensitive host directories]
+The workspace defines which files the Agent can access. **Never** mount the host root `/` or directories containing secrets into `/workspace`.
 :::
 
-### 3. Start {#start}
+### 3. Start the container {#start}
 
 <Tabs>
-  <TabItem label="Use the official image (recommended)">
-    Pull the image and start it in the background:
-
+  <TabItem label="Official image (recommended)">
     ```bash
     docker compose pull
     docker compose up -d
     docker compose logs -f app
     ```
 
-    In production, pin a specific tag in `.env` (for example `BUB_IMAGE=ghcr.io/bubbuild/bub:0.6.0`).
+    In production, pin a specific version tag in `.env` (e.g. `BUB_IMAGE=ghcr.io/bubbuild/bub:0.6.0`).
   </TabItem>
   <TabItem label="Build locally">
-    Build from source and start:
-
     ```bash
     docker compose up -d --build
     ```
   </TabItem>
-  <TabItem label="Use docker run">
-    The equivalent command when you do not use Compose:
-
+  <TabItem label="docker run">
     ```bash
     docker run -d --name bub --restart unless-stopped \
       --env-file .env \
@@ -127,147 +111,118 @@ The workspace determines the file scope the Agent can reach. **Never** mount the
   </TabItem>
 </Tabs>
 
-### 4. Verify {#verify}
-
-Check the container status and gateway logs:
+### 4. Verify startup {#verify}
 
 ```bash
 docker compose ps
 docker compose logs -f app
 ```
 
-When the Telegram gateway starts normally, it outputs:
+When the Telegram gateway is ready, it logs:
 
 ```text
 telegram.start allow_users_count=1 allow_chats_count=0 proxy_enabled=False
 telegram.start polling
 ```
 
-Check that an environment variable was injected (without printing its value):
+### 5. Attach an interactive chat {#chat}
 
-```bash
-docker compose exec app sh -c 'test -n "$BUB_TELEGRAM_TOKEN" && echo token-present'
-```
-
-### 5. Interactive chat {#chat}
-
-Compose enables `stdin_open` and `tty` by default. Even if the container runs the gateway in the background, you can enter the container at any time and start an interactive conversation:
+Compose enables `stdin_open` and `tty` by default. Even while the container runs the gateway in the background, you can attach at any time for an interactive `bub chat` session:
 
 ```bash
 docker compose exec -it app bub chat
 ```
 
-This lets you pair-program directly with the Agent using the preinstalled toolchain in a fully isolated cloud sandbox.
+This lets you pair-program directly with the Agent inside an isolated cloud sandbox with the preinstalled toolchain.
 
 ### 6. Customize startup and dependencies {#entrypoint}
 
-On container startup, `entrypoint.sh` runs the following in order:
+At container startup, `entrypoint.sh` runs three steps:
 
 <Steps>
 
-1. **Install Python dependencies**: if `/workspace/bub-reqs.txt` exists, install them automatically with `uv pip install`.
-
-2. **Sync plugins**: activate the virtual environment and run `bub install` to sync the managed plugins in `/data/bub-project`.
-
-3. **Run the entrypoint**: if `/workspace/startup.sh` exists, run it with `bash`; otherwise run `bub gateway`.
+1. If `/workspace/bub-reqs.txt` exists, installs extra Python packages via `uv pip install`.
+2. Activates the virtual environment and runs `bub install` to sync managed plugins in `/data/bub-project`.
+3. Executes `/workspace/startup.sh` if present; otherwise runs `bub gateway`.
 
 </Steps>
 
-#### Override the startup command example {#override-command}
-
-Create `startup.sh` in the workspace and make it executable:
+To customize the startup command, create an executable `/workspace/startup.sh` (use `exec` so shutdown signals reach the gateway):
 
 ```bash
 #!/bin/bash
 # /workspace/startup.sh
 set -euo pipefail
-
-# You must use exec to replace the process so that system signals are delivered to the gateway correctly
 exec /app/.venv/bin/bub gateway --enable-channel telegram
 ```
 
-### 7. Plugin management {#plugins}
+### 7. Manage plugins inside the container {#plugins}
 
-Managed plugins live in the persistent volume `/data/bub-project`. Install them directly inside the container without rebuilding the image:
+Managed plugins live on the `/data/bub-project` volume and can be installed or updated without rebuilding the image:
 
 ```bash
-# Install a plugin
 docker compose exec app bub install https://github.com/owner/repo.git@v1.2.0
-
-# Update plugins
 docker compose exec app bub update
-
-# Restart to activate the new plugins
 docker compose restart app
 ```
 
-### 8. Backup and upgrade {#upgrade}
+### 8. Back up and upgrade {#upgrade}
 
-Tape is an append-only JSONL file. Before upgrading, pause writes and make a backup:
+Stop the container and back up the data directory before upgrading:
 
 ```bash
-# 1. Stop writes and back up
 docker compose stop app
 tar -czf "bub-data-$(date +%Y%m%d-%H%M%S).tar.gz" "$HOME/.bub"
 cp .env ".env.bak-$(date +%Y%m%d-%H%M%S)"
 
-# 2. Pull the new image and start
 docker compose pull
 docker compose up -d
 ```
 
-To roll back, simply switch back to the old tag in `.env` (for example `BUB_IMAGE=ghcr.io/bubbuild/bub:0.6.0`) and restart.
+To roll back, switch `BUB_IMAGE` back to the previous tag in `.env` (for example `BUB_IMAGE=ghcr.io/bubbuild/bub:0.6.0`) and restart.
 
 ---
 
-## Daemon mode {#daemon}
+## System daemon mode {#daemon}
 
-On a host that already has a Python environment, you can use the built-in `--install` command of `bub gateway` to register it directly as a system background service:
+On a Linux or Windows host with Python installed, you can register the gateway as a background user service with `bub gateway --install`:
 
 - **Linux**: registers as a systemd user service at `~/.config/systemd/user/bub-gateway.service`.
-- **Windows**: registers as a scheduled task for the current user (auto-start at login, automatic restart on failure).
-- **macOS**: `--install` is not supported yet; use launchd, tmux, or the Docker approach above.
+- **Windows**: registers as a scheduled task for the current user (starts at login and restarts on failure).
+- **macOS**: `--install` is not supported yet; use `launchd`, `tmux`, or the Docker approach above.
 
 ### 1. Install the service {#daemon-install}
 
-Run the following in the workspace directory that contains `.env`:
+Run in the workspace directory containing `.env`:
 
 ```bash
-# Create the environment and install the app
 uv venv && source .venv/bin/activate
 uv pip install 'bub[app]'
-
-# Install and start the background service in one step
 bub gateway --install
 ```
 
 The installer automatically records the current Python interpreter path, workspace directory, and environment variables.
 
-### 2. Keep alive and manage {#daemon-manage}
+### 2. Manage the service (Linux) {#daemon-manage}
 
-After a Linux user logs out of SSH, user-level services are suspended by default. To keep running around the clock, enable linger:
+After you log out of SSH on Linux, user-level services stop by default. Enable linger to keep the gateway running 24/7:
 
 ```bash
 loginctl enable-linger $USER
 ```
 
-Common management commands:
+Common `systemctl` commands:
 
 ```bash
-# Check status
 systemctl --user status bub-gateway
-
-# Follow logs in real time
 journalctl --user -u bub-gateway -f
-
-# Restart and stop
 systemctl --user restart bub-gateway
 systemctl --user stop bub-gateway
 ```
 
 ### 3. Uninstall the service {#daemon-uninstall}
 
-To remove the background service:
+To remove the background service, run:
 
 ```bash
 bub gateway --uninstall
@@ -275,10 +230,10 @@ bub gateway --uninstall
 
 ---
 
-## Security recommendations {#security-checklist}
+## Security checklist {#security-checklist}
 
-- **Strict allowlist**: configure `BUB_TELEGRAM_ALLOW_USERS` or `BUB_TELEGRAM_ALLOW_CHATS`; messages that fail validation are rejected or silently dropped.
-- **Minimize the workspace**: mount only the project directories you need into the workspace, and do not let the Agent access directories containing host keys or critical system paths.
-- **Step limit**: cap the steps per task with `BUB_MAX_STEPS` to guard against infinite loops and API quota consumption. It is unlimited by default (`sys.maxsize`), so production deployments should set it explicitly, for example to 50.
-- **Credential security**: inject secrets through `.env` or environment variables, and never commit tokens to version control.
-- **Regular backups**: periodically archive and back up the Tape files in `~/.bub` (or the container's `/data`).
+- **Configure allowlists**: set `BUB_TELEGRAM_ALLOW_USERS` or `BUB_TELEGRAM_ALLOW_CHATS`.
+- **Scope the workspace**: mount only the target project directory, never host credentials or system paths.
+- **Set a step limit**: configure `BUB_MAX_STEPS` (unlimited by default; set to e.g. `50` in production) to prevent runaway loops.
+- **Protect secrets**: pass API keys via `.env` or environment variables and keep them out of version control.
+- **Back up Tapes regularly**: archive `~/.bub` (or container `/data`) periodically.

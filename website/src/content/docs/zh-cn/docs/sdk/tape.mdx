@@ -1,21 +1,17 @@
 ---
 title: Tape 与记忆
-description: 让 Agent 在多轮对话中保留信息，并理解历史记录、模型上下文与 Tape 存储。
+description: 在多轮对话中持久化 Tape 历史、自定义 TapeContext 上下文筛选、管理 anchor 交接与分支合并。
 ---
 
-如果每次请求都只把当前消息交给模型，Agent 就无法接续之前的对话。要让它记得你刚才说过什么，就需要保存对话记录，并在下一轮请求中把相关历史交给模型。
+如果每次请求都只把当前消息交给模型，Agent 就无法接续之前的对话。要让它记得你刚才说过什么，就需要保存对话记录，并在下一轮请求中把相关历史交给模型。Bub 用 Tape 保存对话消息、工具调用往返和运行事件，让 Agent 具备多轮记忆能力。Tape 与模型上下文的分工见 [Tape 与模型上下文](/zh-cn/docs/concepts/tape/#history-and-context)。
 
-Bub 用 Tape 保存对话、工具调用输入输出和运行记录，让你的 Agent 具备记忆和连续对话的能力。历史与模型上下文为什么分开、`TapeContext` 从哪里开始读取，见 [Tape 与模型上下文](/zh-cn/docs/concepts/tape/#history-and-context)。
+## 保持多轮连续对话 {#remember-previous-turn}
 
-## 连续对话 {#remember-previous-turn}
+要让模型能与你连续对话、记住你的偏好，关键在于多次调用 `agent.run()` 时传入同一个 `tape` 名称：
 
-要让模型能与你连续对话或记住你所说的，关键在于调用 `agent.run()` 时要使用同一个 Tape 名称：
-
-```python
+```python 'tape="demo-user"'
 import asyncio
-
 import republic
-
 from bub.core import Agent
 
 
@@ -24,12 +20,12 @@ async def run_turn(agent: Agent, model, prompt: str) -> None:
         async for event in stream:
             if event.kind == "text":
                 print(event.data["delta"], end="", flush=True)
-    print("DONE")
+    print("\nDONE")
 
 
 async def main() -> None:
     agent = Agent(
-        system_prompt="你是一个简洁的助手，并记住用户明确提出的回答偏好。",
+        system_prompt="你是一个简洁的助手，记住用户要求的回答格式。",
         max_steps=6,
     )
 
@@ -40,96 +36,80 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-
 ```
 
-两次调用都使用 `demo-user` 这一 Tape 记忆，所以第二轮可以接续第一轮的对话。Bub 默认使用 `InMemoryTapeStore` 来存储 Tape，但当你进程退出后就会丢失。此外，如果每个请求都重新创建 Agent，即使 Tape 名称相同，也不会共享默认的内存历史。
+`Agent` 默认使用内存存储 `InMemoryTapeStore`：数据仅在当前 `Agent` 实例与当前进程内有效，进程退出或每次请求新建 `Agent` 实例都会丢失历史。
 
-## 记忆持久化 {#persist-memory}
+## 持久化到磁盘或数据库 {#persist-memory}
 
-Bub 内置了一个 `FileTapeStore`，用于帮助你将 Tape 以持久化的方式写入到本地，后续即便退出进程重新进入时也能恢复历史对话，前提是你必须在创建 Agent 时配置：
+如果你想让记忆在进程重启后依然保留，可以传入 Bub 内置的 `FileTapeStore`，将每个 Tape 持久化为本地 `.jsonl` 文件：
 
-```python
+```python "FileTapeStore"
 from pathlib import Path
-
 from bub.core import Agent
 from bub.core.store import FileTapeStore
 
 agent = Agent(
     store=FileTapeStore(Path("sessions")),
-    system_prompt="你是一个简洁的助手，并记住用户明确提出的回答偏好。",
+    system_prompt="你是一个简洁的助手，记住用户要求的回答格式。",
 )
-
 ```
 
-于是再次运行程序时，使用同一个存储目录和 Tape 名称即可读取历史记录。于是上面的会话会保存在 `sessions/demo-user.jsonl` 文件中。
+上例中的 `tape="demo-user"` 会保存在 `sessions/demo-user.jsonl`。
 
-### Tape 名称决定记录延续 {#tape-names}
+### Tape 命名与隔离 {#tape-names}
 
-`agent.run(..., tape="customer-42")` 按名称选择 Tape。重复使用同一名称会延续记录，不同名称彼此独立。名称由调用方负责：`core.Agent` 不会替你加工作区、租户或用户前缀。
+`agent.run(..., tape="customer-42")` 按名称隔离会话：同名接续历史，不同名相互独立。`core.Agent` 不会自动添加工作区或用户前缀，命名规则由宿主程序自行管理。
 
-`FileTapeStore` 直接把 Tape 名称用作文件名。名称由用户输入或来自外部标识时，必须校验字符与长度，或改用随机标识；多租户服务还应把租户与用户身份纳入命名空间。
+### 选择存储后端 {#storage}
 
-### 存储方案怎么选？ {#storage}
-
-| 存储 | 生命周期 | 适用场景 |
+| 存储实现 | 生命周期 | 适用场景 |
 | --- | --- | --- |
-| `InMemoryTapeStore`（默认） | 当前 Agent 实例与进程 | 测试、临时脚本 |
-| `FileTapeStore` | 每个 Tape 一个 `.jsonl` 文件 | 单机 CLI、开发环境、单节点服务 |
-| 自定义 `TapeStore` / `AsyncTapeStore` | 由宿主实现决定 | Redis、SQL、分布式存储 |
+| `InMemoryTapeStore`（默认） | 当前 `Agent` 实例与进程内 | 测试、一次性脚本 |
+| `FileTapeStore` | 每个 Tape 对应一个本地 `.jsonl` 文件 | 本地 CLI、开发环境、单机服务 |
+| 自定义 `TapeStore` / `AsyncTapeStore` | 由后端决定 | 生产环境的 SQL 数据库、Redis 或分布式存储 |
 
-:::note[注意事项]
-
-* `FileTapeStore` 会把 Tape 名称用于文件名。如 Tape 名称由用户传入，需进行必要安全校验，如严格限制名称字符与长度或使用随机生成的标识；对于多租户服务还应把租户和用户身份纳入会话命名空间。
-* 面向生产时建议自定义并实现 Tape 存储。完整协议见 [Python API](/zh-cn/docs/reference/python-api/#tape)。也可参考数据库接入示例见 [存储集成](/zh-cn/docs/integrations/storage/)。
+:::note[安全与生产建议]
+- `FileTapeStore` 直接将 Tape 名称用作文件名。若名称来自用户输入，**必须先校验字符范围与长度**（或映射为随机 UUID）；多租户服务应将租户与用户 ID 拼入名称，防止越权访问。
+- 生产环境存储协议见 [Python API：`TapeStore`](/zh-cn/docs/reference/python-api/#tape-store)，数据库接入见[使用数据库存储会话历史](/zh-cn/docs/integrations/storage/)。
 :::
 
-### 在 Run 之外查看记录 {#inspect}
+### 在 Run 之外查询历史 {#inspect}
 
-不在 Run 中时，通过 `agent.tape(name)` 拿到同一份记录，并分别查看两种视图：
+通过 `agent.tape(name)` 可随时读取转换后的模型消息或原始存储条目：
 
 ```python
 async def inspect_history(agent: Agent) -> None:
     tape = agent.tape("customer-42")
-    messages = await tape.read_messages()
-    entries = list(await tape.query().all())
-    print(f"模型消息：{len(messages)}，存储条目：{len(entries)}")
+    messages = await tape.read_messages()          # 经 TapeContext 筛选后的模型消息
+    entries = list(await tape.query().all())       # 存储在 Tape 中的原始条目
+    print(f"模型消息：{len(messages)}，原始条目：{len(entries)}")
 ```
 
-`read_messages()` 应用投影，`query()` 返回原始条目。
+## 自定义 TapeContext {#history-and-context}
 
-## TapeContext {#history-and-context}
-
-Tape 与模型上下文的区别，以及原始条目和投影消息的读取方式，见[一份记录，两种视图](/zh-cn/docs/concepts/tape/#history-and-context)。下面介绍如何自定义投影。
-
-### 默认上下文与自定义 {#default-context}
-
-每个 Agent 都绑定了一个 `context`（默认是 `default_tape_context()`）。上面的 `agent` 等价于：
+每个 `Agent` 都绑定了一个 `context`（默认为 `default_tape_context()`）：
 
 ```python
 from bub.core import Agent, default_tape_context
 
 agent = Agent(
-    context=default_tape_context(),  # 默认值：每个 agent.tape(name) 都会携带它
-    # ...
+    context=default_tape_context(),
 )
-
 ```
 
-### TapeContext 的构成 {#tape-context-fields}
+### TapeContext 字段 {#tape-context-fields}
 
-`TapeContext` 是一个数据类，控制着上下文的裁剪与转换行为。其核心字段包括：
-
-| 字段 | 默认值 | 作用说明 |
+| 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `anchor` | `LAST_ANCHOR` | 过滤锚点（anchor）：只读取最近一个 anchor 之后的条目；可传具体的 anchor 名称字符串，或传 `None` 表示不按 anchor 过滤。 |
-| `select` | `None` | 自定义转换函数：将选中的 Tape 条目转换为模型消息列表。若为 `None`，则使用运行时内置的标准转换规则（支持标准消息、工具往返等）。 |
-| `state` | `{}` | 关联的临时状态字典。每次 `agent.run(state=...)` 或 `agent.tape(state=...)` 都会写入这里，工具内部的 `ToolContext.state` 访问的也是同一个字典。 |
+| `anchor` | `LAST_ANCHOR` | 读取起点：默认只读最近一个 anchor 之后的条目；可传指定 anchor 名称，或传 `None` 从头读取全部条目 |
+| `select` | `None` | 自定义消息选择器函数；为 `None` 时使用内置转换规则 |
+| `state` | `{}` | 请求级临时状态字典（与 `agent.run(state=...)` 和 `ToolContext.state` 共享） |
 
-:::tip[关于类与工厂函数]
-直接调用 `TapeContext()` 构造的是一个极简的底层基础上下文（通常仅处理基础文本消息）；而 `default_tape_context()` 是官方提供的 **全功能工厂函数**，能够完美处理多轮对话、工具调用（`tool_call` / `tool_result`）与 anchor。
+:::tip[`TapeContext()` 与 `default_tape_context()`]
+直接调用 `TapeContext()` 构造的是极简的底层上下文，而 `default_tape_context()` 则是全功能工厂函数，预设了完整的多轮对话、工具往返与 anchor 转换规则。
 
-如果你想保留默认的所有强大特性，只是想更改一下起始的 `anchor`，推荐使用 Python 标准库的 `dataclasses.replace()` 进行微调：
+如果你想保留默认的所有强大特性，只是想微调一下起始的 `anchor`，推荐使用 `dataclasses.replace()` 基于 `default_tape_context()` 修改：
 
 ```python
 from dataclasses import replace
@@ -137,31 +117,25 @@ from bub.core import Agent, default_tape_context
 
 agent = Agent(
     context=replace(default_tape_context(), anchor="order-reviewed"),
-    # ...
 )
-
 ```
 :::
 
-### 选择其他起点 {#custom-anchors}
+### 指定读取起点（`anchor`） {#custom-anchors}
 
-`TapeContext.anchor` 控制查询范围：
-
-| 值 | 查询范围 |
+| `anchor` 取值 | 读取范围 |
 | --- | --- |
-| `LAST_ANCHOR`（默认） | 最近一个 anchor 之后 |
-| `"order-reviewed"` | 指定名称的 anchor 之后 |
-| `None` | 不按 anchor 过滤 |
+| `LAST_ANCHOR`（默认） | 最近一个 anchor 之后的条目 |
+| `"order-reviewed"` | 名为 `"order-reviewed"` 的 anchor 之后的条目 |
+| `None` | 不按 anchor 截断，从头读取全部条目 |
 
-### 自定义选择器 {#custom-selectors}
+### 自定义消息选择器（`select`） {#custom-selectors}
 
-需要不同投影时，向 `TapeContext(select=...)` 传入函数。它接收选中的条目和上下文，返回 Republic 消息或其 awaitable：
+如需将自定义业务事件（`kind="event"`）也拼入模型上下文，可向 `TapeContext(select=...)` 传入选择器函数：
 
-```python
+```python showLineNumbers {23}
 from collections.abc import Iterable
-
 import republic
-
 from bub.core import Agent, TapeContext, default_tape_context
 from bub.core.tape import TapeEntry, build_messages
 
@@ -169,7 +143,7 @@ from bub.core.tape import TapeEntry, build_messages
 def with_order_notes(
     entries: Iterable[TapeEntry], _context: TapeContext
 ) -> list[republic.Message]:
-    """默认投影之外，把订单备注作为系统提醒交给模型。"""
+    """在默认对话消息基础上，将订单备注作为系统消息追加给模型。"""
     entries = list(entries)
     messages = build_messages(entries, default_tape_context())
     notes = [
@@ -185,41 +159,37 @@ def with_order_notes(
 agent = Agent(context=TapeContext(anchor=None, select=with_order_notes))
 ```
 
-两处容易写错：
+编写自定义选择器时，有两个细节容易踩坑：
 
-- 传入的 `entries` 是 `Iterable`，可能是生成器；先 `list()` 物化再遍历，否则第二次遍历会得到空结果。
-- 复用默认投影时要传一个新的 `default_tape_context()`，不要把携带当前 selector 的 `context` 再交给 `build_messages()`，否则会递归调用自己。
+1. **先用 `list(entries)` 转为列表**：传入的 `entries` 可能是单次消费的生成器，多次遍历前必须先转为列表。
+2. **向 `build_messages()` 传入新的 `default_tape_context()`**：不要将当前带有自定义 `select` 的 `_context` 传给 `build_messages()`，否则会导致无限递归。
 
-自定义选择器会**替换**默认选择器，因此对话、工具往返、anchor 和你关心的业务事件都需要由你有意地组合。此时 `context=False` 的条目仍会在调用选择器前被过滤。
+自定义选择器会整体替换默认选择器；写入时带 `context=False` 的条目会在进入选择器前被自动过滤。
 
-### 临时切换读取模式 {#read-with-another-context}
+### 单次读取时临时切换上下文 {#read-with-another-context}
 
-如果你不想修改 Agent 默认的上下文配置，只是想在某次读取时换一种视角（例如临时跳过 anchor 限制查看全量对话），可以使用 `tape.with_context()`：
+如果你不想修改 Agent 默认的上下文配置，只是想在某次读取时换一种视角（例如临时跳过 anchor 限制查看全量对话），可以使用 `tape.with_context(...)`：
 
 ```python
 from dataclasses import replace
-
 from bub.core import default_tape_context
 
 tape = agent.tape("demo-user")
-
-# 临时创建一个不按 anchor 过滤、使用默认转换规则的上下文来读取全部消息
-full_messages = await tape.with_context(replace(default_tape_context(), anchor=None)).read_messages()
-
+full_messages = await tape.with_context(
+    replace(default_tape_context(), anchor=None)
+).read_messages()
 ```
 
-这只改变本次读取的行为，不会修改 Tape 本身的存储，也不会影响 Agent 后续的调用。
+### anchor 与 handoff {#anchors-and-handoff}
 
-### anchor 和 handoff {#anchors-and-handoff}
+anchor 与 handoff 的概念见[用 anchor 与 handoff 切换上下文起点](/zh-cn/docs/concepts/tape/#anchors)。在代码中使用时需注意初始锚点行为：
 
-anchor 与交接（handoff）的概念和边界见[Tape 与模型上下文](/zh-cn/docs/concepts/tape/#anchors)。这里补充实际使用时需要注意的初始化行为：
-
-* 当调用 `agent.run()`、`agent.start()` 或 `agent.session()` 开启会话时，如果 Tape 中尚无 anchor，系统会自动写入一个名为 `session/start` 的初始 anchor。
-* 仅仅调用 `agent.tape(name)` 获取引用不会自动创建 anchor。如果一个手动初始化的空 Tape 没有任何 anchor，直接用默认的 `LAST_ANCHOR` 读取会抛出 `BubError [not_found]`（`No anchors found in tape`）。对于完全空白的 Tape，要么先执行一次 `run()`，要么显式调用 `handoff()`，或者在读取时使用 `TapeContext(anchor=None)`。
+- 调用 `agent.run()`、`agent.start()` 或 `agent.session()` 时，若 Tape 中还没有任何 anchor，会自动写入 `session/start` 初始锚点。
+- 仅调用 `agent.tape(name)` 不会自动写入锚点。对没有任何 anchor 的空 Tape 直接按默认 `LAST_ANCHOR` 调用 `read_messages()` 会抛出 `BubError [not_found]`（`No anchors found in tape`）。此时应先运行一次 `run()`、手动调用 `handoff()`，或用 `anchor=None` 读取。
 
 ### 手动执行 handoff {#manual-handoff}
 
-你可以在业务逻辑的关键节点（如订单确认、步骤切换）手动写入 anchor：
+在业务阶段切换时手动写入新 anchor，将默认上下文起点前移：
 
 ```python
 tape = agent.tape("demo-user")
@@ -228,55 +198,45 @@ await tape.handoff(
     name="order-reviewed",
     state={"summary": "订单 A123 已完成审核并通过。"},
 )
-
 ```
 
-* `name`：后续可以通过 `TapeContext(anchor="order-reviewed")` 作为起点重新切入。
-* `state`：可以携带该阶段的结构化快照供应用层读取。
-
-handoff 之后，默认的 `read_messages()` 只会加载该 anchor 之后的对话，但历史数据依然完好：
+handoff 后，`tape.read_messages()` 默认只读取该 anchor 之后的新消息，而历史记录仍可通过 `anchors()` 和 `query()` 完整读取：
 
 ```python
-# 获取所有历史 anchor 列表及其状态
 anchors = await tape.anchors()
-
-# 依然可以查询到最原始、完整的历史条目
 history = list(await tape.query().all())
-
 ```
 
-### 该怎么使用它们？ {#when-to-use-anchors}
+### 常见场景对照 {#when-to-use-anchors}
 
-| 需求场景 | 推荐做法 |
+| 场景 | 做法 |
 | --- | --- |
-| 业务阶段推进（如：查完物流后进入售后） | 当前阶段结束时调用 `await tape.handoff(name="after-shipping")` |
-| 希望从某个历史存档点恢复上下文 | 配置 `TapeContext(anchor="存档名称")` |
-| 需要获取绝对完整的上帝视角历史 | 配置 `TapeContext(anchor=None)` |
-| 应对超长上下文溢出 | Agent 在识别到上下文长度错误时会自动写入 `handoff(name="auto_handoff/context_overflow")` 并重试原提示词一次 |
-| 按预算主动压缩 | 使用 [`bub-context-budget` 插件](/zh-cn/docs/integrations/reuse-app/#agent-loop-hooks)，让模型在接近上限时调用 `tape.handoff` |
+| 切换业务阶段（如查完物流进入售后） | 调用 `await tape.handoff(name="after-shipping")` |
+| 从指定历史锚点恢复上下文 | 配置 `replace(default_tape_context(), anchor="锚点名")` |
+| 读取完整历史消息 | 配置 `replace(default_tape_context(), anchor=None)` |
+| 上下文超长溢出自动恢复 | 模型报长度错误时，Agent 会自动写入 `auto_handoff/context_overflow` 并重试一次 |
+| 接近上下文上限时主动压缩 | 挂载 [`bub-context-budget` 插件](/zh-cn/docs/integrations/reuse-app/#agent-loop-hooks)并传入 `tape.handoff` 工具 |
 
-## Sidecar：让并行记录留在主上下文之外 {#sidecars}
+## Sidecar：隔离大体积附属数据 {#sidecars}
 
-`TapeSidecar` 是挂在会话 Tape 旁边、由配套 Tape 承载的能力。通过 `Agent(sidecars=...)` 挂载后，它随主 Tape 一起分支、合并和重置，但它的条目不会进入主 Tape 的模型上下文。
+有时我们需要跟随当前会话一起保存一些体量较大的附属数据（比如上万行的命令输出或网页抓取结果），但又不希望它们直接占满主对话的模型上下文。Bub 为此提供了 `TapeSidecar`：通过 `Agent(sidecars=...)` 挂载在主会话 Tape 旁，它会**随主 Tape 一起创建分支、合并和重置**，但写入 Sidecar 的条目永远不会进入主对话的模型上下文。
 
-Bub 应用用 spill sidecar 保存大型工具结果：主对话只保留预览和读取句柄，模型再通过 `spill.read` 分块取回完整内容。阈值由 [`BUB_SPILL_THRESHOLD`](/zh-cn/docs/reference/settings/#spill-settings) 控制，行为说明见 [代码模式 与 spill](/zh-cn/docs/reference/tools/#code-and-spill)。
+例如，Bub 应用层的 `spill` 机制就是通过 Sidecar 实现的：当工具输出超过 [`BUB_SPILL_THRESHOLD`](/zh-cn/docs/reference/settings/#spill-settings) 时，完整文本会转存到 `spill` Sidecar，主对话仅保留预览和句柄，供模型通过 `spill.read` 分块读取（见[内置工具参考](/zh-cn/docs/reference/tools/#code-and-spill)）。插件可通过 [`provide_tape_sidecar`](/zh-cn/docs/reference/hooks/#provide_tape_sidecar) 注册自定义 Sidecar。
 
-自定义 sidecar 需要在插件中实现 `provide_tape_sidecar`，协议见 [Hooks 参考](/zh-cn/docs/reference/hooks/#provide_tape_sidecar)。
+## 多模态媒体存储边界 {#media}
 
-## 媒体有独立的存储边界 {#media}
+Tape 定位于轻量文本与事件记录，而非多媒体文件存储：
 
-模型请求可以包含图片、音频和视频，但 Tape 不是媒体文件存储。通过 Agent Run 写入记录时，Bub 会剔除提示词 `content` / `prompt` 中的非文本内容块，只保留文本，避免把内联媒体写进历史。因此，不要假定之后能从 Tape 取回用户上传的原始媒体。
+- **用户输入的媒体不会写入 Tape**：Agent 将用户提示词写入 Tape 时会剔除非文本块、仅保留纯文本，避免大体积 Base64 数据撑爆存储。如需重放或审计用户上传的媒体，请先在宿主程序中将文件存入对象存储或磁盘，再将引用路径写入文本或事件。
+- **工具返回的媒体可传给当前模型**：工具可使用 [`content_result()`](/zh-cn/docs/reference/python-api/#tools) 返回文本与图片、音频或视频（如内置的 `fs.read` 读取图片）。这类结果记录在 `tool_result` 中，并在生成上下文时由 `result_content()` 还原为多模态内容块。
 
-需要重放或审计媒体时，由宿主把媒体保存到对象存储或文件系统，再在文本中记录可解析的引用。
+## 结合临时 state 与持久化事件 {#state-and-metadata}
 
-工具结果的媒体走另一条路径，不与入站提示词的剔除规则混为一谈：工具需要把媒体连同文本交回当前模型调用时，使用 [`content_result()`](/zh-cn/docs/reference/python-api/#tools)，其结果作为工具结果记录，投影时由 `result_content()` 还原成图片、音频或视频。
-
-## 调用数据与持久记忆 {#state-and-metadata}
-
-`state`、`metadata`、Tape 条目和 anchor `state` 的生命周期与用途，统一见[数据应该放在哪里](/zh-cn/docs/concepts/tape/#state)。这里只展示如何把临时数据与持久记录组合使用：
+下面通过一个工具示例，看看如何把单次请求内的临时 `state`（如 `request_id`）与持久化的 Tape 业务事件结合起来：
 
 ```python
 from bub.core.tools import ToolContext, tool
+
 
 @tool(context=True)
 async def add_order_note(note: str, *, context: ToolContext) -> str:
@@ -286,34 +246,34 @@ async def add_order_note(note: str, *, context: ToolContext) -> str:
         {"text": note, "request_id": context.state.get("request_id")},
     )
     return "备注已记录。"
-
 ```
 
-普通业务事件写入 Tape 后不会自动成为模型输入。如果希望模型在后续调用中看到这些数据，需要用 TapeContext 以合适的方式选入它们。
+再次提醒：通过 `append_event()` 写入的自定义业务事件会持久保存在 Tape 中，但默认不会自动进入下一次模型调用的上下文；如果希望模型后续看到它们，请配合上面的[自定义消息选择器](#custom-selectors)使用。各类数据的生命周期对比见[数据存放位置](/zh-cn/docs/concepts/tape/#state)。
 
-## 调用结束时如何处理会话历史 {#forks-and-merges}
+## 分支与合并策略（`merge_back`） {#forks-and-merges}
 
-每次 `agent.run()` 都会在 Tape 分支上记录本次 Run 写入的新条目。当调用流关闭时，Bub 默认把已写入的记录合并回主 Tape，见如下时序图：
+每次调用 `agent.run()` 时，Bub 并不会直接往主 Tape 上裸写数据，而是先从主 Tape 派生一个临时分支记录本次运行，等事件流关闭时再合并回主 Tape：
 
 ```mermaid
 sequenceDiagram
-    participant Host as 宿主
+    participant Host as 宿主程序
     participant Fork as 本次 Run 的 Tape 分支
     participant Main as 主 Tape
-    Host->>Fork: 进入 agent.run()，开始记录
-    Host->>Fork: 模型输出、工具输入输出和运行事件
-    alt 正常消费完毕
+    Host->>Fork: 进入 agent.run()，在分支上记录
+    Host->>Fork: 写入模型输出、工具往返与事件
+    alt 正常结束
         Host->>Fork: 退出 async with，关闭流
     else 异常、取消或提前退出
         Host->>Fork: 关闭未完成的流
     end
-    Fork->>Main: 默认合并已写入的记录
-
+    Fork->>Main: 默认将已写入分支的记录合并回主 Tape
 ```
 
-默认合并发生在流关闭时，不要求调用成功完成。这意味着网络异常、任务取消或提前退出后，已经写入分支的部分对话和运行记录仍可能保留在主 Tape 中。如果不想保留某次 Run 的记录，可以设置 `merge_back=False` 参数：
+这里有一个非常关键的默认行为：**分支合并发生在流关闭的那一刻，而非任务完全成功时**。即使中途报错、取消或提前退出循环，此前已完成并写入分支的步骤默认仍会合并回主 Tape。
 
-```python
+若希望某次运行不修改原有会话历史（如预览或试运行），可设置 `merge_back=False`：
+
+```python ins={5}
 async with agent.run(
     prompt,
     model=model,
@@ -322,19 +282,16 @@ async with agent.run(
 ) as stream:
     async for event in stream:
         ...
-
 ```
 
-这将丢弃本次调用的 Tape 分支记录，但不会撤销**已经执行的工具操作或其他外部副作用**。也可以自己管理作用域：`agent.session(name, merge_back=...)` 或 `tape.fork_tape(merge_back=...)`。
+也可通过 `agent.session(name, merge_back=...)` 或 `tape.fork_tape(merge_back=...)` 手动控制分支作用域。
 
 :::caution
-分支不是针对外部世界的事务。即使设置 `merge_back=False`，工具对文件的修改、已发送的请求和外部写入也不会回滚。
+Tape 分支仅管理会话记录，**不回滚外部系统副作用**。即使设置 `merge_back=False`，工具已修改的文件、发出的网络请求或数据库写入也不会撤销。
 :::
 
-## 会话限制 {#concurrency}
+## 同会话并发与加锁 {#concurrency}
 
-当两个不同的 Agent 同时使用同一个 Tape 名称时，会各自基于启动时可见的历史创建分支。Bub 不会替你决定这些请求应该排队、覆盖还是交错执行。所以对于同一会话 Tape 被使用时，如同一会话的后续请求如果依赖前一次结果，应由宿主按会话串行处理；如果涉及到并发或者跨 Worker 或实例调用，那么需要考虑会话锁的问题。
+若两个并发请求同时对同一个 Tape 名称调用 `agent.run()`，它们会各自基于启动时的历史创建分支，并在结束时先后合并。`core.Agent` 不会自动对同会话请求排队。
 
-`FileTapeStore` 不提供跨 worker 的会话锁；[FastAPI 示例](/zh-cn/docs/sdk/web-service/)演示了单进程内的锁。
-
-并发 Run 需要读取彼此已完成的结果时，由应用协调执行顺序。
+在 Web 服务中，若同一会话的请求需要按顺序执行，**宿主程序应按 `session_id` 加锁串行化**。`FileTapeStore` 仅包含单进程文件线程锁，不提供跨进程锁；单进程会话锁示例见 [FastAPI 综合案例](/zh-cn/docs/sdk/web-service/#concurrency)。

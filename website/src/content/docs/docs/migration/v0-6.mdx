@@ -1,20 +1,18 @@
 ---
 title: Upgrade to 0.6.0
-description: Migration notes for the 0.6.0 split of kernel and application dependencies.
+description: Migration notes for the 0.6.0 split between the core kernel and application dependencies.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-Before 0.6.0, `bub` covered both the application and the kernel; from 0.6.0 on, installing `bub` gives you the kernel only, and the application moved into the optional `app` dependencies. If you need the Bub application layer (configuration, plugins, hooks, skills, message channels, the gateway, and so on), add `bub[app]` when you install.
+Starting in 0.6.0, the `bub` package is split into a core kernel and an app layer: installing `bub` installs only the core kernel (`bub.core`), while the CLI, configuration, plugins, hooks, skills, channels, and gateway live in the `bub[app]` extra.
 
-## Upgrade guide {#upgrade-guide}
+If you use the Bub CLI or app-layer capabilities, upgrade and install `bub[app]`.
 
-Pick the upgrade step for your current install:
+## Upgrade commands {#upgrade-guide}
 
 <Tabs>
-<TabItem label="uv">
-
-Installed with `uv tool`:
+<TabItem label="uv tool">
 
 ```bash
 uv tool install --upgrade --force "bub[app]"
@@ -23,8 +21,6 @@ uv tool install --upgrade --force "bub[app]"
 </TabItem>
 <TabItem label="Virtual environment">
 
-In an activated virtual environment:
-
 ```bash
 uv pip install --upgrade "bub[app]"
 ```
@@ -32,7 +28,7 @@ uv pip install --upgrade "bub[app]"
 </TabItem>
 <TabItem label="pyproject.toml">
 
-For a plugin or a distribution, change the dependency in `pyproject.toml`:
+Update dependencies in your plugin or distribution:
 
 ```toml title="pyproject.toml" ins="bub[app]"
 dependencies = ["bub[app]>=0.6.0"]
@@ -43,4 +39,4 @@ dependencies = ["bub[app]>=0.6.0"]
 
 ## Verify the upgrade {#verify-upgrade}
 
-Once the upgrade finishes, go to the [terminal](/docs/app/terminal/) and enter `bub --help`, start a quick conversation, and run `bub hooks` to see which plugins loaded.
+Run `bub --help` or `bub hooks` to confirm the CLI and plugins load properly.

@@ -147,10 +147,7 @@ async rewrites() {
 
 Create `app/BubRuntimeProvider.tsx` to connect the runtime, restore displayed messages, and register the weather tool:
 
-<details>
-<summary>app/BubRuntimeProvider.tsx</summary>
-
-```tsx title="app/BubRuntimeProvider.tsx"
+```tsx title="app/BubRuntimeProvider.tsx" showLineNumbers collapse={1-14, 19-39, 60-67}
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
@@ -230,8 +227,6 @@ export function BubRuntimeProvider({ children }: { children: ReactNode }) {
 }
 ```
 
-</details>
-
 Replace `app/assistant.tsx` with the following and keep the existing `app/page.tsx` entry:
 
 ```tsx title="app/assistant.tsx"
@@ -273,10 +268,7 @@ npm install @copilotkit/react-core@1.85.0 @ag-ui/client@1.0.2 @ag-ui/core@1.0.2 
 
 Save the shared files as `src/demo-session.ts` and `src/scenario.json`, then add the shared Vite proxy. Create `src/BubHttpAgent.ts` to restore displayed messages from browser storage without requesting them from Bub:
 
-<details>
-<summary>src/BubHttpAgent.ts</summary>
-
-```typescript title="src/BubHttpAgent.ts"
+```typescript title="src/BubHttpAgent.ts" showLineNumbers collapse={1-6}
 import { HttpAgent } from "@ag-ui/client";
 import { EventType, type BaseEvent, type RunAgentInput } from "@ag-ui/core";
 import { Observable } from "rxjs";
@@ -307,11 +299,9 @@ export class BubHttpAgent extends HttpAgent {
 }
 ```
 
-</details>
-
 Replace `src/main.tsx`. `useFrontendTool` registers the weather tool and returns its result to Bub:
 
-```tsx title="src/main.tsx"
+```tsx title="src/main.tsx" showLineNumbers collapse={1-10, 49-52} "useFrontendTool"
 import { createRoot } from "react-dom/client";
 import { BubHttpAgent, storageKey } from "./BubHttpAgent";
 import { readDemoSession, persistDemoSession } from "./demo-session";
@@ -392,10 +382,7 @@ npm install @openuidev/react-ui@0.18.5 @openuidev/react-headless@0.18.5 @openuid
 
 Save the shared files as `src/demo-session.ts` and `src/scenario.json`, then add the shared Vite proxy. Replace `src/main.tsx`:
 
-<details>
-<summary>src/main.tsx</summary>
-
-```tsx title="src/main.tsx"
+```tsx title="src/main.tsx" showLineNumbers collapse={1-28, 41-106}
 import { createRoot } from "react-dom/client";
 import { AgentInterface } from "@openuidev/react-ui";
 import {
@@ -519,8 +506,6 @@ createRoot(document.getElementById("root")!).render(
 );
 ```
 
-</details>
-
 This example keeps one thread in the sidebar and disables deletion. Its default renderer displays Markdown tables as plain text. To customize the UI, see the [OpenUI agent example](https://github.com/thesysdev/openui/tree/main/examples/agent-frameworks/mastra).
 
 ### Start the frontend {#openui-start}
@@ -592,10 +577,7 @@ npx ai-elements@latest add conversation message prompt-input tool suggestion
 
 Save the shared files as `src/demo-session.ts` and `src/scenario.json`, then replace `src/main.tsx`. For component usage, see the [AI Elements guide](https://docs.langchain.com/oss/python/langchain/frontend/integrations/ai-elements).
 
-<details>
-<summary>src/main.tsx</summary>
-
-```tsx title="src/main.tsx"
+```tsx title="src/main.tsx" showLineNumbers collapse={1-32, 49-180}
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { HttpAgent, type Message as AgMessage } from "@ag-ui/client";
@@ -797,8 +779,6 @@ start().catch((error) => {
   document.getElementById("root")!.textContent = String(error);
 });
 ```
-
-</details>
 
 ### Start the frontend {#ai-elements-start}
 

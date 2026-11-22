@@ -1,34 +1,32 @@
 ---
 title: Configuration
-description: How to configure the Bub application.
+description: Configure models, API keys, environment variables, and channels for the Bub application.
 ---
 
-Bub reads configuration in this order, highest priority first:
+Bub resolves configuration in this order (highest priority first):
 
-1. Environment variables (the `BUB_` prefix);
-2. `.env`, loaded from the current workspace at CLI startup, or read by settings classes that declare `env_file=".env"`;
-3. `~/.bub/config.yml`, created by `bub onboard`.
+1. Environment variables (`BUB_` prefix);
+2. `.env` in the current workspace;
+3. `~/.bub/config.yml` (created by `bub onboard`).
 
-Fields not declared in the configuration use the settings class defaults. See the [full example](/docs/reference/settings/#example) for every writable field.
+Unset fields use their defaults. See the [Settings reference](/docs/reference/settings/) for all options.
 
-:::note[Before you begin]
-
-- Make sure the Bub CLI is [installed](/docs/getting-started/install/).
-- You have an API key from a model provider, or you have completed OAuth with `bub login codex` (OpenAI only).
-
+:::note[Before you start]
+- [Install the Bub CLI](/docs/getting-started/install/#app-install).
+- Prepare an API key from a model provider, or sign in with `bub login codex` (OpenAI only).
 :::
 
-## 1. Finish the initial setup {#initial-setup}
+## 1. Run the setup wizard {#initial-setup}
 
-Run the following command in your terminal to start the interactive setup. When it finishes, it writes the result to `~/.bub/config.yml`.
+Run the following command in your terminal to start the interactive setup wizard and generate `~/.bub/config.yml`:
 
 ```bash
 bub onboard
 ```
 
-## 2. Check the config file {#check-the-config}
+## 2. Inspect the config file {#check-the-config}
 
-Now check whether `~/.bub/config.yml` contains the content described in the [full example](/docs/reference/settings/#example). Here is an example:
+Now inspect `~/.bub/config.yml`. Here is an example of what it looks like:
 
 ```yaml title="~/.bub/config.yml"
 model: openrouter:openrouter/free
@@ -39,56 +37,56 @@ telegram:
 ```
 
 :::danger
-**By default, your keys are written directly to the config file in plain text.** If you need stronger security and want to avoid storing model provider API keys locally in plain text, pass environment variables when running Bub to set or override them instead.
+`bub onboard` writes API keys to `~/.bub/config.yml` in plain text by default. To avoid storing keys in the config file, leave the key blank during onboarding and pass it via environment variables instead.
 :::
 
-## 3. Override with environment variables {#environment-variables}
+## 3. Use environment variables {#environment-variables}
 
-Commonly used environment variables include:
+Common environment variables:
 
 | Variable | Description |
 |---|---|
-| `BUB_MODEL` | Model identifier, such as `openrouter:openrouter/free` or `codex:<model>`. |
-| `BUB_API_KEY` | API key for the current provider; not needed with `bub login codex`. |
-| `BUB_API_BASE` | Provider service URL; leave it blank for the default endpoint. |
-| `BUB_HOME` | Runtime data directory, default `~/.bub`. |
-| `BUB_<PROVIDER>_API_KEY` | Key for a specific provider, such as `BUB_OPENROUTER_API_KEY`. |
-| `BUB_<PROVIDER>_API_BASE` | Service URL for a specific provider. |
+| `BUB_MODEL` | Model identifier in `provider:model` format (e.g. `openrouter:openrouter/free`, `codex:<model>`) |
+| `BUB_API_KEY` | API key for the current provider (not needed with `bub login`) |
+| `BUB_API_BASE` | Provider API base URL; leave blank for the default endpoint |
+| `BUB_HOME` | Runtime data directory (default `~/.bub`) |
+| `BUB_<PROVIDER>_API_KEY` | Provider-specific API key, e.g. `BUB_OPENROUTER_API_KEY` |
+| `BUB_<PROVIDER>_API_BASE` | Provider-specific API base URL |
 
-See the [settings reference](/docs/reference/settings/) for the full table.
+See the [Settings reference](/docs/reference/settings/) for the full table.
 
-## 4. Configure the model and fallback models {#configure-models}
+## 4. Configure fallback models {#configure-models}
 
-The `model` setting uses the `provider:model` format. To try fallback models in order when the primary model is unavailable, configure them in `~/.bub/config.yml`:
+Set `fallback_models` to try backup models in order when the primary model is unavailable:
 
-```yaml
+```yaml title="~/.bub/config.yml" ins={2-3}
 model: openai:gpt-5-mini
 fallback_models:
   - openrouter:openrouter/free
 ```
 
-Each candidate provider needs its own valid credentials. Fallbacks only cover failures while creating a client and opening a request; errors after the message stream has started are not retried with another model, to avoid duplicate side effects. See [Models and fallback](/docs/reference/settings/#model-routing) for the full rules.
+Each candidate provider requires valid credentials. Fallbacks apply only when creating a client or opening the request stream fails; errors after streaming has started do not retry on another model to avoid duplicate tool side effects. See [Models and fallback](/docs/reference/settings/#model-routing).
 
-## 5. Configure the Telegram channel (optional) {#telegram-channel}
+## 5. Configure Telegram (optional) {#telegram-channel}
 
-If you want to use Bub as a Telegram bot, use the built-in Telegram channel. Example configuration:
+If you want to use Bub as a Telegram bot, configure the built-in Telegram channel in `.env`:
 
-```bash
+```bash title=".env"
 BUB_TELEGRAM_TOKEN=123456789:your-telegram-bot-token
 BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
 BUB_TELEGRAM_ALLOW_CHATS=-1001234567890
 BUB_TELEGRAM_PROXY=http://127.0.0.1:7890   # optional
 ```
 
-See [Telegram channel](/docs/app/gateway/#telegram) for more configuration options.
+See [Telegram gateway](/docs/app/gateway/#telegram) for details.
 
 ## 6. Verify {#verify}
 
-Now try talking to Bub:
+Now try talking to Bub with a one-off prompt to verify your setup:
 
 ```bash wrap
 $ bub run "Can you introduce yourself?"
 
 [cli:local]
-I'm a virtual assistant designed to support a wide range of tasks including coding, design, research, and automation. I can integrate with code repositories, access web resources, leverage specialized skills, and streamline workflows. If you have specific tasks or questions about my capabilities, feel free to ask!
+I'm a virtual assistant designed to support a wide range of tasks...
 ```

@@ -1,40 +1,35 @@
 ---
 title: Observability
-description: Inspect session Tape context and export model reasoning and tool call traces to Phoenix or Logfire.
+description: Inspect session Tape metrics and export OpenTelemetry traces to Arize Phoenix or Pydantic Logfire.
 ---
 
-Bub's observability follows a "**dual-track**" principle:
+Bub provides two complementary ways to inspect and debug Agent runs:
 
-- **State introspection (Tape)**: Inspect **what the Agent remembers**, how the context window is being consumed, and the prompt cache hit rate (built in, no external components required).
-- **Run telemetry (Traces)**: Track **how each turn actually executes**, the latency bottlenecks of models and tools, and error call stacks (exported to an external APM through OpenTelemetry).
+- **Inspect the session Tape** (built-in): check entry counts, token usage, and prompt cache hit rates, and search historical events with zero external setup.
+- **Export OpenTelemetry traces**: track per-step latency and error stacks across model calls and tool executions in platforms such as Arize Phoenix or Pydantic Logfire.
 
 ```mermaid
 flowchart LR
     Turn["Bub Agent"]
-    Tape["Tape\n(native context persistence)"]
-    OTEL["OpenTelemetry SDK\n(OTLP protocol export)"]
-    Platform["Observability platform\n(Arize Phoenix / Logfire / production APM)"]
+    Tape["Tape\n(built-in session history)"]
+    OTEL["OpenTelemetry SDK\n(OTLP export)"]
+    Platform["Observability platform\n(Phoenix / Logfire / APM)"]
 
-    Turn -->|"record session history"| Tape
-    Turn -->|"report call traces"| OTEL
+    Turn -->|"record messages & tools"| Tape
+    Turn -->|"export traces"| OTEL
     OTEL --> Platform
 ```
 
-## Before you start {#before-you-start}
+## Inspect the session Tape {#inspect-tape}
 
-- You have [installed the Bub application](/docs/getting-started/install/#app-install) and configured a working model.
-- If you are testing Phoenix locally, Docker or Podman must be installed.
-
-## Inspect the Tape {#inspect-tape}
-
-The Tape is Bub's built-in session recording mechanism. With no configuration at all, you can use the built-in commands to check the health of the current session:
+Tape is Bub's built-in session recording mechanism. With no configuration at all, you can use built-in commands to check the health of the current session:
 
 ```bash
 bub run "What tools do you have, and what is each one good for?"
 bub run ",tape.info"
 ```
 
-Expected terminal output looks similar to:
+Example output:
 
 ```text
 name: becda04eb9f7369c__065943a03cbe6395
@@ -46,111 +41,100 @@ last_token_usage: 7458
 last_token_cache_hit_rate: 72.50%
 ```
 
-![A terminal screenshot showing tape.info output after a Bub task run](/docs/observability/tape-info.png)
+![Terminal screenshot of tape.info output](/docs/observability/tape-info.png)
 
-### Interpreting core metrics {#core-metrics}
+### Metrics explained {#core-metrics}
 
-| Field | Meaning and troubleshooting value |
+| Field | Meaning |
 |---|---|
-| `entries` | Total number of events recorded in the session (including input, output, and tool calls). |
-| `anchors` / `last_anchor` | Number of history anchors and the latest context boundary. This determines the starting context for model calls. |
-| `entries_since_last_anchor` | Number of new entries since the last anchor; when this is too high, consider a handoff to move the context start forward. |
-| `last_token_usage` | Total token consumption of the most recent model call. |
-| `last_token_cache_hit_rate` | Prompt cache hit rate. A high hit rate means faster responses and lower cost. |
+| `entries` | Total entries recorded in the session (messages, tool calls/results, and events) |
+| `anchors` / `last_anchor` | Total anchors and the latest anchor name (the default context start point) |
+| `entries_since_last_anchor` | New entries since the latest anchor; run `tape.handoff` when this grows large |
+| `last_token_usage` | Total tokens used by the most recent model call |
+| `last_token_cache_hit_rate` | Prompt cache hit rate on the most recent model call |
 
-### Quickly search historical events {#search-events}
+### Search historical events {#search-events}
 
-When you need to check whether a tool call succeeded or find a specific step, there is no need to page through the full log manually; use `,tape.search`:
+When you need to check whether a tool call succeeded or locate a specific step, skip paging through raw logs and search the Tape directly with `,tape.search`:
 
 ```bash
-# Search for events containing loop steps or tool calls
 bub run ",tape.search query=loop.step"
 ```
 
-## Export traces {#export-traces}
+## Export OpenTelemetry traces {#export-traces}
 
-When you need to analyze model latency, tool execution time, and error reports, you can export traces to a dedicated analysis dashboard through OpenTelemetry (OTLP).
+When you need to analyze model latency, tool execution time, and error stacks, export traces to an observability platform over OpenTelemetry (OTLP).
 
-### Arize Phoenix (local deployment) {#arize-phoenix}
+### Arize Phoenix (local Docker) {#arize-phoenix}
 
-[Arize Phoenix](https://github.com/Arize-ai/phoenix) is an excellent open-source AI telemetry tool that starts with a single Docker command:
+1. Start a local [Arize Phoenix](https://github.com/Arize-ai/phoenix) container (UI at `http://localhost:6006`):
 
-```bash
-docker run --rm --name bub-phoenix \
-  -p 6006:6006 \
-  arizephoenix/phoenix:latest
-```
+   ```bash
+   docker run --rm --name bub-phoenix -p 6006:6006 arizephoenix/phoenix:latest
+   ```
 
-Once it is running, open the console in your browser at `http://localhost:6006`.
+2. Install the `trace` extra in Bub's environment:
 
-Install the tracing dependencies in the environment where Bub runs:
+   ```bash
+   # Project or virtual environment
+   uv add "bub[app,trace]"
 
-```bash
-# Source installation
-uv sync --extra app --extra trace
+   # Or in a Bub source checkout
+   uv sync --extra app --extra trace
+   ```
 
-# Or distribution installation
-uv add "bub[app,trace]"
-```
+3. Set OTLP environment variables and run a task:
 
-Configure the standard OpenTelemetry environment variables and run a task:
+   ```bash
+   export OTEL_SERVICE_NAME=bub
+   export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces
+   export OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
 
-```bash
-export OTEL_SERVICE_NAME=bub
-export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:6006/v1/traces
-export OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+   bub run "Use a tool to list the files in the current workspace."
+   ```
 
-bub run "Use a tool to list the files in the current workspace."
-```
+Open `http://localhost:6006` and select the Default project to inspect the trace waterfall for model calls (`chat <model>`) and tool executions (`execute_tool <tool>`):
 
-After the run completes, refresh the Phoenix console, open the Default project, and you will see the complete call waterfall, clearly showing the detailed timing of each model call (`chat <model>`) and tool execution (`execute_tool <tool>`):
-
-![A screenshot showing Bub GenAI telemetry exported to Phoenix through OTLP](/docs/observability/phoenix-otel.png)
+![Phoenix OTLP trace screenshot](/docs/observability/phoenix-otel.png)
 
 ### Pydantic Logfire {#pydantic-logfire}
 
-If you do not want to maintain a Docker container locally, you can use [Pydantic Logfire](https://logfire.pydantic.dev/):
+If you prefer not to run a local Docker container, export traces to hosted [Pydantic Logfire](https://logfire.pydantic.dev/):
 
 ```bash
-# Clear explicit OTLP endpoints (so Logfire takes over automatically)
+# Unset custom OTLP endpoints so Logfire takes over
 unset OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_ENDPOINT
 
-# Install the logfire dependency
 uv add "bub[logfire]"
-
-# Log in and bind a project
 logfire auth
 logfire projects use
 
-# Run a task
 bub run "Inspect this repository and summarize its directory structure."
 ```
 
-Log in to the Logfire web console, and on the Agents page you can view Bub's run call stack and sub-Agent chains in real time.
+Open the Logfire web console and visit the Agents page to inspect Bub's live call stack and subagent traces.
 
-### Python code configuration {#python-config}
+### Enable in Python SDK code {#python-config}
 
-If you are reusing Bub through the Python SDK, you can also start telemetry explicitly when initializing the program:
+If you embed Bub through the Python SDK, call `configure_otlp()` at service startup (reads `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and standard OpenTelemetry environment variables):
 
 ```python
 from bub.tracing import configure_otlp
 
-# Automatically reads standard environment variables such as OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
 configure_otlp()
 ```
 
 ## Troubleshooting {#troubleshooting}
 
-| Common issue | Possible cause | Solution |
+| Symptom | Possible cause | Fix |
 | --- | --- | --- |
-| No traces appear in the Phoenix UI | The OTLP protocol or endpoint is misconfigured | Confirm that `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` includes `/v1/traces` and that the protocol is `http/protobuf`. |
-| The terminal reports that the `opentelemetry` dependency is missing | The `trace` optional dependency is missing | Run `uv sync --extra app --extra trace` or `pip install "bub[app,trace]"`. |
-| Logfire cannot report data | You are not logged in, or the OTLP variables were not cleared | Explicitly `unset OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and run `logfire auth` to reauthorize. |
-| `,tape.info` reports no active Tape | No task has run in the current workspace or session | Run any `bub run "..."` command first to generate a session record. |
+| No traces appear in Phoenix | Endpoint path or protocol mismatch | Ensure `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` ends with `/v1/traces` and protocol is `http/protobuf` |
+| Missing `opentelemetry` module | `trace` extra is not installed | Run `uv add "bub[app,trace]"` or `pip install "bub[app,trace]"` |
+| Logfire receives no data | Conflicting OTLP env vars or unauthenticated | `unset OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and re-run `logfire auth` |
 
 ## Cleanup {#cleanup}
 
-Stop and remove the local Phoenix container used for testing:
+When finished testing, stop the local Phoenix container and clear the environment variables:
 
 ```bash
 docker rm -f bub-phoenix

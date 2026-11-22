@@ -1,44 +1,61 @@
 ---
 title: Agent events
-description: Tell AgentEvent, StreamEvent, and TapeEntry apart, and see how synchronous delivery lets handlers intercept execution before side effects occur.
+description: Distinguish AgentEvent, StreamEvent, and TapeEntry, and learn how synchronous event delivery lets you observe or intercept calls.
 sidebar:
   label: Events
 ---
 
-Agent events answer more than "what happened": before a side effect occurs, they can also decide whether it should happen at all. Every Agent's `EventBus` supports both observation and synchronous intervention.
+In real applications, you often need cross-cutting logic around model inference and tool execution: logging audit trails, tracking token usage, sanitizing tool arguments, or pausing a high-risk tool call (such as deleting data or running a shell command) for a permission check or human approval.
 
-## Three kinds of data {#three-kinds}
+Hardcoding those rules inside every tool function quickly tangles business logic with policy. Instead, every `Agent` comes with a synchronous event bus (`agent.events`) that lets you both **observe** what just happened and **intervene** before a model or tool call produces side effects—without touching your tool code.
 
-| Kind | Purpose | How to get it | Can it intervene? |
+## Three kinds of data to keep straight {#three-kinds}
+
+Bub uses three distinct types for runtime control, streaming output, and persisted history:
+
+| Type | Purpose | How to access | Can it intervene in the run? |
 | --- | --- | --- | --- |
-| `AgentEvent` | Coordinate and intercept the current execution | `agent.events.on(...)` | Yes: modify fields or set `decision` |
-| `StreamEvent` | Deliver output to the caller | Iterate the stream from `agent.run()` | Yes: closing the stream ends the Run |
-| `TapeEntry` | Keep the history | Query the [Tape](/docs/concepts/tape/#history-and-context) | No: normal recording only appends |
+| `AgentEvent` | Observe loop stages or modify/intercept calls | Register handlers with `agent.events.on(...)` | **Yes**: mutate event fields or set `decision` |
+| `StreamEvent` | Stream incremental output (reasoning deltas, text deltas, tool progress) to the caller | Iterate `agent.run()` with `async for` | **Yes**: closing the stream cancels the Run |
+| `TapeEntry` | Persist conversation history, tool round-trips, and business events | Query the [Tape](/docs/concepts/tape/#history-and-context) | **No**: normal runs only append records |
 
-The three never convert into each other automatically: stream output is not written to disk on its own, and Tape entries do not flow back into the Step that is running. Only the entries `TapeContext` selects become input to later model calls.
+These three stay strictly separate: stream chunks do not write themselves to disk, and stored Tape entries do not flow back into a currently running Step. Only entries selected by `TapeContext` become input to subsequent model calls.
 
-## Synchronous delivery {#handlers}
+## Why event delivery is synchronous {#handlers}
 
-`emit()` calls each matching handler in registration order, and waits for an async handler to finish before it continues. Four rules are worth remembering:
+When the Agent emits an event, `EventBus.emit()` calls matching handlers one by one in registration order. If a handler is an `async def` coroutine, `emit()` **awaits it before moving on**.
 
-1. A handler registered for a base class also receives its subclasses.
-2. Return values are ignored; to steer execution, change event fields or set `decision`.
-3. Exceptions propagate to the publisher and may fail the whole Run.
-4. `event.stopped` is checked before every handler, and `True` ends delivery for that emit.
+Delivery is synchronous rather than fire-and-forget for a simple reason: **the Agent must wait for handlers to finish so their argument changes or interception decisions take effect before the model or tool actually runs** (for example, awaiting a user's confirmation in a web UI inside a `ToolCallStarted` handler).
 
-## Decisions come before side effects {#call-control}
+Keep four rules in mind when writing handlers:
 
-Before-call events expose a replaceable request and a `decision`. One tool call has four possible outcomes:
+1. **Base-class subscriptions**: registering on a base class receives all its subclasses (`AgentEvent` receives all events; `TapeEvent` receives all events carrying `event.tape`).
+2. **Mutate the event in place**: handler return values are ignored. Update fields on the event (such as `event.call`) or set `event.decision`.
+3. **Exceptions propagate**: an unhandled exception raised by a handler bubbles up to the `emit()` caller and can abort the Run.
+4. **Early stop on decision**: before calling each handler, the bus checks `event.stopped`. Once a handler sets a deny or replace decision (`event.stopped == True`), remaining handlers for that event are skipped.
 
-| Action | Does the original tool run? | What the model receives |
+## Making decisions before side effects {#call-control}
+
+Before-call events (`ToolCallStarted` and `LLMCallStarted`) expose the upcoming request along with a `decision` attribute. For a tool call, a handler can produce four outcomes:
+
+| Handler action | Does the tool function run? | What the model receives |
 | --- | --- | --- |
-| No `decision` | Yes | The real result |
-| Replace `event.call` | Yes, with the new call | The real result |
-| `deny(message)` | No | A tool error |
-| `replace(result)` | No | The given result |
+| Leave `decision` unset (proceed) | **Yes** | The tool function's return value |
+| Replace `event.call` with new arguments | **Yes** (with new arguments) | The tool function's return value |
+| Set `ToolCallDecision.deny(message)` | **No** | A tool error with the denial message |
+| Set `ToolCallDecision.replace(result)` | **No** | Your replacement result (for caching or mocking) |
 
-A denied or replaced call still emits `ToolCallFinished`, so logic that observes completed calls never misses it. Model calls follow the same before-call intervention model: for example, `LLMCallDecision.finish(text)` can produce text without calling the provider.
+Whether a tool call runs normally, is denied, or is replaced, `ToolCallFinished` still fires afterwards—so your logging, metrics, and audit handlers never miss a call.
 
-## Division of labor with App hooks {#app-hooks}
+Model calls follow the same pattern: in an `LLMCallStarted` handler, you can replace `event.request` (for example, to cap `max_tokens`) or set `LLMCallDecision.finish(text)` to return a reply directly without calling the model provider.
 
-Agent events intervene in the model calls, tool calls, Steps, and Runs of the core loop; application hooks cover the application lifecycle — Turn stages, tool supply, storage, and channels — and carry plugin distribution. Application interception hooks can join the same set of Agent events through an adapter, but the two differ in how they return arguments and in their exception policy, as the [Hooks reference](/docs/reference/hooks/#event-mapping) details. For how to write each, see [SDK: events](/docs/sdk/events/) and [Plugins and Hooks: intercept a model or tool call](/docs/app/plugins/#control-a-model-or-tool-call).
+## Agent events vs. App hooks {#app-hooks}
+
+If you have read both the SDK guides and the application plugin guides, you might wonder how `agent.events` relates to `@hookimpl` hooks:
+
+- **Agent events** (`agent.events`): live in the core layer and cover model calls, tool calls, Steps, and Runs.
+- **App hooks** (`@hookimpl`): live in the app layer and cover the 7 Turn stages, tool and channel registration, storage, and CLI extensions, with Python entry-point discovery.
+
+Under the hood, the app layer's interception hooks (`before_tool_call`, `after_tool_call`, `before_llm_call`, and `after_llm_call`) are bridged onto the same Agent events via `PluginAgentHooks`, but they differ in how they modify arguments and handle exceptions (for instance, an exception in an app hook is logged and skipped rather than aborting the Run). See the [Hooks reference](/docs/reference/hooks/#event-mapping) for a side-by-side comparison.
+
+For hands-on examples with `agent.events`, see [SDK: Events](/docs/sdk/events/); for writing plugin interception hooks, see [Plugins and Hooks: Intercept calls](/docs/app/plugins/#control-a-model-or-tool-call).

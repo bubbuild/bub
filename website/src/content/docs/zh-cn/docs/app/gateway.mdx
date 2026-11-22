@@ -1,44 +1,40 @@
 ---
 title: 网关
-description: 配置和运行 Bub 网关，接入聊天平台，并管理消息与会话。
+description: 配置和运行 Bub 网关，接入 Telegram 等聊天平台并管理消息与会话。
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 
-Bub 最初的灵感就是来源于 Openclaw、nanobot 这样的常驻型 Agent，所以除了终端交互之外，Bub 还提供了网关（Gateway）功能。
+Bub 最初的灵感源于 OpenClaw、nanobot 这类常驻型 Agent。因此除了在终端里对话，Bub 也自带了网关（Gateway）模式，可以一直挂在后台响应聊天软件里的消息。
 
-执行 `bub gateway` 子命令 Bub 将运行已启用的渠道并作为网关启动。
-
-目前 Bub 仅内置 Telegram 渠道，其他平台需通过 Bub 社区 [插件](https://hub.bub.build/) 接入。因此本文档主要以 Telegram 渠道的配置和使用为例。
+运行 `bub gateway` 即可启动所有已启用的消息渠道。Bub 内置了 Telegram 渠道，其他平台可通过社区[插件](https://hub.bub.build/)接入。
 
 ## 启动 Telegram 网关 {#telegram}
 
 :::note
-先确认 Bub 应用已正确安装和配置，并从 [@BotFather](https://t.me/BotFather) 取得机器人 token。
+开始前请确认已安装并配置 Bub，且已从 [@BotFather](https://t.me/BotFather) 获取机器人 Token。
 :::
 
 <Steps>
 
 1. **配置 `.env`**
 
-   在工作区根目录的 `.env` 中设置：
+   在工作区根目录的 `.env` 中填入 Token 和允许访问的用户 ID（可通过 [@userinfobot](https://t.me/userinfobot) 查询你的数字 ID）：
 
    ```bash title=".env"
    BUB_TELEGRAM_TOKEN=123456789:your-telegram-bot-token
    BUB_TELEGRAM_ALLOW_USERS=123456789
    ```
 
-   将 `BUB_TELEGRAM_ALLOW_USERS` 设为你的数字 ID，可用 [@userinfobot](https://t.me/userinfobot) 查询。
-
 2. **启动网关**
 
-   在包含 `.env` 文件的工作区中运行：
+   在工作区目录中运行：
 
    ```bash
    bub gateway
    ```
 
-   启动成功的日志示例：
+   启动成功后会输出如下日志：
 
    ```text
    telegram.start allow_users_count=1 allow_chats_count=0 proxy_enabled=False
@@ -47,85 +43,87 @@ Bub 最初的灵感就是来源于 Openclaw、nanobot 这样的常驻型 Agent�
 
 3. **验证私聊**
 
-    试着向机器人发一条私聊，等待片刻后看是否收到回复。如无回复时见 [配置回复](#telegram-outbound) 和 [故障排查](#troubleshooting)。
+   试着向机器人发一条私聊消息，稍等片刻看是否收到回复。若无响应，请参考 [回复发送机制](#telegram-outbound) 和 [故障排查](#troubleshooting)。
 
 </Steps>
 
-Bub 作为网关运行要求至少已启用一个渠道。当 `BUB_TELEGRAM_TOKEN` 非空时，Telegram 渠道即为启用状态。
+网关要求至少启用一个渠道。只要 `BUB_TELEGRAM_TOKEN` 非空，Telegram 渠道就会自动启用。
 
 ## 配置 Telegram {#configure-telegram}
 
-### 限制访问 {#restrict-access}
+### 访问白名单 {#restrict-access}
 
-设置 `BUB_TELEGRAM_ALLOW_USERS` 限制可访问用户，设置 `BUB_TELEGRAM_ALLOW_CHATS` 限制可访问的聊天会话。
-
-多个值用逗号分隔，用户名区分大小写：
+使用 `BUB_TELEGRAM_ALLOW_USERS` 限制可访问的用户，使用 `BUB_TELEGRAM_ALLOW_CHATS` 限制可访问的群组或会话（多个值用逗号分隔，用户名区分大小写）：
 
 ```bash
 BUB_TELEGRAM_ALLOW_USERS=123456789,your_username
 BUB_TELEGRAM_ALLOW_CHATS=-1001234567890,-1009876543210
 ```
 
-| 白名单配置 | 通过条件 | 未通过时 |
+| 白名单配置 | 放行条件 | 未通过时的行为 |
 | --- | --- | --- |
-| `BUB_TELEGRAM_ALLOW_USERS` | 数字 ID 或用户名匹配 | 用户收到 `Access denied.` |
-| `BUB_TELEGRAM_ALLOW_CHATS` | 聊天 ID 匹配 | 消息被静默丢弃 |
+| `BUB_TELEGRAM_ALLOW_USERS` | 用户数字 ID 或用户名匹配 | 回复 `Access denied.` |
+| `BUB_TELEGRAM_ALLOW_CHATS` | 聊天 ID 匹配 | 静默丢弃消息 |
 
-两项都设置时，必须全部通过。两个白名单都**为空**时，任何用户都能使用机器人；公开部署前至少设置一个。
+两项同时配置时，必须同时满足才放行。**两项均为空时，任何用户都能调用你的机器人**——公网部署前请至少配置一项。
 
-### 配置群聊 {#telegram-inbound}
+### 群聊触发规则 {#telegram-inbound}
 
-在 BotFather 中关闭 **Privacy Mode**，否则机器人只能看到命令，读不到普通群消息。
+将机器人拉入群聊前，需先在 [@BotFather](https://t.me/BotFather) 中关闭 **Privacy Mode**（隐私模式），否则机器人只能收到 `/` 开头的斜杠命令，看不到普通群消息。
 
-| 消息来源或类型 | 接收条件 |
+为了避免机器人在群里对所有人的闲聊都随便插话，Bub 按以下规则决定是否接收群消息：
+
+| 消息类型 | 触发条件 |
 | --- | --- |
-| 私聊中的非命令消息 | 全部接收 |
-| 群聊中的文本消息 | 提及 `@<bot_username>`、包含 `bub`，或回复机器人 |
-| 群聊中带文字说明的图片和文件 | 与文本消息相同 |
-| 群聊中无文字说明的非文本消息 | 仅回复机器人时接收 |
-| `/bub <text>` | 去掉 `/bub ` 前缀，剩余内容作为提示词 |
+| 私聊非命令消息 | 全部接收 |
+| 群聊文本消息 | `@<bot_username>`、正文包含 `bub`（不区分大小写，子串匹配，故 `bubble` 也会命中），或直接回复机器人的消息 |
+| 群聊带文字说明的图片/文件 | 与群聊文本消息相同 |
+| 群聊无文字说明的图片/贴纸/文件 | 仅在直接回复机器人的消息时接收 |
+| `/bub <text>` | 去掉 `/bub ` 前缀后作为提示词交给 Bub |
 
-不满足条件的群消息会被忽略。若会话仍在 `BUB_ACTIVE_TIME_WINDOW` 内，这些消息也可能并入当前批次。`bub` 使用子串匹配，因此 `bubble` 也会命中。
+未命中的群消息默认忽略；但如果该群刚触发过机器人、仍处于活跃窗口（`BUB_ACTIVE_TIME_WINDOW`）内，后续跟进消息也会并入当前批次（见[合并连续消息](#merge-consecutive-messages)）。
 
-### 配置回复 {#telegram-outbound}
+### 回复发送机制 {#telegram-outbound}
 
-| 输入 | `output_channel` | 发送方式 |
+在 Telegram 渠道中，**普通对话消息**和**逗号命令**走不同的回复路径：
+
+| 输入类型 | `output_channel` | 回复方式 |
 | --- | --- | --- |
-| 普通消息 | `"null"` | 内置 `telegram` 技能发送回复、进度和编辑 |
-| 逗号命令 | `"telegram"` | 工具输出发到原 `chat_id` |
+| 普通对话消息 | `"null"`（关闭框架自动直发） | 由模型调用内置的 `telegram` 技能发送回复、引用消息或更新进度 |
+| 逗号命令（如 `,help`） | `"telegram"` | 不经过模型，框架直接把工具输出发回原 `chat_id` |
 
-普通消息的模型输出不会自动发到 Telegram；模型必须调用 `telegram` 技能，否则用户收不到回复。typing 每 4 秒续期，只表示 Turn 尚未结束。
+为什么要这样设计？因为在群聊或长任务中，Agent 往往需要先发一条状态提示、中途原地编辑那条消息，或者判断某条群消息根本不需要插话。把普通消息交给内置的 `telegram` 技能，模型就能自主决定何时以及如何回复。
 
-逗号命令输出为含 `message` 字段的 JSON 时，只发该字段；其他非空输出原样发送，空输出丢弃。
+:::note
+对于普通消息，**模型必须调用 `telegram` 技能，用户才会在 Telegram 中收到回复**。Turn 运行期间顶部的 `typing...` 状态每 4 秒自动续期一次，仅表示后台仍在运行。
+:::
+
+逗号命令（如 `,tape.info`）不经过模型，框架直接发回输出：若返回的是带 `message` 字段的 JSON，则只发送 `message` 内容；其他非空文本原样发送；空输出直接忽略。
 
 ### 合并连续消息 {#merge-consecutive-messages}
 
-Telegram 会把短时间内的连续消息合并进一个 Turn，你可以通过以下环境变量调整合并策略：
+在即时通讯软件里，大家经常习惯把一句话拆成好几条短消息连着发（比如先发一句「帮我看看这个报错」，紧接着再贴一段日志）。如果每条都立刻触发一次模型调用，不仅浪费 Token，上下文也会支离破碎。因此，Telegram 渠道会自动将短时间内连续到达的消息用换行符拼接，合并为同一个 Turn 处理：
 
-| 变量 | 默认值 | 说明 |
+| 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `BUB_DEBOUNCE_SECONDS` | `1.0` | 每条活跃消息都会重置的短暂等待 |
-| `BUB_MAX_WAIT_SECONDS` | `10.0` | 等待非活跃跟进消息的上限 |
-| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | 非活跃消息可并入批次的时间窗口 |
+| `BUB_DEBOUNCE_SECONDS` | `1.0` | **活跃消息防抖秒数**：收到私聊或群内直接提及机器人的活跃消息时重置倒计时，等待用户把话说完 |
+| `BUB_MAX_WAIT_SECONDS` | `10.0` | **跟进消息最大等待秒数**：收到群内未直接 @ 机器人的跟进消息时，最多等待多久触发合并 |
+| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | **群聊活跃窗口秒数**：触发机器人后的多少秒内，同群未 @ 机器人的普通消息也会并入当前批次 |
 
-私聊和群聊中明确发给机器人的消息是活跃消息；同会话后续未提及的群消息是非活跃消息。两者按会话暂存，计时结束后用换行合并。命令前缀（默认 `,`）开头的输入不参与合并，会立即分发。
+以命令前缀（默认 `,`）开头的直接命令不参与合并，收到后立即执行。
 
-### 代理 {#telegram-reference}
-
-可为 Telegram 渠道配置代理：
+### 配置代理 {#telegram-reference}
 
 ```bash
 BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
 # 也支持 socks5://<user>:<YOUR_PROXY_PASSWORD>@host:port
 ```
 
-## 接入其他平台 {#other-platforms}
+## 接入其他聊天平台 {#other-platforms}
 
-尽管 Bub 只内置了 Telegram 渠道，但社区提供了多种 [插件](https://hub.bub.build/) 以接入其他平台。
+社区提供了多个平台的渠道[插件](https://hub.bub.build/)。安装插件后重启网关，运行 `bub hooks` 确认 `provide_channels` 下已出现对应名称（未配置凭据的渠道在启动时会自动跳过）：
 
-安装其他平台插件后需重启网关，重启完成后用 `bub hooks` 确认 `provide_channels` 下是否出现对应名称。在启动时未配置凭据的渠道会被跳过。
-
-| 平台 | 渠道名 | 插件 |
+| 平台 | 渠道名 | 插件包 |
 | --- | --- | --- |
 | Discord | `discord` | [`bub-discord`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-discord) |
 | Slack | `slack` | [`bub-slack`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-slack) |
@@ -135,13 +133,13 @@ BUB_TELEGRAM_PROXY=http://127.0.0.1:7890
 | 钉钉 | `dingtalk` | [`bub-dingtalk`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-dingtalk) |
 | QQ | `qq` | [`bub-qq`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-qq) |
 
-相关渠道的配置以各插件说明文档为准。
+各渠道所需的环境变量见对应插件仓库的 README。
 
-## 自定义渠道 {#custom-channels}
+## 开发自定义渠道 {#custom-channels}
 
-无现成插件可用时，可自己实现渠道：通过 Python 代码来继承 `Channel` 类，设置 `name` 属性并实现 `start`、`stop` 以及 `send` 方法即可。以下是一个最小示例：
+如果没有现成的社区插件可用，也可以自己实现一个渠道：继承 `Channel` 类并实现 `start`、`stop` 和 `send` 方法即可：
 
-```python
+```python showLineNumbers collapse={1-6} {8, 30-37}
 import asyncio
 
 from bub.channels.base import Channel
@@ -149,7 +147,7 @@ from bub.channels.message import ChannelMessage
 
 
 class MyChannel(Channel):
-    name = "myapp"  # 渠道名称
+    name = "myapp"
 
     def __init__(self, on_receive, token: str) -> None:
         self._on_receive = on_receive
@@ -161,7 +159,7 @@ class MyChannel(Channel):
         return bool(self._token)
 
     async def start(self, stop_event: asyncio.Event) -> None:
-        # start 方法不允许阻塞主循环，否则网关无法接收后续消息
+        # start 不能阻塞主事件循环，需放入后台 Task
         self._listener = asyncio.create_task(self._listen(stop_event))
 
     async def stop(self) -> None:
@@ -170,7 +168,7 @@ class MyChannel(Channel):
 
     async def _listen(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
-            chat_id, text = await self._next_message()  # 平台消息
+            chat_id, text = await self._next_message()
             await self._on_receive(
                 ChannelMessage(
                     session_id=f"myapp:{chat_id}",
@@ -184,23 +182,18 @@ class MyChannel(Channel):
         await self._post(message.chat_id, message.content)
 ```
 
-注意：
+实现要点：
 
-- 每条入站消息都调用框架传入的 `on_receive` 事件方法。
-- `session_id` 使用 `<channel>:<chat_id>` 格式，避免不同平台的会话冲突。
-- 配置不完整时让 `enabled` 默认返回 `False`，网关会跳过该渠道。
-- 需要合并连续短消息时，让 `needs_debounce` 返回 `True`。
+- 收到平台消息时调用框架传入的 `on_receive` 回调。
+- `session_id` 建议使用 `<channel>:<chat_id>` 格式，防止跨平台会话冲突。
+- 缺少必要配置时让 `enabled` 返回 `False`，网关会自动跳过该渠道。
+- 需要防抖合并连续短消息时，将 `needs_debounce` 属性设为 `True`。
 
-完成后，在插件入口模块中通过 `provide_channels` 暴露渠道：
+通过插件的 `provide_channels` Hook 注册该渠道：
 
 ```python
 import os
-
 from bub import hookimpl
-
-# 前面的代码片段
-# class MyChannel(Channel):
-#       ...
 
 
 @hookimpl
@@ -208,39 +201,36 @@ def provide_channels(message_handler):
     return [MyChannel(on_receive=message_handler, token=os.environ.get("MYAPP_TOKEN", ""))]
 ```
 
-安装插件后运行对应渠道 `bub gateway --enable-channel myapp`。
+安装插件后即可通过 `bub gateway --enable-channel myapp` 启动。
 
-## 以 Daemon 方式运行 {#daemon}
+## 注册为后台系统服务 {#daemon}
 
-如果想 Bub 常驻系统运行，可按如下命令进行配置：
+如果你想让 Bub 作为后台服务常驻运行，可以直接运行下面的命令：
 
 ```bash
 bub gateway --install
 
-# 卸载
+# 卸载服务
 # bub gateway --uninstall
 ```
 
-不同系统可能略有差异：
-
-| 系统 | 行为 |
+| 操作系统 | 行为 |
 | --- | --- |
-| Linux | systemd user unit `bub-gateway.service`；退出登录仍需运行时执行 `loginctl enable-linger $USER` |
-| Windows | 当前用户计划任务；登录启动，失败后重启 |
-| macOS | 不支持 `--install`；用 launchd、tmux 或[容器部署](/zh-cn/docs/app/deploy/) |
+| Linux | 注册 systemd 用户服务 `bub-gateway.service`；退出 SSH 后仍需保活请执行 `loginctl enable-linger $USER` |
+| Windows | 注册当前用户的计划任务，登录时自启、失败自动重启 |
+| macOS | 不支持 `--install`；请使用 `launchd`、`tmux` 或 [Docker 部署](/zh-cn/docs/app/deploy/) |
 
-安装会记录当前 Python 解释器、工作区和显式 `--enable-channel`。更换环境或工作区后需要重新安装。
-
+`--install` 会记录当前的 Python 解释器路径、工作区目录和 `--enable-channel` 参数。更换虚拟环境或移动工作区后，请重新运行 `bub gateway --install`。
 
 ## 故障排查 {#troubleshooting}
 
 | 现象 | 可能原因 | 解决方法 |
 | --- | --- | --- |
-| 提示 `No channels are enabled` | 没有可用渠道 | 检查 token 和 `.env` 位置；用 `bub hooks` 检查插件 |
-| 日志无 `telegram.start` | Telegram token 为空 | 设置 token，确认已传入 `bub` 进程 |
-| 私聊收到 `Access denied.` | 未通过用户白名单 | 把数字 ID 或用户名加入 `BUB_TELEGRAM_ALLOW_USERS` |
-| 私聊无响应 | 未通过聊天白名单 | 把聊天 ID 加入 `BUB_TELEGRAM_ALLOW_CHATS` |
-| 群聊无响应 | Privacy Mode 未关，或不满足接收条件 | 关闭 Privacy Mode；测试时直接 @ 机器人 |
-| 一直 typing 无回复 | 模型未调用 `telegram` 技能 | 见[回复规则](#telegram-outbound) |
-| `409 Conflict` | 同一 token 有多个长轮询进程 | 停掉重复实例 |
-| 重启后没有离线消息 | 启动时丢弃积压更新 | 预期行为 |
+| `No channels are enabled` | 未启用任何渠道 | 检查 Token 和 `.env` 路径；运行 `bub hooks` 检查渠道插件 |
+| 日志无 `telegram.start` | `BUB_TELEGRAM_TOKEN` 为空 | 检查环境变量是否已传入 `bub` 进程 |
+| 私聊收到 `Access denied.` | 用户不在白名单中 | 将用户数字 ID 或用户名加入 `BUB_TELEGRAM_ALLOW_USERS` |
+| 私聊无任何响应 | 聊天 ID 不在白名单中 | 将聊天 ID 加入 `BUB_TELEGRAM_ALLOW_CHATS` |
+| 群聊无响应 | 未关闭 Privacy Mode 或未触发接收条件 | 在 BotFather 关闭 Privacy Mode；测试时直接 @ 机器人 |
+| 一直显示 typing 但无回复 | 模型未调用 `telegram` 技能 | 见[回复发送机制](#telegram-outbound) |
+| `409 Conflict` | 同一 Token 启动了多个网关实例 | 停止重复的网关进程 |
+| 重启后未处理离线期间的消息 | 启动时默认丢弃积压的历史更新 | 预期行为 |

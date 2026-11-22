@@ -1,15 +1,19 @@
 ---
 title: 内置工具
-description: Bub 应用内置工具与文本命令的参数、默认值和结果。
+description: Bub 应用内置工具与会话控制命令的参数、默认值及返回值参考。
 ---
 
-模型工具使用下划线别名，例如 `fs.read` 对应 `fs_read`；文本命令保留原名。插件可以增加或覆盖工具，实际集合以 `,help` 和 `,tool.describe` 为准。
+本页列出 Bub 应用层自带的全部内置工具与会话命令。
 
-文本命令支持位置值和 `key=value`；布尔值使用 `true` / `false`，列表使用 JSON 字符串，含空格的值使用引号。
+- **名称转换**：工具暴露给模型时，名称中的点号会自动转换为下划线别名（如 `fs.read` 在模型侧为 `fs_read`）；在终端用命令前缀（如 `,fs.read path=README.md`）直接调用时保留原名。
+- **文本命令传参**：支持位置参数和 `key=value` 键值对；布尔值写 `true` / `false`，列表写 JSON 字符串，含空格的值用引号包裹：
+  ```text
+  ,bash command='printf "hello world"' timeout_seconds=10
+  ,tool.describe names='["web.fetch", "tape.search"]'
+  ```
+- **执行环境**：`fs.*`、`bash*` 和 `run_code` 均通过当前会话的 `Environment` 执行，默认直接在宿主机当前用户权限下运行（无安全沙箱）。
 
-文件、Shell 和 代码模式 操作使用当前会话的 `Environment`，默认直接在宿主机执行，而非安全沙箱中。
-
-## 进程 {#processes}
+## 进程管理 {#processes}
 
 ### `bash` {#bash}
 
@@ -19,12 +23,12 @@ bash(command, cwd=None, timeout_seconds=30, background=False)
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `command` | `str` | Shell 命令 |
-| `cwd` | `str \| None` | 工作目录；相对路径由当前环境解析 |
-| `timeout_seconds` | `float` | 前台等待秒数；超时后转入后台并返回 `shell_id` |
-| `background` | `bool` | 是否直接在后台启动；此模式忽略 `timeout_seconds` |
+| `command` | `str` | 要执行的 Shell 命令 |
+| `cwd` | `str \| None` | 工作目录；相对路径基于当前会话的 `Environment.workspace` 解析 |
+| `timeout_seconds` | `float` | 前台等待秒数（默认 30）；超时未结束时不会报错，而是自动转为后台继续运行并返回 `shell_id` |
+| `background` | `bool` | 是否直接在后台启动；设为 `True` 时立即返回 `shell_id` 并忽略 `timeout_seconds` |
 
-非零退出状态返回工具错误并保留输出；前台无输出时返回 `(no output)`。
+前台命令退出码非零时作为工具错误返回（保留已打印输出）；正常退出且无输出时返回 `(no output)`。
 
 ### `bash.output` {#bash-output}
 
@@ -34,11 +38,11 @@ bash.output(shell_id, offset=0, limit=None)
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `shell_id` | `str` | 后台 Shell ID |
-| `offset` | `int` | 字符偏移；限制在 `0` 到当前输出长度之间 |
-| `limit` | `int \| None` | 最多读取的字符数 |
+| `shell_id` | `str` | `bash` 返回的后台进程 ID（如 `bsh-12345678`） |
+| `offset` | `int` | 起始**字符偏移量**（非行号，自动限制在 `0` 到当前缓冲总长度之间） |
+| `limit` | `int \| None` | 本次最多读取的字符数 |
 
-返回 `status`、`exit_code`、`output` 和 `next_offset`；进程运行期间 `exit_code` 为 `null`。
+返回进程状态 `status`、退出码 `exit_code`（运行中为 `null`）、本次输出 `output` 以及供下次读取使用的 `next_offset`。
 
 ### `bash.kill` {#bash-kill}
 
@@ -46,9 +50,9 @@ bash.output(shell_id, offset=0, limit=None)
 bash.kill(shell_id)
 ```
 
-终止后台进程并返回最终状态和退出码；进程已结束时也可调用。
+终止指定的后台 Shell 进程，并返回其最终状态与退出码。
 
-## 文件 {#files}
+## 文件操作 {#files}
 
 ### `fs.read` {#fs-read}
 
@@ -58,13 +62,11 @@ fs.read(path, offset=0, limit=None)
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `path` | `str` | UTF-8 文本文件路径 |
-| `offset` | `int` | 从 `0` 开始的行号 |
-| `limit` | `int \| None` | 最多返回的行数 |
+| `path` | `str` | 文件路径 |
+| `offset` | `int` | 起始行号（从 `0` 开始，默认 `0`） |
+| `limit` | `int \| None` | 最多读取的行数（省略时读到文件末尾） |
 
-省略分页参数时返回整个文件。
-
-`.png`、`.jpg`、`.jpeg`、`.webp`、`.gif` 文件会作为图片返回给模型查看，上限 10 MiB，此时忽略 `offset` 和 `limit`。
+除读取 UTF-8 文本文件外，当 `path` 指向 `.png`、`.jpg`、`.jpeg`、`.webp` 或 `.gif` 图片（且不超过 10 MiB）时，会作为多模态图片对象返回给模型（此时忽略 `offset` 和 `limit`）。
 
 ### `fs.write` {#fs-write}
 
@@ -72,7 +74,7 @@ fs.read(path, offset=0, limit=None)
 fs.write(path, content)
 ```
 
-写入完整文本并创建缺失的父目录；已有文件会被覆盖，不支持追加或补丁。
+将完整的 UTF-8 文本写入 `path`（自动创建缺失的父目录；已存在的文件会被直接覆盖）。
 
 ### `fs.edit` {#fs-edit}
 
@@ -80,16 +82,9 @@ fs.write(path, content)
 fs.edit(path, old, new, start=0)
 ```
 
-| 参数 | 类型 | 说明 |
-| --- | --- | --- |
-| `path` | `str` | 文件路径 |
-| `old` | `str` | 待替换文本 |
-| `new` | `str` | 替换后的文本 |
-| `start` | `int` | 从 `0` 开始的查找行号 |
+从第 `start` 行（从 `0` 开始）起，将文件中所有与 `old` 完全匹配的字面文本替换为 `new`；未找到匹配项时返回工具错误。
 
-替换指定范围内的所有字面匹配；找不到匹配时返回错误，不进行语法解析。
-
-## 网页 {#web}
+## 网页抓取 {#web}
 
 ### `web.fetch` {#web-fetch}
 
@@ -99,11 +94,11 @@ web.fetch(url, headers=None, timeout=10)
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `url` | `str` | 请求 URL |
-| `headers` | `dict \| None` | HTTP 请求头；可覆盖默认的 `Accept: text/markdown` |
-| `timeout` | `float` | 整个请求的总秒数 |
+| `url` | `str` | 目标 HTTP/HTTPS URL |
+| `headers` | `dict \| None` | 自定义请求头（可覆盖默认的 `Accept: text/markdown`） |
+| `timeout` | `float` | 请求总超时秒数（默认 10） |
 
-发送 HTTP GET 请求，返回最终 `url`、`status`、`content_type` 和响应正文；非成功状态返回工具错误。
+发送 HTTP GET 请求并返回最终 `url`、状态码 `status`、`content_type` 和响应正文（非 2xx 状态码返回工具错误）。
 
 ## 技能与工具发现 {#discovery}
 
@@ -113,7 +108,7 @@ web.fetch(url, headers=None, timeout=10)
 skill(name=None)
 ```
 
-省略 `name` 时列出当前可用技能；传入名称时返回技能位置和正文。找不到时返回 `(no such skill)`。
+省略 `name` 时列出所有可用技能及简述；传入 `name` 时返回该技能的路径与变量展开后的 `SKILL.md` 正文（不存在时返回 `(no such skill)`）。
 
 ### `tool.describe` {#tool-describe}
 
@@ -121,15 +116,13 @@ skill(name=None)
 tool.describe(names)
 ```
 
-`names` 是运行时名称或模型别名组成的列表。返回工具名称、描述和参数 schema；未知名称列入 `unknown`，已加载名称列入 `already_loaded`。
+加载延迟工具（`deferred=True`）的完整描述与 JSON Schema 参数定义。成功加载的工具从**下一个 Step** 起即可被模型调用，并在当前会话 Tape 重置前保持已加载状态（未知名称列入 `unknown`，已加载名称列入 `already_loaded`）。
 
-延迟工具从下一个 Step 起可调用，加载记录保存在当前 Tape 中，直到 Tape 重置。
-
-## Tape {#tape}
+## 会话 Tape 管理 {#tape}
 
 ### `tape.info` {#tape-info}
 
-无参数。返回 Tape 名称、条目数、anchor 数、最近 anchor、该 anchor 后的条目数，以及最近的 token 用量和缓存命中率。
+无参数。返回当前会话的物理 Tape 名称、总条目数（`entries`）、锚点总数（`anchors`）、最近一个锚点（`last_anchor`）、自该锚点以来的条目数（`entries_since_last_anchor`），以及最近一次模型调用的 Token 用量与缓存命中率。
 
 ### `tape.search` {#tape-search}
 
@@ -139,18 +132,16 @@ tape.search(query, limit=20, start=None, end=None, kinds=["message", "tool_resul
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `query` | `str` | 在 kind、日期、payload 和 meta 的 JSON 文本中进行不区分大小写的包含匹配 |
-| `limit` | `int` | 最多返回的条目数 |
-| `start` / `end` | `str \| None` | 包含边界的 ISO 日期或时间 |
-| `kinds` | `list[str]` | 条目类型列表 |
+| `query` | `str` | 搜索关键词（不区分大小写；内置 `FuzzyFileTapeStore` 对 3 字符以上查询支持模糊匹配并按倒序去重） |
+| `limit` | `int` | 最多返回条数（默认 20） |
+| `start` / `end` | `str \| None` | 可选的起止 ISO 日期或时间范围（含边界） |
+| `kinds` | `list[str]` | 要检索的条目类型列表 |
 
-返回 `matches` 和 `filtered` 数量，并过滤搜索命令自身产生的输出。
-
-内置 `FuzzyFileTapeStore` 从最新条目向回查找，支持去重和模糊匹配；短于 3 个字符的查询只做包含匹配。其他后端的行为由实现决定。
+返回匹配条目列表 `matches` 和被过滤的重复/自身输出计数 `filtered`。
 
 ### `tape.anchors` {#tape-anchors}
 
-无参数。按记录顺序返回 anchor 名称；没有时返回 `(no anchors)`。
+无参数。按写入顺序列出当前会话 Tape 中的所有 anchor 名称（无 anchor 时返回 `(no anchors)`）。
 
 ### `tape.handoff` {#tape-handoff}
 
@@ -158,12 +149,7 @@ tape.search(query, limit=20, start=None, end=None, kinds=["message", "tool_resul
 tape.handoff(name="handoff", summary="")
 ```
 
-| 参数 | 类型 | 说明 |
-| --- | --- | --- |
-| `name` | `str` | anchor 名称 |
-| `summary` | `str` | 保存到 `state.summary` 的文本 |
-
-写入 anchor 并移动默认上下文起点，旧记录仍保留。不会自动生成摘要；默认上下文在 anchor 之后读取，边界 anchor 本身不进入模型输入；以 `anchor=None` 读取时，默认选择器会把 anchor 转为 assistant 消息 `[Anchor created: <name>]: <state JSON>`。
+向当前会话 Tape 追加一个名为 `name` 的新 anchor（`summary` 保存在 `state.summary` 中），将默认模型上下文的读取起点前移到此处。不会自动调用模型生成摘要。
 
 ### `tape.reset` {#tape-reset}
 
@@ -171,7 +157,7 @@ tape.handoff(name="handoff", summary="")
 tape.reset(archive=False)
 ```
 
-清空当前 Tape 并创建新的 `session/start` anchor。`archive=True` 时先将主 Tape 和 sidecar 归档到 `bub.home/tapes/`。
+清空当前会话 Tape 并写入新的 `session/start` 锚点。`archive=True` 时会在清空前将主 Tape 和 Sidecar 备份到 `<BUB_HOME>/tapes/`（带 UTC 时间戳和 `.bak` 后缀）。
 
 ## 子 Agent {#subagent}
 
@@ -182,51 +168,19 @@ subagent(prompt, agent=None, description=None, model=None, reasoning_effort=None
          session="temp", allowed_tools=None, allowed_skills=None, timeout_seconds=None)
 ```
 
-| 参数 | 类型 | 说明 |
+| 参数 | 类型与默认值 | 说明 |
 | --- | --- | --- |
-| `prompt` | `str \| list` | 交给子 Agent 的任务 |
-| `agent` | `str \| None` | [子 Agent 配置](/zh-cn/docs/app/subagents/#profiles)名；调用中未给出的参数取自配置 |
-| `description` | `str \| None` | 任务列表中显示的简短标签；默认取 prompt 第一行 |
-| `model` | `str \| None` | 子运行的 `provider:model`；默认取配置中的模型或当前配置 |
-| `reasoning_effort` | `str \| None` | 子 Agent 模型的推理强度 |
-| `session` | `str` | 子 Agent 的会话策略，默认 `"temp"` |
-| `allowed_tools` | `list[str] \| None` | 可用工具；默认为父 Agent 本轮的工具 |
-| `allowed_skills` | `list[str] \| None` | 可用技能；默认为父 Agent 本轮的技能，`[]` 禁用技能发现 |
-| `timeout_seconds` | `int \| None` | 超时即停止子 Agent；默认取配置中的时限，再取 `BUB_SUBAGENT_TIMEOUT_SECONDS` |
+| `prompt` | `str \| list`（必填） | 委派给子 Agent 的任务指令 |
+| `agent` | `str \| None`（`None`） | 要使用的[子 Agent Profile](/zh-cn/docs/app/subagents/#profiles) 名称；调用中显式传入的参数优先于 Profile |
+| `description` | `str \| None`（`None`） | 任务简短标签；默认取 `prompt` 第一行 |
+| `model` | `str \| None`（`None`） | 子 Agent 模型（`provider:model`）；默认取 Profile 模型或父 Agent 模型 |
+| `reasoning_effort` | `str \| None`（`None`） | 子 Agent 推理强度 |
+| `session` | `str`（`"temp"`） | 会话模式：`"temp"`（新建空白临时会话，结束后丢弃）、`"fork"` / `"inherit"`（复制调用时的对话快照，结束后丢弃）或自定义固定会话 ID（结束后保留） |
+| `allowed_tools` | `list[str] \| None`（`None`） | 允许使用的工具列表（不能超出父 Agent 本轮可用工具；子 Agent 始终不能再调用 `subagent*`） |
+| `allowed_skills` | `list[str] \| None`（`None`） | 允许使用的技能列表（不能超出父 Agent 范围；传 `[]` 禁用技能） |
+| `timeout_seconds` | `int \| None`（`None`） | 超时秒数；默认先取 Profile 时限，再取 `BUB_SUBAGENT_TIMEOUT_SECONDS` |
 
-工具名支持运行时名称和模型别名；技能名不区分大小写。子 Agent 的工具和技能不会超过父 Agent：默认就是父 Agent 本轮允许的范围，指定范围外的工具会报错。子 Agent 不能启动或管理子 Agent，`subagent` 和 `subagent.*` 始终被排除。
-
-| `session` | 行为 |
-| --- | --- |
-| `temp` | 新建空的 `temp/<task_id>` 会话，结束后丢弃 |
-| `fork` | 从当前对话（包括本轮已有内容）的副本开始，结束后丢弃；`inherit` 为其别名 |
-| 其他字符串 | 使用指定的会话 ID，会话会被保留，之后可用 `subagent.send` 继续 |
-
-fork 在调用时复制父 Agent 的 Tape，子 Agent 看不到父 Agent 之后记录的内容。每个子 Agent 拥有自己的轮次状态：父状态的浅拷贝，但去掉了父 Agent 的 steering 键、工具范围和运行中的 Tape，因此发给父 Agent 的 steering 消息仍归父 Agent。
-
-返回结构：
-
-```python
-{
-    "task_id": "sub-1a2b3c4d",
-    "session_id": "temp/sub-1a2b3c4d",
-    "status": "completed",  # queued、running、completed、failed 或 cancelled
-    "output": "...",
-    "errors": [],
-}
-```
-
-子 Agent 在后台运行：工具立即以 `queued` 或 `running` 状态返回，`output` 为空。任务结束时，父 Agent 会收到一条消息：
-
-```text
-<subagent-notification task_id="sub-1a2b3c4d" status="completed">
-...
-</subagent-notification>
-```
-
-`output` 是子 Agent 的最终答案，即它最后一个没有工具调用的步骤的文本。启动了子 Agent 的运行在结果全部送达前不会结束：某一步结束且没有工具调用时，运行会等待下一个任务结束，并带着它的通知继续。如果运行失败、被取消或达到 `max_steps` 后任务才结束，结果会通过会话的 steering 收件箱送达：运行中的轮次在下一步之前读到，否则随下一轮送达。用 `subagent.wait` 读过的结果不再发送通知。
-
-进程内同时运行的子 Agent 最多 `BUB_SUBAGENT_MAX_CONCURRENCY` 个，其余以 `queued` 状态排队。运行时退出，或对某个会话执行 `quit` 命令，会取消运行中的子 Agent。`temp` 或 `fork` 子 Agent 结束时，它启动的后台 Shell 会被停止。
+`subagent` 在后台异步启动子任务，立即返回 `task_id` 与初始状态（`queued` 或 `running`）。当子任务结束时，父 Agent 会在下一步前收到 `<subagent-notification>` 消息（仅含子 Agent 最后一步的最终回答）。只要父 Agent 启动的子任务尚未全部结束，当前运行就会等待所有子任务完成后再结束。
 
 ### `subagent.wait` {#subagent-wait}
 
@@ -234,7 +188,7 @@ fork 在调用时复制父 Agent 的 Tape，子 Agent 看不到父 Agent 之后�
 subagent.wait(task_ids=None, timeout_seconds=60)
 ```
 
-返回任务结果，最多等待 `timeout_seconds` 让任务结束；`0` 只查看不等待。不传 `task_ids` 时覆盖本会话尚未读取的任务。超时后仍在运行的任务以当前状态返回。
+等待并读取子任务结果（`task_ids` 省略时覆盖当前会话所有未读子任务；`timeout_seconds=0` 时仅查询状态不阻塞）。已被 `subagent.wait` 读取的结果不再发送 `<subagent-notification>`。
 
 ### `subagent.send` {#subagent-send}
 
@@ -242,7 +196,7 @@ subagent.wait(task_ids=None, timeout_seconds=60)
 subagent.send(task_id, message)
 ```
 
-给任务发消息。运行中的任务在下一步之前读到它。使用命名会话且已结束的任务会作为新的后台任务继续该对话，工具范围受当前运行约束；已结束的 `temp` 或 `fork` 任务无法继续。
+向运行中的子任务追加指令（在下一步前生效），或唤醒已结束的自定义命名会话子任务继续工作（已结束的 `temp` / `fork` 任务不可继续）。
 
 ### `subagent.cancel` {#subagent-cancel}
 
@@ -250,23 +204,19 @@ subagent.send(task_id, message)
 subagent.cancel(task_id)
 ```
 
-停止运行中的任务。状态变为 `cancelled`，已有的部分输出会保留。
+终止运行中的子任务，状态置为 `cancelled` 并保留已产生的部分输出。
 
-### 事件 {#subagent-events}
+### 子 Agent 事件 {#subagent-events}
 
-每个任务都会在 Agent 的事件总线（`agent.events`）上发布事件，`state` 为发起它的那次运行的轮次状态：
+子任务在 `agent.events` 上发布以下事件（定义于 `bub.builtin.subagents`，均携带 `event.task: SubagentTask`）：
 
-| 事件 | 时机 |
+| 事件类 | 触发时机 |
 | --- | --- |
-| `SubagentStarted` | 任务离开队列，子运行即将开始 |
-| `SubagentOutput` | 子运行产生一个流事件，见 `event` |
-| `SubagentFinished` | 任务以 `completed`、`failed` 或 `cancelled` 结束 |
+| `SubagentStarted` | 子任务离开队列、开始执行时 |
+| `SubagentOutput` | 子任务每产出一条 `StreamEvent` 时（保存在 `event.event`） |
+| `SubagentFinished` | 子任务以 `completed`、`failed` 或 `cancelled` 结束时 |
 
-每个事件都带有 `task`（`SubagentTask`），包含 `task_id`、`session_id`、`parent_session_id`、`parent_call_id`、`description`、`model`、`profile`、`status`、`output`、`errors`、`usage`、步数和工具调用数以及时间戳。它们可从 `bub.builtin.subagents` 导入。处理器抛出的异常只会被记录，不会让子运行失败。
-
-子 Agent 与父 Agent 共享 `BubAgent`、插件 Hooks、模型凭据、工作区、`Environment`、文件和外部系统。会话策略只隔离对话记录和模型上下文，不隔离文件、网络或进程副作用。在对话中参数由模型生成，`allowed_tools` 本身不构成安全边界。
-
-## 代码模式 与 spill {#code-and-spill}
+## 代码模式与大输出转存（Spill） {#code-and-spill}
 
 ### `run_code` {#run-code}
 
@@ -274,7 +224,7 @@ subagent.cancel(task_id)
 run_code(code, timeout_seconds=120)
 ```
 
-在 代码模式 中执行 Python。使用 `await tools.<name>(key=value)` 调用工具；只有 `print()` 输出和显式附加的媒体进入结果。
+在代码模式开启时执行 Python 代码。代码内通过 `await tools.<name>(key=value)`（关键字参数）调用其他工具；只有 `print()` 输出和显式附加的媒体会进入返回结果。
 
 ### `attach_image` / `attach_audio` / `attach_video` {#attach-media}
 
@@ -284,9 +234,7 @@ attach_audio(audio)
 attach_video(video)
 ```
 
-将图片、音频或视频附加到当前 `run_code` 调用的结果。对应参数接受 `republic.Image`、`republic.Audio` 或 `republic.Video` 对象，也可传入字符串，指定当前 `Environment` 中的文件路径、`http(s)` / `gs` URL 或 data URL；本地文件通过当前环境解析和读取。
-
-这些工具的 `exposure` 为 `"code"`，只能在 `run_code` 内调用。每次调用将媒体追加到结果并返回确认字符串。
+将 Republic 媒体对象、本地文件路径或 URL 附加到当前 `run_code` 的返回结果中（`exposure="code"`，仅可在 `run_code` 内调用）。
 
 ### `spill.read` {#spill-read}
 
@@ -296,27 +244,21 @@ spill.read(handle, cursor=0, count=1, from_end=False)
 
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
-| `handle` | `str` | 原工具输出中的 spill 句柄 |
-| `cursor` | `int` | 块位置 |
-| `count` | `int` | 读取块数，每次最多 4 块 |
-| `from_end` | `bool` | 是否从末尾向前读取 |
+| `handle` | `str` | 工具输出预览中给出的 spill 句柄 ID |
+| `cursor` | `int` | 起始分块游标 |
+| `count` | `int` | 本次连续读取的分块数（单次最多 4 块） |
+| `from_end` | `bool` | 是否从末尾倒序读取 |
 
-返回 `next_cursor` 和 `complete`；`complete=True` 表示已到达当前方向的边界。
+返回 `next_cursor` 和 `complete`（是否已读到边界）。转存阈值由 [`BUB_SPILL_THRESHOLD`](/zh-cn/docs/reference/settings/#spill-settings) 控制。
 
-spill 只在当前工具集包含 `spill.read` 时创建。阈值由 [`BUB_SPILL_THRESHOLD`](/zh-cn/docs/reference/settings/#spill-settings) 控制；设为 `0` 时停止创建新 spill，已有结果仍可读取。
+## 会话控制命令 {#session-commands}
 
-超出阈值的大型工具结果写入 `spill` sidecar，主对话只保留预览和句柄。Sidecar 是与会话 Tape 配套的另一份 Tape：随主 Tape 一起分支、合并和重置，但它的条目不会进入主上下文。概念见 [Sidecar](/zh-cn/docs/sdk/tape/#sidecars)。
-
-## 会话命令 {#session-commands}
-
-这些工具的 `exposure` 为 `command`，只能通过文本命令调用：
+以下工具的 `exposure="command"`，仅可通过命令前缀（默认 `,`）直接调用，不暴露给模型：
 
 | 命令 | 参数 | 作用 |
 | --- | --- | --- |
-| `,help` | 无 | 列出内部命令和命令前缀 |
-| `,model` | `model_id` | 切换当前会话模型 |
-| `,reasoning_effort` | `reasoning_effort` | 设置当前会话推理力度 |
-| `,code_mode` | `enable=true` / `false` | 开关当前会话的 代码模式 |
-| `,quit` | 无 | 清理待处理消息、运行中任务和后台 Shell |
-
-命令前缀由 `BUB_COMMAND_PREFIX` 决定。会话设置从下一次 Turn 起生效，并持久化在会话 Tape 中。
+| `,help` | 无 | 列出可用内部命令与命令前缀 |
+| `,model` | `model_id` | 切换当前会话从下一次 Turn 起使用的模型（保存在 Tape 中） |
+| `,reasoning_effort` | `reasoning_effort` | 设置当前会话从下一次 Turn 起的推理强度 |
+| `,code_mode` | `enable=true` / `false` | 开启或关闭当前会话的代码模式（从下一次 Turn 起生效） |
+| `,quit` | 无 | 清空当前会话的待处理消息队列、取消运行中的子任务并终止后台 Shell 进程 |

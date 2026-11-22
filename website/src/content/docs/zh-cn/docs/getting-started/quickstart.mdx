@@ -1,27 +1,27 @@
 ---
 title: 快速上手
-description: 学会如何快速开始在终端或在自己的 Python 项目中使用 Bub。
+description: 在终端运行 Bub CLI，或在 Python 项目中调用 Bub SDK。
 ---
 
 import { CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
 
-自 0.6.0 版本起，Bub 本体拆分成了两部分，因此你可以根据需要选择使用哪部分来玩转 Bub。
+自 0.6.0 版本起，Bub 本体拆分成了核心层与应用层两部分，你可以按自己的习惯选择其中一种方式来玩转 Bub。
 
-这一页假设你已经[安装 Bub](/zh-cn/docs/getting-started/install/)。
+开始前，这一页假设你已经[安装好 Bub](/zh-cn/docs/getting-started/install/)。
 
 ## 从 CLI 启动 {#cli}
 
-打开你系统的终端，然后按如下步骤在命令行中进行操作：
+打开你的终端，跟着下面几步在命令行里试试看：
 
 <Steps>
 
-1. 如果你从未配置过 Bub，可以先执行如下命令来完成初始配置：
+1. （可选）如果你从未配置过 Bub，可以先运行配置向导完成初始配置：
 
    ```bash
    bub onboard
    ```
 
-2. 在任意目录中创建一个工作区（目录）并切换到当中，然后使用 `bub chat` 启动一个交互式会话：
+2. 在任意位置创建一个工作区目录并切换进去，然后用 `bub chat` 启动交互式会话：
 
    ```bash
    mkdir hello-bub && cd hello-bub
@@ -29,10 +29,10 @@ import { CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
    ```
 
    :::tip
-   运行命令前，可输入 `bub --help` 查看命令和选项，或查阅 [CLI 参考](/zh-cn/docs/reference/cli/)。
+   运行 `bub --help` 或查阅 [CLI 参考](/zh-cn/docs/reference/cli/) 了解所有命令选项。
    :::
 
-3. 现在，可以尝试复制粘贴如下文本并与 Bub 进行对话：
+3. 现在，试着复制粘贴下面这句话，和 Bub 聊一聊：
 
    ```shell
    Summarize the files in this directory
@@ -40,24 +40,24 @@ import { CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
 
 </Steps>
 
-在交互式的 CLI 界面中，使用 <kbd>Ctrl+D</kbd> 或输入 `,quit` 退出交互式会话。
+在交互式 CLI 界面中，按 <kbd>Ctrl+D</kbd> 或输入 `,quit` 即可退出会话。
 
 ## 用 SDK 运行 {#sdk}
 
-如果要把 Agent 嵌入自己的 Python 项目，可以从基础 SDK 开始。
+如果你想把 Agent 嵌入自己的 Python 项目，可以从基础 SDK 开始：
 
 <Steps>
 
-1. 创建新项目并安装 Bub：
+1. 创建新项目并安装 `bub`：
 
    ```bash
    uv init --python 3.12 my-agent && cd my-agent
    uv add bub
    ```
 
-2. 把下面这段代码保存为 `main.py`
+2. 把下面这段代码保存为 `main.py`：
 
-   ```python title="main.py"
+   ```python title="main.py" {9-11}
    import asyncio
 
    import republic
@@ -78,10 +78,10 @@ import { CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
    ```
 
    :::tip
-   查阅 [Python API](/zh-cn/docs/reference/python-api/) 以了解更多 API 接口。
+   完整接口说明见 [Python API 参考](/zh-cn/docs/reference/python-api/)。
    :::
 
-3. 用你的 API Key 跑起来
+3. 用你的 API Key 跑起来：
 
    ```bash
    export REPUBLIC_OPENAI_API_KEY=sk-...
@@ -90,22 +90,21 @@ import { CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
 
 </Steps>
 
-
 ## 下一步 {#next-steps}
 
-恭喜你，已经掌握 Bub 的基本使用方式了，接下来你可以继续深入探索这两种方式以解锁更多使用场景。
+恭喜你，已经掌握了 Bub 的基本用法！接下来你可以根据使用场景继续深入探索：
 
 <CardGrid>
   <LinkCard
-    title="CLI App"
+    title="使用 Bub 应用"
     href="/zh-cn/docs/app/workspace/"
-    description="带你更完整地使用 Bub 的应用层能力"
+    description="带你完整体验工作区、终端命令、聊天网关、技能和插件"
   />
   <LinkCard
-    title="SDK"
+    title="构建 Bub Agent"
     href="/zh-cn/docs/sdk/"
-    description="一步步教你如何构建自己的 Bub Agent"
+    description="一步步教你用 SDK 自定义工具、事件拦截和 Tape 记忆"
   />
 </CardGrid>
 
-当然，如果你愿意的话，也可以继续了解一下 Bub 有哪些设计巧思。
+当然，如果你感兴趣，也可以继续往下读，看看 Bub 背后有哪些设计巧思。
