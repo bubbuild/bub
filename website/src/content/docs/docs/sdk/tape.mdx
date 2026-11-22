@@ -1,6 +1,6 @@
 ---
 title: Tape & Memory
-description: Persist multi-turn conversation history on a Tape, customize TapeContext selection, and manage anchors, handoffs, and forks.
+description: "Manage multi-turn memory in the Bub Python SDK: persist Tape history to disk or databases, customize TapeContext, and use sidecars and forks."
 ---
 
 If every request sent only the latest message to the model, an Agent could never continue a conversation. To remember what you said earlier, it needs to record the exchange and pass relevant history on the next turn. Bub uses a Tape to store messages, tool round-trips, and events so an Agent maintains memory across turns. For how the Tape relates to model context, see [Tape and model context](/docs/concepts/tape/#history-and-context).

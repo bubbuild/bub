@@ -1,6 +1,6 @@
 ---
 title: Tape 与记忆
-description: 在多轮对话中持久化 Tape 历史、自定义 TapeContext 上下文筛选、管理 anchor 交接与分支合并。
+description: 使用 Bub Python SDK 管理多轮记忆：持久化 Tape 历史、自定义 TapeContext 筛选，并使用 Sidecar、anchor 与分支合并。
 ---
 
 如果每次请求都只把当前消息交给模型，Agent 就无法接续之前的对话。要让它记得你刚才说过什么，就需要保存对话记录，并在下一轮请求中把相关历史交给模型。Bub 用 Tape 保存对话消息、工具调用往返和运行事件，让 Agent 具备多轮记忆能力。Tape 与模型上下文的分工见 [Tape 与模型上下文](/zh-cn/docs/concepts/tape/#history-and-context)。

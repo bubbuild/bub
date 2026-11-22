@@ -1,6 +1,6 @@
 ---
 title: Events
-description: Register and remove Agent event handlers, modify arguments, deny or replace tool calls, and emit custom events.
+description: "Intercept and customize Bub SDK Agent runs in Python: register event handlers, modify tool arguments, deny or replace calls, and emit events."
 ---
 
 Tools hold your business logic (such as looking up an order or updating its status), while real applications often need extra cross-cutting logic around those calls—logging, argument sanitization, permission checks, or latency metrics. With the `agent.events` event bus, you can hook into model and tool calls without modifying the tool functions themselves.

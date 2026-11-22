@@ -1,6 +1,8 @@
 ---
-title: The Agent Loop
-description: "Drive bub.core.Agent from your Python code: consume event streams and manage conversation Tapes."
+title: Run the Agent Loop with the SDK
+description: Embed bub.core.Agent in your Python application to drive the model-tool loop, consume async event streams, and manage Tape session memory.
+sidebar:
+  label: The Agent Loop
 ---
 
 `bub.core.Agent` is Bub's minimal kernel. It drives the interaction loop between a model and your local tools, and can be embedded directly in any Python service, backend framework, or script.

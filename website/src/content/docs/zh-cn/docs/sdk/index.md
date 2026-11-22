@@ -1,6 +1,8 @@
 ---
-title: Agent 循环
-description: 在 Python 代码中使用 bub.core.Agent：消费流式事件并管理会话 Tape。
+title: 使用 SDK 运行 Agent 循环
+description: 在 Python 应用中嵌入 bub.core.Agent，驱动模型与工具循环、消费异步流式事件并管理会话 Tape 记忆。
+sidebar:
+  label: Agent 循环
 ---
 
 `bub.core.Agent` 是 Bub 的最小内核，负责驱动模型与本地工具的交互循环。你可以将它直接嵌入任何 Python 服务、后端框架或脚本。
