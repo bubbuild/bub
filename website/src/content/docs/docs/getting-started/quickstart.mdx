@@ -1,34 +1,38 @@
 ---
 title: Quick start
-description: Get up and running with Bub in your terminal or in your own Python project.
+description: "Get started with Bub in minutes: configure an LLM and chat in the terminal CLI, or embed bub.core.Agent into your Python project with the SDK."
 ---
 
 import { CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
 
-Since 0.6.0, Bub itself is split in two, so you can pick whichever part fits how you want to use it.
+Since 0.6.0, Bub is split into two layers—core and app—so you can pick whichever path fits how you want to use it.
 
-This page assumes [Bub is installed](/docs/getting-started/install/).
+This page assumes you have already [installed Bub](/docs/getting-started/install/).
 
 ## Start from the CLI {#cli}
 
-Open your terminal and work through the following steps on the command line:
+Open your terminal and walk through these steps on the command line:
 
 <Steps>
 
-1. (Optional) If you have never configured Bub, run this command first to finish the initial setup:
+1. (Optional) If you have never configured Bub before, run the setup wizard first:
 
    ```bash
    bub onboard
    ```
 
-2. Create a workspace (a directory) anywhere and switch into it, then launch an interactive session with `bub chat`:
+2. Create a workspace directory anywhere, switch into it, and launch an interactive session with `bub chat`:
 
    ```bash
    mkdir hello-bub && cd hello-bub
    bub chat
    ```
 
-3. Now try copying and pasting the text below to have a conversation with Bub:
+   :::tip
+   Run `bub --help` or see the [CLI reference](/docs/reference/cli/) for all options.
+   :::
+
+3. Now try copying and pasting the prompt below to start a conversation with Bub:
 
    ```shell
    Summarize the files in this directory
@@ -36,15 +40,15 @@ Open your terminal and work through the following steps on the command line:
 
 </Steps>
 
-Press <kbd>Ctrl+D</kbd> or type `,quit` to leave the interactive session. Run `bub --help` to see the commands and options, or see the [CLI reference](/docs/reference/cli/).
+Press <kbd>Ctrl+D</kbd> or type `,quit` whenever you want to leave the interactive session.
 
-## Run it with the SDK {#sdk}
+## Run with the SDK {#sdk}
 
-If you want to embed the agent in your own Python project, start with the base SDK.
+If you want to embed an Agent in your own Python project, start with the core SDK:
 
 <Steps>
 
-1. Create a new project and install Bub:
+1. Create a new project and install `bub`:
 
    ```bash
    uv init --python 3.12 my-agent && cd my-agent
@@ -53,7 +57,7 @@ If you want to embed the agent in your own Python project, start with the base S
 
 2. Save the following code as `main.py`:
 
-   ```python title="main.py"
+   ```python title="main.py" {9-11}
    import asyncio
 
    import republic
@@ -73,6 +77,10 @@ If you want to embed the agent in your own Python project, start with the base S
    asyncio.run(main())
    ```
 
+   :::tip
+   See the [Python API reference](/docs/reference/python-api/) for full signatures.
+   :::
+
 3. Run it with your API key:
 
    ```bash
@@ -82,23 +90,21 @@ If you want to embed the agent in your own Python project, start with the base S
 
 </Steps>
 
-When you need to look up other APIs, see the [Python API reference](/docs/reference/python-api/).
-
 ## Next steps {#next-steps}
 
-Congrats — you know the basics of Bub. From here you can explore either path more deeply to unlock more use cases.
+Congrats — you now know the basics of Bub! Pick a path below to explore further:
 
 <CardGrid>
   <LinkCard
-    title="CLI App"
+    title="Use Bub App"
     href="/docs/app/workspace/"
-    description="A fuller walk through the app layer of Bub"
+    description="A complete walkthrough of workspaces, terminal commands, chat gateways, skills, and plugins"
   />
   <LinkCard
-    title="SDK"
+    title="Build with the SDK"
     href="/docs/sdk/"
-    description="Build your own Bub agent, step by step"
+    description="Build your own Bub agent step by step with custom tools, events, and Tape memory"
   />
 </CardGrid>
 
-And of course, if you like, you can keep reading about the design ideas behind Bub.
+And of course, if you are curious, keep reading to see the design ideas behind Bub.

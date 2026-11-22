@@ -1,9 +1,9 @@
 ---
 title: CLI
-description: bub commands, options, defaults, exit codes, and background service installation behavior.
+description: "Complete reference for the bub CLI: global options, bub chat, bub run, bub gateway, bub onboard, exit codes, and background service install."
 ---
 
-The `bub` command is provided by the application layer and requires the `app` optional dependency ([install](/docs/getting-started/install/)). This page lists only built-in commands; plugins can add commands through `register_cli_commands`, so consult `bub --help` and the plugin documentation for the full set.
+The `bub` CLI is part of the app layer and requires [installing](/docs/getting-started/install/#app-install) `bub[app]`. This page lists all built-in subcommands; plugins can register additional subcommands via `register_cli_commands` (check `bub --help` for the active list).
 
 ## Global options {#global-options}
 
@@ -13,37 +13,35 @@ bub [OPTIONS] COMMAND [ARGS]...
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--workspace`, `-w` | path | current working directory | Sets `BubFramework.workspace` |
-| `--version`, `-V` | flag | — | Show the installed Bub version and exit |
-| `--help` | flag | — | Show help |
+| `--workspace`, `-w` | path | current working directory | Sets `BubFramework.workspace` (affects default tool working directory, skill discovery, and relative paths) |
+| `--version`, `-V` | flag | — | Print the installed Bub version and exit |
+| `--help` | flag | — | Show help and exit |
 
-`--workspace` affects tools' working directory, skill discovery, and relative-path resolution. It does not change `BUB_HOME` or the location of the configuration file.
-
-Running `bub` without a command runs `BubFramework.default_command` with its defaults. The builtin plugin sets it to `chat`, so `bub` and `bub -w PATH` start the chat REPL. A plugin can choose another command by setting `default_command` in its `register_cli_commands` hook; the builtin only fills it when no plugin has.
-
-Before loading the CLI, the command checks for the `app` optional dependency. If it is missing, the process prints the missing package and the install command, then exits without reaching the Typer help page.
+- `--workspace` does not change `BUB_HOME` or the location of `~/.bub/config.yml`.
+- Running `bub` (or `bub -w PATH`) without a subcommand executes `BubFramework.default_command` (`chat` by default, launching the interactive terminal REPL).
+- If `bub[app]` is not installed, running `bub` prints the missing dependency and installation command and exits with code `1`.
 
 ## `bub run` {#bub-run}
 
-Runs a complete Turn for one message: resolves the session, builds the prompt, calls the model and tools, saves state, and generates a reply, then prints `TurnResult.outbounds` to stdout. It does not start a channel manager.
+Runs a complete Turn for one message (resolves session, builds prompt, runs model and tools, saves state, and renders replies), prints `TurnResult.outbounds` to stdout, and exits. Does not start `ChannelManager`.
 
 ```text
 bub run [OPTIONS] MESSAGE
 ```
 
-| Parameter | Type | Default | Description |
+| Parameter / Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `MESSAGE` | text | required | Message body; executes a command when it starts with the command prefix |
-| `--channel` | text | `cli` | Inbound channel name |
+| `MESSAGE` | text | required | Message body; runs an internal command directly when starting with the command prefix (`,` by default) |
+| `--channel` | text | `cli` | Inbound channel identifier |
 | `--chat-id` | text | `local` | Inbound chat ID |
 | `--sender-id` | text | `human` | Written to `context.sender_id` |
-| `--session-id` | text | `<channel>:<chat-id>` | Explicitly overrides the session ID |
+| `--session-id` | text | `<channel>:<chat-id>` | Explicit session ID override (used to share history across entry points) |
 
 Output format:
 
 ```text
 [channel:chat_id]
-<content>
+<reply content>
 ```
 
 Examples:
@@ -54,32 +52,32 @@ bub run --channel web --chat-id demo "Continue the previous topic."
 bub run --session-id shared:demo ",tape.info"
 ```
 
-Because it does not start a `ChannelManager`:
+Because `bub run` does not start `ChannelManager`:
 
-- It does not start channels or background services such as `mcp.lifecycle` and `acp-server`.
-- It does not automatically send model replies to a chat platform.
-- The resource scopes for `provide_tape_store`, `provide_lifespan`, and `provide_steering_inbox` still run.
-- The model stage uses the non-streaming `HookRuntime.run_model`.
+- **Does not start background services**: `mcp.lifecycle`, `acp-server`, and external chat channel listeners do not start;
+- **Does not deliver to external platforms**: output is printed only to stdout;
+- **Still enters core resource scopes**: `provide_tape_store`, `provide_lifespan`, and `provide_steering_inbox` are initialized and cleaned up on exit;
+- **Uses the non-streaming model stage**: calls `HookRuntime.run_model`.
 
-When the model returns no text, `run` prints the inbound content or prompt text as a fallback and logs a `run_model` stage error; the process itself usually still exits with code `0`. To make scripted decisions based on failure, inspect stderr and the actual output rather than relying on the exit code alone.
+Note: if the model stage errors or returns empty text, `bub run` logs a `run_model` error and prints fallback text, and the process may still exit with code `0`. In automation scripts, inspect `stderr` and output content rather than relying solely on the exit code.
 
 ## `bub chat` {#bub-chat}
 
-Starts an interactive REPL. It always enables the `cli` channel and attaches enabled `Lifecycle` channels.
+Starts an interactive terminal session (REPL), enables the `cli` channel, and starts all enabled `Lifecycle` background services (such as MCP connections).
 
 ```text
 bub chat [OPTIONS] [INITIAL_PROMPT]
 ```
 
-| Parameter | Type | Default | Description |
+| Parameter / Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `INITIAL_PROMPT` | text | — | Submitted immediately after the REPL starts |
+| `INITIAL_PROMPT` | text | — | Optional; sent automatically right after the REPL starts |
 | `--chat-id` | text | `local` | CLI chat ID |
 | `--session-id` | text | `cli_session` | Session ID |
 
-`chat` forces streaming output and ignores `BUB_STREAM_OUTPUT`. The attached Lifecycle lets MCP tools and ACP background services work during the chat.
-
-Without a `cli` channel, the command prints an error and exits with code `1`. This happens when a plugin replaces or removes the CLI channel.
+- `bub chat` always streams output (ignoring `BUB_STREAM_OUTPUT`).
+- Exits with code `1` if a plugin removes the `cli` channel.
+- Direct commands inside the REPL use `BUB_COMMAND_PREFIX` (`,` by default); enter `,help` to list available commands.
 
 ```bash
 bub chat
@@ -87,11 +85,9 @@ bub chat "What changed in this repository?"
 bub chat --session-id shared:demo
 ```
 
-Inside the REPL, comma-prefixed commands are controlled by `BUB_COMMAND_PREFIX`, which defaults to `,`. Type `,help` to see the current commands.
-
 ## `bub gateway` {#bub-gateway}
 
-Starts the channel manager and keeps enabled channels running.
+Starts `ChannelManager` and keeps all enabled external message channels (such as Telegram, Feishu, and Discord) running.
 
 ```text
 bub gateway [OPTIONS]
@@ -99,28 +95,26 @@ bub gateway [OPTIONS]
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--enable-channel` | text, repeatable | empty; reads `BUB_ENABLED_CHANNELS` | Include or exclude channels |
-| `--install` | flag | off | Install and start a background service for the current user |
-| `--uninstall` | flag | off | Stop and uninstall the background service |
+| `--enable-channel` | text (repeatable) | reads `BUB_ENABLED_CHANNELS` | Enable specific channels, or exclude a channel with `!name` |
+| `--install` | flag | off | Register and start the gateway as a background user service |
+| `--uninstall` | flag | off | Stop and remove the installed background gateway service |
 
-`--install` and `--uninstall` are mutually exclusive; passing both exits with an argument error.
+`--install` and `--uninstall` are mutually exclusive; `--enable-channel` overrides `BUB_ENABLED_CHANNELS`.
 
-### Channel selection {#channel-selection}
+### Channel selection rules {#channel-selection}
 
-`BUB_ENABLED_CHANNELS` is comma-separated; `--enable-channel` may be repeated, and command-line values take precedence.
+`BUB_ENABLED_CHANNELS` accepts comma-separated names; `--enable-channel` can be passed multiple times:
 
-| `enabled_channels` | Result |
+| Value | Channels started |
 | --- | --- |
-| `all` | Every `enabled` channel that is not an `Interface`, minus `!name` exclusions |
-| Explicit ordinary channels | The listed channels that are `enabled` and not excluded |
-| Explicit ordinary channels + Lifecycle | Select the ordinary channels first, then attach every enabled `Lifecycle` |
-| Only Lifecycle | Start only those Lifecycle channels |
-| Only `!name` | No inclusions, so startup fails |
+| `all` (default) | Every channel and `Lifecycle` service with `enabled=True` that is not an `Interface`, minus `!name` exclusions |
+| Explicit ordinary channel names | Listed ordinary channels with `enabled=True` (minus exclusions), plus all enabled `Lifecycle` services |
+| Only `Lifecycle` names | Only the specified `Lifecycle` background services |
+| Only `!name` exclusions | Fails to start (exit code `1`) because no channels are included |
 
-- `Interface` is a user-facing surface that must be selected explicitly, such as `cli`.
-- `Lifecycle` is a background service, such as `mcp.lifecycle` or `agent-plugins.mcp`.
-- When ordinary channels are selected explicitly, Lifecycle channels are attached automatically by default; use `!name` to exclude one.
-- If no channel can be enabled, it prints `No channels are enabled...` and exits with code `1`.
+- `Interface` channels are interactive UIs (such as `cli`) that must be selected explicitly and are excluded from `all`.
+- `Lifecycle` channels are background services (such as `mcp.lifecycle` and `agent-plugins.mcp`).
+- If no channels are enabled, the process prints `No channels are enabled...` and exits with code `1`.
 
 ```bash
 bub gateway
@@ -129,29 +123,22 @@ bub gateway --enable-channel telegram --enable-channel discord
 bub gateway --enable-channel telegram --enable-channel '!mcp.lifecycle'
 ```
 
-Quote exclusions so the shell does not treat `!` as history expansion.
+Single-quote `!name` exclusions in your shell (e.g., `'!mcp.lifecycle'`) to prevent shell history expansion.
 
-### Background service {#gateway-service}
+### Background service installation {#gateway-service}
 
-| Platform | Installation method | Location or behavior |
+| OS | Installation method | Location / behavior |
 | --- | --- | --- |
-| Linux | systemd user unit | `${XDG_CONFIG_HOME:-~/.config}/systemd/user/bub-gateway.service` |
-| Windows | Scheduled task | Task named `Bub Gateway`, started when the current user logs in |
-| macOS | `--install` unsupported | Deploy with launchd, tmux, or a container |
+| Linux | systemd user unit | `${XDG_CONFIG_HOME:-~/.config}/systemd/user/bub-gateway.service` (restarts on failure) |
+| Windows | Windows Scheduled Task | Task named `Bub Gateway`, starts at user login and restarts on failure |
+| macOS | `--install` unsupported | Use `launchd`, `tmux`, or [Docker deployment](/docs/app/deploy/) |
 
-The Linux unit uses `Restart=on-failure`, `RestartSec=5s`, and `WantedBy=default.target`. Installation runs `daemon-reload`, `enable`, and `restart`.
-
-- The service captures the current Python interpreter, workspace, and explicit `--enable-channel` arguments.
-- After changing the virtual environment, moving the workspace, or changing channel arguments, run `bub gateway --install` again.
-- To keep it running after logout on Linux, run `loginctl enable-linger "$USER"`.
-- Reinstalling replaces the existing unit or task and restarts it.
-- `--uninstall` counts as successful even when the service does not exist.
-
-macOS has no built-in service installation path; [Deployment](/docs/app/deploy/) describes a container approach.
+- Installation records the current Python interpreter, workspace directory, and `--enable-channel` flags; re-run `bub gateway --install` after changing environments or moving the workspace.
+- On Linux, run `loginctl enable-linger "$USER"` so the service stays running after SSH logout.
 
 ## `bub onboard` {#bub-onboard}
 
-Interactively generates configuration: it collects model and plugin options and writes them to `BubFramework.config_file`, which defaults to `~/.bub/config.yml`. It does not start channels.
+Runs the interactive configuration wizard and writes settings to `~/.bub/config.yml`.
 
 ```text
 bub onboard [OPTIONS] [PLUGIN_NAME]
@@ -159,63 +146,49 @@ bub onboard [OPTIONS] [PLUGIN_NAME]
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `PLUGIN_NAME` | text | none | Run only that plugin's `onboard_config` |
+| `PLUGIN_NAME` | text | none | Optional; run only the specified plugin's `onboard_config` wizard |
 
-Without a plugin name, it runs the built-in model configuration first, then the configuration of every other registered plugin. With a plugin name, it runs only the selected implementation and skips the gateway service installation prompt.
+Without `PLUGIN_NAME`, runs the built-in model wizard followed by every registered plugin's wizard; with `PLUGIN_NAME`, runs only that plugin's wizard and skips the gateway service prompt.
 
-| Exit code | Meaning |
+Model wizard write rules:
+
+| Wizard action | Config result |
 | --- | --- |
-| `0` | Saved, or the user declined gateway installation |
-| `1` | Configuration validation, write, plugin resolution, or gateway installation failed |
+| Select OpenAI-compatible or local endpoint | Writes `openai:<model>`, `api_base`, and `client_args.api_format: chat` |
+| Select official OpenAI API after a custom URL was set | Resets `api_base` to `https://api.openai.com/v1` |
+| Leave Base URL blank | Keeps the provider default without writing an empty value to YAML |
+| Enter Base URL explicitly | Writes `api_base` to YAML (changing Base URL clears any previously saved API key) |
+| Leave API key blank | Keeps the existing key for that URL or relies on environment variables |
+| Select Codex | Skips fetching the online model list and prompts for a model ID directly |
 
-Common write behavior:
-
-| Choice or action | Result |
-| --- | --- |
-| OpenAI-compatible service or local endpoint | Writes `openai:<model>`, `api_base`, and sets `client_args.api_format: chat` |
-| Official OpenAI API selected but the address is not the official one | Resets the address to `https://api.openai.com/v1` |
-| Base URL left blank | Keeps the provider's default address and does not write an explicit empty value |
-| Base URL entered explicitly | Written even when it equals the default |
-| API key left blank | Keeps the key for the current address, or continues using an environment variable |
-| Base URL changed | Clears any key entered earlier |
-| Codex selected | Skips model discovery and asks for a model ID manually |
-
-The connection check calls only the model list endpoint, not a generation request, with a 10-second timeout. It does not verify that the model supports tool calls.
-
-An `onboard_config` implementation receives the current configuration plus modifications from earlier hooks and returns a dictionary that is merged back; returning a non-dictionary raises `TypeError`. After all implementations finish, the result passes through `configure.validate` before being written to disk.
+The connectivity check queries only the provider's model-list endpoint (10-second timeout). Settings are validated via `configure.validate` before saving. Exits with `0` on success or `1` on failure.
 
 ## `bub install` {#bub-install}
 
-Installs plugins into the `uv` project managed by Bub; with no arguments, it syncs that project. It does not start channels.
+Installs plugin packages into Bub's managed `uv` project directory; with no arguments, syncs existing dependencies in that project.
 
 ```text
 bub install [OPTIONS] [SPECS]...
 ```
 
-| Parameter | Type | Default | Description |
+| Parameter / Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `SPECS` | positional | empty | Packages or Git sources to install |
-| `--project` | path | `$BUB_HOME/bub-project` or `~/.bub/bub-project` | Plugin project directory; also available as `BUB_PROJECT` |
+| `SPECS` | positional | empty | PyPI package names, `bub-contrib` plugin names, or Git URLs |
+| `--project` | path | `$BUB_HOME/bub-project` (default `~/.bub/bub-project`) | Managed plugin project directory (also configurable via `BUB_PROJECT`) |
 
-Package spec resolution:
+Supported package spec formats:
 
-| Form | Resolves to |
+| Format | Resolves to |
 | --- | --- |
 | `package` | PyPI package name |
-| `package@ref` | A package from the configured contrib repository, pinned to `ref` |
+| `package@ref` | The `packages/package` subdirectory of [`bub-contrib`](https://github.com/bubbuild/bub-contrib), pinned to branch or tag `ref` |
 | `owner/repo` | `https://github.com/owner/repo.git` |
-| `https://github.com/owner/repo.git@ref` | A prefixed Git URL that preserves the ref |
-| `git@...` or `https://...` | Prefixed with `git+` |
+| `https://github.com/owner/repo.git@ref` | Git repository URL pinned to `ref` |
+| `git@...` or `https://...` | Prefixed with `git+` and passed to `uv` |
 
 `package@ref` uses the official `bub-contrib` repository by default. To use a fork or mirror, set the top-level `contrib_repo` in `config.yml` or override it with `BUB_CONTRIB_REPO`. Use a Git URL accepted by `uv`, such as `ssh://git@example.com/org/repo.git#subdirectory=plugins/mcp`. `package@ref` supplies the ref and defaults to `packages/package` unless the URL sets `#subdirectory=` (use `.` for the repository root). For private repositories, use an SSH key or Git credential helper rather than putting credentials in the URL.
 
-To pin any GitHub repository, use the full URL:
-
-```bash
-bub install https://github.com/owner/repo.git@v1.2.0
-```
-
-Do not write `owner/repo@v1.2.0`: the current parser accepts only the `owner/repo` shorthand without a ref. Bub's own repository name is also not the same as its package name; when installing a plugin, use the spec given in the plugin's README.
+Do not write `owner/repo@v1.2.0`: the current parser accepts only the `owner/repo` shorthand without a ref. To pin any GitHub repository, use the full URL. Bub's own repository name is also not the same as its package name; when installing a plugin, use the spec given in the plugin's README.
 
 Examples:
 
@@ -226,36 +199,21 @@ bub install https://github.com/owner/repo.git@v1.2.0
 bub install
 ```
 
-The first invocation creates `bub-project`:
+Underlying `uv` commands:
 
-```text
-uv init --bare --name bub-project --app
-uv add --active --no-sync --extra app <source of the current Bub installation>
-```
-
-The current Bub source may be an editable path, a local path, a VCS URL, or a PyPI name; source installs and PyPI installs therefore produce different project declarations.
-
-Subsequent uv calls:
-
-| Command | uv invocation |
+| Bub command | `uv` invocation |
 | --- | --- |
-| `bub install` (no specs) | `uv sync --active --inexact` |
+| `bub install` (no arguments) | `uv sync --active --inexact` |
 | `bub install <specs>` | `uv add --active <requirements>` |
 | `bub uninstall <packages>` | `uv remove --active <packages>` |
-| `bub update` | `uv sync --active --upgrade --inexact` |
+| `bub update` (no arguments) | `uv sync --active --upgrade --inexact` |
 | `bub update <packages>` | `uv sync --active --inexact --upgrade-package ...` |
 
-Prerequisites:
-
-- `uv` is on `PATH`, in the current Python scripts directory, or in `~/.local/bin`;
-- Bub is running inside a virtual environment (`sys.prefix != sys.base_prefix`);
-- An explicitly passed `--project` directory must exist.
-
-If these are not met, the command exits with code `1`. When uv fails, its exit code is returned.
+Prerequisites: `uv` is installed, `bub` is running inside a virtual environment (`sys.prefix != sys.base_prefix`), and any explicit `--project` directory already exists.
 
 ## `bub uninstall` {#bub-uninstall}
 
-Uninstalls one or more plugins from the managed project. It does not start channels. Names must match the project declarations.
+Uninstalls plugins from the managed plugin project:
 
 ```text
 bub uninstall [OPTIONS] PACKAGES...
@@ -265,11 +223,9 @@ bub uninstall [OPTIONS] PACKAGES...
 bub uninstall bub-discord
 ```
 
-It modifies only `bub-project`, not the system Python or other packages in the environment where Bub itself runs. `install`, `uninstall`, and `update` all accept `--project`, and `BUB_PROJECT` can specify the same directory.
-
 ## `bub update` {#bub-update}
 
-Upgrades plugins in the managed project; without package names it upgrades every dependency, and with names it upgrades only those packages. It does not start channels.
+Upgrades plugins in the managed plugin project (upgrades all installed plugins when no package names are given):
 
 ```text
 bub update [OPTIONS] [PACKAGES]...
@@ -280,12 +236,11 @@ bub update
 bub update bub-mcp
 ```
 
-Upgrading does not automatically migrate plugin configuration or Tape data.
-After upgrading across versions, restart `bub chat` or `bub gateway` and check whether `bub hooks` still reports entry-point loading failures.
+Restart any running `bub chat` or `bub gateway` process after upgrading.
 
 ## `bub login codex` {#bub-login-codex}
 
-Configures ChatGPT plan credentials through the Codex CLI. It does not start channels.
+Signs in via the OpenAI Codex CLI to configure ChatGPT plan credentials:
 
 ```text
 bub login codex [OPTIONS]
@@ -293,78 +248,53 @@ bub login codex [OPTIONS]
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--executable` | text | `codex` | Codex CLI executable |
-| `--device-auth` | flag | off | Use the device authorization flow |
-| `--codex-home` | path | `$CODEX_HOME` or `~/.codex` | Credential directory |
+| `--executable` | text | `codex` | Codex CLI executable name or path |
+| `--device-auth` | flag | off | Use device-code authorization |
+| `--codex-home` | path | `$CODEX_HOME` or `~/.codex` | Directory storing `auth.json` |
 
-On success it prints:
-
-```text
-login: ok
-account_id: <id>
-Use BUB_MODEL=codex:<model> for ChatGPT plan access.
-```
-
-Matching configuration:
-
-```bash
-export BUB_MODEL=codex:<model>
-```
-
-Do not set `BUB_API_KEY` at the same time. On failure it prints `login: failed: ...` and exits with code `1`. Credentials are usually written to `$CODEX_HOME/auth.json` or `~/.codex/auth.json`.
+After logging in, set `BUB_MODEL=codex:<model>` and **do not** set `BUB_API_KEY`.
 
 ## Other account logins {#account-logins}
+
+Reuse credentials from the official Grok CLI or GitHub CLI (`gh`):
 
 ```bash
 bub login grok [--executable grok] [--device-auth]
 bub login github-copilot
 ```
 
-Grok uses the official Grok CLI; GitHub Copilot uses `gh auth login`. Install the corresponding CLI first. Republic reuses its credentials and handles token refresh or exchange. Bub adds no credential store.
-
-Select a model with `BUB_MODEL=grok:<model>` or `BUB_MODEL=github-copilot:<model>`, without setting an API key. Login does not change the configured model. GitHub Copilot access requires an eligible account and subscription.
+After logging in, set `BUB_MODEL=grok:<model>` or `BUB_MODEL=github-copilot:<model>` (no API key required).
 
 ## `bub plugins` {#bub-plugins}
 
-Prints each discovered plugin with the package and version that provide it.
+Lists discovered plugins along with their Python distribution name and version:
 
 ```text
 bub plugins [OPTIONS] [NAMES]...
 ```
 
-| Option | Type | Default | Description |
+| Parameter / Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `NAMES` | text | all plugins | Plugin names registered in the `bub` entry-point group |
-| `--version-only` | flag | off | Print only each plugin's version, one per line |
+| `NAMES` | text | all plugins | Query specific plugin entry-point names |
+| `--version-only` | flag | off | Print only the version string per line (`-` when no package metadata exists) |
 
-Output is one line per plugin: `name  distribution version`. The builtin hooks are listed as `builtin`, provided by `bub`. Plugins that failed to load or initialize are listed with `(failed: <error>)`. An unknown name exits with code `1`. With `--version-only`, each line holds only the version (`-` when the plugin has no package metadata), for example `bub plugins my-plugin --version-only`.
+Prints `name  distribution version` per line (appending `(failed: <error>)` if loading failed). Exits with code `1` if a requested name does not exist.
 
 ## `bub hooks` {#bub-hooks}
 
-Prints the hook implementation map. This is a hidden command that does not appear in `bub --help` and does not start channels.
+Prints all hooks and their bound plugin implementations (hidden diagnostic command not shown in `bub --help`):
 
-```text
+```bash
 bub hooks
 ```
 
-Each line has this format:
-
-```text
-<hook>: <implementation>, <implementation>
-```
-
-Implementations are printed in pluggy registration order, with hook names sorted alphabetically. When there are no implementations it prints `(no hook implementations)`.
-
-This order is not execution order. Bub reverses pluggy's internal list and then applies `tryfirst` / `trylast`; see [Priority and dispatch](/docs/reference/hooks/#priority-and-dispatch) for diagnosing the actual order.
+Format: `<hook_name>: <implementation>, ...`, listed in **pluggy registration order**. Note that runtime execution order reverses this list; see [Hooks reference: Execution priority](/docs/reference/hooks/#priority-and-dispatch).
 
 ## Exit codes {#exit-codes}
 
 | Scenario | Exit code |
 | --- | --- |
-| Command succeeds | `0` |
-| Typer argument error | `2` |
-| `app` optional dependency missing | `1`; the process exits before Typer |
-| No channels can be enabled, plugin failure, configuration failure | `1` |
-| uv failure in `bub install` / `uninstall` / `update` | uv's exit code |
-
-Model errors in `bub run` may only be logged and return fallback text, so do not rely on the exit code alone to determine whether the model call succeeded.
+| Command succeeded | `0` |
+| CLI argument parsing error (Typer) | `2` |
+| Missing `bub[app]` extra, no enabled channels, or config/login/plugin lookup failure | `1` |
+| `uv` failure in `bub install` / `uninstall` / `update` | Passes through `uv`'s exit code |

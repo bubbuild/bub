@@ -1,120 +1,117 @@
 ---
 title: 终端
-description: 使用 Bub 的交互式会话、运行中补充指令、命令和后台进程。
+description: 掌握 Bub 终端交互用法：启动会话、运行中补充指令（Steering）、调整推理输出、管理会话 ID、执行直接命令与后台进程。
 ---
 
-Bub 应用提供两种终端交互方式：`bub run` 和 `bub chat`，两者都使用相同的模型、工具和 Tape 能力：
+Bub 提供两个终端命令，共享相同的模型、工具和 Tape 存储：
 
-- `bub run` 处理单条消息，适用于一次性任务；
-- `bub chat` 则保持会话打开，可以连续对话。
+- `bub run`：处理单条消息并退出，适合单次任务或脚本调用；
+- `bub chat`：启动交互式会话（REPL），支持多轮连续对话。
 
-## 开始交互式会话 {#start-session}
+## 启动交互式会话 {#start-session}
 
-在终端输入如下命令会进入到交互式会话界面中，此时你可以输入内容并按回车发送。
+在终端中输入以下命令即可进入交互式会话界面，输入内容并按回车发送：
 
 ```bash
 bub chat
 ```
 
-此外，输入 `,help` 指令列出当前可用的内部命令；如需退出，可按下 <kbd>Ctrl+D</kbd> 键或使用 `,quit` 或 `,exit`  指令。
-
-底部工具栏显示最近一次模型调用的输出速度：从收到第一个流式分片开始计时，到响应结束为止。分子是全部输出 token（含思考 token），分母不含首分片之前的等待时间，也不含工具执行时间；紧跟其后的 `ttft` 就是被排除的首字等待时间。提供商未返回用量时显示 `speed:- tok/s`。
-
-当然，你也可以在启动时直接提交第一条消息：
+也可以在启动时直接带上第一条消息：
 
 ```bash
 bub chat "Inspect this repository and suggest a first task."
 ```
 
-## 在运行中引导 Agent {#steering}
+输入 `,help` 查看内置命令；按 <kbd>Ctrl+D</kbd> 或输入 `,quit`、`,exit` 退出会话。
 
-在等待模型回复期间，如果发现模型的输出偏离了你的预期，或者你想补充一些约束条件，可以在界面中直接输入新指令以引导 Agent 的行为。
+底部状态栏会显示最近一次模型调用的指标：
 
-**引导**（Steering）用于在当前 Turn 尚未结束时补充指令，让 Agent 调整正在执行的任务。生成过程中不必等待回复结束，直接输入并回车即可：
+- `ttft`（首字等待时间）：从发出请求到收到第一个流式分片的耗时；
+- `speed`（生成速度）：从收到首个分片到响应结束的平均输出速度（含思考 Token，不含 `ttft` 和工具执行时间；若提供商未返回用量则显示 `speed:- tok/s`）。
+
+## 运行中补充指令（Steering） {#steering}
+
+在等待模型回复或执行工具期间，如果发现它的处理方向偏离了预期，或者你想临时补充一些约束条件，不必等当前回复结束——直接在终端输入新指令并回车即可：
 
 ```text
 先不要修改文件，只列出问题和建议。
 ```
 
-Bub 应用会把消息放到引导收件箱中。Agent 在后续构建模型请求时读取它，正在执行的模型或工具调用不会被强制中断。
+这种在运行期间动态追加指令的机制称为 **Steering**。新消息会进入引导收件箱；当前正在执行的模型请求或工具调用不会被强制打断，Agent 会在进入下一个 Step 时读入这条新指令。
 
-Bub 的准入动作称为 `steer` 和 `follow_up`，区别在于消息何时生效：
+当会话正忙时，Bub 支持两种消息准入策略：
 
-| 方式 | 处理方式 | 适合什么 |
+| 策略 | 生效时机 | 适用场景 |
 | --- | --- | --- |
-| 引导（Steering） | 注入当前对话的后续模型请求；来不及消费时转为待处理消息 | 纠正方向、补充约束、提供与当前任务有关的新信息 |
-| 后续处理（Follow up） | 等当前 Turn 结束后，再作为后续任务处理 | 追加另一项任务、按顺序执行多个需求 |
+| `steer` | 注入当前 Turn 的下一个 Step；若当前 Turn 已结束，自动转为下一轮待处理消息 | 纠正方向、补充约束或提供与当前任务直接相关的新信息 |
+| `follow_up` | 等当前 Turn 完整结束后，再按顺序开启新 Turn | 追加另一项独立任务 |
 
-默认情况下，Bub 应用对运行期间的普通输入使用引导，没有单独的后续处理快捷键。未被当前消费的引导消息会自动进入待处理队列，不会直接丢失。
+`bub chat` 在运行期间对普通输入默认采用 `steer` 策略。如需立即中止当前正在运行的任务，输入 `,quit`（会清空待处理队列并取消运行中的任务）。
 
-需要停止当前会话的任务时，使用 `,quit`；它会清理待处理消息并取消运行中的任务。
+## 查看与调整思考过程 {#reasoning}
 
-## 查看推理过程 {#reasoning}
-
-输入 `,thinking` 以展开和折叠模型思考过程：
+展开或折叠模型的思考过程（仅切换终端显示，不改变模型推理强度）：
 
 ```text
 ,thinking
 ```
 
-它只控制终端是否显示模型返回的 `reasoning` 增量，不会改变模型或推理力度。如需调整推理力度请使用：
+调整模型的推理强度（从下一轮起生效，并保存在当前会话 Tape 中）：
 
 ```text
 ,reasoning_effort high
 ```
 
-具体可选值由模型提供商决定。该设置从下一轮对话起生效，并保存在当前会话的 Tape 中。
+## 指定会话 ID {#choose-session}
 
-## 指定会话 {#choose-session}
-
-`bub run` 默认使用 `cli:local` 作为会话 ID，`bub chat` 则默认使用 `cli_session`。显式指定相同的会话 ID，可以在两个入口之间延续历史：
+`bub run` 默认会话 ID 为 `cli:local`，`bub chat` 默认为 `cli_session`。通过 `--session-id` 指定相同 ID 可在两个命令间共享会话历史：
 
 ```bash
 bub chat --session-id cli:echo
 bub run --session-id cli:echo "Summarize what we discussed."
 ```
 
-## 使用命令 {#commands}
+## 执行直接命令 {#commands}
 
-命令前缀默认为 `,`，用于跳过模型调用、直接执行工具：
+以 `,`（默认命令前缀）开头的输入会跳过模型，直接调用对应工具：
 
 ```bash
 bub run ",help"
 bub run ",fs.read path=README.md"
 ```
 
-交互式会话中也可以直接输入命令。按 <kbd>Ctrl-X</kbd> 在 Agent 与 Shell 输入模式之间切换；Shell 模式会自动为输入添加命令前缀。常用命令如下：
+交互式会话中也可以直接输入命令。在 `bub chat` 中，按 <kbd>Ctrl+X</kbd> 可在 Agent 模式与 Shell 模式之间切换（Shell 模式会自动为输入加上 `,` 前缀）。常用命令如下：
 
 | 命令 | 用途 |
 | --- | --- |
 | `,model openai:gpt-5-mini` | 切换当前会话的模型 |
-| `,reasoning_effort high` | 设置当前会话的推理力度 |
+| `,reasoning_effort high` | 设置当前会话的推理强度 |
 | `,code_mode enable=true` | 开启代码模式 |
-| `,tape.info` | 查看条目、anchor 和 token 用量 |
-| `,tape.search query=error` | 搜索当前会话记录 |
-| `,tape.anchors` | 列出上下文分界点 |
-| `,tape.handoff name=reviewed summary='...'` | 移动默认上下文起点，并保存摘要 |
-| `,tape.reset archive=true` | 归档当前 Tape 后重新开始 |
-| `,thinking` | 展开或折叠推理输出 |
+| `,tape.info` | 查看条目数、anchor 与 Token 用量 |
+| `,tape.search query=error` | 搜索当前会话历史 |
+| `,tape.anchors` | 列出所有上下文锚点 |
+| `,tape.handoff name=reviewed summary='...'` | 前移默认上下文起点并保存摘要 |
+| `,tape.reset archive=true` | 备份并清空当前会话历史 |
+| `,thinking` | 展开或折叠思考输出 |
 
 注意：
 
-- `,tape.reset archive=true` 会把主 Tape 和 sidecar 备份到 `<BUB_HOME>/tapes/`，文件名带有 UTC 时间戳和 `.bak` 后缀。使用 `archive=false` 或直接 `,tape.reset` 则不备份。重置后会产生新的 `session/start` anchor，旧文件不会被自动恢复。
-- 交接（handoff）不会自动生成或注入摘要。`summary` 保存在 anchor 的 `state` 中；后续是否读取它，取决于提示词或上下文策略。详见 [Tape](/zh-cn/docs/concepts/tape/#anchors)。
+- `,tape.reset archive=true` 会将主 Tape 和 Sidecar 备份到 `<BUB_HOME>/tapes/`（带 UTC 时间戳和 `.bak` 后缀），再重置并写入新的 `session/start` 锚点；不传 `archive=true` 则直接清空不备份。
+- `,tape.handoff` 仅前移上下文读取起点并将 `summary` 存入 anchor 的 `state`，不会自动调用模型生成摘要。详见 [Tape](/zh-cn/docs/concepts/tape/#anchors)。
 
 :::caution
-未注册的命令会交给 `bash` 执行。输入未知命令前，确认它确实是你允许运行的 Shell 命令。
+未注册为内置工具的逗号命令会交给 `bash` 执行。输入前请确认该命令是安全的 Shell 命令。
 :::
 
-## 运行后台进程 {#background-shell}
+## 管理后台进程 {#background-shell}
 
-在 `bub chat` 中，用 `background=true` 使用单独的后台进程来运行相关命令：
+在 `bub chat` 中，传入 `background=true` 可在后台启动长耗时进程：
 
 ```text
 ,bash command='npm run dev' background=true
 ```
 
-执行返回结果中包含 `shell_id`。我们使用它增量读取输出或终止进程：
+命令会立即返回 `shell_id`，可用于增量读取输出或终止进程：
 
 ```text
 ,bash.output shell_id=bsh-12345678
@@ -122,7 +119,5 @@ bub run ",fs.read path=README.md"
 ,bash.kill shell_id=bsh-12345678
 ```
 
-注意：
-
-- `offset` 是已缓冲输出的字符位置，不是行号；返回值中的 `next_offset` 可用于下一次读取。`limit` 限制本次返回的字符数。
-- 前台 `bash` 默认**等待 30 秒**。超时后进程不会被直接判定失败，而是转为后台并返回 `shell_id`；可通过 `timeout_seconds` 调整。后台任务应在同一个 `bub chat` 或网关进程中管理，退出应用时会执行清理。
+- `offset` 和 `limit` 按**字符数**（非行号）计算；每次读取返回的 `next_offset` 可直接作为下一次读取的 `offset`。
+- 前台 `bash` 默认等待 **30 秒**（可通过 `timeout_seconds` 修改）。超时后进程不会报错退出，而是自动转为后台运行并返回 `shell_id`。应用退出时会自动清理后台进程。

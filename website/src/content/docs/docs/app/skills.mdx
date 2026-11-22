@@ -1,86 +1,86 @@
 ---
 title: Skills
-description: Write, verify, and use Bub skills, and understand how skills are discovered and how same-name skills are overridden.
+description: Create, verify, and distribute reusable Bub skills (SKILL.md) with discovery priority rules, bundled skills, and variable interpolation.
 ---
 
-A [skill](https://agentskills.io/) is the format published as a standard by Anthropic for extending AI agent capabilities with specialized knowledge and workflows. A skill is a folder containing a `SKILL.md` file that explains how to do one kind of task; the model loads it on demand.
+A [skill](https://agentskills.io/) is an open standard format initiated by Anthropic for extending AI agents with domain knowledge and step-by-step workflows. Each skill is a folder containing a `SKILL.md` file that explains how to handle a task; the model loads it on demand.
 
-## Discovery and priority {#discovery}
+## Discovery priority {#discovery}
 
-Bub discovers and loads skills automatically in the following priority order. **When names collide, the first match wins**:
+Bub discovers skills in the following order. **When names collide, the first match wins**:
 
-1. **Workspace directory**: `<workspace>/.agents/skills/` (the legacy `.agent/skills/` still works)
+1. **Workspace directory**: `<workspace>/.agents/skills/` (legacy `.agent/skills/` is also supported)
 2. **User global directory**: `~/.agents/skills/`
-3. **Installed packages**: every installed `skills` namespace package in the environment, including Bub's [bundled skills](#builtin-skills)
+3. **Installed Python packages**: any `skills` namespace package in the environment, including Bub's [bundled skills](#builtin-skills)
 
 ## Bundled skills {#builtin-skills}
 
-The Bub app ships three skills:
+The Bub app includes three bundled skills:
 
 | Skill | Purpose | External dependency |
 | --- | --- | --- |
 | `telegram` | Send, reply to, and edit Telegram messages | Telegram Bot token |
-| `gh` | Manage repositories, issues, PRs, and Actions through the GitHub CLI | `gh` installed and authenticated |
-| `skill-creator` | Guide the creation or update of skills | None |
+| `gh` | Manage repositories, issues, PRs, and Actions via the GitHub CLI | `gh` installed and authenticated |
+| `skill-creator` | Scaffold or update skills | None |
 
 ## Write a skill {#write-a-skill}
 
-Try creating a skill in the current workspace or the global user directory, for example `.agents/skills/repo-map/SKILL.md`:
+Try creating a skill (`<skill-name>/SKILL.md`) in your workspace or global skills directory, for example `.agents/skills/repo-map/SKILL.md`:
 
-```markdown
+```markdown title=".agents/skills/repo-map/SKILL.md"
 ---
 name: repo-map
 description: Read the local repository structure before changing code.
 ---
 
-1. Run `rg --files` to see the repository structure.
-2. Read the files that explain this change.
-3. Describe the affected modules before editing code.
+1. Run `rg --files` to inspect the repository layout.
+2. Read the files relevant to the requested change.
+3. State which modules will be affected before editing code.
 ```
 
-### Fields and variables {#skill-fields}
+### Frontmatter fields and variables {#skill-fields}
 
-The `SKILL.md` YAML frontmatter follows this spec:
+YAML frontmatter fields in `SKILL.md`:
 
 | Field | Requirement |
 | --- | --- |
-| `name` | Required; must exactly match the skill directory name; lowercase letters, digits, and hyphens only; at most 64 characters |
-| `description` | Required; state the task and the trigger conditions clearly so the model can decide when to use the skill; at most 1,024 characters |
-| `metadata` | Optional; key-value mapping, both keys and values must be strings |
+| `name` | **Required**. Must match the skill directory name; lowercase letters, digits, and hyphens only; max 64 characters |
+| `description` | **Required**. Explains when to use the skill (used by the model to select skills); max 1,024 characters |
+| `metadata` | Optional. String-to-string key-value mapping |
 
-Supporting scripts or reference files can live in `scripts/`, `references/`, or `assets/` inside the skill directory. The skill body supports the following variable interpolation:
+Helper scripts and reference files can be placed in `scripts/`, `references/`, or `assets/` inside the skill folder. The skill body supports variable interpolation:
 
-| Variable | Expansion |
+| Variable | Expands to |
 | --- | --- |
-| `$SKILL_DIR` | Absolute path of the current skill directory |
+| `$SKILL_DIR` | Absolute path of the skill directory |
 | `$PYTHON` | Path of the Python interpreter running Bub |
-| `${config.path.to.value}` | Value of the corresponding field in the Bub config file |
+| `${config.path.to.value}` | Value of the dotted path in the Bub config file |
 
-Scripts in a skill do not run automatically. The body should tell the model which tool to call to run them, and ensure the environment has the required external dependencies installed (this example needs `rg`).
+Scripts inside a skill do not execute automatically; instruct the model in the skill body to run them with `bash` (and ensure required CLI tools such as `rg` are installed).
 
-If you would rather not create a skill by hand, delegate it to your agent tool or the Bub app, for example:
+Of course, if you would rather not create a skill by hand, you can ask Bub to generate one with the bundled `$skill-creator` skill:
 
 ```bash
-bub run 'Use the $skill-creator skill to create a skill named `repo-map` with this flow:
-1. Run `rg --files` to see the repository structure.
-2. Read the files that explain this change.
-3. Describe the affected modules before editing code.'
+bub run 'Use the $skill-creator skill to create a skill named `repo-map` with these steps:
+1. Run `rg --files` to inspect the repository layout.
+2. Read the files relevant to the requested change.
+3. State which modules will be affected before editing code.'
 ```
 
 ## Verify and use {#verify-a-skill}
 
-In the Bub app you can invoke skills in these ways:
+Once your skill is ready, verify and invoke it in these ways:
 
 | Command | Description |
 | --- | --- |
-| `bub run ",skill"` | List the skills actually discovered in the current workspace |
-| `bub run ",skill name=repo-map"` | Print the body with variables expanded, without calling the model; if it returns `(no such skill)`, check that the directory name matches `name` |
-| `bub run 'Use the $repo-map skill, then list the top-level modules you found.'` | Expand the body into this turn's system prompt; the model then calls tools to complete the steps |
+| `bub run ",skill"` | List all skills discovered in the current workspace |
+| `bub run ",skill name=repo-map"` | Print the expanded skill body without calling the model (returns `(no such skill)` if the directory name and `name` do not match) |
+| `bub run 'Use the $repo-map skill and list the top-level modules.'` | Explicitly expand the skill body into this turn's system prompt |
 
 :::note
-Without an explicit `$skill-name`, the model still decides whether to use a skill based on its `description`.
+Even without an explicit `$skill-name` in the prompt, the model can load a skill on demand based on its `description`.
 :::
 
-## Distribute with a Python package {#include-skills-in-a-wheel}
+## Distribute in a Python package {#include-skills-in-a-wheel}
 
-Skills can be distributed through plugin packages. For how to organize a plugin package's directory structure, configure packaging, and verify the release in an isolated environment, see [Packaging and distribution](/docs/app/distribution/#bundle-plugins-and-skills).
+Skills can be bundled into a Python wheel alongside plugins. See [Packaging and distribution](/docs/app/distribution/#bundle-plugins-and-skills) for directory layout and build configuration.

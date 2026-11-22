@@ -1,51 +1,40 @@
 ---
 title: Settings
-description: Application environment variables, YAML fields, defaults, and resolution order.
+description: "Complete reference for Bub app configuration: BUB_* environment variables, YAML config fields, defaults, precedence rules, and Telegram settings."
 ---
 
-These settings belong to the **Bub application**. `bub.core.Agent` does not read YAML or `BUB_*`; it receives constructor arguments only. Plugins can register their own sections, with fields defined by each plugin's documentation. For setup steps, see [Configuration](/docs/app/configure/).
+This page lists all built-in settings for the **Bub app layer**. The core `bub.core.Agent` class does not read YAML files or `BUB_*` environment variables (it takes constructor arguments only). Third-party plugins can register their own configuration sections; see each plugin's documentation. For initial setup steps, see [Configuration](/docs/app/configure/).
 
 ## Precedence {#precedence}
 
-Settings classes resolve fields in this order, from highest to lowest priority:
+Settings classes resolve fields in this order (highest priority first):
 
-| Order | Source | Description |
+| Priority | Source | Description |
 | --- | --- | --- |
-| 1 | Environment variables | `BUB_*`; read when a settings instance is created |
-| 2 | `.env` in the current directory | `find_dotenv(usecwd=True)`; does not overwrite existing environment variables |
-| 3 | YAML file | `~/.bub/config.yml` by default, loaded by `configure.load` |
-| 4 | Field defaults | Defaults declared in code |
+| 1 | Environment variables | `BUB_*`; read when the settings class is instantiated |
+| 2 | `.env` in current directory | `find_dotenv(usecwd=True)`; does not override existing system environment variables |
+| 3 | YAML config file | Defaults to `~/.bub/config.yml`, loaded via `configure.load` |
+| 4 | Field defaults | Default values declared in code |
 
-`--workspace`, `--project`, and `--enable-channel` are **command arguments**, not layers in this common settings table. They respectively change the framework workspace, plugin project path, and channel selection for the invocation.
+- `--workspace`, `--project`, and `--enable-channel` are **CLI flags**, not settings fields.
+- Settings instances are cached process-wide. Modifying `os.environ` after `ensure_config()` has been called will not update cached instances; restart the process to apply changes.
 
-Settings instances are cached within the process. After the first `ensure_config()`, changing `os.environ` usually does not affect instances that have already been created; start a new process when configuration must change.
+## Config file and runtime paths {#config-file}
 
-## Config file {#config-file}
-
-| Path | Source |
-| --- | --- |
-| `~/.bub/config.yml` | `DEFAULT_CONFIG_FILE` in `src/bub/framework.py` |
-| `BubFramework(config_file=Path(...))` | Constructor argument, resolved to an absolute path |
-
-`BUB_HOME` changes only `bub.home` (history, Tapes, the plugin project, code mode files, and similar paths); it **does not move** the default `~/.bub/config.yml`. Pass `config_file` explicitly to use a different configuration file.
-
-## Runtime paths {#runtime-paths}
-
-| Variable | Default | Description |
+| Path / Variable | Default | Description |
 | --- | --- | --- |
-| `BUB_HOME` | `~/.bub` | `bub.home`; setting it in `.env` also works |
-| `BUB_PROJECT` | `<BUB_HOME>/bub-project` | Project directory for `bub install` / `uninstall` / `update` |
-
-Typer reads `BUB_PROJECT`. The default project directory is created automatically when missing; an explicitly selected alternative directory should already exist.
+| `~/.bub/config.yml` | `DEFAULT_CONFIG_FILE` | Default YAML config file (override via `BubFramework(config_file=Path(...))`) |
+| `BUB_HOME` | `~/.bub` | Runtime data directory (stores session Tapes, managed plugin project, and temporary code-mode files). **Note: `BUB_HOME` does not move the default `~/.bub/config.yml` location** |
+| `BUB_PROJECT` | `<BUB_HOME>/bub-project` | Managed plugin project directory for `bub install` / `uninstall` / `update` (created automatically at the default path; custom paths must already exist) |
 
 ## Environment variable index {#env-index}
 
-Every YAML key has a corresponding environment variable, which takes precedence. This table is ordered by prefix; names beginning with `BUB_` can be set directly in `.env`.
+Every YAML setting has a corresponding environment variable (all `BUB_*` variables can be placed in `.env`):
 
-| Variable | Default | YAML path | Details |
+| Variable | Default | YAML path | Section |
 | --- | --- | --- | --- |
-| `BUB_HOME` | `~/.bub` | — | [Runtime paths](#runtime-paths) |
-| `BUB_PROJECT` | `<BUB_HOME>/bub-project` | — | [Runtime paths](#runtime-paths) |
+| `BUB_HOME` | `~/.bub` | — | [Runtime paths](#config-file) |
+| `BUB_PROJECT` | `<BUB_HOME>/bub-project` | — | [Runtime paths](#config-file) |
 | `BUB_MODEL` | `openrouter:openrouter/free` | `model` | [AgentSettings](#agent-settings) |
 | `BUB_COMMAND_PREFIX` | `,` | `command_prefix` | [Command prefix](#command-prefix) |
 | `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | [Models and fallback](#model-routing) |
@@ -62,7 +51,7 @@ Every YAML key has a corresponding environment variable, which takes precedence.
 | `BUB_CLIENT_ARGS` | `{}` | `client_args` | [`client_args`](#client-args) |
 | `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | [`completion_args`](#completion-args) |
 | `BUB_VERBOSE` | `0` | `verbose` | [AgentSettings](#agent-settings) |
-| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | [Channel selection](#channel-selection) |
+| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | [ChannelSettings](#channel-settings) |
 | `BUB_DEBOUNCE_SECONDS` | `1.0` | `debounce_seconds` | [ChannelSettings](#channel-settings) |
 | `BUB_MAX_WAIT_SECONDS` | `10.0` | `max_wait_seconds` | [ChannelSettings](#channel-settings) |
 | `BUB_ACTIVE_TIME_WINDOW` | `60.0` | `active_time_window` | [ChannelSettings](#channel-settings) |
@@ -74,11 +63,9 @@ Every YAML key has a corresponding environment variable, which takes precedence.
 | `BUB_TELEGRAM_PROXY` | unset | `telegram.proxy` | [TelegramSettings](#telegram-settings) |
 | `CODEX_HOME` | `~/.codex` | — | [Third-party login](#login-env) |
 
-Flat keys such as `BUB_MODEL`, `BUB_COMMAND_PREFIX`, and `BUB_ENABLED_CHANNELS` go at the YAML root; keys under `spill:` and `telegram:` go in nested sections. `BUB_TELEGRAM_*` maps to fields of the same name under `telegram:`, and `BUB_SPILL_*` maps to fields under `spill:`.
-
 ## AgentSettings {#agent-settings}
 
-`src/bub/builtin/settings.py`
+Defined in `src/bub/builtin/settings.py` (top-level YAML fields):
 
 ```python
 @config()
@@ -104,91 +91,82 @@ class AgentSettings(Settings):
     verbose: int = 0
 ```
 
-| Environment variable | Default | YAML | Description |
+| Environment variable | Default | YAML key | Description |
 | --- | --- | --- | --- |
-| `BUB_MODEL` | `openrouter:openrouter/free` | `model` | Must be `provider:model` |
-| `BUB_COMMAND_PREFIX` | `,` | `command_prefix` | Non-empty with no whitespace; may contain multiple characters |
-| `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | JSON array; used only for the configured default model |
-| `BUB_API_KEY` | unset | `api_key` | String, or a mapping from providers to keys |
-| `BUB_API_BASE` | unset | `api_base` | String, or a mapping from providers to addresses |
-| `BUB_<PROVIDER>_API_KEY` | unset | — | For example, `BUB_OPENAI_API_KEY` |
-| `BUB_<PROVIDER>_API_BASE` | unset | — | For example, `BUB_OPENROUTER_API_BASE` |
-| `BUB_PROVIDERS` | `{}` | `providers` | JSON object defining custom providers |
-| `BUB_MAX_STEPS` | `sys.maxsize` | `max_steps` | Maximum model Steps per Run; must be a positive integer |
-| `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Default output limit; omitted for Codex calls |
-| `BUB_SUBAGENT_MAX_CONCURRENCY` | `4` | `subagent_max_concurrency` | Maximum [subagents](/docs/app/subagents/) running at once in the process; later ones wait in a queue |
-| `BUB_SUBAGENT_TIMEOUT_SECONDS` | `null` | `subagent_timeout_seconds` | Default time limit of one subagent run; `null` means no limit |
-| `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | Seconds for one model call, including streaming |
-| `BUB_CLIENT_ARGS` | `{}` | `client_args` | JSON object passed to the model client |
-| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | JSON object passed to each generation |
-| `BUB_VERBOSE` | `0` | `verbose` | `0` is INFO, `1` is DEBUG, and `2` is TRACE |
-
-A `null` value for `client_args` or `completion_args` is treated as `{}`.
+| `BUB_MODEL` | `openrouter:openrouter/free` | `model` | Model identifier (`provider:model`) |
+| `BUB_COMMAND_PREFIX` | `,` | `command_prefix` | Direct command prefix (non-empty, no whitespace) |
+| `BUB_FALLBACK_MODELS` | `null` | `fallback_models` | Fallback model list (JSON array in env vars); applies only to the default primary model |
+| `BUB_API_KEY` | unset | `api_key` | Global API key string, or provider-to-key mapping dict |
+| `BUB_API_BASE` | unset | `api_base` | Global API base URL string, or provider-to-URL mapping dict |
+| `BUB_<PROVIDER>_API_KEY` | unset | — | Provider-specific API key (e.g. `BUB_OPENAI_API_KEY`) |
+| `BUB_<PROVIDER>_API_BASE` | unset | — | Provider-specific API base URL (e.g. `BUB_OPENROUTER_API_BASE`) |
+| `BUB_PROVIDERS` | `{}` | `providers` | Custom provider definitions (JSON object in env vars) |
+| `BUB_MAX_STEPS` | `sys.maxsize` | `max_steps` | Maximum model Steps per Run (positive integer) |
+| `BUB_MAX_TOKENS` | `16384` | `max_tokens` | Default max output tokens per model call (omitted for `codex:` models) |
+| `BUB_SUBAGENT_MAX_CONCURRENCY` | `4` | `subagent_max_concurrency` | Maximum concurrent [subagents](/docs/app/subagents/) per process |
+| `BUB_SUBAGENT_TIMEOUT_SECONDS` | `null` | `subagent_timeout_seconds` | Default timeout in seconds for a subagent run (`null` means no limit) |
+| `BUB_MODEL_TIMEOUT_SECONDS` | `null` | `model_timeout_seconds` | Timeout in seconds for one model call (including streaming) |
+| `BUB_CLIENT_ARGS` | `{}` | `client_args` | Extra kwargs passed to the model client constructor (JSON object) |
+| `BUB_COMPLETION_ARGS` | `{}` | `completion_args` | Extra kwargs passed to each model generation call (JSON object) |
+| `BUB_VERBOSE` | `0` | `verbose` | Log level: `0` (INFO), `1` (DEBUG), `2` (TRACE) |
 
 ### Command prefix {#command-prefix}
 
-| Setting | Effect |
+| `command_prefix` | Example |
 | --- | --- |
-| `,` | `,help` and `,tape.info` are commands |
-| `!` | `!help` is a command, while `,help` is ordinary text |
-| `/` | In Telegram, enter a command with `/bub /help` |
-
-CLI `quit`, `exit`, `thinking`, completion, and shell mode share this prefix. Telegram also handles its own slash commands; these are not the same parser.
+| `,` (default) | `,help` and `,tape.info` are direct commands |
+| `!` | `!help` is a direct command; `,help` is ordinary text |
+| `/` | In Telegram, invoke via `/bub /help` |
 
 ### Credential resolution {#credentials}
 
-Model calls use the first non-empty value in this order:
+For each model call, Bub resolves the first non-empty `api_key` and `api_base` in this order:
 
-| Order | Source |
-| --- | --- |
-| 1 | `providers.<name>.api_key` / `.api_base` |
-| 2 | Settings fields `api_key` / `api_base`: the provider's key in the mapping, or the field value when it is a string |
-| 3 | `<PROVIDER>_API_KEY` / `_API_BASE` without the `BUB_` prefix, such as `OPENAI_API_KEY` |
+1. `providers.<name>.api_key` and `providers.<name>.api_base` (custom providers);
+2. The provider entry in the `api_key` / `api_base` mapping (`BUB_<PROVIDER>_API_KEY` and `BUB_<PROVIDER>_API_BASE` scanned at startup populate this mapping with lower priority than explicit `BUB_API_KEY` / `BUB_API_BASE` and YAML values), or the string value if `api_key` / `api_base` is a plain string;
+3. Standard provider environment variables without the `BUB_` prefix (such as `OPENAI_API_KEY` or `OPENROUTER_API_KEY`).
 
-`BUB_<PROVIDER>_API_KEY` / `_API_BASE` is not read directly in step 3 above. At startup, Bub scans `^BUB_(.+)_(API_KEY|API_BASE)$` and writes matches into the settings field mappings, with lower priority than `BUB_API_KEY` / `BUB_API_BASE` in the environment and YAML. Names matching registered Republic providers use their canonical names; others remain lowercase. The client also receives `env_prefix=BUB_<PROVIDER>` so Republic can read again if the value supplied by Bub is empty.
-
-If YAML or `BUB_API_KEY` / `BUB_API_BASE` contains a single string, it applies to every provider and prevents mapping and step-3 fallback. Use a mapping or `BUB_<PROVIDER>_…` to configure providers separately.
+:::caution
+Setting `BUB_API_KEY` / `BUB_API_BASE` (or YAML `api_key` / `api_base`) to a **single string** applies that string to every provider, overriding per-provider mappings and step-3 fallbacks. When using multiple providers (e.g., primary on OpenAI and fallback on OpenRouter), use a mapping or `BUB_<PROVIDER>_API_KEY`.
+:::
 
 ### Models and fallback {#model-routing}
 
-Common prefixes for `BUB_MODEL`:
+Common `BUB_MODEL` prefixes (see [Republic providers](https://getrepublic.org/providers/) for the full list):
 
-| Prefix | Purpose |
+| Prefix | Provider |
 | --- | --- |
-| `openai:` | OpenAI or an OpenAI-compatible endpoint |
-| `codex:` | ChatGPT plan login |
+| `openai:` | OpenAI or any OpenAI-compatible endpoint |
+| `codex:` / `grok:` / `github-copilot:` | Account credentials configured via `bub login` |
 | `openrouter:` | OpenRouter |
-| `anthropic:` / `google:` / `azure-openai:` | Native protocols for each provider |
-| `ollama:` / `magpie:` | Local services |
+| `anthropic:` / `google:` / `azure-openai:` | Native provider APIs |
+| `ollama:` / `magpie:` | Local model servers |
 
-See [Republic providers](https://getrepublic.org/providers/) for the complete list.
+`fallback_models` applies only when the active model matches the default `model` setting (it is skipped when `model=` is passed in code or after switching models with `,model`). Fallbacks are tried in order only when **connecting or opening the request stream fails**; errors after streaming has started do not retry on another model.
 
-`fallback_models` applies only when the current model identifier matches the configured `model`; it does not apply when `model=` is passed explicitly or the session switches to another model. Fallback attempts to **open** each request in sequence and stops retrying once stream consumption has begun.
+### `client_args` and `completion_args` {#client-args}
 
-### `client_args` {#client-args}
+Common `client_args` keys:
 
-| Key | Behavior |
+| Key | Description |
 | --- | --- |
-| `headers` | Merged with the default `User-Agent: bub/<version>`; explicit values win |
-| `api_format` | Usually set to `chat` for an OpenAI-compatible Chat Completions endpoint |
-| `env_prefix` | Defaults to `BUB_<PROVIDER>`, allowing the client to read provider-specific environment variables |
-| `timeout` / `max_retries` | Passed to the underlying client; the overall call timeout still comes from `model_timeout_seconds` |
-| `api_key` / `api_base` | Supplied by Bub and not read from `client_args` |
+| `headers` | Merged with the default `User-Agent: bub/<version>` header (explicit headers win) |
+| `api_format` | Set to `"chat"` for OpenAI-compatible `/v1/chat/completions` endpoints |
+| `timeout` / `max_retries` | HTTP client request timeout and retry count (overall call timeout is controlled by `model_timeout_seconds`) |
 
-An injected HTTP client must be an `httpx2.AsyncClient` and remains caller-owned.
+<a id="completion-args"></a>
 
-### `completion_args` {#completion-args}
+Common `completion_args` keys (call-level `options` override matching keys):
 
-| Key | Rule |
+| Key | Description |
 | --- | --- |
-| `max_tokens` | Uses `BUB_MAX_TOKENS` when not specified for a call; removed for Codex |
-| `reasoning_effort` | Session or per-Turn values override this setting |
-| `tools` | Supplied by the Agent for the current Step |
-| `extra_body` | Passed to the provider unchanged; Anthropic adds ephemeral cache control by default |
+| `max_tokens` | Defaults to `BUB_MAX_TOKENS` when unset (omitted for `codex:` calls) |
+| `reasoning_effort` | Overridden by session `,reasoning_effort` or call-level `options` |
+| `extra_body` | Passed through to the provider request body |
 
-Call-level `options` override generation options of the same name in `completion_args` before provider encoding. `completion_args.max_tokens` is superseded by `BUB_MAX_TOKENS` or call-level `max_tokens`; do not treat it as an independent limit. Providers may rewrite some fields. If a parameter must apply consistently, prefer an explicit Bub setting over relying on `extra_body`.
+### Custom providers (`providers`) {#custom-providers}
 
-### Custom providers {#custom-providers}
+Define custom provider prefixes under `providers` when connecting to multiple endpoints that share the same protocol (such as internal gateways or relays):
 
 ```yaml
 model: proxy:gpt-5.5
@@ -208,138 +186,71 @@ providers:
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `type` | Yes | Republic provider to emulate; configuration validation fails if it is not registered |
-| `api_base` | No | Falls back to the general `api_base` or `BUB_<NAME>_API_BASE` when omitted |
-| `api_key` | No | Falls back to the general `api_key` or `BUB_<NAME>_API_KEY` when omitted |
-
-`proxy:gpt-5.5` and `openai:gpt-5.5` use the same protocol but can use different addresses and keys.
+| `type` | Yes | Underlying Republic provider protocol name (e.g. `openai`, `anthropic`) |
+| `api_base` | No | Endpoint URL; falls back to `api_base` mapping or `BUB_<NAME>_API_BASE` |
+| `api_key` | No | Endpoint API key; falls back to `api_key` mapping or `BUB_<NAME>_API_KEY` |
 
 ## ChannelSettings {#channel-settings}
 
-`src/bub/channels/manager.py`
+Defined in `src/bub/channels/manager.py` (top-level YAML fields):
 
-```python
-@config()
-class ChannelSettings(Settings):
-    model_config = SettingsConfigDict(
-        env_prefix="BUB_",
-        extra="ignore",
-        env_file=".env",
-    )
-    enabled_channels: str = "all"
-    debounce_seconds: float = 1.0
-    max_wait_seconds: float = 10.0
-    active_time_window: float = 60.0
-    stream_output: bool = False
-```
-
-| Environment variable | Default | YAML | Description |
+| Environment variable | Default | YAML key | Description |
 | --- | --- | --- | --- |
-| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | Comma-separated names, `all`, or `!name` |
-| `BUB_DEBOUNCE_SECONDS` | `1.0` | `debounce_seconds` | Batch wait reset after each active message |
-| `BUB_MAX_WAIT_SECONDS` | `10.0` | `max_wait_seconds` | Used only while waiting for inactive follow-up messages; not a total batch cap |
-| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | `active_time_window` | Seconds after the last active message during which inactive messages may join |
-| `BUB_STREAM_OUTPUT` | `false` | `stream_output` | Whether the gateway pushes streaming events to channels; `bub chat` forces `true` |
+| `BUB_ENABLED_CHANNELS` | `all` | `enabled_channels` | Channels to enable (comma-separated names, `all`, or `!name` exclusions; see [CLI channel selection](/docs/reference/cli/#channel-selection)) |
+| `BUB_DEBOUNCE_SECONDS` | `1.0` | `debounce_seconds` | Debounce wait timer reset after each active message |
+| `BUB_MAX_WAIT_SECONDS` | `10.0` | `max_wait_seconds` | Max wait seconds when buffering unmentioned follow-up messages in a group |
+| `BUB_ACTIVE_TIME_WINDOW` | `60.0` | `active_time_window` | Seconds after an active message during which unmentioned group messages join the current batch |
+| `BUB_STREAM_OUTPUT` | `false` | `stream_output` | Push streaming events to gateway channels (`bub chat` always forces `true`) |
 
-The name `BUB_MAX_WAIT_SECONDS` can be misleading: it is used only when an inactive follow-up message starts a waiting batch. Active-message batches are still timed by `BUB_DEBOUNCE_SECONDS`; continued active messages do not force the batch to end after 10 seconds. Only channels with `needs_debounce=True`, such as Telegram, use this buffering.
+<a id="channel-selection"></a>
 
-### Channel selection {#channel-selection}
-
-| `enabled_channels` | Result |
-| --- | --- |
-| Contains `all` | Every enabled non-`Interface` channel, minus `!name` exclusions |
-| Explicit ordinary channels | Listed channels that are enabled and not excluded |
-| List contains a non-Lifecycle channel | Also attaches every enabled `Lifecycle` channel |
-| Lifecycle channels only | Starts only those Lifecycle channels |
-| Only `!name` | No included channels; startup fails |
-
-`bub gateway --enable-channel` overrides the environment selection and can be repeated. An `Interface` must be selected explicitly, such as `cli` or `acp-server`. See [CLI › Channel selection](/docs/reference/cli/#channel-selection) for more examples.
+Debouncing applies only to channels with `needs_debounce=True` (such as Telegram).
 
 ## TelegramSettings {#telegram-settings}
 
-`src/bub/channels/telegram.py`
+Defined in `src/bub/channels/telegram.py` (under `telegram:` in YAML):
 
-```python
-@config(name="telegram")
-class TelegramSettings(Settings):
-    model_config = SettingsConfigDict(
-        env_prefix="BUB_TELEGRAM_",
-        extra="ignore",
-        env_file=".env",
-    )
-    token: str = ""
-    allow_users: str | None = None
-    allow_chats: str | None = None
-    proxy: str | None = None
-```
-
-| Environment variable | Default | YAML | Description |
+| Environment variable | Default | YAML key | Description |
 | --- | --- | --- | --- |
-| `BUB_TELEGRAM_TOKEN` | `""` | `token` | The channel is enabled only when non-empty |
-| `BUB_TELEGRAM_ALLOW_USERS` | unset | `allow_users` | Comma-separated user IDs or usernames; empty means unrestricted |
-| `BUB_TELEGRAM_ALLOW_CHATS` | unset | `allow_chats` | Comma-separated chat IDs; empty means unrestricted |
-| `BUB_TELEGRAM_PROXY` | unset | `proxy` | `http://user:<password>@host:port` or `socks5://host:port` |
+| `BUB_TELEGRAM_TOKEN` | `""` | `token` | Telegram bot token; enables the Telegram channel when non-empty |
+| `BUB_TELEGRAM_ALLOW_USERS` | unset | `allow_users` | Allowed numeric user IDs or usernames (comma-separated; empty allows all) |
+| `BUB_TELEGRAM_ALLOW_CHATS` | unset | `allow_chats` | Allowed chat/group IDs (comma-separated; empty allows all) |
+| `BUB_TELEGRAM_PROXY` | unset | `proxy` | HTTP or SOCKS5 proxy URL (e.g. `http://127.0.0.1:7890` or `socks5://host:port`) |
 
-| Match | Ordinary message | `/start` |
-| --- | --- | --- |
-| Chat ID is not in `allow_chats` | Silently ignored | Replies with fixed rejection text |
-| Neither user ID nor username is in `allow_users` | Replies `Access denied.` | Does not check the user |
-| Both are configured | Both must match | Checks only the chat |
-
-See [Gateway › Telegram](/docs/app/gateway/#telegram) for deployment and group-chat behavior.
+See [Gateway: Configure Telegram](/docs/app/gateway/#configure-telegram) for allowlist and group-chat rules.
 
 ## SpillSettings {#spill-settings}
 
-`src/bub/builtin/spill.py`
+Defined in `src/bub/builtin/spill.py` (under `spill:` in YAML):
 
-```python
-@config(name="spill")
-class SpillSettings(Settings):
-    model_config = SettingsConfigDict(
-        env_prefix="BUB_SPILL_",
-        extra="ignore",
-        env_file=".env",
-    )
-    threshold: int = 4096
-```
-
-| Environment variable | Default | YAML | Description |
+| Environment variable | Default | YAML key | Description |
 | --- | --- | --- | --- |
-| `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | Estimated token limit at four characters per token; `0` disables new spills |
+| `BUB_SPILL_THRESHOLD` | `4096` | `threshold` | Estimated token threshold (4 chars ≈ 1 token) for spilling large tool outputs (`0` disables new spills; must be `>= 0`) |
 
-Rendered results of successful tool calls above the threshold are written to the `spill` sidecar, and the model receives a preview and read handle. Negative values violate `ge=0` and fail configuration validation. Preview length, chunk size, and similar values are implementation constants, not settings.
-
-| Situation | Behavior |
-| --- | --- |
-| Current tool set has no `spill.read` | Does not create a new spill; returns the result unchanged |
-| Result is already `spill.read` output | Does not spill it again |
-| Threshold is `0` | Stops creating new spills; existing sidecar results remain readable |
+When a tool output exceeds this threshold and `spill.read` is available, the full text is written to the `spill` sidecar and the model receives a short preview and handle (`spill.read` outputs are not spilled again).
 
 ## Third-party login variables {#login-env}
 
-| Variable | Default | Read by | Description |
-| --- | --- | --- | --- |
-| `CODEX_HOME` | `~/.codex` | `bub login codex` | Directory containing `auth.json`; can be overridden by `--codex-home` |
-
-These variables belong to third-party CLIs and are not `AgentSettings` fields.
-
-## Session settings {#session-settings}
-
-The following are neither environment variables nor YAML fields. Commands write them to the current session Tape, and they are restored for the next Turn and after a restart:
-
-| Key | Switch command (default prefix `,`) | Purpose |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `model` | `,model openai:gpt-5.5` | Overrides the session's default model; configured `fallback_models` does not apply after switching to another model |
-| `reasoning_effort` | `,reasoning_effort high` | Overrides `completion_args.reasoning_effort` |
-| `code_mode` | `,code_mode enable=true` | Enables or disables code mode for this session |
+| `CODEX_HOME` | `~/.codex` | Directory storing `auth.json` for `bub login codex` (overridable via `--codex-home`) |
 
-The actual prefix follows `command_prefix`. These values take effect from the next Turn and persist in the session Tape.
+## Session-persisted settings {#session-settings}
 
-## Plugin settings {#plugin-settings}
+These three settings are modified via comma commands inside a session and stored in the session Tape (taking effect on the **next Turn** and persisting across restarts):
+
+| Setting | Command (default prefix `,`) | Effect |
+| --- | --- | --- |
+| `model` | `,model openai:gpt-5.5` | Overrides the session model (`fallback_models` does not apply when switched away from the default model) |
+| `reasoning_effort` | `,reasoning_effort high` | Overrides reasoning effort for the session |
+| `code_mode` | `,code_mode enable=true` | Enables or disables code mode for the session |
+
+## Plugin custom settings {#plugin-settings}
+
+Plugins can register their own settings classes with `@config`:
 
 ```python
 from pydantic_settings import SettingsConfigDict
-
 from bub import Settings, config
 
 
@@ -352,28 +263,13 @@ class OrderSettings(Settings):
     timeout: int = 30
 ```
 
-| Item | Description |
-| --- | --- |
-| `@config(name="x")` | Registers under `CONFIG_MAP["x"]`; a section can have multiple classes |
-| YAML | Reads from the top-level `x:` section |
-| `@config()` | Registers at the root and reads top-level fields |
-| Environment variables | Determined by the subclass's `env_prefix` |
-| Validation | `configure.validate()` instantiates every registered class with its YAML section data |
-| Reading | `ensure_config(cls)` returns the process-cached instance |
+- `@config(name="x")` reads from the top-level `x:` section in `config.yml`; `@config()` reads from the YAML root.
+- Call `ensure_config(OrderSettings)` to get the process-cached instance.
+- `bub.configure` provides `load(path)`, `get_config_data()`, `merge(base, *updates)`, `save(path, data)`, `validate()`, and `get_value(path, default)`.
 
-| Function | Purpose |
-| --- | --- |
-| `configure.load(path)` | Reads YAML and replaces the current configuration data |
-| `configure.get_config_data()` | Returns a deep copy; excludes defaults and environment overrides |
-| `configure.merge(base, *updates)` | Recursively merges, with later values taking precedence |
-| `configure.save(path, data)` | Validates and writes to disk, creating parent directories |
-| `configure.get_value(path, default)` | Reads a registered setting by dotted path, then falls back to the root |
+## Full configuration file example {#example}
 
-Plugin settings usually support YAML, environment variables, and `.env`. If plugin documentation lists only one variable, do not assume it also has a synonymous `BUB_` name. See [Storage](/docs/integrations/storage/) and [Observability](/docs/integrations/observability/) for common plugin variables. Tracing variables such as `OTEL_*` and `LOGFIRE_TOKEN` are also documented on the observability page and do not belong to the `Settings` classes on this page.
-
-## Complete example {#example}
-
-The following `~/.bub/config.yml` lists every currently writable setting. Every key except `model` can be removed to use its default.
+Every field except `model` is optional:
 
 ```yaml title="~/.bub/config.yml"
 model: openrouter:openrouter/free
@@ -388,9 +284,11 @@ providers:
   proxy:
     type: openai
     api_base: https://llm-proxy.example.com/v1
-    api_key: sk-proxy-...
+    api_key: "your-provider-api-key"
 max_steps: 100
 max_tokens: 16384
+subagent_max_concurrency: 4
+subagent_timeout_seconds: 600
 model_timeout_seconds: 120
 client_args:
   timeout: 60
@@ -409,17 +307,8 @@ spill:
   threshold: 4096
 
 telegram:
-  token: "123456:abcdef..."
+  token: "your-telegram-bot-token"
   allow_users: "123456789,your_username"
   allow_chats: "-1001234567890"
   proxy: socks5://127.0.0.1:7890
 ```
-
-Settings that do not belong in this file:
-
-| Setting | Location | Environment variable |
-| --- | --- | --- |
-| `bub.home` | Runtime path; not written to YAML | `BUB_HOME` |
-| Plugin project directory | Command argument `--project` | `BUB_PROJECT` |
-| Codex login directory | Third-party CLI | `CODEX_HOME` |
-| Session-level `model` / `reasoning_effort` / `code_mode` | Written to the session Tape and switched by commands | — |

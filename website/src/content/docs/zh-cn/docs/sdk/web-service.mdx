@@ -1,45 +1,42 @@
 ---
 title: 将 Bub Agent 与 FastAPI 集成
-description: 基于 Bub SDK 构建一个 Todo Agent，并与 FastAPI 集成。
+description: 实战教程：使用 Bub Python SDK 与 FastAPI 构建带工具调用、人工二次确认（Approval）与 SSE 流式输出的 Todo Agent 服务。
 sidebar:
   label: 综合案例
 ---
 
-import { FileTree, Steps } from '@astrojs/starlight/components';
+import { Code, FileTree, Steps } from '@astrojs/starlight/components';
+import fullMainPy from '../../../../../../public/examples/bub-todo-agent/main.py?raw';
 
-经过前面对于 Bub SDK 使用的基本了解后，本节不再引入新概念，而是通过一个综合示例来将所有概念串联起来，最终构建出一个完整的 Agent Demo 应用。
+前面几节我们已经了解了 Bub SDK 的核心组件。本节不再引入新概念，而是把 `Agent`、工具、事件拦截和 Tape 存储串起来，基于 FastAPI 亲手搭一个带 SSE 流式输出和删除二次确认的 Todo Agent 应用。
 
 :::tip[看不懂就问]
-本节内容仅对后端逻辑进行展开，前端界面交互部分则不涉及。如遇到不理解的概念、代码或报错，可以直接问 Bub，或让正在使用的 Agent 工具结合本教程和当前代码为你讲解。
+本节只聚焦后端逻辑，前端界面代码不在正文中展开。如果遇到不理解的概念、代码或报错，可以直接问 Bub，或者让你手头的 AI 编程工具结合本文和源码为你解答。
 :::
 
-完整示例代码在 [bub-todo-agent](https://github.com/bubbuild/bub/blob/main/website/public/examples/bub-todo-agent/) 中，你可以下载后自行修改或者跟着教程构建。最终核心文件目录如结构所示：
+完整源码位于 [bub-todo-agent](https://github.com/bubbuild/bub/blob/main/website/public/examples/bub-todo-agent/)，你可以直接下载试跑，或者跟着下面的步骤一步步搭起来：
 
 <FileTree>
 
 - bub-todo-agent/
-  - main.py # 本文重点
-  - index.html # 演示界面，不在本文展开
+  - **main.py** # 后端服务代码（本节重点）
+  - index.html # 前端演示页面
   - static/
     - uno.global.js
     - alpine.min.js
-  - sessions/ # 运行后自动生成
+  - sessions/ # 运行时自动生成的 Tape 存储目录
 
 </FileTree>
 
-
 :::caution
-本项目仅用于演示教学，不具备生产能力，请勿将其暴露在任何公网。
+本示例仅用于教学演示，未包含生产级鉴权与持久化数据库，请勿直接暴露在公网。
 :::
 
-## 1. 配置 Agent 并启动 FastAPI 服务 {#lifespan}
+## 1. 初始化 Agent 与 FastAPI Lifespan {#lifespan}
 
-首先，我们把应用骨架搭起来：完成 Bub Agent 相关配置，并在 FastAPI 启动时创建 Agent。所以主要有以下事项：
+首先，我们把应用骨架搭起来：在 FastAPI 的 [lifespan](https://fastapi.tiangolo.com/advanced/events/#lifespan) 中初始化模型连接与 `Agent` 实例，并挂载到 `app.state` 上供所有请求复用：
 
-1. 导入相关依赖，并将配置信息读取作为变量保存；
-2. 自定义 FastAPI [生命周期](https://fastapi.tiangolo.com/advanced/events/#lifespan)（lifespan）逻辑，在启动时完成 Bub Agent 配置。
-
-```python title="main.py"
+```python title="main.py" showLineNumbers collapse={1-33} {50-58}
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
@@ -79,13 +76,11 @@ BASE_DIR = Path(__file__).resolve().parent
 
 load_dotenv()
 
-# ===== 通过环境变量或 .env 覆盖，也可以直接修改这里的默认值 =====
 MODEL = os.getenv("BUB_MODEL", "openai:gpt-4o-mini")
 BASE_URL = os.getenv("BUB_API_BASE", "https://api.openai.com/v1")
 API_KEY = os.getenv("BUB_API_KEY") or os.getenv("REPUBLIC_OPENAI_API_KEY")
 HOST = os.getenv("BUB_HOST", "127.0.0.1")
 PORT = int(os.getenv("BUB_PORT", "8000"))
-# ==========================================================
 
 
 @asynccontextmanager
@@ -104,7 +99,7 @@ async def lifespan(app: FastAPI):
         app.state.model = model
         app.state.agent = agent
         app.state.session_locks = defaultdict(asyncio.Lock)
-        # request_id -> future；删除钩子在这里等待答案，由 POST /chat/confirm 唤醒。
+        # request_id -> future；删除钩子在此等待用户确认，由 POST /chat/confirm 唤醒
         app.state.pending_confirms = {}
         yield
 
@@ -112,28 +107,19 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Bub Todo Agent", lifespan=lifespan)
 ```
 
-注意：
+- 将 `Agent` 挂载在 `app.state` 上全局复用，避免每次请求重复初始化；
+- `max_steps=6` 限制单次 Run 的最大步数；
+- `FileTapeStore` 将会话历史持久化到本地 `sessions/` 目录。
 
-- 为了避免重复创建 Agent 以及全局使用，这里我们将创建好的 Agent 实例以及多个属性挂载到 FastAPI 的状态对象 `app.state` 上
-- 创建 Bub Agent 时使用 `max_steps` 控制运行一次模型的最大执行步骤数，避免模型陷入死循环
-- 配置 `store` 参数让 Agent 使用 Tape 的能力以确保具备记忆能力可以连续对话
+到这一步还只是一个最基础的骨架——模型目前只能纯聊天，还干不了实事。接下来，我们给它装上真正能操作待办事项的工具。
 
-但目前这只是一个非常基本的配置，模型只能回答，因此我们接下来为它赋予额外的处理任务能力。
+## 2. 定义业务工具 {#tools}
 
-## 2. 用工具承载业务能力 {#tools}
-
-Agent 就位之后，接下来让它真正能做事——即我们所有涉及到 Todo 任务的操作以 Python 函数表示并封装成工具，之后交给 Agent 调用。因此我们将有以下事项：
-
-- 用 Python 的字典对象来存储任务数据
-- 提供常见的增删改查方法来让 Agent 与这个字典对象交互，即查看任务、新增任务、完成任务以及删除任务。
+Agent 就位之后，接下来让它真正能干活——把待办事项的查询、新增、完成和删除操作写成普通 Python 函数，再用 `@tool` 封装成工具交给 Agent：
 
 ```python title="main.py"
-# ...
-
 from itertools import count
-
 from pydantic import BaseModel, Field
-
 from bub.core.tools import tool
 
 TASKS: dict[str, dict[str, object]] = {}
@@ -176,23 +162,17 @@ def delete_task(task_id: str) -> dict[str, object]:
     return {"task_id": task_id, "error": "task_not_found"}
 ```
 
-以上代码都是较为基础的 Python 逻辑，这里就不展开，简单来说就是：
+上面这几个函数都是很基础的 Python 逻辑，这里就不逐行展开了，只需记住三点：
 
-- Python 函数的 docstring 和类型标注会作为工具 schema 使用，后续 Agent 在调用前会阅读后以决定是否调用工具来触发逻辑。
-- 返回值必须能 JSON 序列化；业务失败返回 `{"error": ...}`，不要动辄抛异常中断整个流程。
-- `delete_task` 是不可逆操作，后续我们将会添加拦截事件以便新增二次确认逻辑。
+- 函数的 docstring 和类型标注会自动生成工具 Schema，模型全靠它们决定何时调用以及怎么传参；
+- 返回值必须可 JSON 序列化，业务失败（如任务不存在）直接返回 `{"error": ...}`，不要动辄抛异常中断整个流程；
+- `delete_task` 是不可逆操作，稍后我们会通过事件处理器给它加上二次确认。
 
-现在让我们修改 Agent 配置：
+现在把这组工具传给 `Agent`，并设置 `max_tool_concurrency=2`：
 
-```python title="main.py"
-
-# Code snippet..
-
+```python title="main.py" ins={6,13}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-
-    # ...
-
     async with republic.get_model(MODEL, api_base=BASE_URL, api_key=API_KEY) as model:
         agent = Agent(
             store=FileTapeStore(BASE_DIR / "sessions"),
@@ -207,13 +187,9 @@ async def lifespan(app: FastAPI):
         )
 ```
 
-这里我们把所有任务作为 `tools` 参数传递，然后设置 `max_tool_concurrency` 限制一次工具调用的最大数量上限。
+## 3. 封装 Agent 调用参数 {#tape}
 
-## 3. 包装调用 Agent 操作 {#tape}
-
-装配了工具的 Bub Agent 有了「手脚」，现在已经具备可以交互的能力了。
-
-在调用前我们可能需要做一些简单的参数处理或封装，真正调用 Agent 时参数是正确的，所以我们这里的逻辑很简单：
+装上工具之后，我们的 Agent 就有了「手脚」。在接入 HTTP 路由前，先写一个轻量的包装函数 `run_agent`，把请求参数 `ChatRequest`、会话 `session_id` 和删除确认回调 `confirm_delete` 传给 `agent.run()`：
 
 ```python
 ConfirmDelete = Callable[[dict[str, object]], Awaitable[bool]]
@@ -236,38 +212,17 @@ def run_agent(agent: Agent, model, req: ChatRequest, confirm_delete: ConfirmDele
     )
 ```
 
-注意：
+- `tape=req.session_id` 让同一 `session_id` 的请求共享多轮对话历史（通过正则限制字符范围，确保作为文件名安全）；
+- `state` 将当前请求的确认回调传递给接下来的事件处理器。
 
-- `tape=req.session_id` 让同一会话共享历史；换一个 `session_id` 则是开启新会话。
-- `state` 属于临时状态的数据存储，为后续事件 hook 共用
+## 4. 注册事件处理器（日志与删除审批） {#events}
 
-## 4. 注册事件 hooks {#events}
+有了工具之后，我们还可以利用事件总线在关键节点「插一手」——比如记录工具调用日志，或者在执行删除前拦下来等用户点头。在 `lifespan` 中注册两个事件处理器：
 
-由于 Bub 提供了多种 Hook 入口，因此我们可以利用 Hook 来自定义某些阶段的业务流程，比如输出工具调用日志或拦截没有确认的删除指令等。
+1. `ToolCallFinished`：记录每次工具调用的名称、状态和耗时；
+2. `ToolCallStarted`：在执行 `delete_task` 前暂停并等待前端用户确认；若用户拒绝或超时，通过 `ToolCallDecision.deny(...)` 拦截删除。
 
-核心业务逻辑如下：
-
-1. 当收到 `ToolCallFinished` 事件时，则记录工具名、状态和耗时。
-2. 当收到 `ToolCallStarted` 事件时先截 `delete_task` 操作。
-3. 从 `state` 取出确认回调；没有就拒绝。
-4. 用户拒绝时设置 `deny`，并告诉模型替代方案。
-
-所以在 Agent 创建后，我们再在 FastAPI 的 `lifespan`  中新增如下逻辑：
-
-```python title="main.py"
-# ...
-
-from bub.core.events import ToolCallDecision, ToolCallFinished, ToolCallStarted
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    async with republic.get_model(MODEL, api_base=BASE_URL, api_key=API_KEY) as model:
-
-
-        # ...
-
-
+```python title="main.py" "@agent.events.on(ToolCallFinished)" "@agent.events.on(ToolCallStarted)" "ToolCallDecision.deny"
         @agent.events.on(ToolCallFinished)
         def audit_tool(event: ToolCallFinished) -> None:
             logger.info(
@@ -277,11 +232,8 @@ async def lifespan(app: FastAPI):
                 event.result.duration_ms,
             )
 
-
         @agent.events.on(ToolCallStarted)
         async def authorize_tool(event: ToolCallStarted) -> None:
-            # 异步处理器会被等待，因此这里可以暂停 Run，直到用户在界面上作答。
-            # 没人作答时默认拒绝，是更安全的失败方式。
             if event.call.tool != "delete_task":
                 return
             confirm: ConfirmDelete | None = event.state.get("confirm_delete")
@@ -292,33 +244,19 @@ async def lifespan(app: FastAPI):
                 )
 ```
 
-注意：
+由于 `EventBus` 会同步 `await` 异步处理器，当前 Run 会在 `await confirm(...)` 处暂停，直到用户在前端点击确认或取消。同时注意，`deny` 只会跳过这一次工具调用，不会终止整次 Run；模型会收到拒绝原因并顺势调整回复。
 
-- 异步处理器会暂停当前 Agent 调用流程，直到用户回答。
-- `deny` 操作只跳过这次工具调用，不会终止整个流程；模型会收到拒绝原因并调整回答。
+## 5. 会话锁与确认接口 {#concurrency}
 
-## 5. 会话锁与确认操作 {#concurrency}
-
-上一节中提到会在删除任务前暂停流程，但要让「暂停」真正成立，还缺两样东西：
-
-1. 同一会话的请求需要排队，避免等待处理期间又有请求进来导致 Tape 会话被占用
-2. 用户对删除的回答也要送回那个暂停中 Hook 逻辑
-
-因此我们可能需要「锁」，确保同一个 Tape 存储记录只能有一次请求持有，这两项状态都在 `lifespan` 中初始化：
+上一节我们在删除前暂停了事件处理器，但要让「暂停等待确认」在并发 Web 服务中可靠跑起来，还需要解决两件事：同一会话的请求得排队，以及前端的确认结果得准确送回那个等待中的处理器。为此，我们在 `lifespan` 中维护了两个字典：
 
 ```python
 app.state.session_locks = defaultdict(asyncio.Lock)
-# request_id -> future；删除钩子在这里等待答案，由 POST /chat/confirm 唤醒。
 app.state.pending_confirms = {}
 ```
 
-后续在请求入口中我们按 `session_id` 取锁，让同一会话的请求就会依次执行即可：
-
-```python
-lock: asyncio.Lock = state.session_locks[req.session_id]
-```
-
-对于确认的交互，我们使用一个单独的接口逻辑处理：
+- `session_locks`：按 `session_id` 加锁，确保同一会话不会并发读写同一个 Tape；
+- `pending_confirms`：保存 `request_id -> asyncio.Future`，当用户在前端点击确认按钮并调用 `POST /chat/confirm` 时，唤醒正在等待的事件处理器：
 
 ```python
 class Confirmation(BaseModel):
@@ -335,20 +273,13 @@ async def confirm_tool_call(req: Confirmation, request: Request):
     return {"approved": req.approved}
 ```
 
-现在让我们来做最后一步构建。
+好，基础设施全部就位，现在来做最后一块拼图。
 
-## 6. 构建 API 接口并使用 SSE 传输 {#sse}
+## 6. 通过 SSE 流式推送响应 {#sse}
 
-锁和确认操作就位后，就可以把它们也一同接入与 Agent 的对话中来：
+锁和确认接口就位后，最后把它们串进 `/chat/stream` 接口：后台任务驱动 Agent 运行，并通过 `asyncio.Queue` 将文本增量、工具调用、确认请求和完成信号统一作为 [SSE](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/)（Server-Sent Events）帧推给前端：
 
-1. 前端通过向 `/chat/stream` 路径进行 HTTP 请求
-2. 接收请求后由 FastAPI 调用对应接口逻辑，即使用 Agent 生成内容
-3. Agent 生成的输出内容被 FastAPI 用 [SSE](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/) 协议序列化成对应事件后返回给前端
-4. 前端根据事件类型处理和展示
-
-这里直接给出完整代码：
-
-```python title="main.py"
+```python title="main.py" collapse={1-8}
 import asyncio
 from collections.abc import AsyncIterable
 from contextlib import suppress
@@ -362,8 +293,6 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 async def chat_stream(req: ChatRequest, request: Request) -> AsyncIterable[ServerSentEvent]:
     state = request.app.state
     lock: asyncio.Lock = state.session_locks[req.session_id]
-    # Run 放在后台任务里推进，这样钩子也能往队列里推帧；
-    # 钩子运行在 Agent 事件流内部，响应生成器此时无法直接 yield。
     queue: asyncio.Queue[ServerSentEvent | None] = asyncio.Queue()
 
     async def confirm_delete(arguments: dict[str, object]) -> bool:
@@ -382,7 +311,7 @@ async def chat_stream(req: ChatRequest, request: Request) -> AsyncIterable[Serve
             )
         )
         try:
-            # 失败即关闭：两分钟内没有回答，或客户端断开，都不执行删除。
+            # 120 秒超时或客户端断开时默认拒绝删除
             return await asyncio.wait_for(future, timeout=120)
         except TimeoutError:
             return False
@@ -401,7 +330,7 @@ async def chat_stream(req: ChatRequest, request: Request) -> AsyncIterable[Serve
                         names = [call["name"] for call in event.data["tool_calls"]]
                         queue.put_nowait(ServerSentEvent(data={"names": names}, event="tool"))
 
-                # 整个 Run 结束后才发送 done；final 只代表一个 Step 结束。
+                # 整个 Run 结束后发送 done（final 事件仅代表单个 Step 结束）
                 queue.put_nowait(
                     ServerSentEvent(data={"last_step_usage": stream.usage}, event="done")
                 )
@@ -423,16 +352,26 @@ async def chat_stream(req: ChatRequest, request: Request) -> AsyncIterable[Serve
             await task
 ```
 
-## 完整回顾与一次交互 {#wiring}
+你也可以直接在下方查看完整的 `bub-todo-agent/main.py` 源码（辅助函数与常规路由已默认折叠，点击即可展开）：
 
-我们快速回顾一下本章内容，在本 Demo 中一次完整的交互路径示意如下：
+<Code
+  code={fullMainPy}
+  lang="python"
+  title="bub-todo-agent/main.py"
+  showLineNumbers
+  collapse={['1-136', '185-259', '320-324']}
+/>
+
+## 交互时序总览 {#wiring}
+
+我们快速回顾一下本章内容，整个 Demo 中一次完整的交互路径如下：
 
 ```mermaid
 sequenceDiagram
     participant C as 客户端
     participant S as /chat/stream
     participant A as Agent
-    participant H as 事件钩子
+    participant H as 事件处理器
     participant K as /chat/confirm
 
     C->>S: POST {session_id, prompt}
@@ -442,62 +381,59 @@ sequenceDiagram
     A-->>S: text / tool_call 事件
     S-->>C: SSE message / tool 帧
 
-    opt delete_task 需要确认
+    opt delete_task 触发二次确认
         A->>H: ToolCallStarted
         H->>S: 请求用户确认
         S-->>C: SSE confirm 帧（request_id）
         C->>K: POST {request_id, approved}
-        K->>H: 返回确认结果
-        H-->>A: 放行或拒绝
+        K->>H: 唤醒 Future 返回结果
+        H-->>A: 放行或 deny
     end
 
     A-->>S: 事件流结束
     S-->>C: SSE done 帧
 ```
 
-总的来说，整个 Demo 可以分为三部分：
+总的来说，这个应用可以清晰地分成三部分：
 
-- **配置与集成**：配置 Bub Agent，并与 FastAPI 集成在一起；
-- **基于工具与事件机制自定义逻辑**：将实际的交互逻辑封装成可供 Agent 调用的工具，并对工具调用时的一些事件阶段流程进行自定义；
-- **通过 HTTP 接口交互**：对外交互的入口为 HTTP 接口，在接口内组合多个部分、逻辑最终完成交互流程。
+- **配置与集成**：在 FastAPI `lifespan` 中初始化 Bub Agent 与 Tape 存储；
+- **工具与事件定制**：把待办操作封装成工具，再通过事件处理器加上审计日志与删除二次确认；
+- **HTTP 与流式交互**：用会话锁、确认接口和 SSE 流把所有环节串成完整的前后端闭环。
 
-## 运行与体验 {#run}
+## 运行示例 {#run}
 
-到这里，我们完整的 Demo 示例就算完成了。现在你可以直接通过 [bub-todo-agent](https://github.com/bubbuild/bub/blob/main/website/public/examples/bub-todo-agent/) 来运行整个服务然后在前端界面进行体验：
+到这里，我们的完整 Demo 就算大功告成了！现在你可以直接下载 [bub-todo-agent](https://github.com/bubbuild/bub/blob/main/website/public/examples/bub-todo-agent/) 在本地启动，打开浏览器体验一下：
 
 <Steps>
 
-1. 将 `.env.example` 重命名为 `.env`，并填写模型相关参数或端口：
+1. 将 `.env.example` 复制为 `.env` 并填入模型配置：
 
-    ```bash title=".env"
-    BUB_MODEL=openai:gpt-4o-mini
-    BUB_API_BASE=https://api.openai.com/v1
+   ```bash title=".env"
+   BUB_MODEL=openai:gpt-4o-mini
+   BUB_API_BASE=https://api.openai.com/v1
+   BUB_API_KEY=sk-...
+   BUB_HOST=127.0.0.1
+   BUB_PORT=8000
+   ```
 
-    BUB_API_KEY=sk-...
+2. 使用 `uv` 启动服务：
 
-    BUB_HOST=127.0.0.1
-    BUB_PORT=8000
-    ```
+   ```shell
+   uv run main.py
+   ```
 
-2. 使用 uv 运行 `main.py`：
+3. 在浏览器中访问 `http://127.0.0.1:8000`：
 
-    ```shell
-    uv run main.py
-    ```
+   ```text
+   $ uv run main.py
+   INFO:     Started server process [85377]
+   INFO:     Waiting for application startup.
+   INFO:     Application startup complete.
+   INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+   ```
 
-3. 看到日志有输出时点击或复制 URL 地址通过浏览器进入页面即可：
-
-    ```
-    $ uv run main.py
-    INFO:     Started server process [85377]
-    INFO:     Waiting for application startup.
-    INFO:     Application startup complete.
-    INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-    ```
-
-    ![Bub Todo Agent Screenshot](/docs/sdk/bub-todo-agent-screenshot.png)
+   ![Bub Todo Agent Screenshot](/docs/sdk/bub-todo-agent-screenshot.png)
 
 </Steps>
-
 
 祝你玩得愉快！

@@ -1,86 +1,86 @@
 ---
 title: 技能
-description: 编写、验证和使用 Bub 技能，并理解技能发现与覆盖规则。
+description: 编写、验证并分发可复用的 Bub 技能（SKILL.md），了解技能发现优先级、内置技能及模板变量插值机制。
 ---
 
-[技能](https://agentskills.io/)（Skill）是由 Anthropic 所提出的标准发布的格式，用于扩展 AI 代理能力、补充专业知识与工作流程。一个技能即一个包含 `SKILL.md` 文件的文件夹，写清某类任务该怎么做，模型会按需加载。
+[技能](https://agentskills.io/)（Skill）是由 Anthropic 发起的一项开放标准格式，用于扩展 Agent 的专业知识与任务流程。一个技能就是一个包含 `SKILL.md` 文件的目录，里面写清楚某类任务该怎么做，模型会在需要时按需加载。
 
-## 发现技能与优先级 {#discovery}
+## 发现顺序与优先级 {#discovery}
 
-Bub 按以下优先级顺序自动发现并加载技能。**同名时以最先找到的为准**：
+Bub 按以下顺序扫描并加载技能，**同名技能以最先发现的为准**：
 
-1. **工作区目录**：`<workspace>/.agents/skills/`（旧目录 `.agent/skills/` 仍兼容）
+1. **工作区目录**：`<workspace>/.agents/skills/`（兼容旧路径 `.agent/skills/`）
 2. **用户全局目录**：`~/.agents/skills/`
-3. **已安装包**：环境中所有已安装的 `skills` 命名空间包（含 Bub 自带的[内置技能](#builtin-skills)）
+3. **已安装的 Python 包**：环境中所有 `skills` 命名空间包（含 Bub [内置技能](#builtin-skills)）
 
 ## 内置技能 {#builtin-skills}
 
-安装 Bub 应用时自带三个技能：
+Bub 应用自带三个技能：
 
 | 技能 | 用途 | 外部依赖 |
 | --- | --- | --- |
-| `telegram` | 发送、回复和编辑 Telegram 消息 | Telegram Bot token |
-| `gh` | 通过 GitHub CLI 管理仓库、Issue、PR 和 Actions | 安装并认证 `gh` |
-| `skill-creator` | 指导创建或更新技能 | 无 |
+| `telegram` | 发送、回复和编辑 Telegram 消息 | Telegram Bot Token |
+| `gh` | 通过 GitHub CLI 管理仓库、Issue、PR 和 Actions | 安装并登录 `gh` |
+| `skill-creator` | 辅助创建或更新技能 | 无 |
 
 ## 编写技能 {#write-a-skill}
 
-可以试着在当前工作区或全局用户目录下试着创建一个技能，例如 `.agents/skills/repo-map/SKILL.md`：
+你可以在当前工作区或用户全局目录下创建一个技能（`<skill-name>/SKILL.md`），例如 `.agents/skills/repo-map/SKILL.md`：
 
-```markdown
+```markdown title=".agents/skills/repo-map/SKILL.md"
 ---
 name: repo-map
-description: 修改代码前，先阅读本地仓库结构。
+description: 修改代码前，先查看本地仓库目录结构。
 ---
 
-1. 运行 `rg --files`，查看仓库结构。
-2. 阅读能够说明本次修改的文件。
-3. 编辑代码前，说明会涉及哪些模块。
+1. 运行 `rg --files` 查看仓库文件结构。
+2. 阅读与本次修改相关的文件。
+3. 修改代码前，先说明涉及哪些模块。
 ```
 
 ### 字段与变量规范 {#skill-fields}
 
-`SKILL.md` 的 YAML frontmatter 规范如下：
+`SKILL.md` 顶部的 YAML frontmatter 字段要求：
 
 | 字段 | 要求 |
 | --- | --- |
-| `name` | 必填；必须与所在的技能目录名完全一致；仅限小写字母、数字和连字符；最多 64 个字符 |
-| `description` | 必填；清晰说明适用任务和触发场景，供模型判断何时选用该技能；最多 1,024 个字符 |
-| `metadata` | 可选；键值对映射，键和值都必须是字符串 |
+| `name` | **必填**。必须与所在目录名完全一致；仅限小写字母、数字和连字符，最多 64 个字符 |
+| `description` | **必填**。说明适用任务与触发场景（供模型判断何时选用），最多 1,024 个字符 |
+| `metadata` | 可选。字符串到字符串的键值对映射 |
 
-配套的辅助脚本或参考文件可存放在技能目录下的 `scripts/`、`references/` 或 `assets/` 中。技能正文支持以下动态变量插值：
+辅助脚本或参考文档可放在技能目录下的 `scripts/`、`references/` 或 `assets/` 中。技能正文支持以下变量插值：
 
-| 变量 | 展开结果 |
+| 变量 | 展开值 |
 | --- | --- |
 | `$SKILL_DIR` | 当前技能目录的绝对路径 |
-| `$PYTHON` | 运行 Bub 的 Python 解释器路径 |
-| `${config.path.to.value}` | Bub 配置文件中对应字段的值 |
+| `$PYTHON` | 当前运行 Bub 的 Python 解释器路径 |
+| `${config.path.to.value}` | Bub 配置文件中对应点号路径的值 |
 
-技能中的脚本不会自动执行。正文中应指引模型调用对应工具执行脚本，并确保环境已安装所需外部依赖（如本例需安装 `rg`）。
+技能中的脚本不会自动运行，需在正文中指引模型调用 `bash` 等工具执行（请确保环境已安装对应命令依赖，如上例中的 `rg`）。
 
-当然，如果你不想自己手动创建技能，可以委托给你的 Agent 工具或是 Bub 应用来创建技能，例如：
+当然，如果你不想自己手动创建技能，也可以直接让 Bub 用内置的 `$skill-creator` 技能帮你生成：
 
 ```bash
-bub run '使用 $skill-creator 技能，创建一个名为 `repo-map` 的技能，主要流程是：
-1. 运行 `rg --files`，查看仓库结构。
-2. 阅读能够说明本次修改的文件。
-3. 编辑代码前，说明会涉及哪些模块。'
+bub run '使用 $skill-creator 技能创建名为 `repo-map` 的技能，流程如下：
+1. 运行 `rg --files` 查看仓库文件结构。
+2. 阅读与本次修改相关的文件。
+3. 修改代码前，先说明涉及哪些模块。'
 ```
 
 ## 验证与使用 {#verify-a-skill}
 
-在 Bub 应用中可以通过以下方式调用技能：
+创建完成后，可以通过以下方式验证并调用技能：
 
 | 命令 | 说明 |
 | --- | --- |
-| `bub run ",skill"` | 列出当前工作区实际发现的技能 |
-| `bub run ",skill name=repo-map"` | 打印变量展开后的正文，不调用模型；返回 `(no such skill)` 时检查目录名与 `name` 是否一致 |
-| `bub run '使用 $repo-map 技能，然后列出你找到的顶层模块。'` | 把正文展开进本轮对话的系统提示词，模型据此调用工具完成后续步骤 |
+| `bub run ",skill"` | 列出当前工作区发现的所有技能 |
+| `bub run ",skill name=repo-map"` | 查看变量展开后的技能正文（不调用模型）；若返回 `(no such skill)`，请检查目录名与 `name` 是否一致 |
+| `bub run '使用 $repo-map 技能，列出顶层模块。'` | 显式将技能正文注入本轮系统提示词 |
 
 :::note
-未显式写出 `$skill-name` 时，模型仍会依据技能的 `description` 自主判断是否采用。
+即使提示词中不写 `$skill-name`，模型也会根据技能的 `description` 按需调用 `skill` 工具加载正文。
 :::
 
 ## 随 Python 包分发 {#include-skills-in-a-wheel}
 
-技能可通过插件包进行分发。关于如何组织插件包目录结构、配置打包以及独立环境发布验证，详见[打包与分发](/zh-cn/docs/app/distribution/#bundle-plugins-and-skills)。
+技能可以打包进 Python Wheel 随插件一起分发，目录结构与打包配置见[打包与分发](/zh-cn/docs/app/distribution/#bundle-plugins-and-skills)。

@@ -1,31 +1,31 @@
 ---
 title: Connect an IDE over ACP
-description: Install bub-acp-server to run and interact with the Bub Agent in Zed or any ACP-compatible code editor.
+description: Install bub-acp-server to run the Bub Agent inside Zed or any ACP-compatible IDE, with session sync and remote HTTP/WebSocket mode.
 sidebar:
   badge: { text: 'App', variant: 'note' }
 ---
 
-The [Agent Client Protocol](https://agentclientprotocol.com/) (ACP) is an open standard protocol that lets code editors (such as Zed) start an Agent as a subprocess and exchange sessions, prompts, tool call status, and code editing operations bidirectionally over JSON-RPC streaming.
+The [Agent Client Protocol](https://agentclientprotocol.com/) (ACP) is an open standard that lets code editors (such as Zed) run an Agent subprocess and stream sessions, prompts, tool calls, and file edits over JSON-RPC.
 
-The `bub-acp-server` plugin connects the Bub application to the ACP protocol, so you can summon Bub directly in your everyday IDE for coding, refactoring, and troubleshooting.
+Install `bub-acp-server` to connect Bub to ACP, so you can summon Bub directly in your everyday IDE for coding, refactoring, and troubleshooting.
 
 ```mermaid
 flowchart LR
-    IDE["Code editor\n (ACP-compatible)"]
+    IDE["Code editor\n(ACP-compatible)"]
     Server["bub-acp-server"]
     Bub["Bub Agent"]
 
     IDE <-->|"JSON-RPC"| Server
-    Server <-->|"Turn events and tool execution"| Bub
+    Server <-->|"Turn events and tool calls"| Bub
 ```
 
 ## Before you start {#before-you-start}
 
-- You have [installed the Bub application](/docs/getting-started/install/#app-install) and configured a working model.
-- You have installed the [Zed](https://zed.dev/) editor (or another ACP-compatible client).
+- [Install the Bub app](/docs/getting-started/install/#app-install) and configure a model.
+- Install [Zed](https://zed.dev/) (or another ACP client).
 
-:::note[Environment variables and paths]
-Applications such as Zed inherit a `PATH` and environment variables at launch that usually differ from those of a terminal (such as `~/.zshrc` or `~/.bashrc`). First confirm the absolute path of `bub` in your current environment from the terminal:
+:::note[Find the absolute path to `bub`]
+GUI applications often launch with a default system `PATH` that omits shell additions from `~/.zshrc` or `~/.bashrc`. Check the absolute path of `bub` in your terminal first:
 
 ```bash
 command -v bub
@@ -41,23 +41,17 @@ bub install bub-acp-server@main
 bub acp --help
 ```
 
-If the installation succeeds, the terminal output shows:
-
-```text
-Usage: bub acp [OPTIONS]
-```
-
-`bub-acp-server` communicates with the host editor over standard input/output (`stdio`) by default.
+Seeing `Usage: bub acp [OPTIONS]` confirms installation. By default, `bub acp` communicates over `stdio`.
 
 ## 2. Configure Zed {#zed}
 
-In Zed, press `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P` (Linux/Windows) to open the command palette, type and run `zed: open settings`, and add the `agent_servers` configuration to the opened `settings.json`.
+In Zed, press `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P` (Linux/Windows), run `zed: open settings`, and add `agent_servers` to `settings.json`.
 
-### Option A: Global installation {#global-install}
+### Option A: Direct command {#global-install}
 
-If `bub` is on the system global `PATH` and you do not need to load a project-specific `.env` file, configure it directly:
+If you do not need to load a project `.env` file, point directly to `bub` (replace `"bub"` with the absolute path from `command -v bub` if Zed cannot find it):
 
-```json
+```json title="~/.config/zed/settings.json"
 {
   "agent_servers": {
     "Bub": {
@@ -70,37 +64,35 @@ If `bub` is on the system global `PATH` and you do not need to load a project-sp
 }
 ```
 
-*If Zed reports that it cannot find `bub`, replace `"command"` with the absolute path you obtained earlier from `command -v bub`.*
+### Option B: Wrapper script {#wrapper-script}
 
-### Option B: Use a wrapper script {#wrapper-script}
+If your API keys live in a workspace `.env` file or you use a project virtual environment, create a wrapper script at `~/.bub/bub-acp-wrapper`:
 
-If your project relies on a specific Python virtual environment, or the model API key is stored in `.env` at the workspace root, we strongly recommend writing a launcher wrapper script (for example `~/.bub/bub-acp-wrapper`):
-
-```bash
+```bash title="~/.bub/bub-acp-wrapper"
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 1. Activate the virtual environment (if any)
+# 1. Optional: activate virtual environment
 # source /path/to/venv/bin/activate
 
-# 2. Load workspace or user environment variables
+# 2. Load workspace .env if present
 if [ -f "$PWD/.env" ]; then
   set -a
   source "$PWD/.env"
   set +a
 fi
 
-# 3. Start Bub ACP using an absolute path
+# 3. Launch Bub ACP via absolute path
 exec /path/to/your/bub acp
 ```
 
-After granting execute permission, point Zed settings at the script:
+Make it executable and reference it in Zed's `settings.json`:
 
 ```bash
 chmod +x ~/.bub/bub-acp-wrapper
 ```
 
-```json
+```json title="~/.config/zed/settings.json"
 {
   "agent_servers": {
     "Bub": {
@@ -113,50 +105,44 @@ chmod +x ~/.bub/bub-acp-wrapper
 }
 ```
 
-## 3. Start a session {#start}
+## 3. Start a session in Zed {#start}
 
 After saving the settings, restart Zed or reload the configuration:
 
-1. Press `Cmd+?` (macOS) or `Ctrl+?` (Linux/Windows) to open Zed's Agent side panel.
-2. Switch to **Bub** in the model/backend selector menu.
-3. Enter a message in the input box to test:
+1. Press `Cmd+?` (macOS) or `Ctrl+?` (Linux/Windows) to open Zed's Agent panel.
+2. Select **Bub** from the agent menu.
+3. Send a test prompt:
    ```text
    Hello! Please introduce yourself.
    ```
-4. Bub streams the response, thinking process, and tool call steps into the panel one by one.
+4. Bub streams the response, thinking process, and tool call steps into the panel.
 
-:::tip[Native tool capabilities]
-Zed supports letting the Agent operate through the editor's file system and terminal. When Zed has the relevant permissions, Bub's `bash`, `fs.read`, and `fs.write` are automatically executed by the editor in preference; if the client does not declare this capability, they fall back to running locally.
+:::tip[Editor-delegated tools]
+When Zed advertises filesystem and terminal capabilities, Bub delegates `bash`, `fs.read`, and `fs.write` to the editor automatically, falling back to local execution when unsupported.
 :::
 
-## 4. Sessions and restore {#sessions}
+## 4. Sessions and parameter sync {#sessions}
 
-`bub-acp-server` provides full session lifecycle management:
+- **New and restored threads**: starting a new thread in Zed creates a new Tape; switching back to an earlier thread replays history from the Tape store. The session index is saved in `$BUB_HOME/acp-sessions.json`—as long as `BUB_HOME` and your workspace path stay the same, your session list remains intact across editor restarts.
+- **Model and reasoning effort**: changing the model or reasoning effort in the Zed UI updates subsequent requests in the active ACP session.
 
-- **New session**: creating a new Thread in the Zed panel corresponds to opening a brand-new session Tape at the underlying layer.
-- **History restore**: when you switch back to an old Thread, Bub extracts and replays that session's history messages and tool context from the persistent Tape store.
-- **Persistent binding**: the session metadata index is stored in `$BUB_HOME/acp-sessions.json`. As long as your `BUB_HOME` and workspace path stay stable, the history session list remains intact after restarting the editor.
-- **Model and reasoning parameters**: the reasoning effort adjusted in the Zed UI, or the specific model alias selected, is automatically appended to subsequent requests in this ACP session.
+## 5. Remote mode (HTTP / WebSocket) {#http}
 
-## 5. Remote service mode {#http}
+For most local setups, `stdio` is the lightest, lowest-overhead choice. When Bub runs on a remote dev server or inside a Docker container, expose ACP over HTTP or WebSocket instead.
 
-In most local development scenarios, the default `stdio` is the lightest, lowest-overhead choice. If you deploy Bub on a cloud development machine (Remote Server) or inside a Docker container and need the editor on your local development machine to call it remotely, you can use HTTP/WebSocket service mode.
-
-### Option 1: Run the service standalone {#standalone-service}
+### Run standalone {#standalone-service}
 
 ```bash
-# Start the HTTP service
 bub acp --transport http
-
-# Or start the WebSocket service
+# or
 bub acp --transport websocket
 ```
 
-The default listen address is `127.0.0.1:28200` (the HTTP endpoint is `http://127.0.0.1:28200/acp`, and the WebSocket endpoint is `ws://127.0.0.1:28200/acp`).
+Listens on `127.0.0.1:28200` by default (`http://127.0.0.1:28200/acp` or `ws://127.0.0.1:28200/acp`).
 
-### Option 2: Run long-lived as a Bub Gateway channel {#gateway-channel}
+### Run as a gateway channel {#gateway-channel}
 
-Gateway mode can maintain the session pool and the background connection at the same time:
+Gateway mode maintains the session pool and background connection together:
 
 ```bash
 bub gateway --enable-channel acp-server
@@ -164,21 +150,20 @@ bub gateway --enable-channel acp-server
 
 | Environment variable | Default | Description |
 | --- | --- | --- |
-| `BUB_ACP_SERVER_HOST` | `127.0.0.1` | Host IP to listen on (set to `0.0.0.0` to expose it externally; mind network security) |
-| `BUB_ACP_SERVER_PORT` | `28200` | Service port |
-| `BUB_ACP_SERVER_CERTFILE` | empty | TLS certificate path (required to enable HTTPS/WSS) |
+| `BUB_ACP_SERVER_HOST` | `127.0.0.1` | Listen host IP (use `0.0.0.0` for external access) |
+| `BUB_ACP_SERVER_PORT` | `28200` | Listen port |
+| `BUB_ACP_SERVER_CERTFILE` | empty | TLS certificate path (required for HTTPS/WSS) |
 | `BUB_ACP_SERVER_KEYFILE` | empty | TLS private key path |
 
-:::caution[Security boundary]
-HTTP/WebSocket endpoints do not provide complex user authentication by default. If you need to expose them over the public internet, be sure to put Nginx or Cloudflare Tunnel in front to add authentication, and enable TLS encryption.
+:::caution[Network security]
+HTTP/WebSocket endpoints do not include built-in user authentication. Use SSH port forwarding, or place Nginx / Cloudflare Tunnel in front with authentication and TLS.
 :::
 
 ## Troubleshooting {#troubleshooting}
 
-| Common problem | Starting point | Suggested fix |
-| --- | --- | --- |
-| Zed reports that it cannot find the Agent Server | Check the `"command"` path | Run `command -v bub` in a terminal and change `command` in the configuration to the system absolute path. |
-| The panel shows a startup failure or fallback | Environment variables are not taking effect (for example, a missing API key) | Use [Option B](#zed) to write a wrapper script and force `source` the required `.env` in it. |
-| Unclear where the protocol handshake is stuck | Check Zed's ACP communication logs | Open the command palette in Zed and run `dev: open acp logs` to observe JSON-RPC interaction events in real time. |
-| Tool calls do not trigger properly | Check client capability negotiation (Capabilities) | Confirm that the workspace has read/write permissions; first test whether tools work with `bub run` in the same terminal. |
-| Session history cannot be saved | Check the `BUB_HOME` directory permissions | Make sure the user running Zed has read/write access to the `~/.bub` directory. |
+| Symptom | Fix |
+| --- | --- |
+| Zed cannot find the Agent server | Set `command` in `settings.json` to the absolute path from `command -v bub` |
+| Startup fails or API key is missing | Use [Option B](#wrapper-script) to `source` your `.env` file |
+| Inspect JSON-RPC traffic | Run `dev: open acp logs` from Zed's command palette |
+| Session history does not persist | Verify the user running Zed has read/write permissions on `$BUB_HOME` (`~/.bub`) |

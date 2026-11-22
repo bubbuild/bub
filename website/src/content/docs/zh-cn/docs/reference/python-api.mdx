@@ -1,14 +1,30 @@
 ---
 title: Python API
-description: bub.core 与应用层的公开 API 签名。
+description: Bub Python API 完整参考：查阅 bub.core（Agent、Tool、Tape）与应用层的公开类、函数签名、字段与参数说明表。
 ---
 
-## `bub.core`
+本页按模块列出 Bub 公开的 Python 类与函数签名，并用表格说明其参数、属性与方法。分步使用教程见 [SDK 指南](/zh-cn/docs/sdk/)、[Tape](/zh-cn/docs/concepts/tape/)、[事件](/zh-cn/docs/concepts/events/) 与 [Turn](/zh-cn/docs/concepts/turn/)。
+
+- **`bub.core`**：核心层，包含 `Agent` 循环、模型客户端协议、工具、Tape 与事件总线。仅导入 `bub.core` 不会读取 YAML 配置文件、`BUB_*` 环境变量，也不会加载 CLI 或插件。
+- **`bub`**：应用层，包含 `BubFramework`、`BubAgent`、消息渠道与配置加载。需要[安装](/zh-cn/docs/getting-started/install/) `bub[app]` 可选依赖。
+
+签名中出现的 `republic.*` 类型来自底层依赖包 Republic，本页不单独展开。
+
+---
+
+## 核心层 {#core}
 
 ### `Agent` {#agent}
 
 ```python
+from bub.core import Agent
+
 class Agent:
+    tools: dict[str, Tool]
+    builtin_tools: list[BuiltinTool]
+    system_prompt: SystemPrompt
+    events: EventBus
+
     def __init__(
         self,
         *,
@@ -92,15 +108,55 @@ class Agent:
     ) -> list[Tool]: ...
 ```
 
-### `Model` {#model}
+**构造函数参数**（`Agent.__init__`）：
+
+| 参数 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `model` | `Model \| None` | `None` | 默认模型连接（`republic.ChatModel` 或 `ModelClient`）；也可在每次调用 `run()` 时单独传入 |
+| `store` | `TapeStore \| AsyncTapeStore \| None` | 新的 `InMemoryTapeStore()` | 会话历史存储后端，支持同步或异步实现 |
+| `tools` | `Iterable[Tool \| BuiltinTool]` | `()` | 本地 `Tool` 对象（存入 `agent.tools`）或提供商侧执行的工具如 `republic.tools.WebSearch()`（存入 `agent.builtin_tools`）；同名工具后传入的覆盖前面的 |
+| `system_prompt` | `SystemPrompt \| PromptSection \| Iterable[PromptSection]` | `()` | 系统提示词；每次 Run 在第一个模型 Step 前渲染一次，并在后续 Step 中复用 |
+| `context` | `TapeContext \| None` | `default_tape_context()` | 控制如何从 Tape 历史条目投影出模型上下文消息 |
+| `sidecars` | `Sequence[TapeSidecar]` | `()` | 随主 Tape 一起挂载的附属 `TapeSidecar` 列表 |
+| `max_steps` | `int` | `sys.maxsize` | 单次 Run 允许的最大 Step 数 |
+| `max_tool_concurrency` | `int \| None` | `None` | 单步响应内并发执行本地工具的最大数量（`1` 表示串行执行；不控制不同 Run 之间的并发） |
+| `name` | `str` | `"agent"` | OpenTelemetry trace span 中显示的 Agent 名称 |
+| `command_prefix` | `str \| None` | `None` | 直接命令前缀（`None` 表示禁用；启用时须为非空且不含空白的字符串，如 `","`） |
+
+**运行参数**（`Agent.run` / `Agent.start`）：
+
+| 参数 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `prompt` | `str \| list[UserContent]` | 必填 | 本次发送给 Agent 的用户提示词或多模态内容列表 |
+| `model` | `Model \| None` | `self.model` | 覆盖本次 Run 使用的模型连接 |
+| `options` | `Mapping[str, Any] \| None` | `None` | 传给底层模型生成调用的参数（对应 `republic.ChatOptions`，如 `max_tokens`、`reasoning_effort`） |
+| `tape` | `str` | 必填 | 本次 Run 使用的会话 Tape 名称 |
+| `state` | `TurnState \| None` | `None` | 本次 Run 内供工具和事件处理器共享的临时字典 |
+| `merge_back` | `bool` | `True` | 流关闭时是否将本次 Run 在分支上写入的记录合并回主 Tape（详见[分支合并策略](/zh-cn/docs/sdk/tape/#forks-and-merges)） |
+| `metadata` | `dict[str, Any] \| None` | `None` | 随 `RunStarted` 事件发出的调用元数据，不进入模型上下文 |
+
+**核心方法说明**：
+
+| 方法 | 说明 |
+| --- | --- |
+| `run(...)` | 异步上下文管理器：在命名 Tape 的分支上启动一次 Run，退出 `async with` 时自动关闭流并按 `merge_back` 合并记录 |
+| `start(...)` | 与 `run(...)` 参数一致，但直接返回 `AsyncStreamEvents`，需由调用方手动调用 `await stream.aclose()` |
+| `tape(name, *, state=None)` | 返回指定名称的 `Tape` 读写视图（不会自动写入 `session/start` 初始锚点） |
+| `session(name, *, state=None, merge_back=True)` | 异步上下文管理器：打开指定 Tape 的临时分支并在退出时按 `merge_back` 合并 |
+| `run_on(tape, prompt, ...)` | 在一个已经打开的 `Tape` 实例上运行一次 Run |
+| `run_once(...)` | 仅执行单个模型 Step 及其请求的全部工具调用 |
+| `run_command(tape, line)` | 直接执行一条带命令前缀的工具命令，不调用模型 |
+| `prepare_tools(tape, prompt)` | 供子类覆写：每次 Run 开始时调用一次以决定可用工具集；若运行中调用了未在初始集合内的延迟工具，则通过 `prepare_tools(tape, None)` 重新解析 |
+
+---
+
+### `Model`、`ModelClient` 与 `ChatModelClient` {#model}
 
 ```python
-Model = republic.ChatModel | ModelClient
-```
+from bub.core import ChatModelClient, Model, ModelClient
 
-### `ModelClient`
+type Model = republic.ChatModel | ModelClient
 
-```python
 class ModelClient(Protocol):
     max_tokens: int | None
 
@@ -114,11 +170,7 @@ class ModelClient(Protocol):
         spec: str,
         options: Mapping[str, Any],
     ) -> AbstractAsyncContextManager[tuple[str, republic.Stream[Any]]]: ...
-```
 
-### `ChatModelClient`
-
-```python
 class ChatModelClient:
     max_tokens: int | None = None
 
@@ -137,15 +189,23 @@ class ChatModelClient:
     ) -> AsyncIterator[tuple[str, republic.Stream[Any]]]: ...
 ```
 
-### `ToolExposure`
+| 成员 / 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `spec` | `str` | 模型规格标识符（格式为 `provider:model`） |
+| `max_tokens` | `int \| None` | 默认的最大输出 Token 数；单次调用的 `options["max_tokens"]` 优先 |
+| `open_stream(messages, *, spec, options)` | 异步上下文管理器 | 打开一次模型流式请求，产出一个 `(resolved_spec, republic_stream)` 元组 |
+| `ChatModelClient(model)` | `republic.ChatModel` | 将 `republic.ChatModel` 包装为 `ModelClient` 的内置适配器；底层连接生命周期仍由调用方管理 |
+
+---
+
+### `Tool`、`ToolContext` 与 `@tool` {#tools}
 
 ```python
-ToolExposure = Literal["auto", "direct", "code", "command"]
-```
+from bub.core import Tool, ToolContext, tool
+from bub.core.tools import ToolExposure, content_result, result_content
 
-### `ToolContext`
+type ToolExposure = Literal["auto", "direct", "code", "command"]
 
-```python
 @dataclass(frozen=True)
 class ToolContext:
     tape: Tape
@@ -156,13 +216,7 @@ class ToolContext:
     events: EventBus | None = field(default=None, repr=False, compare=False)
     step_messages: list[republic.Message] = field(default_factory=list, repr=False, compare=False)
     call_id: str | None = None
-```
 
-`step_messages` 是发起调用的模型步骤发送的用户消息（Tape 要等工具调用结束后才记录它们）；`call_id` 是模型给这次调用的 ID，代码模式中的调用沿用 `run_code` 调用的 ID。
-
-### `Tool` {#tools}
-
-```python
 @dataclass(frozen=True)
 class Tool:
     name: str
@@ -191,36 +245,6 @@ class Tool:
         renderer: Callable[[Any], str] | None = None,
         deferred: bool = False,
     ) -> Tool: ...
-```
-
-### `tool`
-
-```python
-@overload
-def tool(
-    func: Callable,
-    *,
-    name: str | None = ...,
-    model: type[BaseModel] | None = ...,
-    description: str | None = ...,
-    context: bool = ...,
-    exposure: ToolExposure = ...,
-    renderer: Callable[[Any], str] | None = ...,
-    deferred: bool = ...,
-) -> Tool: ...
-
-@overload
-def tool(
-    func: None = ...,
-    *,
-    name: str | None = ...,
-    model: type[BaseModel] | None = ...,
-    description: str | None = ...,
-    context: bool = ...,
-    exposure: ToolExposure = ...,
-    renderer: Callable[[Any], str] | None = ...,
-    deferred: bool = ...,
-) -> Callable[[Callable], Tool]: ...
 
 def tool(
     func: Callable | None = None,
@@ -233,23 +257,48 @@ def tool(
     renderer: Callable[[Any], str] | None = None,
     deferred: bool = False,
 ) -> Tool | Callable[[Callable], Tool]: ...
-```
 
-### `content_result`
-
-```python
 def content_result(content: Sequence[UserContent]) -> dict[str, Any]: ...
-```
-
-### `result_content`
-
-```python
 def result_content(result: Any) -> list[UserContent]: ...
 ```
 
-### `PromptContext`
+**`@tool` / `Tool` 参数与字段说明**：
+
+| 参数 / 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `func` / `handler` | `Callable[..., Any]` | 必填 | 实际执行工具逻辑的同步或异步 Python 函数 |
+| `name` | `str \| None` | 函数名 `func.__name__` | 工具名称（含点号的名称在暴露给模型时会自动转为下划线别名） |
+| `model` | `type[BaseModel] \| None` | `None` | 可选的 Pydantic 参数校验模型（仅用于 `@tool(model=...)` 装饰器） |
+| `description` | `str \| None` | 函数的 docstring | 工具的功能描述，供模型判断何时调用 |
+| `parameters` | `dict[str, Any]` | 自动从类型标注生成 | 工具入参的 JSON Schema 字典 |
+| `context` | `bool` | `False` | 设为 `True` 时，运行时会自动向函数注入关键字参数 `context: ToolContext`（该参数不会出现在模型可见的 Schema 中） |
+| `exposure` | `ToolExposure` | `"auto"` | 工具暴露方式：`"auto"`（模型直调、代码模式与命令均可用）、`"direct"`（仅模型直调）、`"code"`（仅在 `run_code` 内可调）、`"command"`（仅作为文本命令可调） |
+| `renderer` | `Callable[[Any], str] \| None` | `None` | 自定义将工具返回值渲染为字符串的转换函数 |
+| `output_schema` | `dict[str, Any] \| None` | 自动从返回类型生成 | 返回值的 JSON Schema（供代码模式生成类型桩文件使用） |
+| `deferred` | `bool` | `False` | 是否启用延迟加载：设为 `True` 时初始仅向模型展示名称与简述，模型按需通过 `tool.describe` 加载完整 Schema |
+
+**`ToolContext` 字段说明**：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `tape` | `Tape` | 当前会话的 `Tape` 读写对象 |
+| `run_id` | `str \| None` | 当前 Run 的唯一标识符 |
+| `state` | `dict[str, Any]` | 当前调用共享的 `TurnState` 字典 |
+| `code_mode` | `bool` | 本次工具调用是否由代码模式内部发起 |
+| `command` | `bool` | 本次工具调用是否由直接命令发起 |
+| `events` | `EventBus \| None` | 当前 Agent 的事件总线 |
+| `step_messages` | `list[republic.Message]` | 发起本次工具调用的那个模型 Step 所发送的用户消息（这些消息在当前 Step 的工具全部执行完后才写入 Tape） |
+| `call_id` | `str \| None` | 模型为本次调用分配的 ID（代码模式内部发起的工具调用会沿用外层 `run_code` 的 `call_id`） |
+
+`content_result(content)` 用于在工具返回值中同时携带文本与图片、音频或视频，投影上下文时由 `result_content(result)` 还原为多模态内容块（详见[媒体内容的存储边界](/zh-cn/docs/sdk/tape/#media)）。
+
+---
+
+### `SystemPrompt`、`PromptSection` 与 `PromptContext` {#system-prompt}
 
 ```python
+from bub.core import PromptContext, PromptSection, SystemPrompt
+
 @dataclass(frozen=True)
 class PromptContext:
     agent: Agent
@@ -263,17 +312,9 @@ class PromptContext:
 
     @property
     def available_tools(self) -> list[Tool]: ...
-```
 
-### `PromptSection` {#system-prompt}
+type PromptSection = str | Callable[[PromptContext], str | Awaitable[str | None] | None]
 
-```python
-PromptSection = str | Callable[[PromptContext], str | Awaitable[str | None] | None]
-```
-
-### `SystemPrompt`
-
-```python
 class SystemPrompt:
     def __init__(self, sections: Iterable[PromptSection] = ()) -> None: ...
 
@@ -291,60 +332,44 @@ class SystemPrompt:
     async def render(self, context: PromptContext) -> str: ...
 ```
 
-### `TapeEntry` {#tapeentry}
+| 类 / 成员 | 说明 |
+| --- | --- |
+| `PromptSection` | 一段固定字符串，或接收 `PromptContext` 并返回 `str \| None` 的同步/异步函数 |
+| `SystemPrompt.add(section)` / `remove(section)` | 动态追加或移除一段系统提示词片段 |
+| `await SystemPrompt.render(context)` | 按顺序执行所有片段，将非空文本用换行拼接为最终系统提示词 |
+| `PromptContext` | 渲染时传入的上下文，提供当前 `agent`、`tape`、`prompt`、`tools`、`model`，以及便捷属性 `state` 与 `available_tools` |
+
+---
+
+### `bub.prompt` {#prompt}
 
 ```python
-@dataclass(frozen=True)
-class TapeEntry:
-    id: int
-    kind: str
-    payload: dict[str, Any]
-    meta: dict[str, Any] = field(default_factory=dict)
-    date: str = field(default_factory=utc_now)
+from bub.prompt import LegacyPrompt, UserContent, prompt_text, to_content, to_legacy_prompt
 
-    def copy(self) -> TapeEntry: ...
+type UserContent = str | republic.Image | republic.Audio | republic.Video
+type LegacyPrompt = str | list[dict[str, Any]]
 
-    @classmethod
-    def message(cls, message: dict[str, Any], **meta: Any) -> TapeEntry: ...
-
-    @classmethod
-    def system(cls, content: str, **meta: Any) -> TapeEntry: ...
-
-    @classmethod
-    def anchor(
-        cls,
-        name: str,
-        state: dict[str, Any] | None = None,
-        **meta: Any,
-    ) -> TapeEntry: ...
-
-    @classmethod
-    def tool_call(
-        cls,
-        calls: list[dict[str, Any]],
-        *,
-        content: str = "",
-        **meta: Any,
-    ) -> TapeEntry: ...
-
-    @classmethod
-    def tool_result(cls, results: list[Any], **meta: Any) -> TapeEntry: ...
-
-    @classmethod
-    def error(cls, error: BubError, **meta: Any) -> TapeEntry: ...
-
-    @classmethod
-    def event(
-        cls,
-        name: str,
-        data: dict[str, Any] | None = None,
-        **meta: Any,
-    ) -> TapeEntry: ...
+def to_content(prompt: list[UserContent] | LegacyPrompt) -> list[UserContent]: ...
+def to_legacy_prompt(content: list[UserContent]) -> LegacyPrompt: ...
+def prompt_text(content: list[UserContent]) -> str: ...
 ```
 
-### `TapeContext`
+| 类型 / 函数 | 说明 |
+| --- | --- |
+| `UserContent` | 单块用户输入内容：纯文本或 Republic 多模态媒体对象 |
+| `LegacyPrompt` | 旧版 Hook 兼容格式（纯文本为 `str`，含媒体时为字典列表；见[提示词内容格式](/zh-cn/docs/reference/hooks/#prompt-content)） |
+| `to_content(prompt)` | 将字符串、字典列表或 `list[UserContent]` 统一标准化为 `list[UserContent]` |
+| `to_legacy_prompt(content)` | 将 `list[UserContent]` 转换为 `LegacyPrompt` |
+| `prompt_text(content)` | 提取 `list[UserContent]` 中的纯文本部分并拼接为字符串 |
+
+---
+
+### `Tape`、`TapeContext` 与存储 {#tape}
 
 ```python
+from bub.core import Tape, TapeContext, default_tape_context, session_tape_name
+from bub.core.tape import AnchorSummary, TapeEntry, TapeInfo
+
 @dataclass(frozen=True)
 class TapeContext:
     anchor: AnchorSelector = LAST_ANCHOR
@@ -352,17 +377,10 @@ class TapeContext:
     state: dict[str, Any] = field(default_factory=dict)
 
     def build_query(self, query: TapeQuery) -> TapeQuery: ...
-```
 
-### `default_tape_context`
-
-```python
 def default_tape_context() -> TapeContext: ...
-```
+def session_tape_name(session_id: str, workspace: Path) -> str: ...
 
-### `TapeInfo`
-
-```python
 @dataclass(frozen=True)
 class TapeInfo:
     name: str
@@ -372,20 +390,12 @@ class TapeInfo:
     entries_since_last_anchor: int
     last_token_usage: int | None
     last_token_cache_hit_rate: float | None
-```
 
-### `AnchorSummary`
-
-```python
 @dataclass(frozen=True)
 class AnchorSummary:
     name: str
     state: dict[str, object]
-```
 
-### `Tape` {#tape}
-
-```python
 @dataclass(frozen=True)
 class Tape:
     store: AsyncTapeStore
@@ -423,46 +433,111 @@ class Tape:
     async def fork_tape(self, merge_back: bool = True) -> AsyncGenerator[Tape, None]: ...
 ```
 
-### `session_tape_name`
+**`TapeContext` 字段说明**：
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `anchor` | `AnchorSelector` | `LAST_ANCHOR` | 上下文读取的起始锚点：默认从最近一个 anchor 之后读取；可传具体 anchor 名称字符串，或传 `None` 从头读取全部条目 |
+| `select` | `ContextSelector \| None` | `None` | 自定义投影选择器函数 `(Iterable[TapeEntry], TapeContext) -> list[republic.Message]`。建议使用 `default_tape_context()` 工厂函数以支持完整对话与工具往返 |
+| `state` | `dict[str, Any]` | `{}` | 绑定在该上下文上的请求级临时状态字典（即 `TurnState`） |
+
+**`Tape` 属性与方法说明**：
+
+| 属性 / 方法 | 说明 |
+| --- | --- |
+| `name` | 当前 Tape 的名称；若直接构造 `Tape` 而未调用 `scoped(name)`，访问该属性会抛出 `ValueError` |
+| `scoped(name, context=None)` | 返回绑定了指定 `name`（及可选新 `context`）的 `Tape` 视图 |
+| `with_context(context)` | 返回替换了 `TapeContext` 的新 `Tape` 视图（适合单次临时换一种投影方式读取） |
+| `query()` | 返回绑定了当前 Tape 与 `store` 的 `TapeQuery` 查询构建器 |
+| `await read_messages()` | 按当前 `TapeContext` 筛选条目并投影为 `list[republic.Message]`（自动排除 `meta["context"] is False` 的条目） |
+| `await handoff(*, name, state=None, **meta)` | 追加一条 `anchor` 条目和一条 `handoff` 事件，将默认上下文读取起点前移到此处 |
+| `await reset(*, state=None, keep_sidecars=())` | 清空当前 Tape 记录并重新写入 `session/start` 锚点；默认同时重置所有已挂载的 Sidecar |
+| `await info()` / `await anchors(limit=20)` | 分别返回 `TapeInfo` 统计信息和 `list[AnchorSummary]` 历史锚点列表 |
+| `await search(query)` | 执行传入的 `TapeQuery` 并返回匹配的 `list[TapeEntry]` |
+| `await append_event(name, payload, **meta)` | 向 Tape 显式追加一条 `kind="event"` 的业务事件记录 |
+| `fork_tape(merge_back=True)` | 异步上下文管理器：在临时分支上读写，退出时默认将新条目合并回主 Tape |
+
+`session_tape_name(session_id, workspace)` 生成 `<workspace hash>__<session hash>` 格式的物理 Tape 名称，供应用层隔离不同工作区下的会话。
+
+#### `TapeSidecar` {#tapesidecar}
 
 ```python
-def session_tape_name(session_id: str, workspace: Path) -> str: ...
-```
+from bub.core.sidecars import TapeSidecar, sidecar_tape_name
 
-### `TapeSidecar` {#tapesidecar}
-
-```python
 class TapeSidecar(Protocol):
     @property
     def name(self) -> str: ...
 
-
 def sidecar_tape_name(owner: str, sidecar: str) -> str: ...
 ```
 
-Sidecar 由配套 Tape `<owner>__sidecar__<name>` 承载：随主 Tape 分支、合并和重置，条目不进入主上下文。挂载方式见 [Sidecar](/zh-cn/docs/sdk/tape/#sidecars)，应用层的提供方式见 [`provide_tape_sidecar`](/zh-cn/docs/reference/hooks/#provide_tape_sidecar)。
+Sidecar 由名为 `<owner>__sidecar__<name>` 的配套物理 Tape 承载：随主 Tape 一起创建分支、合并和重置，但其中的条目不会进入主对话的模型上下文。挂载方式见 [Sidecar](/zh-cn/docs/sdk/tape/#sidecars)，应用层 Hook 见 [`provide_tape_sidecar`](/zh-cn/docs/reference/hooks/#provide_tape_sidecar)。
 
-### `TapeStore` {#tape-store}
+#### `TapeEntry` {#tapeentry}
 
 ```python
+@dataclass(frozen=True)
+class TapeEntry:
+    id: int
+    kind: str
+    payload: dict[str, Any]
+    meta: dict[str, Any] = field(default_factory=dict)
+    date: str = field(default_factory=utc_now)
+
+    def copy(self) -> TapeEntry: ...
+
+    @classmethod
+    def message(cls, message: dict[str, Any], **meta: Any) -> TapeEntry: ...
+    @classmethod
+    def system(cls, content: str, **meta: Any) -> TapeEntry: ...
+    @classmethod
+    def anchor(cls, name: str, state: dict[str, Any] | None = None, **meta: Any) -> TapeEntry: ...
+    @classmethod
+    def tool_call(cls, calls: list[dict[str, Any]], *, content: str = "", **meta: Any) -> TapeEntry: ...
+    @classmethod
+    def tool_result(cls, results: list[Any], **meta: Any) -> TapeEntry: ...
+    @classmethod
+    def error(cls, error: BubError, **meta: Any) -> TapeEntry: ...
+    @classmethod
+    def event(cls, name: str, data: dict[str, Any] | None = None, **meta: Any) -> TapeEntry: ...
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | `int` | 由存储后端分配的递增序号（新建条目初始为 `0`，在 `store.append` 时改写） |
+| `kind` | `str` | 条目类型：`message`、`system`、`anchor`、`tool_call`、`tool_result`、`error`、`event` |
+| `payload` | `dict[str, Any]` | 条目的具体内容字典 |
+| `meta` | `dict[str, Any]` | 运行时元数据；传入 `context=False` 可让该条目不进入模型上下文 |
+| `date` | `str` | ISO 8601 时间戳字符串，默认取当前 UTC 时间 |
+
+#### `TapeStore` 与 `AsyncTapeStore` {#tape-store}
+
+```python
+from bub.core.store import AsyncTapeStore, TapeStore, is_async_tape_store
+
 class TapeStore(Protocol):
     def list_tapes(self) -> list[str]: ...
     def reset(self, tape: str) -> None: ...
     def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
     def append(self, tape: str, entry: TapeEntry) -> None: ...
-```
 
-### `AsyncTapeStore`
-
-```python
 class AsyncTapeStore(Protocol):
     async def list_tapes(self) -> list[str]: ...
     async def reset(self, tape: str) -> None: ...
     async def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
     async def append(self, tape: str, entry: TapeEntry) -> None: ...
+
+def is_async_tape_store(store: TapeStore | AsyncTapeStore) -> TypeIs[AsyncTapeStore]: ...
 ```
 
-### `TapeQuery` {#tapequery}
+| 方法 | 实现契约 |
+| --- | --- |
+| `list_tapes()` | 返回已存在的会话 Tape 名称列表（无需列出 sidecar 等内部物理 Tape） |
+| `append(tape, entry)` | 追加条目，并在该 Tape 内分配从 `1` 开始单调递增的 `id`（不要依赖调用方传入的 `entry.id`） |
+| `fetch_all(query)` | 按写入顺序返回符合 `TapeQuery` 条件的条目集合（异步版本是 `async def` 返回 `Iterable`，而非异步生成器） |
+| `reset(tape)` | 清空该 Tape 的所有记录并重置 ID 计数，使下一次 `append` 重新从 `1` 开始 |
+
+#### `TapeQuery` {#tapequery}
 
 ```python
 @dataclass(frozen=True)
@@ -480,44 +555,48 @@ class TapeQuery[T: TapeStore | AsyncTapeStore]:
 
     @overload
     def all(self: TapeQuery[TapeStore]) -> Iterable[TapeEntry]: ...
-
     @overload
     async def all(self: TapeQuery[AsyncTapeStore]) -> Iterable[TapeEntry]: ...
 ```
 
-| 过滤条件 | 语义 |
+| 方法 | 过滤语义 |
 | --- | --- |
-| `after_anchor(name)` / `last_anchor()` | 指定 anchor 或最近一个 anchor 之后；Tape 中没有 anchor 时抛 `BubError(kind=NOT_FOUND)` |
-| `between_anchors(start, end)` | 两个 anchor 之间，不含边界；任一 anchor 不存在时抛 `NOT_FOUND` |
-| `between_dates(start, end)` | ISO 日期或时间范围，含边界；只有日期的上界覆盖整天 |
-| `kinds(*kinds)` | 条目类型 |
-| `query(value)` | 在 kind、日期、payload 和 meta 的 JSON 文本中做不区分大小写的包含匹配 |
-| `limit(value)` | 最多返回的条目数，在其他过滤之后应用 |
+| `query(value)` | 在条目的 `kind`、`date`、`payload` 和 `meta` 的 JSON 文本中做不区分大小写的包含匹配 |
+| `after_anchor(name)` / `last_anchor()` | 返回指定名称或最近一个 anchor **之后**的条目（不含该边界 anchor 本身）；若找不到对应 anchor 则抛出 `BubError(kind=NOT_FOUND)` |
+| `between_anchors(start, end)` | 返回两个 anchor 之间的条目（不含两端边界）；任一 anchor 不存在时抛出 `BubError(kind=NOT_FOUND)` |
+| `between_dates(start, end)` | 按 ISO 日期或时间范围过滤（含边界；只传日期时上界覆盖整天） |
+| `kinds(*kinds)` | 只保留指定 `kind` 的条目 |
+| `limit(value)` | 最多返回的条目数（在其他过滤条件生效后截断） |
+| `all()` | 执行查询（同步 Store 直接返回 `Iterable`，异步 Store 需 `await`） |
 
-`after_anchor` / `last_anchor` 返回指定或最近一个 anchor **之后**的条目，不包含边界 anchor 本身；anchor 不存在时抛出 `BubError(kind=NOT_FOUND)`。因此默认投影不会收到边界 anchor。使用 `anchor=None` 等不过滤 anchor 的读取方式时，选择器可能收到 anchor 条目，默认选择器会把它转换为 `[Anchor created: …]` 助手消息。直接使用 `TapeQuery` 时不叠加 `TapeContext` 的 `context=False` 过滤。
-
-### `InMemoryQueryMixin`
+#### 内置 Store 实现 {#builtin-stores}
 
 ```python
+from bub.core.store import (
+    AsyncTapeStoreAdapter,
+    FileTapeStore,
+    InMemoryQueryMixin,
+    InMemoryTapeStore,
+)
+
 class InMemoryQueryMixin:
     def read(self, tape: str) -> list[TapeEntry] | None: ...
     def fetch_all(self, query: TapeQuery) -> Iterable[TapeEntry]: ...
-```
 
-### `InMemoryTapeStore` {#builtin-stores}
-
-```python
 class InMemoryTapeStore(InMemoryQueryMixin):
     def __init__(self) -> None: ...
     def list_tapes(self) -> list[str]: ...
     def reset(self, tape: str) -> None: ...
     def read(self, tape: str) -> list[TapeEntry] | None: ...
     def append(self, tape: str, entry: TapeEntry) -> None: ...
-```
 
-### `AsyncTapeStoreAdapter`
+class FileTapeStore(InMemoryQueryMixin):
+    def __init__(self, directory: Path) -> None: ...
+    def list_tapes(self) -> list[str]: ...
+    def reset(self, tape: str) -> None: ...
+    def append(self, tape: str, entry: TapeEntry) -> None: ...
+    def read(self, tape: str) -> list[TapeEntry] | None: ...
 
-```python
 class AsyncTapeStoreAdapter:
     def __init__(self, store: TapeStore) -> None: ...
     async def list_tapes(self) -> list[str]: ...
@@ -526,118 +605,75 @@ class AsyncTapeStoreAdapter:
     async def append(self, tape: str, entry: TapeEntry) -> None: ...
 ```
 
-### `FileTapeStore`
+| 类名 | 说明 |
+| --- | --- |
+| `InMemoryTapeStore` | 进程内内存字典，`read()` 返回条目副本，进程退出即清空 |
+| `FileTapeStore(directory)` | 每个 Tape 存为一个 `<tape>.jsonl` 文件，单文件配一把线程锁（无跨进程锁）；`list_tapes()` 只列出文件名中恰好含有一个 `__` 的主会话文件。由于直接将 Tape 名称用作文件名，Web 服务须校验名称安全性（见 [Tape 与记忆](/zh-cn/docs/sdk/tape/#storage)） |
+| `AsyncTapeStoreAdapter(store)` | 将同步 `TapeStore` 包装到 `asyncio.to_thread()` 中，适配为 `AsyncTapeStore` |
+| `InMemoryQueryMixin` | 为只实现了 `read(tape)` 的简易存储自动提供内存级的 `fetch_all(query)` 过滤实现 |
+
+---
+
+### `EventBus` 与事件类 {#events}
 
 ```python
-class FileTapeStore(InMemoryQueryMixin):
-    def __init__(self, directory: Path) -> None: ...
-    def list_tapes(self) -> list[str]: ...
-    def reset(self, tape: str) -> None: ...
-    def append(self, tape: str, entry: TapeEntry) -> None: ...
-    def read(self, tape: str) -> list[TapeEntry] | None: ...
-```
+from bub.core.events import (
+    AgentEvent,
+    ChatFinished,
+    CommandFinished,
+    Event,
+    EventBus,
+    LLMCallFinished,
+    LLMCallStarted,
+    MessagesPending,
+    RunFinished,
+    RunStarted,
+    StepFinished,
+    StepStarted,
+    TapeEvent,
+    ToolCallFinished,
+    ToolCallStarted,
+)
 
-### `is_async_tape_store`
+class Event:
+    @property
+    def stopped(self) -> bool: ...
 
-```python
-def is_async_tape_store(
-    store: TapeStore | AsyncTapeStore,
-) -> TypeIs[AsyncTapeStore]: ...
-```
-
-### `EventBus` {#events}
-
-```python
 class EventBus:
     @overload
     def on(self, event_type: type[E]) -> Callable[[EventHandler[E]], EventHandler[E]]: ...
-
     @overload
     def on(self, event_type: type[E], handler: EventHandler[E]) -> EventHandler[E]: ...
 
     def off(self, event_type: type[E], handler: EventHandler[E]) -> None: ...
     async def emit(self, event: E) -> E: ...
-```
 
-### `Event`
-
-```python
-class Event:
-    @property
-    def stopped(self) -> bool: ...
-```
-
-### 事件一览 {#event-reference}
-
-| 事件 | 触发时机 | 处理器可读取或修改的内容 |
-| --- | --- | --- |
-| `RunStarted` | 模型 Run 开始 | `model`、`prompt`、`metadata` |
-| `RunFinished` | Run 的流关闭 | `status`（`ok` / `error` / `cancelled`）、`steps`、耗时和错误 |
-| `StepStarted` | Step 开始 | `step`、可选的 `prompt` |
-| `StepFinished` | Step 结束 | 进度、用量；继续时设置 `next_prompt` |
-| `MessagesPending` | 构建请求时，或 Step 结束且没有工具调用时（`step_ended=True`） | 向 `messages` 追加用户内容；Step 结束时追加的消息会让 Run 继续 |
-| `LLMCallStarted` | 调用模型提供商之前 | 替换 `request`；设置 `LLMCallDecision.finish()` |
-| `LLMCallFinished` | 提供商调用成功或因普通异常失败 | `request` 和汇总后的 `result` |
-| `ToolCallStarted` | 工具执行之前 | 替换 `call`；设置 `deny` 或 `replace` |
-| `ToolCallFinished` | 工具成功、普通失败、被拒绝或被替换 | 给 `event.result.result` 赋值，替换面向模型的结果 |
-| `ChatFinished` | 当前 Step 的对话和工具往返可以记录时 | 消息、工具往返、用量和错误 |
-| `CommandFinished` | 直接命令成功或失败 | 命令、状态和输出 |
-
-`RunFinished` 在流关闭时发出。尚未迭代就关闭的 Run 以 `cancelled` 结束，Step 数为零。模型和工具的 Finished 事件不保证覆盖取消路径，因此计费和清理不能只依赖它们。
-
-`StepFinished.next_prompt` 提供下一个 Step 的用户消息，`MessagesPending.messages` 接收 Run 期间到达的消息。达到 `max_steps`（应用层由 `BUB_MAX_STEPS` 设置）时会抛出 `max_steps_reached` 错误。
-
-直接命令发出工具事件和 `CommandFinished`，但不发出 `RunStarted` 或 `RunFinished`。所有 Agent 事件都有 `state`，`TapeEvent` 子类还带有当前 `tape`。分发规则与决策语义见 [Agent 事件](/zh-cn/docs/concepts/events/#call-control)；应用 hooks 与这些事件的映射见 [Hooks 参考](/zh-cn/docs/reference/hooks/#event-mapping)。
-
-### `AgentEvent`
-
-```python
 @dataclass(kw_only=True)
 class AgentEvent(Event):
     state: TurnState
-```
 
-### `TapeEvent`
-
-```python
 @dataclass(kw_only=True)
 class TapeEvent(AgentEvent):
     tape: Tape
-```
 
-### `RunStarted`
-
-```python
 @dataclass(kw_only=True)
 class RunStarted(TapeEvent):
     model: str
     prompt: list[UserContent]
     metadata: dict[str, Any] = field(default_factory=dict)
-```
 
-### `RunFinished`
-
-```python
 @dataclass(kw_only=True)
 class RunFinished(TapeEvent):
     status: str
     steps: int
     elapsed_ms: int
     error: str | None = None
-```
 
-### `StepStarted`
-
-```python
 @dataclass(kw_only=True)
 class StepStarted(TapeEvent):
     step: int
     prompt: list[UserContent] | None
-```
 
-### `StepFinished`
-
-```python
 @dataclass(kw_only=True)
 class StepFinished(TapeEvent):
     step: int
@@ -647,20 +683,12 @@ class StepFinished(TapeEvent):
     prompt: list[UserContent] | None = None
     stream: StreamState = field(default_factory=StreamState)
     next_prompt: list[UserContent] | None = None
-```
 
-### `MessagesPending`
-
-```python
 @dataclass(kw_only=True)
 class MessagesPending(TapeEvent):
     prompt: list[UserContent] | None
     messages: list[list[UserContent]] = field(default_factory=list)
-```
 
-### `CommandFinished`
-
-```python
 @dataclass(kw_only=True)
 class CommandFinished(TapeEvent):
     line: str
@@ -668,11 +696,7 @@ class CommandFinished(TapeEvent):
     status: str
     elapsed_ms: int
     output: str
-```
 
-### `LLMCallStarted`
-
-```python
 @dataclass(kw_only=True)
 class LLMCallStarted(TapeEvent):
     request: LLMCallRequest
@@ -680,20 +704,12 @@ class LLMCallStarted(TapeEvent):
 
     @property
     def stopped(self) -> bool: ...
-```
 
-### `LLMCallFinished`
-
-```python
 @dataclass(kw_only=True)
 class LLMCallFinished(TapeEvent):
     request: LLMCallRequest
     result: LLMCallResult
-```
 
-### `ToolCallStarted`
-
-```python
 @dataclass(kw_only=True)
 class ToolCallStarted(AgentEvent):
     call: ToolCall
@@ -701,20 +717,12 @@ class ToolCallStarted(AgentEvent):
 
     @property
     def stopped(self) -> bool: ...
-```
 
-### `ToolCallFinished`
-
-```python
 @dataclass(kw_only=True)
 class ToolCallFinished(AgentEvent):
     call: ToolCall
     result: ToolCallResult
-```
 
-### `ChatFinished`
-
-```python
 @dataclass(kw_only=True)
 class ChatFinished(TapeEvent):
     run_id: str
@@ -731,95 +739,46 @@ class ChatFinished(TapeEvent):
     context_error: BubError | None = None
 ```
 
-### `CodeTools`
+#### 事件一览 {#event-reference}
+
+| 事件类 | 触发时机 | 处理器可读取或修改的字段 |
+| --- | --- | --- |
+| `RunStarted` | 模型 Run 启动时 | `model`、`prompt`、`metadata`、`tape`、`state` |
+| `RunFinished` | Run 的事件流关闭时 | `status`（`ok` / `error` / `cancelled`）、`steps`、`elapsed_ms`、`error` |
+| `StepStarted` | 单个 Step 开始时 | `step`、可选的 `prompt` |
+| `StepFinished` | 单个 Step 结束时 | `step`、`status`、`elapsed_ms`、`stream`；可在继续下一步时设置 `next_prompt` |
+| `MessagesPending` | 构建请求前，或某步结束且无工具调用时 | 向 `messages` 追加运行期间到达的用户消息；在步末追加会让 Run 继续下一步 |
+| `LLMCallStarted` | 调用模型提供商之前 | 替换 `request`；或设置 `decision = LLMCallDecision.finish(text)` |
+| `LLMCallFinished` | 模型调用成功或因普通异常失败后 | `request` 与汇总后的 `result` |
+| `ToolCallStarted` | 本地工具执行之前 | 替换 `call`；或设置 `decision`（`proceed` / `deny` / `replace`） |
+| `ToolCallFinished` | 工具成功、失败、被拒绝或被替代后 | `call` 与 `result`（可给 `event.result.result` 赋值以替换面向模型的结果） |
+| `ChatFinished` | 当前 Step 的对话和工具往返准备写入 Tape 时 | `new_messages`、`response_text`、`tool_calls`、`tool_results`、`usage`、`error` |
+| `CommandFinished` | 直接命令执行成功或失败时 | `line`、`name`、`status`、`elapsed_ms`、`output` |
+
+- `RunFinished` 在事件流关闭时发出；尚未迭代就关闭的 Run 以 `status="cancelled"`、`steps=0` 结束。`LLMCallFinished` 和 `ToolCallFinished` 不保证覆盖外部取消路径。
+- 步数超过 `max_steps`（应用层由 `BUB_MAX_STEPS` 控制）时抛出 `max_steps_reached` 错误。
+- 直接命令触发工具事件和 `CommandFinished`，不触发 `RunStarted` 或 `RunFinished`。
+- 拦截载荷（`LLMCallRequest`、`LLMCallDecision`、`ToolCall`、`ToolCallDecision` 等）的字段定义见 [Hooks 参考](/zh-cn/docs/reference/hooks/#interception-payloads)（事件与 Hook 的映射关系见 [Hooks 事件映射](/zh-cn/docs/reference/hooks/#event-mapping) 与 [Agent 事件](/zh-cn/docs/concepts/events/#call-control)）。
+
+---
+
+### `bub.streaming` {#streams}
 
 ```python
-CodeTools = Iterable[Tool] | Callable[[TurnState], Iterable[Tool] | None]
-```
+from bub.streaming import AsyncStreamEvents, StreamEvent, StreamState
 
-### `ModelResolver`
-
-```python
-ModelResolver = Callable[[str | None, ToolContext], tuple[str, Mapping[str, Any]]]
-```
-
-### `CodeMode` {#code-mode}
-
-```python
-class CodeMode:
-    def __init__(
-        self,
-        tools: CodeTools = (),
-        *,
-        environment: Environment | Callable[[TurnState], Environment] | None = None,
-        models: str | ModelResolver | None = None,
-        stub_dir: Path | Callable[[TurnState], Path] | None = None,
-        media_tools: bool = True,
-        name: str = RUN_CODE_TOOL_NAME,
-    ) -> None: ...
-
-    def code_tools(self, state: TurnState) -> list[Tool] | None: ...
-    def environment(self, state: TurnState) -> Environment: ...
-    def prompt(self, context: PromptContext) -> str | None: ...
-```
-
-## `bub.prompt` {#prompt}
-
-### `UserContent`
-
-```python
-type UserContent = str | republic.Image | republic.Audio | republic.Video
-```
-
-### `LegacyPrompt`
-
-```python
-type LegacyPrompt = str | list[dict[str, Any]]
-```
-
-### `to_content`
-
-```python
-def to_content(prompt: list[UserContent] | LegacyPrompt) -> list[UserContent]: ...
-```
-
-### `to_legacy_prompt`
-
-```python
-def to_legacy_prompt(content: list[UserContent]) -> LegacyPrompt: ...
-```
-
-### `prompt_text`
-
-```python
-def prompt_text(content: list[UserContent]) -> str: ...
-```
-
-## `bub.streaming` {#streams}
-
-### `StreamState`
-
-```python
 @dataclass
 class StreamState:
     error: BubError | None = None
     usage: dict[str, Any] | None = None
     system_prompt: str | None = None
     tools: list[Tool] = field(default_factory=list)
-```
 
-### `StreamEvent`
-
-```python
 @dataclass(frozen=True)
 class StreamEvent:
     kind: Literal["text", "reasoning", "tool_call", "tool_result", "usage", "error", "final"]
     data: dict[str, Any]
-```
 
-### `AsyncStreamEvents`
-
-```python
 class AsyncStreamEvents:
     def __init__(
         self,
@@ -836,16 +795,24 @@ class AsyncStreamEvents:
 
     @property
     def error(self) -> BubError | None: ...
-
     @property
     def usage(self) -> dict[str, Any] | None: ...
 ```
 
-## `bub.errors` {#errors}
+| 类 / 成员 | 说明 |
+| --- | --- |
+| `StreamEvent.kind` | 流事件类型：`"text"`、`"reasoning"`、`"tool_call"`、`"tool_result"`、`"usage"`、`"error"`、`"final"`（各类型载荷结构见 [SDK：消费事件流](/zh-cn/docs/sdk/#consume-the-stream)） |
+| `StreamEvent.data` | 事件载荷字典；其中 `tool_result` 的 `data["tool_results"]` 与本步工具调用一一对应，失败调用对应项为其 `BubError` |
+| `await AsyncStreamEvents.aclose()` | 显式关闭事件流并触发 `on_close` 清理与 Tape 分支合并 |
+| `AsyncStreamEvents.error` / `usage` | 读取最近一步记录的 `BubError` 或 Token 用量统计字典 |
 
-### `ErrorKind`
+---
+
+### `bub.errors` {#errors}
 
 ```python
+from bub.errors import BubError, ErrorKind
+
 class ErrorKind(StrEnum):
     INVALID_INPUT = "invalid_input"
     CONFIG = "config"
@@ -854,11 +821,7 @@ class ErrorKind(StrEnum):
     TEMPORARY = "temporary"
     NOT_FOUND = "not_found"
     UNKNOWN = "unknown"
-```
 
-### `BubError`
-
-```python
 @dataclass
 class BubError(Exception):
     kind: ErrorKind
@@ -868,61 +831,72 @@ class BubError(Exception):
     def as_dict(self) -> dict[str, Any]: ...
 ```
 
-## `bub.environment` {#environment}
+| 字段 / 方法 | 类型 | 说明 |
+| --- | --- | --- |
+| `kind` | `ErrorKind` | 错误分类枚举 |
+| `message` | `str` | 错误描述文本 |
+| `details` | `dict[str, Any] \| None` | 可选的附加结构化上下文 |
+| `as_dict()` | `dict[str, Any]` | 转换为可 JSON 序列化的字典（用于写入 Tape 或通过事件流传输） |
 
-### `ENVIRONMENT_STATE_KEY`
+---
+
+### `CodeMode` {#code-mode}
 
 ```python
+from bub.core.codemode import CodeMode
+
+type CodeTools = Iterable[Tool] | Callable[[TurnState], Iterable[Tool] | None]
+type ModelResolver = Callable[[str | None, ToolContext], tuple[str, Mapping[str, Any]]]
+
+class CodeMode:
+    run_code: Tool
+
+    def __init__(
+        self,
+        tools: CodeTools = (),
+        *,
+        environment: Environment | Callable[[TurnState], Environment] | None = None,
+        models: str | ModelResolver | None = None,
+        stub_dir: Path | Callable[[TurnState], Path] | None = None,
+        media_tools: bool = True,
+        name: str = "run_code",
+    ) -> None: ...
+
+    def code_tools(self, state: TurnState) -> list[Tool] | None: ...
+    def environment(self, state: TurnState) -> Environment: ...
+    def prompt(self, context: PromptContext) -> str | None: ...
+```
+
+| 参数 / 成员 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `tools` | `CodeTools` | `()` | 允许在 `run_code` 内通过 `await tools.<name>(...)` 调用的工具列表（或按 `TurnState` 动态返回工具列表的函数） |
+| `environment` | `Environment \| Callable \| None` | 当前目录下的 `LocalEnvironment()` | 执行 Python 代码的 `Environment` 实例或工厂函数 |
+| `models` | `str \| ModelResolver \| None` | `None` | 允许代码内调用的模型规格或解析器 |
+| `stub_dir` | `Path \| Callable \| None` | `None` | 生成工具类型提示桩文件（stubs）的目录 |
+| `media_tools` | `bool` | `True` | 是否在代码中暴露 `attach_image` / `attach_audio` / `attach_video` |
+| `name` | `str` | `"run_code"` | 暴露给模型的工具名称 |
+| `code_mode.run_code` | `Tool` | — | 生成的 `Tool` 实例，可传给 `Agent(tools=[code_mode.run_code])` |
+| `code_mode.prompt` | `PromptSection` | — | 描述可用工具签名的系统提示词片段，可传给 `Agent(system_prompt=[..., code_mode.prompt])` |
+
+用法示例见 [SDK：工具与代码模式](/zh-cn/docs/sdk/tools/#compose-tools-with-codemode)。
+
+---
+
+### `Environment`、`Process` 与 `LocalEnvironment` {#environment}
+
+```python
+from bub.environment import (
+    ENVIRONMENT_STATE_KEY,
+    CallTool,
+    CodeFailed,
+    Environment,
+    LocalEnvironment,
+    Process,
+)
+
 ENVIRONMENT_STATE_KEY = "_runtime_environment"
-```
+type CallTool = Callable[[str, dict[str, Any]], Awaitable[Any]]
 
-### `CallTool`
-
-```python
-CallTool = Callable[[str, dict[str, Any]], Awaitable[Any]]
-```
-
-### `CodeFailed` {#codefailed}
-
-```python
-class CodeFailed(Exception):
-    def __init__(self, error: str, traceback: str = "") -> None: ...
-```
-
-### `Process` {#process}
-
-```python
-class Process(abc.ABC):
-    @property
-    @abc.abstractmethod
-    def stdout(self) -> asyncio.StreamReader: ...
-
-    @property
-    @abc.abstractmethod
-    def stderr(self) -> asyncio.StreamReader: ...
-
-    @property
-    @abc.abstractmethod
-    def returncode(self) -> int | None: ...
-
-    @abc.abstractmethod
-    async def wait(self) -> int: ...
-
-    @abc.abstractmethod
-    async def write_stdin(self, data: bytes) -> None: ...
-
-    @abc.abstractmethod
-    def close_stdin(self) -> None: ...
-
-    @abc.abstractmethod
-    def signal(self, *, kill: bool) -> None: ...
-
-    def is_running(self) -> bool: ...
-```
-
-### `Environment`
-
-```python
 class Environment(abc.ABC):
     workspace: str | None = None
     python: str = "python3"
@@ -942,7 +916,6 @@ class Environment(abc.ABC):
 
     @abc.abstractmethod
     async def write_text(self, path: str, content: str) -> None: ...
-
     def resolve_path(self, path: str) -> str: ...
 
     @abc.abstractmethod
@@ -956,44 +929,98 @@ class Environment(abc.ABC):
     ) -> None: ...
 
     async def close(self) -> None: ...
-```
 
-### `LocalEnvironment`
-
-```python
 class LocalEnvironment(Environment):
     def __init__(self, workspace: str | Path | None = None) -> None: ...
-
-    async def spawn(
-        self,
-        command: str | Sequence[str],
-        *,
-        cwd: str | None = None,
-        env: Mapping[str, str] | None = None,
-    ) -> LocalProcess: ...
-
-    async def read_text(self, path: str) -> str: ...
-    async def read_bytes(self, path: str) -> bytes: ...
-    async def write_text(self, path: str, content: str) -> None: ...
-
-    async def run_code(
-        self,
-        code: str,
-        *,
-        tools: Sequence[str],
-        call_tool: CallTool,
-        write: Callable[[str], None],
-    ) -> None: ...
-
-    def resolve_path(self, path: str) -> str: ...
 ```
 
-## `bub` {#application}
+#### `Environment` 成员说明 {#environment-members}
 
-### `BubFramework` {#framework}
+| 成员 | 签名 | 说明 |
+| --- | --- | --- |
+| `workspace` | `str \| None` | 环境内部的工作目录路径；为 `None` 时拒绝解析相对路径 |
+| `python` | `str` | 环境内部的 Python 解释器路径，默认 `"python3"`（`LocalEnvironment` 使用当前 `sys.executable`） |
+| `spawn` | `async (command, *, cwd=None, env=None) -> Process` | **抽象方法**。传入字符串时通过 Shell 执行，传入序列时按参数向量启动；`cwd` 默认取 `workspace` |
+| `read_text` | `async (path) -> str` | **抽象方法**。按 UTF-8 读取文本文件 |
+| `read_bytes` | `async (path) -> bytes` | 读取文件原始字节（默认调用环境内的 `python` 读取；可直接访问文件系统的实现应覆写它） |
+| `write_text` | `async (path, content) -> None` | **抽象方法**。按 UTF-8 写入文本文件，并自动创建缺失的父目录 |
+| `resolve_path` | `(path) -> str` | 将相对路径基于 `workspace` 解析为环境内绝对路径；无 `workspace` 时抛出 `ValueError` |
+| `run_code` | `async (code, *, tools, call_tool, write) -> None` | **抽象方法**。在环境内执行模型编写的 Python 代码 |
+| `close` | `async () -> None` | 释放环境资源；在 `framework.running()` 退出时自动调用 |
+
+#### `Process` {#process}
 
 ```python
+class Process(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def stdout(self) -> asyncio.StreamReader: ...
+    @property
+    @abc.abstractmethod
+    def stderr(self) -> asyncio.StreamReader: ...
+    @property
+    @abc.abstractmethod
+    def returncode(self) -> int | None: ...
+
+    @abc.abstractmethod
+    async def wait(self) -> int: ...
+    @abc.abstractmethod
+    async def write_stdin(self, data: bytes) -> None: ...
+    @abc.abstractmethod
+    def close_stdin(self) -> None: ...
+    @abc.abstractmethod
+    def signal(self, *, kill: bool) -> None: ...
+    def is_running(self) -> bool: ...
+```
+
+| 成员 | 说明 |
+| --- | --- |
+| `stdout` / `stderr` | 标准输出与标准错误的 `asyncio.StreamReader` |
+| `returncode` | 进程退出码；运行期间为 `None` |
+| `await wait()` | 等待进程结束并返回退出码 |
+| `await write_stdin(data)` / `close_stdin()` | 写入并刷新标准输入，或关闭标准输入 |
+| `signal(*, kill)` | 请求进程及其子孙进程退出（`kill=True` 时强制终止）；进程已退出时调用不得抛异常 |
+| `is_running()` | 检查进程或其子孙进程是否仍在运行 |
+
+#### `run_code` 契约 {#run-code-contract}
+
+- `code` 支持顶层 `await`；`tools` 中的工具在代码里通过 `await tools.<name>(**kwargs)` 调用，底层转发给 `await call_tool(name, kwargs)`（代码也可通过 `call_tool` 调用 `republic.` 前缀的媒体与模型辅助方法）。
+- 标准输出必须在产生时立即回调 `write(chunk)`，以确保超时后仍能保留已产生的输出。
+- 代码自身抛错时抛出 `CodeFailed(error, traceback)`；有 Python 解释器的自定义环境可直接复用 `bub.core.codemode.runner.run_code_in_subprocess(self, ...)`。
+
+#### `CodeFailed` {#codefailed}
+
+```python
+class CodeFailed(Exception):
+    def __init__(self, error: str, traceback: str = "") -> None: ...
+```
+
+`error` 为 `"<异常类型>: <消息>"`，`traceback` 为仅包含模型代码自身栈帧的回溯字符串。
+
+#### 环境在应用层中如何提供 {#provide-an-environment}
+
+应用层通过 `provide_environment(session_id, workspace)` Hook 为每个会话缓存一个 `Environment`（默认返回 `LocalEnvironment(workspace)`），写入 `TurnState[ENVIRONMENT_STATE_KEY]` 并在 `framework.running()` 退出时调用 `close()`。
+
+:::caution
+`LocalEnvironment` 直接在宿主机上执行进程与读写文件，**单独的子进程不是安全沙箱**。执行不受信任的代码时，请实现具备文件系统、网络与权限隔离的 `Environment`。
+:::
+
+---
+
+## 应用层 {#application}
+
+### `BubFramework` 与 `BubAgent` {#framework}
+
+```python
+from bub import BubFramework
+from bub.builtin.agent import BubAgent
+
 class BubFramework:
+    workspace: Path
+    config_file: Path
+    default_command: str | None
+    events: EventBus
+
     def __init__(self, config_file: Path = DEFAULT_CONFIG_FILE) -> None: ...
 
     @property
@@ -1064,13 +1091,7 @@ class BubFramework:
     def get_system_prompt(self, prompt: list[UserContent], state: dict[str, Any]) -> str: ...
     def build_tape_context(self) -> TapeContext: ...
     def collect_onboard_config(self, plugin_name: str | None = None) -> dict[str, Any]: ...
-```
 
-## `bub.builtin.agent`
-
-### `BubAgent`
-
-```python
 class BubAgent(core.Agent):
     command_prefix: str
 
@@ -1103,49 +1124,50 @@ class BubAgent(core.Agent):
     ) -> list[Tool]: ...
 ```
 
-## `bub.envelope` {#messages}
+**`BubFramework` 核心方法说明**：
 
-### `Envelope`
+| 方法 | 说明 |
+| --- | --- |
+| `BubFramework(config_file=...)` | 初始化应用框架并载入配置文件；`workspace` 初始为当前工作目录 |
+| `load_hooks()` / `load_builtin_hooks()` | 加载内置 Hook 及环境中已安装的所有 entry-point 插件（或仅加载内置 Hook） |
+| `running()` | 异步上下文管理器：启动 `provide_lifespan`、`TapeStore`、会话 `Environment` 与 `SteeringInbox` 作用域 |
+| `await process_inbound(inbound, stream_output=False)` | 执行一条入站消息的完整 7 阶段 Turn，返回 `TurnResult` |
+| `await build_state(message, session_id)` | 运行 `load_state` Hooks 并注入 `_runtime_*` 键，构造完整的 `TurnState` |
+| `get_tools()` / `get_channels(handler)` / `get_tape_store()` | 收集插件注册的工具、渠道或当前活动的 Tape 存储后端 |
+| `bind_channel_router(router)` | 绑定渠道路由器，供出站投递、流包装与会话取消使用 |
+
+**`BubAgent` 构造与 `run_stream()` 参数说明**：
+
+| 参数 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `framework` | `BubFramework` | 必填 | 关联的 `BubFramework` 实例（应在 `async with framework.running():` 内构造 `BubAgent` 以获取活动存储） |
+| `tools` | `Collection[Tool] \| None` | `framework.get_tools()` | 覆盖该实例的基础工具集合 |
+| `tape_store` | `TapeStore \| AsyncTapeStore \| None` | `framework.get_tape_store()` | 显式指定存储后端（优先级高于 `framework` 提供的存储） |
+| `session_id` | `str` | 必填（`run_stream`） | 会话 ID（以 `temp/` 开头的临时会话在流关闭时不合并回主 Tape） |
+| `prompt` | `list[UserContent] \| LegacyPrompt` | 必填（`run_stream`） | 发送给模型的用户输入 |
+| `state` | `TurnState \| None` | `None` | 为 `None` 时自动通过 `framework.build_state()` 加载；显式传入字典则会跳过 `load_state` Hooks |
+| `model` | `str \| None` | 会话或全局配置的模型 | 临时覆盖本次运行使用的 `provider:model` |
+| `allowed_tools` / `allowed_skills` | `Collection[str] \| None` | `None` | 按请求限制允许使用的工具或技能白名单（传 `[]` 表示禁用全部；传未知名称会抛出 `ValueError`） |
+| `reasoning_effort` | `str \| None` | 会话或全局配置值 | 临时覆盖本次运行的推理强度 |
+
+嵌入用法详见[复用 Bub 应用](/zh-cn/docs/integrations/reuse-app/)，与完整 Turn 的阶段对比见 [Turn](/zh-cn/docs/concepts/turn/#stages)。
+
+---
+
+### `bub.envelope` 与 `bub.turn` {#messages}
 
 ```python
+from bub.envelope import Envelope, content_of, field_of, normalize_envelope, unpack_batch
+from bub.turn import TurnResult, TurnState
+
 type Envelope = Any
-```
-
-### `field_of`
-
-```python
-def field_of(message: Envelope, key: str, default: Any = None) -> Any: ...
-```
-
-### `content_of`
-
-```python
-def content_of(message: Envelope) -> str: ...
-```
-
-### `normalize_envelope`
-
-```python
-def normalize_envelope(message: Envelope) -> dict[str, Any]: ...
-```
-
-### `unpack_batch`
-
-```python
-def unpack_batch(batch: Any) -> list[Envelope]: ...
-```
-
-## `bub.turn`
-
-### `TurnState`
-
-```python
 type TurnState = dict[str, Any]
-```
 
-### `TurnResult`
+def field_of(message: Envelope, key: str, default: Any = None) -> Any: ...
+def content_of(message: Envelope) -> str: ...
+def normalize_envelope(message: Envelope) -> dict[str, Any]: ...
+def unpack_batch(batch: Any) -> list[Envelope]: ...
 
-```python
 @dataclass(frozen=True)
 class TurnResult:
     session_id: str
@@ -1155,45 +1177,56 @@ class TurnResult:
     state: TurnState = field(default_factory=dict)
 ```
 
-## `bub.model_selection` {#model-options}
+| 函数 / 字段 | 说明 |
+| --- | --- |
+| `field_of(message, key, default=None)` | 从字典、dataclass、Pydantic 模型或普通对象上安全读取指定字段值 |
+| `content_of(message)` | 读取消息的 `"content"` 文本字段（不存在时返回空字符串 `""`） |
+| `normalize_envelope(message)` | 将任意形态的 `Envelope` 统一转换为可变的 Python 字典 |
+| `unpack_batch(batch)` | 将 `render_outbound` 返回的单条或列表展开为 `list[Envelope]` |
+| `TurnResult` | `process_inbound()` 的返回值，包含解析后的 `session_id`、`prompt`、`model_output`、待发消息列表 `outbounds` 及结束时的 `state` |
 
-### `ModelChoice`
+---
+
+### `bub.model_selection` {#model-options}
 
 ```python
+from bub.model_selection import ModelChoice, ModelOptions
+
 @dataclass(frozen=True)
 class ModelChoice:
     id: str
     name: str | None = None
     description: str | None = None
     meta: dict[str, Any] | None = None
-```
 
-### `ModelOptions`
-
-```python
 @dataclass(frozen=True)
 class ModelOptions:
     models: list[ModelChoice] = field(default_factory=list)
     current_model: str | None = None
 ```
 
-## `bub.channels` {#channels}
+| 类 / 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `ModelChoice.id` | `str` | 必填的模型标识（如 `"openai:gpt-5-mini"`） |
+| `ModelChoice.name` / `description` / `meta` | 可选 | 显示名称、描述与附加元数据字典 |
+| `ModelOptions.models` | `list[ModelChoice]` | 候选模型列表 |
+| `ModelOptions.current_model` | `str \| None` | 当前选中的模型 ID |
 
-### `MediaType`
+---
+
+### `bub.channels` {#channels}
 
 ```python
+from bub.channels import Channel, ChannelManager, ChannelMessage, Interface, Lifecycle
+from bub.channels.admission import AdmitDecision, SteeringInbox, TurnAdmissionAction, TurnSnapshot
+from bub.channels.contracts import ChannelRouter, MessageHandler
+from bub.channels.message import MediaItem, MediaType, MessageKind
+
 type MediaType = Literal["image", "audio", "video", "document"]
-```
-
-### `MessageKind`
-
-```python
 type MessageKind = Literal["error", "normal", "command"]
-```
+type MessageHandler = Callable[[Envelope], Coroutine[Any, Any, None]]
+type TurnAdmissionAction = Literal["process", "drop", "follow_up", "steer"]
 
-### `MediaItem`
-
-```python
 @dataclass
 class MediaItem:
     type: MediaType
@@ -1203,11 +1236,7 @@ class MediaItem:
     data_fetcher: Callable[[], Awaitable[bytes | None]] | None = None
 
     async def get_url(self) -> str | None: ...
-```
 
-### `ChannelMessage`
-
-```python
 @dataclass
 class ChannelMessage:
     session_id: str
@@ -1226,23 +1255,17 @@ class ChannelMessage:
 
     @classmethod
     def from_batch(cls, batch: list[ChannelMessage]) -> ChannelMessage: ...
-```
 
-### `Channel`
-
-```python
 class Channel(ABC):
     name: ClassVar[str] = "base"
 
     @abstractmethod
     async def start(self, stop_event: asyncio.Event) -> None: ...
-
     @abstractmethod
     async def stop(self) -> None: ...
 
     @property
     def needs_debounce(self) -> bool: ...
-
     @property
     def enabled(self) -> bool: ...
 
@@ -1260,51 +1283,25 @@ class Channel(ABC):
         message: Envelope,
         turn: TurnSnapshot,
     ) -> AdmitDecision | None: ...
-```
 
-### `Interface`
-
-```python
 class Interface(Channel): ...
-```
-
-### `Lifecycle`
-
-```python
 class Lifecycle(Channel): ...
-```
 
-### `MessageHandler`
-
-```python
-type MessageHandler = Callable[[Envelope], Coroutine[Any, Any, None]]
-```
-
-### `ChannelRouter`
-
-```python
 class ChannelRouter(Protocol):
     async def dispatch_output(self, message: Envelope) -> bool: ...
-
     def wrap_stream(
         self,
         message: Envelope,
         stream: AsyncIterable[StreamEvent],
     ) -> AsyncIterable[StreamEvent]: ...
-
     async def quit(self, session_id: str) -> None: ...
-
     async def admit_channel_message(
         self,
         session_id: str,
         message: Envelope,
         turn: TurnSnapshot,
     ) -> AdmitDecision | None: ...
-```
 
-### `ChannelManager`
-
-```python
 class ChannelManager:
     def __init__(
         self,
@@ -1317,44 +1314,27 @@ class ChannelManager:
     async def on_receive(self, message: ChannelMessage) -> None: ...
     def get_channel(self, name: str) -> Channel | None: ...
     async def dispatch_output(self, message: Envelope) -> bool: ...
-
     def wrap_stream(
         self,
         message: Envelope,
         stream: AsyncIterable[StreamEvent],
     ) -> AsyncIterable[StreamEvent]: ...
-
     async def quit(self, session_id: str) -> None: ...
     def enabled_channels(self) -> list[Channel]: ...
     async def listen_and_run(self) -> None: ...
     async def shutdown(self) -> None: ...
-
     async def admit_channel_message(
         self,
         session_id: str,
         message: Envelope,
         turn: TurnSnapshot,
     ) -> AdmitDecision | None: ...
-```
 
-### `TurnAdmissionAction`
-
-```python
-type TurnAdmissionAction = Literal["process", "drop", "follow_up", "steer"]
-```
-
-### `AdmitDecision`
-
-```python
 @dataclass(frozen=True)
 class AdmitDecision:
     action: TurnAdmissionAction
     reason: str | None = None
-```
 
-### `TurnSnapshot`
-
-```python
 @dataclass(frozen=True)
 class TurnSnapshot:
     session_id: str
@@ -1362,77 +1342,86 @@ class TurnSnapshot:
     running_count: int
     pending_count: int
     steering_count: int = 0
-```
 
-### `SteeringInbox`
-
-```python
 class SteeringInbox(Protocol):
     async def enqueue_message(self, message: Envelope, state: TurnState) -> None: ...
     async def drain_messages(self, state: TurnState) -> list[Envelope]: ...
     def message_count(self, state: TurnState) -> int: ...
 ```
 
-## `bub.application` {#application-events}
+| 类名 | 说明 |
+| --- | --- |
+| `ChannelMessage` | 渠道入站/出站标准消息对象；`media` 支持 `MediaItem`（通过 `url` 或异步 `data_fetcher` 提供图片、音频、视频字节）。自定义渠道开发见[网关：自定义渠道](/zh-cn/docs/app/gateway/#custom-channels) |
+| `Channel` / `Interface` / `Lifecycle` | `Channel` 至少实现 `start(stop_event)` 与 `stop()`；`Interface` 代表需显式开启的用户交互界面（如 `cli`），`Lifecycle` 代表伴随网关运行的后台常驻服务（如 `mcp.lifecycle`） |
+| `ChannelManager` | 实现 `ChannelRouter` 协议并管理所有已启用渠道的生命周期、防抖合并、准入排队与出站路由 |
+| `AdmitDecision` / `TurnSnapshot` / `SteeringInbox` | 消息准入决策（`process` / `drop` / `follow_up` / `steer`）、当前会话运行快照以及运行中引导消息收件箱协议（详见 [Hooks 参考：`admit_message`](/zh-cn/docs/reference/hooks/#admit_message)） |
 
-### `Outcome`
+---
+
+### `bub.hooks` {#hooks}
 
 ```python
+from bub.hooks import BubHookSpecs, hookimpl, hookspec
+```
+
+全部 27 个 Hook 的签名、优先级与返回值规范见 [Hooks 参考](/zh-cn/docs/reference/hooks/)。
+
+---
+
+### `bub.application` 与 `bub.program_status` {#application-events}
+
+```python
+from bub.application import CommandChanged, Outcome, PromptChanged, PromptKind, WorkChanged
+from bub.program_status import ProgramStatus
+
 type Outcome = Literal["succeeded", "failed", "cancelled"]
-```
-
-### `PromptKind`
-
-```python
 type PromptKind = Literal["question", "permission", "auth"]
-```
 
-### `CommandChanged`
-
-```python
 @dataclass(frozen=True)
 class CommandChanged(Event):
     outcome: Outcome | None = None
-```
 
-### `WorkChanged`
-
-```python
 @dataclass(frozen=True)
 class WorkChanged(Event):
     busy: bool
     completed: Outcome | None = None
-```
 
-### `PromptChanged`
-
-```python
 @dataclass(frozen=True)
 class PromptChanged(Event):
     kind: PromptKind | None
-```
 
-## `bub.program_status`
-
-### `ProgramStatus`
-
-```python
 class ProgramStatus:
     def __init__(self, output: TextIO | None) -> None: ...
     def __call__(self, event: Event) -> None: ...
 ```
 
-## `bub.inquirer` {#inquirer}
+这些事件发布在 `framework.events` 总线上（与 `agent.events` 相互独立），用于驱动状态栏和外部界面：
 
-### `CheckboxValidator`
+| 类名 | 字段 | 说明 |
+| --- | --- | --- |
+| `CommandChanged` | `outcome` | CLI 命令启动时为 `None`；结束时为 `"succeeded"` / `"failed"` / `"cancelled"` |
+| `WorkChanged` | `busy`, `completed` | 渠道忙碌状态变化，可附带刚完成消息的执行结果 |
+| `PromptChanged` | `kind` | 交互式询问打开时为 `"question"` / `"permission"` / `"auth"`；关闭时为 `None` |
+| `ProgramStatus` | `output` | 内置终端状态处理器：在 TTY 终端上根据上述事件输出 OSC 7501 状态序列（`idle`、`working`、`blocked`、`done`、`error`），并在命令结束时发送 `state=clear` |
+
+---
+
+### `bub.inquirer` {#inquirer}
 
 ```python
-CheckboxValidator = Callable[[list[str]], bool | str]
-```
+from bub.inquirer import (
+    CheckboxValidator,
+    ask_checkbox,
+    ask_confirm,
+    ask_fuzzy,
+    ask_prompt,
+    ask_secret,
+    ask_select,
+    ask_text,
+)
 
-### `ask_prompt`
+type CheckboxValidator = Callable[[list[str]], bool | str]
 
-```python
 def ask_prompt(
     prompt: Callable[..., InquirerResult[Any]],
     message: str,
@@ -1440,50 +1429,12 @@ def ask_prompt(
     kind: PromptKind = "question",
     **kwargs: Any,
 ) -> Any: ...
-```
 
-### `ask_text`
-
-```python
 def ask_text(message: str, default: str = "") -> str: ...
-```
-
-### `ask_secret`
-
-```python
 def ask_secret(message: str) -> str: ...
-```
-
-### `ask_confirm`
-
-```python
-def ask_confirm(
-    message: str,
-    default: bool = False,
-    *,
-    kind: PromptKind = "question",
-) -> bool: ...
-```
-
-### `ask_select`
-
-```python
+def ask_confirm(message: str, default: bool = False, *, kind: PromptKind = "question") -> bool: ...
 def ask_select(message: str, choices: list[str], default: str = "") -> str: ...
-```
-
-### `ask_fuzzy`
-
-```python
-def ask_fuzzy(
-    message: str,
-    choices: list[str],
-    default: str | None = None,
-) -> str: ...
-```
-
-### `ask_checkbox`
-
-```python
+def ask_fuzzy(message: str, choices: list[str], default: str | None = None) -> str: ...
 def ask_checkbox(
     message: str,
     choices: list[str],
@@ -1491,3 +1442,14 @@ def ask_checkbox(
     validate: CheckboxValidator | None = None,
 ) -> list[str]: ...
 ```
+
+| 函数 | 参数 | 返回值 | 说明 |
+| --- | --- | --- | --- |
+| `ask_text` | `message`, `default=""` | `str` | 终端单行文本输入 |
+| `ask_secret` | `message` | `str` | 终端密码/密钥隐藏输入 |
+| `ask_confirm` | `message`, `default=False`, `*, kind="question"` | `bool` | 是/否交互确认 |
+| `ask_select` | `message`, `choices`, `default=""` | `str` | 上下方向键列表单选 |
+| `ask_fuzzy` | `message`, `choices`, `default=None` | `str` | 支持关键字模糊过滤的列表单选 |
+| `ask_checkbox` | `message`, `choices`, `enabled=None`, `validate=None` | `list[str]` | 多选框输入，支持传入 `validate` 校验函数 |
+
+在 Bub CLI 中调用这些同步函数时，会自动在 `framework.events` 上发布 `PromptChanged` 事件；当用户按 Ctrl+C 取消输入时抛出 `typer.Abort`。示例见[插件与 Hooks：交互式输入](/zh-cn/docs/app/plugins/#prompt-for-input)。

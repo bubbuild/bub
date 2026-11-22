@@ -1,17 +1,17 @@
 ---
 title: 工具
-description: 为 Agent 添加查询和执行能力，并了解工具参数、结果、错误与运行上下文。
+description: 使用 Bub Python SDK 的 @tool 装饰器定义自定义工具，掌握 Pydantic 参数校验、ToolContext 注入、异步并发控制与代码模式。
 ---
 
-Agent 可以理解用户的请求，但要查询真实数据或执行操作，还需要有调用外部能力的途径。而工具（Tool）就是 Agent 的**手脚**：所有的处理逻辑都可以封装成工具，然后 Agent 再根据用户请求决定是否调用。
+大模型能听懂用户的需求，但要真正查数据或改状态，还得靠外部能力。工具（Tool）就是 Agent 的**「手脚」**：你可以把任何数据查询或业务操作写成普通的 Python 函数，交给 Agent 按需调用。
 
-本节将以一个查询订单的示例开始，逐步说明如何定义工具、模型怎样调用它，以及怎样处理参数、结果和运行时数据。
+本节从一个查询订单的例子出发，带你逐步了解如何定义工具、模型怎样调用它，以及如何处理参数校验、运行上下文与并发控制。
 
-## 自定义工具 {#add-a-tool}
+## 定义自定义工具 {#add-a-tool}
 
-假设我们已经有一个查询订单的 Python 函数。要想 Agent 能调用它，就必须用 Bub SDK 中的 `@tool` 装饰器将其标记，并在初始化 Agent 时传递：
+假设我们已经写好了一个查询订单的 Python 函数。要让 Agent 能调用它，只需用 `@tool` 装饰器标记，并在创建 `Agent` 时传入 `tools`：
 
-```python
+```python "@tool" "tools=[get_order]"
 from bub.core import Agent
 from bub.core.tools import tool
 
@@ -40,21 +40,21 @@ agent = Agent(
 )
 ```
 
-`@tool` 装饰器会把带类型标注的 Python 函数转换为 Agent 可用的工具。工具函数负责实际业务逻辑，而模型则根据工具名、参数类型和说明来帮助它判断何时以及怎样调用。
+`@tool` 会根据函数的类型标注和 docstring 自动生成供模型阅读的工具描述与参数 Schema。
 
 ## 工具调用流程 {#tool-call-flow}
 
-模型并不会直接执行 Python 代码。而是它先提出工具调用请求，然后 Bub 再校验参数并执行对应函数，最后把结果交回模型：
+模型不会直接执行 Python 代码，而是先发起工具调用请求，由 Bub 校验参数并运行函数，再将结果传回模型：
 
 ```mermaid
 flowchart LR
-    A[用户提出请求] --> B[模型决定调用工具]
+    A[用户提问] --> B[模型请求调用工具]
     B --> C[Bub 校验参数并执行函数]
-    C --> D[工具结果交回模型]
-    D --> E[模型继续处理并回答]
+    C --> D[结果传回模型]
+    D --> E[模型生成最终回答]
 ```
 
-所以当我们调用 `agent.run()` 方法时，可以从输出的结果中分别看到模型请求的工具和工具返回的结果：
+在事件流中可以观察到完整的调用往返（1 次工具调用 + 1 次最终回答共经历 2 个 Step）：
 
 ```python
 async with agent.run(prompt, model=model, tape="tools-demo") as stream:
@@ -68,29 +68,23 @@ async with agent.run(prompt, model=model, tape="tools-demo") as stream:
             print(event.data["delta"], end="", flush=True)
 ```
 
-一次工具调用会经过两个步骤：
+可以看到，一次工具调用会经历两个 Step：模型先请求 `get_order` 并收到工具结果，再结合结果生成最终回答。当然，究竟要不要调用工具，最终决定权仍在模型手里。
 
-1. 模型先请求 `get_order` 工具，Bub 执行函数并把结果交回模型；
-2. 模型再根据这个结果生成回答。
+## 参数描述与 Pydantic 校验 {#tool-schema}
 
-但是否调用工具仍由模型决定。
-
-## 工具说明与约束 {#tool-schema}
-
-使用 `@tool` 装饰器标记的 Python 函数，其参数类型会被转换为 JSON Schema，而当中的 [docstring](https://peps.python.org/pep-0257/) 则转换为该工具的说明书。因此，参数名和描述都是工具接口的一部分，我们在封装时应确保函数签名和描述的准确性，以确保模型能正确调用。
+用 `@tool` 装饰函数时，参数类型会被转为 JSON Schema，而 [docstring](https://peps.python.org/pep-0257/) 就是给模型看的使用说明书。因此，参数名、类型标注和 docstring 都是工具接口的一部分，写清楚能让模型更准确地传参：
 
 ```python
 @tool
 def get_order(order_id: str) -> dict[str, str | float]:
-    """按订单号查询订单。order_id 是用户提供的完整编号，例如 A123。"""
+    """按订单号查询订单。order_id 是完整订单编号，例如 A123。"""
     ...
 ```
 
-如果输入参数较多或需要如范围、长度等约束时，可以借 [Pydantic](https://pydantic.dev/) 这样的第三方校验库帮助我们，之后将其作为 `@tool` 装饰器的 `model` 参数传入：
+当参数较多或需要限制数值范围、字符串长度时，可定义 [Pydantic](https://pydantic.dev/) 模型并传给 `@tool(model=...)`：
 
 ```python
 from pydantic import BaseModel, Field
-
 from bub.core.tools import tool
 
 
@@ -102,7 +96,7 @@ class RefundInput(BaseModel):
 
 @tool(name="refund_order", model=RefundInput)
 def refund_order(param: RefundInput) -> dict[str, str | float]:
-    """为已支付订单申请退款；执行前必须完成权限检查。"""
+    """为已支付订单申请退款。"""
     return {
         "order_id": param.order_id,
         "amount": param.amount,
@@ -110,24 +104,20 @@ def refund_order(param: RefundInput) -> dict[str, str | float]:
     }
 ```
 
-在执行中，如因参数类型不匹配或 Pydantic 校验失败时，Bub 会把错误作为工具错误结果交回模型。模型可以据此修正参数后重试（但不保证重试一定成功）。
+编写实际业务工具时，建议把**「预期的业务结果」**和**「程序执行错误」**区分开——返回结构化字典（如 `{"error": "order_not_found"}`）而非直接抛异常，能让模型和调用方清晰识别已知的业务状态：
 
-注意，在编写实际的业务逻辑函数时，应区分业务结果和执行错误：
-
-| 情况 | 默认行为 |
+| 情况 | Bub 的处理行为 |
 | --- | --- |
-| 参数不符合类型或 Pydantic 约束 | 转为参数校验工具错误，交回模型 |
-| 工具抛出普通异常 | 转为工具错误，交回模型 |
-| 工具返回业务错误对象，例如 `order_not_found` | 作为正常工具结果交回模型 |
-| 存储、模型或事件处理器中断调用 | 异常可能从事件迭代抛出，在集成部分处理 |
+| 参数类型不匹配或 Pydantic 校验失败 | 包装为工具错误传回模型，模型可修正参数后重试 |
+| 工具函数抛出普通异常 | 包装为工具错误传回模型 |
+| 工具返回结构化业务状态（如 `{"error": "order_not_found"}`） | 作为正常工具结果传回模型（推荐用于预期的业务错误） |
+| 存储、模型连接或事件处理器抛出异常 | 从事件流迭代处直接向上抛出，由宿主代码捕获 |
 
-业务错误对象不是 Python 异常，以稳定的结构化结果返回，可以让模型和调用方识别“订单不存在”这类业务状态。
+## 注入运行上下文（ToolContext） {#tool-context}
 
-## 在工具中传入上下文 {#tool-context}
+有时工具内部不只是处理入参，还需要访问当前会话的 Tape、请求级 `state` 或事件总线。这时可以设置 `@tool(context=True)`，让 Bub 自动注入 `ToolContext`：
 
-出于某种需要，有时我们还需要在工具中获取到当前会话、请求级权限或事件总线等信息。可以通过 Bub 注入的 `ToolContext` 对象来获取：
-
-```python
+```python "context=True" "context: ToolContext"
 from bub.core.tools import ToolContext, tool
 
 
@@ -141,7 +131,7 @@ async def add_order_note(note: str, *, context: ToolContext) -> str:
     return f"备注已写入会话 {context.tape.name}"
 ```
 
-于是在调用过程中传入 `state` 参数，工具就能读取到 `context.state` 的数据：
+调用 `agent.run()` 时传入 `state`，即可在工具内通过 `context.state` 读取：
 
 ```python
 async with agent.run(
@@ -154,19 +144,23 @@ async with agent.run(
 ```
 
 :::tip
-`context` 参数由 Bub 注入，不会出现在模型可见的参数 Schema 中。而 `context.state` 只在当前调用内共享，不会自动持久化或恢复。
+`context` 参数由 Bub 自动注入，不会暴露在发给模型的参数 Schema 中。`context.state` 仅在单次调用内有效，不会自动持久化。
 :::
 
-## 异步和批量调用 {#concurrency}
+## 异步函数与并发限制 {#concurrency}
 
-`@tool` 装饰器不仅适用于普通函数，还适用于异步函数，通常来说对于可能会阻塞程序运行的逻辑我们都应尽可能将其作为异步函数调用，必要时放到单独的线程中执行：
+`@tool` 同时支持同步函数和 `async def` 异步函数。含阻塞 I/O 的逻辑应使用异步函数，或用 `asyncio.to_thread()` 放入线程执行：
 
 ```python
-import time
 import asyncio
+import time
+from bub.core.tools import tool
 
-def build_report_blocking(order_id: str) -> None:
+
+def build_report_blocking(order_id: str) -> str:
     time.sleep(3)
+    return f"https://example.com/reports/{order_id}.pdf"
+
 
 @tool
 async def export_order_report(order_id: str) -> str:
@@ -174,45 +168,21 @@ async def export_order_report(order_id: str) -> str:
     return await asyncio.to_thread(build_report_blocking, order_id)
 ```
 
-需要说明的是，模型可能在一次响应中可能请求多个工具。所以避免达到系统自身的资源瓶颈，Bub 允许我们传入 `max_tool_concurrency` 参数来限制：
+模型在一次响应中可能会同时请求多个工具。为了避免并发过高拖垮下游或触及资源上限，可以通过 `max_tool_concurrency` 限制单步内的最大并发执行数：
 
 ```python
-from bub.core import Agent
-from bub.core.tools import tool
-
-
-ORDERS = {
-    "A123": {
-        "order_id": "A123",
-        "status": "shipped",
-        "item": "机械键盘",
-        "amount": 399.0,
-    }
-}
-
-
-@tool
-def get_order(order_id: str) -> dict[str, str | float]:
-    """按订单号查询订单状态、商品和金额。"""
-    if order := ORDERS.get(order_id):
-        return order
-    return {"order_id": order_id, "error": "order_not_found"}
-
-
 agent = Agent(
     tools=[get_order],
-    system_prompt="用户询问订单时，使用工具查询，不要猜测订单状态。",
+    system_prompt="用户询问订单时，使用工具查询。",
     max_tool_concurrency=2,
 )
-
 ```
 
-另外，传给 `Agent(tools=[...])` 的还可以是其他库的工具，比如 `republic.tools.WebSearch()`。但它们将由模型提供商执行，不经过本地 `ToolExecutor`，也不受 `max_tool_concurrency` 的本地并发限制。
+此外，`Agent(tools=[...])` 也支持传入提供商侧执行的工具（如 `republic.tools.WebSearch()`）。这类工具由模型提供商远端执行，不经过本地执行器，也不受 `max_tool_concurrency` 限制。
 
+## 跳过模型直接调用工具 {#call-a-tool-without-a-model}
 
-## 直接调用工具 {#call-a-tool-without-a-model}
-
-如果你有自己的想法，明确大概要调什么命令，可以给 Agent 设置 `command_prefix` 命令前缀。命令仍使用同一份工具实现和参数校验，但不调用模型：
+如果你已经明确知道要执行哪个工具、不需要走模型推理（也不想消耗模型 Token），可以给 Agent 设置 `command_prefix`。以该前缀开头的输入会跳过模型，直接校验参数并调用同名工具：
 
 ```python
 agent = Agent(tools=[get_order], command_prefix=",")
@@ -223,13 +193,14 @@ async with agent.run(",get_order A123", model=model, tape="tools-demo") as strea
             print(event.data["delta"], end="")
 ```
 
-这和普通函数调用的区别在于，直接命令会产生 Bub 定义事件，以便你现有 Agent 流程逻辑可以统一处理。但调用发生错误时，不会像模型工具错误那样交回模型修正。
+直接命令同样通过 `agent.run()` 产出事件流并触发工具事件；但若执行报错，异常会直接抛给调用方，不会交回模型重试。
 
 ## 代码模式 {#compose-tools-with-codemode}
 
-当工具较多或任务需要条件逻辑时，可以让模型通过 `run_code` 工具来编写 Python 代码，以满足更灵活的处理需要或在一次执行中组合多个工具：
+当工具数量较多或任务包含循环、条件分支时，可使用 `CodeMode` 让模型通过 `run_code` 工具直接编写 Python 代码组合调用多个工具：
 
 ```python
+from bub.core import Agent
 from bub.core.codemode import CodeMode
 
 code_mode = CodeMode([get_order])
@@ -237,21 +208,19 @@ code_mode = CodeMode([get_order])
 agent = Agent(
     tools=[code_mode.run_code],
     system_prompt=[
-        "使用可用工具完成任务；可以编写 Python 调用 tools.*。",
+        "使用可用工具完成任务；可编写 Python 调用 tools.*。",
         code_mode.prompt,
     ],
 )
 ```
 
-模型将生成如下类似可以调用的 Python 代码并执行：
+模型在 `run_code` 中生成的 Python 代码示例：
 
 ```python
 order = await tools.get_order(order_id="A123")
 print(order)
 ```
 
-## 安全环境与执行环境 {#choose-an-execution-environment}
+## 自定义执行环境 {#choose-an-execution-environment}
 
-默认情况下，由 Agent 使用的所有工具或代码将在运行 Python 进程的宿主机上被执行，但这并不是独立且安全的沙箱。必要时应进行隔离，并配置具备文件系统、网络和权限等限制。
-
-Bub 允许你通过自定义 `Environment` 来使用远程或隔离环境作为执行容器。完整协议见 [Environment](/zh-cn/docs/reference/python-api#environment)。
+默认情况下，工具和代码模式直接在运行 Python 进程的宿主机上执行（无安全沙箱）。如需隔离文件系统、网络和进程权限，可实现自定义的 [`Environment`](/zh-cn/docs/reference/python-api/#environment)。

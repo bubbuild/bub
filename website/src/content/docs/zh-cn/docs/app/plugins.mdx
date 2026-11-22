@@ -1,31 +1,31 @@
 ---
 title: 插件与 Hooks
-description: 编写、安装和调试 Bub 插件，掌握入口点声明、常用 Hook 实战与系统扩展能力。
+description: 编写、安装和调试 Bub 插件，通过 Entry Points 与 Hooks 扩展工具、常驻服务、消息流程与 CLI 命令。
 ---
 
 import { FileTree } from '@astrojs/starlight/components';
 
-插件（Plugin）是 Bub 应用核心的能力之一。Bub 基于标准 [Python Entry Points](https://packaging.python.org/en/latest/specifications/entry-points/)（入口点）机制自动发现插件，并通过 Hook 契约将自定义逻辑注入应用的各个运行阶段。
+Bub 基于标准 [Python Entry Points](https://packaging.python.org/en/latest/specifications/entry-points/) 自动发现插件，并通过 Hook 将自定义逻辑接入应用的各个运行阶段。
 
-通过插件，你可以为 Bub 扩展三类核心能力：
-- **自定义工具**：通过 `provide_tools` 为 Agent 提供专属工具函数；
-- **常驻后台服务**：通过 `Lifecycle` 挂载随应用运行的常驻守护进程（如 MCP 客户端、外部通道或事件调度器）；
-- **改写流程逻辑**：通过 Hook 实现拦截消息、改写提示词、审批工具调用或持久化会话状态。
+插件主要提供三类扩展能力：
+- **自定义工具**：通过 `provide_tools` 注册工具函数；
+- **常驻后台服务**：通过 `Lifecycle` 挂载随网关或交互会话运行的守护服务（如 MCP 客户端、消息渠道）；
+- **流程改写与拦截**：通过 Hook 改写提示词、拦截或审批工具调用、持久化跨 Turn 状态。
 
-## 基础：创建插件 {#create-a-plugin}
+## 创建最小插件 {#create-a-plugin}
 
-在深入各类复杂能力之前，我们先通过一个无需外部模型凭据的插件示例来初步建立起 Bub 的插件认知。
+在深入了解各种高级 Hook 之前，我们先写一个无需配置模型 API Key 的最小回声（Echo）插件，走通从创建到运行的完整流程。
 
-### 初始化插件项目 {#initialize-project}
+### 1. 初始化项目 {#initialize-project}
 
-使用 [uv](https://docs.astral.sh/uv/) 快速脚手架初始化一个 Python 库项目，并进入项目目录：
+使用 `uv` 创建 Python 库项目：
 
 ```bash
 uv init --lib bub-echo-plugin
 cd bub-echo-plugin
 ```
 
-在 `src/bub_echo_plugin/` 源码目录下新建 `plugin.py` 用于编写插件与 Hook 逻辑。初始化后的整体目录结构如下：
+在 `src/bub_echo_plugin/` 下新建 `plugin.py`：
 
 <FileTree>
 
@@ -34,13 +34,13 @@ cd bub-echo-plugin
   - src/
     - bub_echo_plugin/
       - \_\_init\_\_.py
-      - plugin.py # 新建：存放插件与 Hook 逻辑
+      - **plugin.py** # 存放插件与 Hook 实现
 
 </FileTree>
 
-### 声明入口点 {#declare-entry-point}
+### 2. 声明入口点 {#declare-entry-point}
 
-在 `pyproject.toml` 中，通过 `[project.entry-points."bub"]` 将插件对象暴露给 Bub：
+在 `pyproject.toml` 中添加 `[project.entry-points."bub"]`：
 
 ```toml title="pyproject.toml" mark={11-12}
 [build-system]
@@ -57,16 +57,14 @@ dependencies = ["bub[app]"]
 echo = "bub_echo_plugin.plugin:echo_plugin"
 ```
 
-注意：
+- 入口点组名必须为 `"bub"`；
+- 键名 `echo` 是插件名称，值指向要加载的模块、实例或类。
 
-- **`entry-points` 命名**：必须为 `"bub"`，Bub 启动时会自动扫描该命名空间下的所有插件；
-- **插件标识与路径**：键名 `echo` 为插件的全局唯一标识；值指向待加载的模块、实例或工厂类。
+### 3. 实现 Hook {#implement-hooks}
 
-### 实现 Hook 逻辑 {#implement-hooks}
+使用 `@hookimpl` 装饰器标记 Hook 方法：
 
-在模块中编写插件逻辑时，需使用 `@hookimpl` 装饰器标记具体的 Hook 实现：
-
-```python title="src/bub_echo_plugin/plugin.py"
+```python title="src/bub_echo_plugin/plugin.py" "@hookimpl"
 from bub import hookimpl
 
 
@@ -79,19 +77,19 @@ class EchoPlugin:
 echo_plugin = EchoPlugin()
 ```
 
-本例通过实现 `run_model` 以替换了内置的模型调用阶段，直接将输入文本拼接会话 ID 后作为结果返回，便于离线验证整个插件链路。
+这里实现了 `run_model` Hook 接管模型执行阶段，直接将会话 ID 与输入拼接返回，方便离线验证插件链路。
 
-### 入口点声明形式 {#entry-point-forms}
+### 入口点的三种目标形式 {#entry-point-forms}
 
-根据插件是否需要维护内部状态或获取宿主上下文，入口点支持三种目标形式：
+入口点可指向模块、实例或类（工厂函数）：
 
-| 入口点目标语法 | 注册对象 | 适用场景 |
+| 目标写法 | 注册对象 | 适用场景 |
 | --- | --- | --- |
-| `bub_myplugin.plugin` | 模块（Module） | Hooks 为纯函数，彼此无状态共享 |
-| `bub_myplugin.plugin:plugin` | 已有实例（Instance） | 多个 Hooks 之间需要通过 `self` 维护共享状态 |
-| `bub_myplugin.plugin:MyPlugin` | 类或工厂函数（Factory） | 插件需要访问全局 `BubFramework` 实例 |
+| `bub_myplugin.plugin` | 模块 | Hook 均为无状态的普通函数 |
+| `bub_myplugin.plugin:plugin` | 已有实例 | 多个 Hook 需要通过 `self` 共享内部状态 |
+| `bub_myplugin.plugin:MyPlugin` | 类或工厂函数 | 插件初始化时需要访问 `BubFramework` 实例 |
 
-当入口点指向类或工厂函数时，Bub 在实例化该对象时会自动将当前的 `BubFramework` 实例作为第一个参数传入：
+当入口点指向类或工厂函数时，Bub 会在实例化时自动传入当前 `BubFramework`：
 
 ```python
 from bub import BubFramework, hookimpl
@@ -103,61 +101,60 @@ class MyPlugin:
 
     @hookimpl
     def build_prompt(self, message, session_id, state):
-        # 通过 framework 访问工作区路径等全局运行时信息
         return f"当前工作区路径：{self.framework.workspace}\n{message}"
 ```
 
 ## 安装与验证 {#install-and-run}
 
-编写完插件后，需要将其安装到 Bub 所在的运行环境中，并验证 Hook 的加载与执行顺序。
+写完插件后，把它安装到 Bub 所在的虚拟环境中，然后验证 Hook 是否正常加载并生效。
 
 ### 本地开发安装 {#local-install}
 
-在插件项目根目录下执行同步，以可编辑模式（Editable Mode）将其安装至当前虚拟环境：
+在插件根目录下安装到当前虚拟环境：
 
 ```bash
 uv sync
 ```
 
-### 检查 Hook 注册状态 {#check-hook-registration}
+### 检查注册状态 {#check-hook-registration}
 
-使用 `bub hooks` 命令检查插件是否已被正确识别：
+运行 `bub hooks` 确认插件已被发现：
 
 ```bash
 uv run bub hooks
 ```
 
-在终端输出的 Hook 清单中，`run_model` 下应正确列出已注册的 `echo` 插件。
+输出中的 `run_model` 行应包含 `echo`。
 
 ### 运行测试 {#run-tests}
 
-向应用发送一条测试指令，检验插件的实际生效情况：
+现在可以向应用发送一条测试消息，看看插件是不是已经生效了：
 
 ```bash
 uv run bub run "hello from my plugin"
 ```
 
-控制台将输出被插件拦截后的回声文本：
+终端会输出被插件拦截后的回声文本：
 
 ```text
 [echo:cli:local] hello from my plugin
 ```
 
-### 排错与调度机制 {#troubleshooting-and-dispatch}
+### 排查加载与执行顺序 {#troubleshooting-and-dispatch}
 
-若插件未按预期加载或执行，可依据以下原则排查：
+若插件未生效，请依次检查：
 
-1. **检查运行环境**：确认执行 `bub` 命令行时所在的 Python 环境与插件安装环境完全一致；
-2. **重新同步元数据**：若修改了 `pyproject.toml` 中的入口点配置，必须重新执行 `uv sync`（或 `pip install -e .`）刷新包的 Entry Points 元数据；
-3. **排查 Hook 执行顺序与优先级**：Bub 遵循 Pluggy 规范，先注册内置实现，再加载入口点插件。在相同优先级下，**后注册的插件优先执行**（LIFO 策略）。若需要显式调整执行先后，可在装饰器中指定 `@hookimpl(tryfirst=True)`（尽可能最先执行）或 `@hookimpl(trylast=True)`（尽可能最后执行）。
+1. **Python 环境一致**：确认运行 `bub` 的环境与安装插件的虚拟环境相同；
+2. **刷新入口点元数据**：修改 `pyproject.toml` 的 `entry-points` 后，需重新执行 `uv sync` 或 `pip install -e .`；
+3. **Hook 优先级**：Bub 先注册内置实现（`builtin`），再加载第三方插件。同优先级下**后注册的插件先执行**（LIFO）。可通过 `@hookimpl(tryfirst=True)` 或 `@hookimpl(trylast=True)` 显式调整顺序，详见 [Hooks 参考：执行优先级](/zh-cn/docs/reference/hooks/#priority-and-dispatch)。
 
-## 进阶：通过 Hooks 定制行为 {#advanced-hooks}
+## 常用 Hook 写法 {#advanced-hooks}
 
-Bub 提供了涵盖入站解析、模型调用、工具拦截、状态与生命周期的全套扩展点（签名见 [Hooks 参考手册](/zh-cn/docs/reference/hooks/)）。在实际业务场景中，最常用的定制需求可分为以下四类：
+Bub 提供了一整套覆盖入站解析、模型调用、工具拦截、状态与生命周期的扩展点（全部 27 个 Hook 的完整签名见 [Hooks 参考](/zh-cn/docs/reference/hooks/)）。日常开发中最常用的扩展可以分为下面四类：
 
 ### 1. 提供工具 {#provide-tools}
 
-插件可以通过 `provide_tools` Hook，向 Agent 注册由 `@tool` 声明的 Python 函数：
+通过 `provide_tools` 注册由 `@tool` 装饰的工具函数：
 
 ```python
 from bub import hookimpl, tool
@@ -166,7 +163,7 @@ from bub.core.tools import Tool
 
 @tool(name="orders.get")
 def get_order(order_id: str) -> dict[str, str]:
-    """根据订单 ID 查询订单发货状态。"""
+    """根据订单 ID 查询发货状态。"""
     return {"id": order_id, "status": "shipped"}
 
 
@@ -176,27 +173,24 @@ class OrdersPlugin:
         return [get_order]
 ```
 
-#### 延迟加载 {#deferred-loading}
+#### 延迟加载工具 Schema {#deferred-loading}
 
-当插件提供了大量工具时，将所有工具的完整 Schema 一次性注入系统提示词会严重消耗上下文窗口。可以在装饰器中启用延迟加载：
+若插件提供大量工具，一次性将全部 Schema 注入系统提示词会占用过多上下文。可设置 `deferred=True`：
 
-```python
+```python "deferred=True"
 @tool(name="orders.export", deferred=True)
 def export_orders(format: str) -> str:
-    """导出所有历史订单报表。"""
+    """导出历史订单报表。"""
     ...
 ```
 
-注意：
+带有 `deferred=True` 的工具初始仅向模型展示名称和简短描述；当模型需要调用它时，会自动先调用内置的 `tool.describe` 加载完整参数定义，并在下一步发起调用。
 
-- **延迟机制**：带有 `deferred=True` 的工具默认只向系统提示词提供工具名称与简要描述；
-- **动态展开**：当模型判断需要调用该工具时，会自动通过内置的 `tool.describe` 临时加载其完整定义，并从下一步开始执行调用。
-
-### 2. 流程改写与拦截 {#rewrite-and-intercept}
+### 2. 改写提示词、拦截调用与保存状态 {#rewrite-and-intercept}
 
 #### 改写提示词 {#change-the-prompt}
 
-- **改写模型输入**：`build_prompt` 接收入站消息、会话 ID 和本轮状态，返回最终提供给模型的输入内容：
+- **改写本轮用户输入**（`build_prompt`）：
   ```python
   from bub import hookimpl
   from bub.envelope import content_of
@@ -205,21 +199,21 @@ def export_orders(format: str) -> str:
   @hookimpl
   def build_prompt(message, session_id, state):
       text = content_of(message)
-      return [f"请使用项目专业术语回答：\n\n{text}"]
+      return [f"请使用项目术语回答：\n\n{text}"]
   ```
 
-- **追加系统指令**：如果只想向模型追加全局约束而不改进入站内容，使用 `system_prompt`（多个插件追加的内容按优先级自动换行拼接）：
+- **追加系统提示词**（`system_prompt`，多个插件的返回值会按优先级换行拼接）：
   ```python
   @hookimpl
   def system_prompt(prompt, state):
-      return "请在回复末尾附带所参考的代码文件路径。"
+      return "请在回复末尾附上参考的代码文件路径。"
   ```
 
-#### 拦截调用 {#control-a-model-or-tool-call}
+#### 拦截模型或工具调用 {#control-a-model-or-tool-call}
 
-拦截 Hook 在调用实际触发前执行。抛出的异常会被框架记录并跳过；若要主动干预、修改或阻断执行，必须返回对应的决策对象（Decision）：
+拦截 Hook 在调用执行前触发。注意：在拦截 Hook 中抛异常只会被记录日志并跳过，**不能阻止调用执行**；如需修改参数或拒绝调用，必须返回对应的决策对象：
 
-- **限制 LLM 采样参数**：
+- **修改模型请求参数**（`before_llm_call`）：
   ```python
   from dataclasses import replace
   from bub import hookimpl
@@ -232,7 +226,7 @@ def export_orders(format: str) -> str:
       return replace(request, max_tokens=max_tokens)
   ```
 
-- **审批或拒绝高危工具调用**：
+- **审批或拒绝工具调用**（`before_tool_call`）：
   ```python
   from bub import hookimpl
   from bub.hooks.interception import ToolCall, ToolCallDecision
@@ -241,15 +235,15 @@ def export_orders(format: str) -> str:
   @hookimpl
   def before_tool_call(call: ToolCall, state):
       if call.tool == "orders.cancel" and not state.get("can_cancel_orders", False):
-          return ToolCallDecision.deny("当前会话无权执行撤单操作。")
+          return ToolCallDecision.deny("当前会话无权撤单。")
       return None
   ```
 
-放行、改写、拒绝与替代的语义见[决策先于副作用](/zh-cn/docs/concepts/events/#call-control)；完整返回类型见 [Hooks 参考](/zh-cn/docs/reference/hooks/#toolcalldecision)。
+决策语义见[调用前拦截与控制](/zh-cn/docs/concepts/events/#call-control)，返回类型见 [`ToolCallDecision`](/zh-cn/docs/reference/hooks/#toolcalldecision)。
 
-#### 调用审计 {#observe-completed-calls}
+#### 记录调用耗时与审计日志 {#observe-completed-calls}
 
-完成类 Hook 在调用结束后触发，适用于统计耗时、上报监控指标或记录审计日志：
+完成类 Hook 在调用结束后触发，适合统计耗时、上报指标或记录审计日志：
 
 ```python
 from bub import hookimpl
@@ -265,9 +259,9 @@ def after_tool_call(call, result, state):
     print(f"tool={call.tool} error={result.error!r} elapsed={result.duration_ms}ms")
 ```
 
-#### 状态持久化 {#keep-application-state-across-turns}
+#### 跨 Turn 保存应用状态 {#keep-application-state-across-turns}
 
-下面通过 `load_state` 与 `save_state` 在多个 Turn 之间保存计数。`TurnState` 的生命周期与数据归属见 [Turn](/zh-cn/docs/concepts/turn/#state) 和[数据应该放在哪里](/zh-cn/docs/concepts/tape/#state)。
+使用 `load_state` 和 `save_state` 在多个 Turn 之间读写应用状态（状态边界见 [TurnState](/zh-cn/docs/concepts/turn/#state)）：
 
 ```python
 import asyncio
@@ -293,11 +287,11 @@ class TurnCounter:
 turn_counter = TurnCounter()
 ```
 
-### 3. 服务与资源挂载 {#services-and-resources}
+### 3. 挂载服务与存储资源 {#services-and-resources}
 
-#### 常驻服务 {#lifecycle}
+#### 常驻后台服务 {#lifecycle}
 
-MCP 客户端、通道监听器或定时调度器等需伴随应用常驻运行的组件，继承 `Lifecycle` 基类并通过 `provide_channels` 暴露：
+MCP 客户端、外部通道或定时任务等常驻组件，可继承 `Lifecycle` 并通过 `provide_channels` 注册：
 
 ```python
 from bub.channels.base import Lifecycle
@@ -313,14 +307,12 @@ class MyRuntime(Lifecycle):
         await self._close()
 ```
 
-注意：
+- `Lifecycle` 服务会在 `bub chat` 和 `bub gateway` 启动时自动运行，退出时清理；单次执行的 `bub run` 不会启动它。
+- 可通过 `--enable-channel '!myapp.lifecycle'` 在启动时排除指定服务。
 
-- **生命周期契约**：常驻服务会在 `bub gateway` 启动或渠道运行时自动初始化，并在退出时执行清理；注意单次执行的 `bub run` 不会激活常驻服务。
-- **命令行过滤**：启动时可通过 `--enable-channel` 单独启用，或使用 `--enable-channel '!myapp.lifecycle'` 显式排除。
+#### 进程级共享资源 {#runtime-resources}
 
-#### 生命周期资源 {#runtime-resources}
-
-在整个进程生命周期中持有全局数据库连接池、HTTP 客户端等资源时，可通过异步生成器实现 `provide_lifespan`：
+使用 `provide_lifespan` 异步生成器管理数据库连接池或共享 HTTP 客户端（覆盖整个 `framework.running()` 周期）：
 
 ```python
 from bub import hookimpl
@@ -335,9 +327,9 @@ async def provide_lifespan():
         await client.close()
 ```
 
-#### 会话存储 {#provide-a-tape-store}
+#### 替换会话存储 {#provide-a-tape-store}
 
-通过 `provide_tape_store` 可以替换默认的本地文件会话存储（例如接入 PostgreSQL 或云端存储，详见 [SQLAlchemy 集成](/zh-cn/docs/integrations/storage/)）：
+通过 `provide_tape_store` 替换默认的本地文件存储（见[使用数据库存储会话历史](/zh-cn/docs/integrations/storage/)）：
 
 ```python
 from pathlib import Path
@@ -350,9 +342,9 @@ def provide_tape_store():
     return FileTapeStore(Path("./application-tapes"))
 ```
 
-### 4. 扩展 CLI 命令 {#add-an-application-command}
+### 4. 注册 CLI 子命令 {#add-an-application-command}
 
-插件可以通过 `register_cli_commands` 直接向 Bub 根 CLI（基于 Typer）注册子命令：
+通过 `register_cli_commands` 向 `bub` 注册自定义子命令：
 
 ```python
 import typer
@@ -366,9 +358,9 @@ def register_cli_commands(app: typer.Typer):
         typer.echo(f"执行成功：{name}")
 ```
 
-#### 交互式输入 {#prompt-for-input}
+#### 终端交互式输入 {#prompt-for-input}
 
-若插件子命令需要在终端中与用户交互确认或获取输入，推荐使用 `bub.inquirer` 提供的交互式输入工具：
+在自定义 CLI 命令中向用户请求输入或确认时，可使用 `bub.inquirer`：
 
 ```python
 from bub.inquirer import ask_confirm, ask_text
@@ -378,17 +370,15 @@ if ask_confirm("确认继续执行？", kind="permission"):
     pass
 ```
 
-## 分发与扩展 {#share-a-plugin}
+## 分发与跨语言扩展 {#share-a-plugin}
 
 ### 打包分发 {#package-and-distribute}
 
-开发完成的插件可以打包为标准 Python Wheel 进行分发。一个发行包可以同时包含插件入口点、技能命名空间包以及自定义 CLI 命令，具体打包配置与发布前验证见[打包与分发](/zh-cn/docs/app/distribution/)。跨语言生态包规范见[加载 Agent Plugins](/zh-cn/docs/integrations/agent-plugins/)。
+插件可打包为标准 Python Wheel 分发，并同时包含入口点、技能和自定义 CLI 命令，详见[打包与分发](/zh-cn/docs/app/distribution/)。跨平台的声明式插件规范见[使用 Agent Plugins](/zh-cn/docs/integrations/agent-plugins/)。
 
 ### WASM 插件（实验性） {#wasm-plugins}
 
-借助 [`bub-extism`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism) 扩展，可以通过 WebAssembly 将 Go、Rust 等其他语言编译的二进制模块直接挂载为 Bub Hook 处理函数。
-
-`extism.json` 指定模块文件和 hook 映射：
+借助 [`bub-extism`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-extism)，可将 Go、Rust 等语言编译的 WebAssembly 模块挂载为 Bub Hook：
 
 ```json title="extism.json"
 {

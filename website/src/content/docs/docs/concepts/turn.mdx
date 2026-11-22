@@ -1,39 +1,61 @@
 ---
 title: Turn
-description: How the application layer turns one inbound message into replies, including the lifecycle stages, TurnState, and failure boundaries.
+description: "Understand the Bub Turn lifecycle: the seven stages of processing an inbound message, shared per-Turn TurnState, and exception boundaries."
 sidebar:
   label: Turn
 ---
 
-A **Turn** is the complete lifecycle the application layer gives one inbound message, owned by `BubFramework`. It fixes the order and error boundaries of session resolution, input preparation, model execution, state saving, and reply delivery; an Agent Run is only the model execution stage inside it.
+When you talk to Bub through a terminal or a chat platform such as Telegram, the app layer receives more than a prompt for the model. It needs to figure out which session the message belongs to, restore that session's state, check whether the input is a direct command or a normal question, run the Agent, save updated state, and deliver the reply back to the right channel.
 
-## Lifecycle {#stages}
+In the Bub app layer, this end-to-end lifecycle for handling one inbound message is called a **Turn**, orchestrated by `BubFramework`. A core Agent Run is just the model-execution stage inside it.
 
-`process_inbound()` sends every ordinary inbound message through the same set of stages:
+## The seven lifecycle stages {#stages}
+
+Every call to `BubFramework.process_inbound()` moves an inbound message through seven stages in order:
+
+```mermaid
+flowchart LR
+    A["resolve_session\nIdentify session"] --> B["load_state\nRestore state"]
+    B --> C["build_prompt\nBuild input"]
+    C --> D["run_model\nRun Agent"]
+    D --> E["save_state\nPersist state"]
+    E --> F["render_outbound\nBuild replies"]
+    F --> G["dispatch_outbound\nSend to channel"]
+```
 
 | Stage | Responsibility |
 | --- | --- |
-| `resolve_session` | Establish which session the message belongs to |
-| `load_state` | Restore session state and make the Agent available |
-| `build_prompt` | Recognize commands and construct model input |
-| `run_model` | Execute the Agent Run and produce model output |
-| `save_state` | Persist application state that must outlive the Turn |
-| `render_outbound` | Render model output into channel messages |
-| `dispatch_outbound` | Deliver replies through the matching channel |
+| `resolve_session` | Determine the message's `session_id` (defaults to `<channel>:<chat_id>`) |
+| `load_state` | Restore session state for this Turn and bind the runtime Agent |
+| `build_prompt` | Handle internal commands or build the model input |
+| `run_model` | Execute the Agent Run (or streaming `run_model_stream`) |
+| `save_state` | Persist application state across Turns after the model stage ends |
+| `render_outbound` | Package model output into one or more outbound channel messages |
+| `dispatch_outbound` | Deliver outbound messages to the channel |
 
-Each stage has a hook of the same name that can extend or replace the default behavior under its contract; signatures are in the [Hooks reference](/docs/reference/hooks/#turn-hooks).
+Every stage has a hook of the same name, letting plugins extend or replace any stage without touching core code. For exact signatures and dispatch rules, see the [Hooks reference](/docs/reference/hooks/#turn-hooks).
 
-A Turn is not the same granularity as a Run: a direct command can finish inside a Turn without starting a model Run, and a Run created directly with `core.Agent` belongs to no Turn. A **Session** is the identity and recovery boundary that spans several messages, so one Session can contain many Turns; a session ID itself provides no lock, and whether concurrent Turns are allowed is decided by an admission policy or the host.
+It helps to distinguish three closely related terms:
 
-## TurnState {#state}
+- **Session**: the identity boundary across multiple messages. Ten messages in the same chat belong to 1 Session, but trigger 10 separate Turns. A `session_id` is an identifier, not a lock; same-session concurrency is controlled by channel admission policy or the host application.
+- **Turn**: the 7-stage app pipeline for one inbound message.
+- **Run**: one execution of `core.Agent`'s model-and-tool loop. A normal message starts a Run during `run_model`; a comma command (such as `,help`) finishes inside the Turn without calling the model; calling `agent.run()` via the SDK starts a Run outside any Turn.
 
-`TurnState` is a temporary dictionary shared by hooks, tools, and event handlers during the current execution. It lives only for this Turn or Run and is never persisted automatically.
+## TurnState: per-Turn shared dictionary {#state}
 
-Data that must survive into the next Turn should be saved in `save_state` and restored in `load_state`. Conversation and tool round-trips belong to the Tape, not to `TurnState`; see [where data belongs](/docs/concepts/tape/#state). Keys starting with `_runtime_` are written by the runtime, and plugins should not depend on them.
+As a Turn progresses, hooks, tools, and event handlers often need to pass request-scoped data to one another—such as a request ID, permission flags, or channel metadata. Bub provides `TurnState` for this purpose.
 
-## Failure boundaries {#failures}
+`TurnState` is a plain Python dictionary (`dict[str, Any]`) that **lives only for the current Turn or Run and is never persisted automatically**.
 
-- Once execution enters the model stage, `save_state` always runs in a `finally`, so a model error or timeout cannot skip it.
-- A failure in `resolve_session`, `load_state`, or `build_prompt` happens before that guarantee begins, so `save_state` does not run.
-- An unhandled exception goes to `on_error` to be observed and reported, and is then re-raised; `on_error` does not restore the Turn.
-- A Turn is not a transaction: files a tool already changed, requests it already sent, and other external side effects are not rolled back.
+- Save state that must persist across Turns explicitly in `save_state`, and restore it in `load_state`.
+- Conversation history and tool records belong on the Tape, not in `TurnState` (see [Where data belongs](/docs/concepts/tape/#state)).
+- Keys starting with `_runtime_` are managed internally by Bub; plugins should not modify or overwrite them.
+
+## Exceptions and failure boundaries {#failures}
+
+Network hiccups, model timeouts, or tool failures can interrupt a Turn at any point. The Turn pipeline defines clear failure boundaries so you know what is guaranteed to run:
+
+- **`save_state` always runs once the model stage starts**: as soon as execution enters `run_model`, `save_state` is guaranteed to run in a `finally` block, even if the model call fails or times out.
+- **Pre-model failures skip `save_state`**: if an error occurs in `resolve_session`, `load_state`, or `build_prompt`, the model stage has not started and `save_state` is not called.
+- **`on_error` observes without recovering**: unhandled exceptions are passed to `on_error` hooks for logging or alerting, then re-raised to the caller.
+- **A Turn does not roll back external side effects**: if a tool has already modified files, sent HTTP requests, or written to a database, a later failure in the Turn does not undo those actions.

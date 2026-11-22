@@ -1,17 +1,17 @@
 ---
 title: Tools
-description: Give the Agent lookup and action capabilities, and learn about tool arguments, results, errors, and run context.
+description: Build custom Python tools for the Bub SDK with @tool, Pydantic argument validation, ToolContext injection, concurrency limits, and code mode.
 ---
 
-An Agent can understand a user's request, but to query real data or perform actions it needs a way to call external capabilities. Tools are the Agent's **hands and feet**: you can wrap any piece of processing logic as a tool, and the Agent then decides from the user's request whether to call it.
+A model can understand a user's request, but to query real data or take action it needs external capabilities. Tools are the Agent's **hands and feet**: you can wrap any Python function as a tool and let the Agent call it on demand.
 
-This section starts with an order-lookup example and then walks through how to define a tool, how the model calls it, and how to handle arguments, results, and runtime data.
+This guide starts with an order-lookup example and walks through defining tools, how the model calls them, and how to handle validation, runtime context, and concurrency.
 
-## Add a custom tool {#add-a-tool}
+## Define a custom tool {#add-a-tool}
 
-Suppose we already have a Python function that looks up orders. For the Agent to call it, mark the function with the `@tool` decorator from the Bub SDK and pass it when creating the Agent:
+Suppose you already have a Python function that looks up orders. To let the Agent call it, decorate the type-annotated function with `@tool` and pass it to `Agent(tools=[...])`:
 
-```python
+```python "@tool" "tools=[get_order]"
 from bub.core import Agent
 from bub.core.tools import tool
 
@@ -40,69 +40,63 @@ agent = Agent(
 )
 ```
 
-The `@tool` decorator turns a type-annotated Python function into a tool the Agent can use. The function contains the actual business logic; the tool name, argument types, and description help the model decide when and how to call it.
+`@tool` derives the parameter JSON Schema from the function's type annotations and uses its docstring as the tool description shown to the model.
 
 ## Tool call flow {#tool-call-flow}
 
-The model never executes Python directly. It first requests a tool call; Bub then validates the arguments and runs the matching function; finally, the result goes back to the model:
+The model does not execute Python directly. It emits a tool call request; Bub validates the arguments, runs the function, and sends the result back to the model:
 
 ```mermaid
 flowchart LR
-    A[User makes a request] --> B[Model decides to call a tool]
-    B --> C[Bub validates arguments and runs the function]
-    C --> D[Tool result goes back to the model]
-    D --> E[Model continues and answers]
+    A[User prompt] --> B[Model requests tool call]
+    B --> C[Bub validates args and runs function]
+    C --> D[Result returned to model]
+    D --> E[Model generates final answer]
 ```
 
-So when we call `agent.run()`, the stream shows both the calls the model requested and the results the tools returned:
+You can observe both the tool call and its result in the stream (1 tool Step + 1 answer Step = 2 Steps total):
 
 ```python
 async with agent.run(prompt, model=model, tape="tools-demo") as stream:
     async for event in stream:
         if event.kind == "tool_call":
             for call in event.data["tool_calls"]:
-                print(f"Model requested: {call['name']}, arguments: {call['arguments']}")
+                print(f"Model requested: {call['name']}, args: {call['arguments']}")
         elif event.kind == "tool_result":
             print(f"Tool result: {event.data['tool_results']}")
         elif event.kind == "text":
             print(event.data["delta"], end="", flush=True)
 ```
 
-A tool call takes two Steps:
+As you can see, a tool call takes two Steps: first the model requests `get_order` and receives the result, then it uses that result to produce the final answer. Whether to call a tool is still up to the model.
 
-1. The model requests the `get_order` tool; Bub runs the function and returns the result to the model.
-2. The model uses that result to produce its answer.
+## Parameter schemas and Pydantic validation {#tool-schema}
 
-Whether to call a tool is still up to the model.
-
-## Tool descriptions and constraints {#tool-schema}
-
-For a Python function marked with `@tool`, the argument types become a JSON Schema and the [docstring](https://peps.python.org/pep-0257/) becomes the tool's description. Parameter names and descriptions are therefore part of the tool's interface. Write an accurate signature and description so the model can call it correctly.
+With `@tool`, parameter types become a JSON Schema and the [docstring](https://peps.python.org/pep-0257/) becomes the tool's manual for the model. Clear names, type annotations, and docstrings help the model call the tool accurately:
 
 ```python
 @tool
 def get_order(order_id: str) -> dict[str, str | float]:
-    """Look up an order by ID. order_id is the complete customer-provided ID, such as A123."""
+    """Look up an order by ID. order_id is the full ID, such as A123."""
     ...
 ```
 
-When the input has many parameters or needs constraints such as ranges and lengths, a validation library such as [Pydantic](https://pydantic.dev/) can help. Pass the model to the `@tool` decorator's `model` argument:
+When a tool takes multiple parameters or requires value constraints (such as numeric bounds or string lengths), pass a [Pydantic](https://pydantic.dev/) model via `@tool(model=...)`:
 
 ```python
 from pydantic import BaseModel, Field
-
 from bub.core.tools import tool
 
 
 class RefundInput(BaseModel):
-    order_id: str = Field(description="Complete order ID, such as A123")
+    order_id: str = Field(description="Full order ID, such as A123")
     amount: float = Field(gt=0, description="Refund amount; must be greater than zero")
     reason: str = Field(min_length=1, description="Refund reason supplied by the user")
 
 
 @tool(name="refund_order", model=RefundInput)
 def refund_order(param: RefundInput) -> dict[str, str | float]:
-    """Request a refund for a paid order; run the authorization check before executing."""
+    """Request a refund for a paid order."""
     return {
         "order_id": param.order_id,
         "amount": param.amount,
@@ -110,24 +104,20 @@ def refund_order(param: RefundInput) -> dict[str, str | float]:
     }
 ```
 
-During execution, if an argument has the wrong type or fails Pydantic validation, Bub returns the error to the model as a tool error. The model can correct the arguments and try again, though a successful retry is not guaranteed.
+When writing real tools, separate **expected business outcomes** from **execution errors**—returning a structured dict such as `{"error": "order_not_found"}` lets the model and caller recognize known business states cleanly:
 
-When writing the actual business function, distinguish a business outcome from an execution error:
-
-| Situation | Default behavior |
+| Outcome | Behavior |
 | --- | --- |
-| An argument does not match its type or a Pydantic constraint | Converted to a validation tool error and returned to the model |
-| The tool raises an ordinary exception | Converted to a tool error and returned to the model |
-| The tool returns a business error object, such as `order_not_found` | Returned to the model as a normal tool result |
-| Storage, the model, or an event handler interrupts the call | The exception may propagate from stream iteration; handle it in the integration layer |
+| Argument type mismatch or Pydantic validation error | Returned to the model as a tool error so it can adjust arguments and retry |
+| Tool raises an ordinary exception | Returned to the model as a tool error |
+| Tool returns a structured dict (e.g. `{"error": "order_not_found"}`) | Returned to the model as a normal result (recommended for expected business outcomes) |
+| Store, model client, or event handler raises an exception | Propagates out of stream iteration to the host caller |
 
-A business error object is not a Python exception. Returning a stable structured result lets both the model and the caller recognize business states such as "order not found".
+## Inject `ToolContext` {#tool-context}
 
-## Inject context into a tool {#tool-context}
+Sometimes a tool needs more than its arguments—such as the current session Tape, request-scoped `state`, or the event bus. Set `@tool(context=True)` so Bub injects `context: ToolContext`:
 
-Sometimes a tool needs the current session, request-scoped permissions, or the event bus. The `ToolContext` object injected by Bub provides them:
-
-```python
+```python "context=True" "context: ToolContext"
 from bub.core.tools import ToolContext, tool
 
 
@@ -141,7 +131,7 @@ async def add_order_note(note: str, *, context: ToolContext) -> str:
     return f"Note written to session {context.tape.name}"
 ```
 
-Pass `state` when calling the Agent, and the tool can read it through `context.state`:
+Pass `state` to `agent.run()`, and read it inside the tool via `context.state`:
 
 ```python
 async with agent.run(
@@ -154,19 +144,23 @@ async with agent.run(
 ```
 
 :::tip
-Bub injects the `context` argument, so it does not appear in the argument Schema the model sees. `context.state` is shared only within the current call and is not persisted or restored automatically.
+`context` is injected by Bub and is hidden from the model-facing parameter schema. `context.state` lives only for the current call and is not persisted automatically.
 :::
 
-## Async and concurrent calls {#concurrency}
+## Async functions and concurrency limits {#concurrency}
 
-The `@tool` decorator works with plain functions and with async functions. In general, any logic that might block the program should run as an async function, and should be moved to a separate thread when necessary:
+`@tool` supports both synchronous functions and `async def` coroutines. Use `async def` for I/O-bound work, or offload blocking calls with `asyncio.to_thread()`:
 
 ```python
-import time
 import asyncio
+import time
+from bub.core.tools import tool
 
-def build_report_blocking(order_id: str) -> None:
+
+def build_report_blocking(order_id: str) -> str:
     time.sleep(3)
+    return f"https://example.com/reports/{order_id}.pdf"
+
 
 @tool
 async def export_order_report(order_id: str) -> str:
@@ -174,45 +168,21 @@ async def export_order_report(order_id: str) -> str:
     return await asyncio.to_thread(build_report_blocking, order_id)
 ```
 
-The model may request several tools in a single response. To avoid hitting the host's own resource limits, Bub lets you cap this with the `max_tool_concurrency` argument:
+A model may request multiple tool calls in a single response. To protect downstream services and host resources, cap concurrent local executions per Step with `max_tool_concurrency`:
 
 ```python
-from bub.core import Agent
-from bub.core.tools import tool
-
-
-ORDERS = {
-    "A123": {
-        "order_id": "A123",
-        "status": "shipped",
-        "item": "Mechanical keyboard",
-        "amount": 399.0,
-    }
-}
-
-
-@tool
-def get_order(order_id: str) -> dict[str, str | float]:
-    """Look up an order's status, item, and amount by order ID."""
-    if order := ORDERS.get(order_id):
-        return order
-    return {"order_id": order_id, "error": "order_not_found"}
-
-
 agent = Agent(
     tools=[get_order],
-    system_prompt="When the user asks about an order, use the tool; never guess order status.",
+    system_prompt="Use the tool when asked about an order.",
     max_tool_concurrency=2,
 )
-
 ```
 
-`Agent(tools=[...])` also accepts tools from other libraries, such as `republic.tools.WebSearch()`. The model provider runs those tools, so they bypass the local `ToolExecutor` and are not subject to the local `max_tool_concurrency` limit.
+`Agent(tools=[...])` also accepts provider-executed tools (such as `republic.tools.WebSearch()`), which execute remotely on the provider side and are not subject to local `max_tool_concurrency`.
 
+## Call tools directly without the model {#call-a-tool-without-a-model}
 
-## Call a tool directly {#call-a-tool-without-a-model}
-
-If you have a clear idea of which command you want to run, set a `command_prefix` on the Agent. Commands use the same tool implementations and argument validation, but skip the model:
+If you already know which tool you want to run and want to skip model inference (and token usage), configure `command_prefix` on the Agent. Input starting with that prefix bypasses the model and invokes the tool directly:
 
 ```python
 agent = Agent(tools=[get_order], command_prefix=",")
@@ -223,13 +193,14 @@ async with agent.run(",get_order A123", model=model, tape="tools-demo") as strea
             print(event.data["delta"], end="")
 ```
 
-The difference from an ordinary function call is that a direct command emits Bub-defined events, so your existing Agent flow can handle it the same way. If the command fails, however, the error is not sent back to the model for correction the way a model tool error is.
+Direct commands still run through `agent.run()` and emit tool events, but if execution fails, the error is raised directly to the caller rather than returned to a model.
 
 ## Code mode {#compose-tools-with-codemode}
 
-When there are many tools or the task needs conditional logic, let the model write Python through the `run_code` tool. This gives it more flexibility and lets it compose several tools in one execution:
+When an Agent has many tools or needs loops and conditionals, wrap tools with `CodeMode` so the model can write Python via `run_code` to compose multiple tool calls in one pass:
 
 ```python
+from bub.core import Agent
 from bub.core.codemode import CodeMode
 
 code_mode = CodeMode([get_order])
@@ -237,21 +208,19 @@ code_mode = CodeMode([get_order])
 agent = Agent(
     tools=[code_mode.run_code],
     system_prompt=[
-        "Use the available tools to complete the task; you can write Python that calls tools.*.",
+        "Use available tools to complete the task; you can write Python calling tools.*.",
         code_mode.prompt,
     ],
 )
 ```
 
-The model then generates and runs Python such as:
+Example Python generated by the model inside `run_code`:
 
 ```python
 order = await tools.get_order(order_id="A123")
 print(order)
 ```
 
-## Secure and isolated execution environments {#choose-an-execution-environment}
+## Custom execution environments {#choose-an-execution-environment}
 
-By default, every tool or piece of code used by the Agent runs on the host machine executing the Python process. That is not an isolated or secure sandbox. When necessary, isolate execution and configure limits for the filesystem, network, and permissions.
-
-Bub lets you use a remote or isolated environment as the execution container by providing a custom `Environment`. See [Environment](/docs/reference/python-api/#environment) for the complete protocol.
+By default, tools and code mode execute directly on the host machine running the Python process (no sandbox). To isolate filesystem, network, and process access, implement a custom [`Environment`](/docs/reference/python-api/#environment).

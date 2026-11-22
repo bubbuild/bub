@@ -1,47 +1,49 @@
 ---
 title: 复用 Bub 应用
-description: 按所有权选择复用层级：工具、Agent hooks、BubAgent 模型流或完整 Turn。
+description: 在 Python 服务中按需复用 Bub 应用层能力：从单个插件工具、Agent 循环 Hooks、BubAgent 流，到完整的消息 Turn。
 sidebar:
-    badge: { text: 'SDK', variant: 'note' }
+    badge: { text: 'SDK', variant: 'tip' }
 ---
 
-把 Bub 嵌入现有服务时，最重要的不是“哪个入口功能最多”，而是**哪些组装和生命周期仍由宿主负责**。你可以只拿一个工具，也可以让 Bub 处理完整消息 Turn。
+如果你想把 Bub 嵌入自己现有的 Python 服务，除了直接使用微内核 [`bub.core.Agent`](/zh-cn/docs/sdk/) 之外，还可以按需复用 Bub 应用层已经做好的能力——包括配置加载、技能发现、插件 Hooks、内置工具以及完整的 Turn 消息处理流程。
 
-本页的应用层入口需要 [`app` 可选依赖](/zh-cn/docs/getting-started/install/#app-install)，并配置可用模型凭据（例如 `REPUBLIC_OPENAI_API_KEY`）：
+选择哪个入口，取决于**你希望让 Bub 接管多少流程，以及哪些生命周期仍由你的宿主程序自己掌控**。
+
+本页涉及的应用层接口需安装 [`app` 可选依赖](/zh-cn/docs/getting-started/install/#app-install)并配置模型凭据（如 `REPUBLIC_OPENAI_API_KEY`）：
 
 ```bash
 uv add "bub[app]"
 ```
 
-如果只需要模型循环、工具和 Tape，从[核心 SDK](/zh-cn/docs/sdk/)开始即可。
+如果你只需要纯粹的「模型—工具—Tape」核心循环，不需要应用层的配置、技能或插件，直接从[核心 SDK](/zh-cn/docs/sdk/) 开始即可。
 
 <a id="choose-a-depth"></a>
 
-## 先选择复用层级 {#choose-a-reuse-layer}
+## 选择复用层级 {#choose-a-reuse-layer}
 
-| 需要复用的能力 | 入口 | 宿主仍负责 |
+Bub 提供了从完整到轻量的五种复用入口。它们是并列关系而非强制升级路径，建议从能满足你需求的最小层级开始：
+
+| 需要复用的能力 | 推荐入口 | 宿主程序负责的部分 |
 | --- | --- | --- |
-| 一个工具实现 | 导入公开工具，传给 `core.Agent` | 模型、Tape、Run 与资源生命周期 |
-| 插件的 Agent 循环 hooks | `AgentPlugins.attach()` | 驱动 Run、入站与出站消息、同会话并发 |
-| 应用配置、技能、工具策略和命令 | `BubAgent.run_stream()` | 消费与关闭流、回复投递、完整 Turn 状态、同会话并发 |
-| 从入站消息到出站结果的完整 Turn | `BubFramework.process_inbound()` | 服务生命周期、模型配置、异常、并发，以及未委托渠道的投递 |
-| 现成的命令行或网关 | `bub run` / `bub chat` / `bub gateway`，或自定义入口点 | 配置、凭据、部署与扩展，不再编写应用循环 |
-
-这些是并列入口，不是必须逐级升级的流程。从能满足需求的最小层级开始。
+| **整套 CLI 或常驻网关** | `bub run` / `bub chat` / `bub gateway` 或自定义命令入口 | 提供配置、密钥与部署环境；无需编写 Python 调用循环 |
+| **完整的消息 Turn**（从收消息到生成回复） | `BubFramework.process_inbound()` | 服务生命周期、顶层异常捕获、同会话并发锁、自定义回复发送 |
+| **应用配置、技能、工具白名单与命令**（自行消费事件流） | `BubAgent.run_stream()` | 消费并关闭流、发送回复、跨 Turn 状态保存、同会话并发锁 |
+| **为 `core.Agent` 接入插件的循环 Hooks** | `AgentPlugins.attach()` | 驱动 `agent.run()`、处理入站与出站消息、同会话并发锁 |
+| **仅复用单个工具函数** | 直接导入工具并传给 `core.Agent(tools=[...])` | 管理模型连接、Tape 存储、Run 循环与所有资源生命周期 |
 
 :::note
-安装一个插件包不等于每个入口都会执行它的全部能力。工具和 Agent hooks 可以被较低层级复用；渠道、CLI 和完整消息管道只有在相应运行时中才会执行。插件还可能依赖其他 hooks、状态字段或后台服务，应以其文档为准。
+安装插件包后，不同层级的入口只会激活该层级对应的扩展点。例如，`AgentPlugins` 和 `BubAgent` 可复用插件提供的工具和 Agent 循环 Hooks；但插件注册的消息渠道、CLI 子命令或外围 Turn 阶段 Hooks，只有在 `BubFramework` 或 `bub gateway` 中才会运行。
 :::
 
 <a id="process-inbound"></a>
 
-## 推荐起点：执行完整 Turn {#run-a-complete-turn}
+## 执行完整 Turn：`BubFramework.process_inbound()` {#run-a-complete-turn}
 
-`process_inbound()` 适合希望 Bub 负责会话解析、初始提示词、模型阶段、状态保存和出站消息组装的宿主。
+如果你希望 Bub 替你把「解析会话 ID、构造提示词、调用模型与工具、保存状态、组装出站回复」全套流程都跑完，最省心的入口是 `BubFramework.process_inbound()`。
 
-创建 `embedded.py`：
+将以下代码保存为 `embedded.py`：
 
-```python title="embedded.py"
+```python title="embedded.py" {12-17}
 import asyncio
 
 from bub import BubFramework
@@ -75,21 +77,22 @@ if __name__ == "__main__":
 uv run python embedded.py
 ```
 
-`load_hooks()` 在启动时调用一次，加载内置实现和已安装插件。`framework.running()` 持有插件生命周期、Tape 存储和 `SteeringInbox` 等资源，应覆盖整个嵌入服务的运行期，而不是每个请求进入一次。
+使用要点：
 
-`process_inbound()` 返回完整的 `TurnResult`，不是事件迭代器。本例不绑定发送渠道，因此宿主读取 `result.outbounds` 并自行投递。如果安装了会发送消息的 `dispatch_outbound` 插件，要避免插件与宿主重复投递。
-
-设置 `stream_output=True` 会选择并消费流式模型路径，完成后仍返回 `TurnResult`。绑定 Router 时可以用 `wrap_stream()` 包装事件流；**不绑定 Router 也能使用 `stream_output=True`**。
+- **启动时调用一次 `load_hooks()`**：加载内置实现与当前环境中安装的所有插件。
+- **`framework.running()` 覆盖整个服务周期**：该上下文管理器持有插件生命周期资源、Tape 存储和 `SteeringInbox`。在 Web 服务中，应在服务启动/关闭（如 FastAPI 的 `lifespan`）时进出，不要每次请求重复进出。
+- **从 `result.outbounds` 读取回复**：`process_inbound()` 返回汇总后的 `TurnResult`。若安装了会在 `dispatch_outbound` 阶段主动发消息的渠道插件，请注意避免宿主程序与插件重复发送。
+- **启用流式模型阶段**：传入 `stream_output=True` 会改走流式 `run_model_stream` 并在内部消费完毕后返回 `TurnResult`（绑定了 `ChannelRouter` 时还可通过 `wrap_stream()` 实时转发增量事件；不绑定 Router 也可正常使用 `stream_output=True`）。
 
 <a id="reuse-bubagent"></a>
 
-## 只复用模型阶段：BubAgent.run_stream {#model-stage}
+## 只复用模型阶段：`BubAgent.run_stream()` {#model-stage}
 
-需要 Bub 的配置、技能、工具策略和命令，但希望自己处理事件流时，使用 `BubAgent.run_stream()`。
+如果你既想使用应用层的配置、技能发现、工具限制和逗号命令，又希望自己用 `async for` 消费流式事件（例如通过 SSE 推给前端），可直接调用 `BubAgent.run_stream()`。
 
-`run_stream()` 返回 `AsyncStreamEvents`。它没有异步上下文管理器协议，应使用 `contextlib.aclosing()` 保证提前退出和异常时也关闭：
+`run_stream()` 返回 `AsyncStreamEvents` 异步迭代器（本身不是上下文管理器），**请务必配合 `contextlib.aclosing()` 使用**，确保提前退出或报错时底层流能正常关闭：
 
-```python
+```python collapse={1-7} {14-19,21}
 import asyncio
 import contextlib
 
@@ -121,23 +124,25 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-在 `framework.running()` 内创建 `BubAgent`，它才能取得该作用域提供的存储。一个 Agent 可以跨会话复用；按 Turn 变化的工具、技能和状态应放在调用参数或 TurnState 中。
+请在 `async with framework.running():` 内部实例化 `BubAgent` 以获取活动存储，并在多个会话间复用同一个 `BubAgent` 实例。
 
-与完整 Turn 相比，这个直接入口：
+与 `process_inbound()` 相比，`BubAgent.run_stream()` 的行为边界：
 
-- 仍会解析会话 Tape、绑定运行时 Agent，并在 `state=None` 时通过 hooks 加载状态；
-- 仍可执行直接命令；
-- 不执行初始入站 `build_prompt`、`save_state`、出站渲染和分发；
-- 不协调同会话并发；
-- 不负责替你关闭流，第一个 `final` 也只表示一个 Step 结束。
+- **会执行**：将 `session_id` 解析为会话 Tape、绑定运行时 Agent、在 `state=None` 时自动调用 `load_state` Hooks，并支持执行逗号命令；
+- **不执行**：跳过初始 `build_prompt`、结束时不调用 `save_state`、不执行 `render_outbound` 和 `dispatch_outbound`，也不对同 `session_id` 的并发请求加锁；
+- **流消费约定**：需用 `aclosing()` 关闭流；`final` 事件仅代表单个 Step 结束，整个 `async for` 循环结束才代表整次运行完成。
 
-内置系统提示不会要求模型通过 channel skill 回复；`bub gateway` 和 `bub chat` 背后的渠道管理器会注册一个 `system_prompt` Hook，只在它运行的 Turn 中加入这条指令。自己调用 `process_inbound()` 的服务可以注册自己的 Hook，说明回复如何送达。整体替换 `agent.system_prompt` 也会移除插件、技能、延迟工具和 代码模式 的提示片段。
+:::tip[关于系统提示词]
+默认系统提示词不会要求模型调用渠道技能（如 `telegram` 技能）回复；该指令仅由 `bub gateway` 和 `bub chat` 的 `ChannelManager` 动态注入。在你自己的服务中调用 `run_stream()` 或 `process_inbound()` 时，模型会直接输出文本。请勿直接覆盖 `agent.system_prompt` 属性，否则会抹掉插件、技能、延迟工具和代码模式注册的提示词片段。
+:::
 
 <a id="run-stream-options"></a>
 
-### 按调用收窄工具和技能 {#narrow-tools-and-skills}
+### 按请求限制可用工具与技能 {#narrow-tools-and-skills}
 
-```python
+调用 `BubAgent.run_stream()` 时，可通过 `allowed_tools` 和 `allowed_skills` 限制单次请求允许模型使用的工具与技能：
+
+```python collapse={1-12} ins={27-28}
 import asyncio
 import contextlib
 
@@ -177,24 +182,26 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-| 参数 | `None` | 空集合 |
+| 参数 | 传 `None`（默认） | 传空集合（`[]` 或 `set()`） |
 | --- | --- | --- |
-| `allowed_tools` | 允许实例上的全部工具 | 不允许工具 |
-| `allowed_skills` | 使用默认技能发现结果 | 禁用技能发现 |
+| `allowed_tools` | 允许使用该 Agent 实例上的全部工具 | 本次请求禁用所有工具 |
+| `allowed_skills` | 允许使用发现的全部技能 | 本次请求禁用所有技能 |
 
-未知名称会抛出 `ValueError`。筛选覆盖模型直接调用和 代码模式，但逗号命令直接使用 Agent 实例的工具，不受 `allowed_tools` 限制；需要约束所有执行路径时，在 `before_tool_call` 中执行权限策略。
+传入未注册的工具名会抛出 `ValueError`。注意：
 
-这些限制只有在宿主代码决定参数时才可靠。让模型自己生成子 Agent 的允许列表不构成安全边界。
-
-显式传入 `state` 会跳过 `load_state` hooks。需要正常恢复会话又要增加请求元数据时，使用 `framework.build_state()` 构造状态，而不是用一个新字典替换全部状态。完整的 `_runtime_agent` 和状态形式见 [Python API](/zh-cn/docs/reference/python-api/#framework)。
+1. `allowed_tools` 仅限制模型调用和代码模式内的工具，**不限制逗号直接命令**（如 `,fs.read`）。如需拦截所有调用路径，请在 `before_tool_call` Hook 中校验权限。
+2. 只有由**宿主代码**指定 `allowed_tools` 时才构成可靠约束；在对话中由模型生成的 `subagent` 工具白名单不构成强制安全边界。
+3. 显式传入 `run_stream(state=...)` 会跳过 `load_state` Hooks。若需在正常加载状态的基础上添加自定义字段，请先调用 `await framework.build_state(message, session_id)`，再修改返回的字典（见 [Python API](/zh-cn/docs/reference/python-api/#framework)）。
 
 <a id="components"></a>
 
-## 只复用工具或 Agent hooks {#reuse-tools-or-hooks}
+## 只复用工具或 Agent 循环 Hooks {#reuse-tools-or-hooks}
 
-### 工具实现 {#tool-implementations}
+### 1. 在 `core.Agent` 中直接复用插件工具 {#tool-implementations}
 
-已有 `core.Agent` 时，可以直接导入内置工具或插件提供的公开构造函数。下面用 `bub-web-search` 演示只复用搜索工具。先安装依赖并配置搜索与模型凭据：
+如果你的项目使用的是核心层的 `bub.core.Agent`，但看中了某个 Bub 插件提供的工具函数，你可以直接导入该工具并传给 `Agent(tools=[...])`，完全不需要启动 `BubFramework`。
+
+下面以社区的 `bub-web-search` 插件为例，演示如何只提取它的 `web.search` 工具交给 `core.Agent` 使用。先安装依赖并设置环境变量：
 
 ```bash
 uv add "bub[app]" \
@@ -205,9 +212,9 @@ export BUB_SEARCH_JINA_API_KEY=jina_...
 export REPUBLIC_OPENAI_API_KEY=sk-...
 ```
 
-将下面脚本保存为 `search_agent.py`：
+创建 `search_agent.py`：
 
-```python title="search_agent.py"
+```python title="search_agent.py" collapse={1-10} {13,19}
 import asyncio
 from pathlib import Path
 
@@ -248,17 +255,17 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-运行 `uv run python search_agent.py` 会把会话记录到 `sessions/`。这里只复用了选中的搜索工具；模型、Tape、事件流和资源生命周期仍由宿主管理。更多插件说明见 [`bub-web-search`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-web-search)。
+运行 `uv run python search_agent.py` 即可看到搜索结果并把会话写入 `sessions/`。在这种方式下，你只拿走了插件里的工具对象，模型连接、Tape 存储和事件流消费均由宿主代码直接掌控。更多配置说明可参考 [`bub-web-search` 文档](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-web-search)。
 
 <a id="other-hooks"></a>
 
-### Agent 循环 hooks {#agent-loop-hooks}
+### 2. 用 `AgentPlugins` 将插件 Hooks 挂载到 `core.Agent` {#agent-loop-hooks}
 
-`AgentPlugins` 把插件 hooks 接到核心 Agent 的事件、提示词、工具和运行状态上。这些机制分别建立在哪种数据之上，见 [Agent 事件：事件与其他扩展机制](/zh-cn/docs/concepts/events/#app-hooks)。
+如果你不仅想复用工具，还想在 `core.Agent` 上复用插件里的 `system_prompt`、`provide_tools`、`before_llm_call`、`before_tool_call` 等与 Agent 循环直接相关的 Hooks，可以使用 `AgentPlugins` 桥接器（事件映射关系见 [Hooks 参考](/zh-cn/docs/reference/hooks/#event-mapping)）。
 
-下面的 `PlainTextPlugin` 是一个完整的最小插件示例。将代码保存为 `agent_hooks.py`，并确保已安装 `bub[app]`、配置 `REPUBLIC_OPENAI_API_KEY`：
+将以下最小示例保存为 `agent_hooks.py`：
 
-```python title="agent_hooks.py" wrap
+```python title="agent_hooks.py" wrap collapse={1-10} {21-25}
 import asyncio
 
 import republic
@@ -271,7 +278,7 @@ from bub.turn import TurnState
 
 
 class PlainTextPlugin:
-    """为 Agent 添加一条系统提示词。"""
+    """为 Agent 追加系统提示词。"""
 
     @hookimpl
     def system_prompt(self, prompt: str, state: TurnState) -> str:
@@ -297,48 +304,43 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-示例中的 `PlainTextPlugin` 是最小的自定义插件：它通过 `system_prompt` Hook 为 Agent 增加提示词。`AgentPlugins(plugins=[...])` 只注册列出的插件，不会自动加载 Bub 内置 Hook 或已安装插件；需要它们时，创建 `BubFramework`、调用 `load_hooks()` 并将它传给 `AgentPlugins`。
-
 运行示例：`uv run python agent_hooks.py`。
 
-`components()` 返回普通 kwargs 字典，不会自动解决重复参数。示例用字典合并显式覆盖 `store`；若直接同时传入同名关键字会抛出异常。
+使用 `AgentPlugins` 时，请留意以下要点：
 
-存储和 `SteeringInbox` 等资源只在 `plugins.running()` 内可用。先 `attach()`，再注册自己的事件处理器，后者才能观察 hooks 对事件的修改。
+- **显式插件列表 vs. 自动发现**：`AgentPlugins(plugins=[...])` 仅注册传入的插件，不加载内置 Hooks 或环境中安装的第三方插件。如需加载全部已安装插件，可先创建 `framework = BubFramework()` 并调用 `framework.load_hooks()`，再传入 `AgentPlugins(framework)`。
+- **合并 `components()`**：`plugins.components()` 返回插件提供的 `store`、`context` 和 `sidecars`。如需覆盖其中某项（如 `store`），请用 `{**plugins.components(), "store": ...}` 合并后再传给 `Agent()`。
+- **在 `plugins.running()` 内运行**：先调用 `plugins.attach(agent)`，再注册你自己的 `agent.events.on(...)` 处理器，以便观察到插件修改后的事件状态。
+- **仅覆盖循环阶段**：`attach()` 不会执行外围 Turn 的初始 `build_prompt`、`save_state`、出站渲染或渠道分发。此外，若插件依赖配套工具（如 `bub-context-budget` 需要 `tape.handoff` 工具）或长连接（如 [`bub-mcp`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp#embedding)），需一并提供对应组件。
 
-`attach()` 连接的是 Agent 循环，不会自动提供完整 Turn 的初始 `build_prompt`、`run_model` / `run_model_stream`、`save_state`、出站渲染与分发。steering 等特定路径仍可能调用 `build_prompt`，内置错误报告也可能调用 `dispatch_outbound`，所以插件宿主应阅读具体 hook 的执行时机。
+## 绑定 `ChannelRouter` 接管渠道投递 {#bind-a-router}
 
-例如，`bub-context-budget` 通过模型调用 hooks 提醒模型在上下文接近上限时调用 `tape.handoff`。接入时除了 `attach()`，还要把 `tape.handoff` 工具提供给 Agent；这个提醒本身不强制执行压缩。此例说明插件常有 `attach()` 以外的依赖，具体参数见 [`tape.handoff` 参考](/zh-cn/docs/reference/tools/#tape-handoff)。
+如果你自己的宿主服务已经有了现成的消息返回逻辑（比如直接在 HTTP 响应里返回结果），读取 `TurnResult.outbounds` 就足够了，不需要配置 Router。
 
-MCP 等需要常驻连接的插件还有独立生命周期；`attach()` 不能代替连接、启动和关闭。嵌入方式见 [`bub-mcp`](https://github.com/bubbuild/bub-contrib/tree/main/packages/bub-mcp#embedding)。
+只有在你希望让 Bub 渠道层接管出站投递与流式包装时，才需要实现 `ChannelRouter` 并调用 `framework.bind_channel_router(router)`：
 
-<a id="bind-a-router"></a>
+- `dispatch_output()`：执行消息投递；返回 `False` 不会触发自动重试，`process_inbound()` 仍会返回 `outbounds`。
+- `wrap_stream()`：返回异步可迭代对象并透传模型事件（最终的 `model_output` 由包装后的流产出的文本增量拼接而成）。
+- `admit_channel_message()`：供 `ChannelManager` 消息准入路径调用；直接调用 `process_inbound()` 不会自动执行准入检查或排队。
 
-## 需要渠道投递时绑定 Router {#bind-a-router}
-
-宿主已有发送逻辑时，直接使用 `TurnResult.outbounds` 即可。需要 Bub 渠道负责出站和流包装时，实现并绑定 `ChannelRouter`：
-
-- `dispatch_output()` 执行实际投递；返回 `False` 不会触发自动重试或备用投递，`process_inbound()` 仍返回渲染后的 `outbounds`。
-- `wrap_stream()` 必须返回异步可迭代对象，并保留希望 Bub 继续处理的模型事件；`model_output` 由包装后流中的文本增量聚合。
-- `admit_channel_message()` 属于 `ChannelManager` 的准入路径。直接调用 `process_inbound()` 不会自动执行准入或会话排队。
-
-接口签名见 [Python API](/zh-cn/docs/reference/python-api/#framework) 与[渠道概念](/zh-cn/docs/concepts/turn/)。
+相关接口签名详见 [Python API](/zh-cn/docs/reference/python-api/#framework)，生命周期概念见 [Turn](/zh-cn/docs/concepts/turn/)。
 
 <a id="lifecycle-and-concurrency"></a>
 
-## 生命周期、异常与并发清单 {#lifecycle-failure-concurrency}
+## 嵌入服务自检清单 {#lifecycle-failure-concurrency}
 
-无论选择哪个应用层入口，都应检查：
+无论你选择了上面哪一种应用层入口，在将代码部署上线前，建议对照检查以下七个边界：
 
-1. **启动一次**：`load_hooks()` 在服务组装阶段调用，不在每个请求中重复发现插件。
-2. **一个运行作用域**：同一 Framework 不要重叠进入多个 `running()`；`ChannelManager.listen_and_run()` 已会进入作用域，不要再套一层。
-3. **配置不是隔离沙箱**：不同 Framework 可以隔离插件集合，应用配置仍是进程级缓存。
-4. **异常由宿主接住**：`run_stream()` 的迭代和 `process_inbound()` 都可能抛错；完整 Turn 的错误钩子不会代替宿主异常处理。
-5. **同会话显式协调**：两个直接入口都不会按 `session_id` 自动串行化。使用宿主锁，或通过 ChannelManager 的 `follow_up` 准入策略排队。
-6. **关闭流**：正常消费到结束，提前退出时用 `aclosing()`；`temp/` 前缀会话不合并 Tape，普通会话关闭时默认合并，包括部分记录。
-7. **副作用不是事务**：后续模型失败、取消或丢弃 Tape 都不会回滚工具已经产生的外部副作用。
+1. **启动时只调一次 `load_hooks()`**：不要在每次请求时重复扫描插件。
+2. **共用单一 `running()` 作用域**：不要在同一个 `BubFramework` 上并发或嵌套进入 `running()`（`ChannelManager.listen_and_run()` 内部已包含 `running()`）。
+3. **配置为进程级缓存**：多个 `BubFramework` 实例可隔离插件集，但应用配置（`Settings`）在进程内全局缓存。
+4. **宿主程序捕获异常**：`run_stream()` 和 `process_inbound()` 报错均会向上抛出异常；`on_error` Hook 仅记录日志，不会吞掉异常。
+5. **同会话并发需显式加锁**：按 `session_id` 使用宿主侧互斥锁（如 `asyncio.Lock`），或通过 `ChannelManager` 的 `follow_up` 策略串行化。
+6. **确保关闭事件流**：可能提前退出的路径一律使用 `contextlib.aclosing()`。除 `temp/` 前缀会话外，普通会话在流关闭时默认会将已执行的记录合并回主 Tape。
+7. **外部副作用不自动回滚**：模型报错、取消或丢弃 Tape 分支不会撤销工具对文件、网络或外部数据库的修改。
 
 <a id="cli"></a>
 
-## 直接运行或发布命令行 {#run-or-publish-cli}
+## 直接运行或封装 CLI {#run-or-publish-cli}
 
-不需要嵌入代码时，直接使用 `bub run`、`bub chat` 或 `bub gateway`。需要自己的命令名时，在发行包中声明 `[project.scripts]` 调用 Bub 入口，并随包分发插件和技能；完整流程见[打包与分发](/zh-cn/docs/app/distribution/)。
+如果你的场景并不需要把 Bub 嵌进另一个 Python 服务，而是直接作为命令行或守护进程使用，直接运行 `bub run`、`bub chat` 或 `bub gateway` 即可。如果你想把它包装成带有自己品牌命令名（如 `my-bub`）的发行包，并把自定义插件和技能一起打包分发给团队，请参考[打包与分发](/zh-cn/docs/app/distribution/)。

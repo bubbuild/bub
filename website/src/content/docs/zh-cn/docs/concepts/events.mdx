@@ -1,44 +1,61 @@
 ---
 title: Agent 事件
-description: 分清 AgentEvent、StreamEvent 与 TapeEntry，理解同步分发如何在副作用发生前拦截执行。
+description: 理解 Bub 同步事件总线的设计：区分 AgentEvent、StreamEvent 与 TapeEntry，在副作用发生前观测或拦截调用，并对比 App Hooks。
 sidebar:
   label: 事件
 ---
 
-Agent 事件不仅回答「发生了什么」，也能在副作用发生前决定「这件事是否应该发生」。每个 Agent 的 `EventBus` 都支持观察和同步干预。
+在实际开发中，我们经常需要在模型推理或工具调用的前后加上一些通用逻辑：比如打印审计日志、统计 Token 消耗、清理工具入参，或者在执行高危工具（如删除数据、执行命令）前先做权限检查甚至等待人工确认。
 
-## 三种数据 {#three-kinds}
+如果把这些逻辑硬编码进每个工具函数里，业务代码很快就会变得难以维护。为此，每个 `Agent` 实例都自带一条同步事件总线（`agent.events`）：它不仅能让你实时观察「刚才发生了什么」，还能在模型或工具真正产生副作用之前，介入并修改参数或拦截调用。
 
-| 类型 | 用途 | 获取方式 | 能干预吗 |
+## 先分清三种数据 {#three-kinds}
+
+在 Bub 中，你会遇到三种名字里带「事件」或「记录」的对象，它们分别负责运行时控制、流式输出和历史持久化：
+
+| 类型 | 用途 | 获取方式 | 能否干预当前运行？ |
 | --- | --- | --- | --- |
-| `AgentEvent` | 协调与干预当前执行 | `agent.events.on(...)` | 能：修改字段或设置 `decision` |
-| `StreamEvent` | 向调用方交付输出 | 迭代 `agent.run()` 的流 | 能：关闭流即结束 Run |
-| `TapeEntry` | 保存历史记录 | 查询 [Tape](/zh-cn/docs/concepts/tape/#history-and-context) | 不能：正常记录只追加 |
+| `AgentEvent` | 观测循环各阶段，或在调用前修改参数、拦截执行 | `agent.events.on(...)` 注册处理器 | **能**：修改事件属性或设置 `decision` |
+| `StreamEvent` | 向调用方实时推送流式输出（思考增量、文本增量、工具进度） | `async for` 迭代 `agent.run()` 返回的流 | **能**：退出循环并关闭流即可取消 Run |
+| `TapeEntry` | 持久保存对话历史、工具往返与业务事件 | 查询 [Tape](/zh-cn/docs/concepts/tape/#history-and-context) | **不能**：正常运行时仅追加记录 |
 
-三者不会自动互相转换：流式输出不会自行落盘，Tape 条目不会回灌进正在执行的 Step。只有被 `TapeContext` 选中的条目，才会成为后续模型输入。
+这三者各司其职，不会自动混同：流式分片不会自动落盘，已写入 Tape 的条目也不会回流到当前正在执行的 Step；只有被 `TapeContext` 选中的条目，才会在下一次请求时作为上下文发给模型。
 
-## 同步分发 {#handlers}
+## 为什么事件是同步分发的 {#handlers}
 
-`emit()` 按注册顺序逐个调用匹配的处理器，并等待 async 处理器完成后再继续。需要记住四条规则：
+当 Agent 触发事件时，`EventBus.emit()` 会按注册顺序逐个调用匹配的处理器；如果遇到 `async def` 异步处理器，它会**等待该处理器执行完毕**再继续往下走。
 
-1. 注册到基类的处理器也会收到子类事件。
-2. 返回值会被忽略；干预执行要修改事件字段或设置 `decision`。
-3. 异常会传播给发布方，可能导致整个 Run 失败。
-4. 每次调用处理器前都会检查 `event.stopped`，为 `True` 时停止本次派发。
+之所以采用同步等待而不是扔到后台异步执行，原因很直接：**只有等处理器跑完，Agent 才能在真正调用模型或执行工具之前拿到修改后的参数或拦截决策**（例如在 `ToolCallStarted` 处理器里等待用户在网页上点击「确认删除」）。
 
-## 决策先于副作用 {#call-control}
+编写事件处理器时，记住以下四条规则即可：
 
-调用前事件暴露可替换的请求和 `decision`。一次工具调用有四种结果：
+1. **支持按基类监听**：监听基类可接收其所有子类事件（如监听 `AgentEvent` 接收全部事件，监听 `TapeEvent` 接收所有带 `event.tape` 的事件）。
+2. **原地修改事件对象**：处理器的返回值会被忽略；如需改写参数或拦截，直接修改事件属性（如 `event.call`）或设置 `event.decision`。
+3. **异常向上传播**：处理器抛出的未捕获异常会直接传回 `emit()` 调用方，并可能中断当前 Run。
+4. **拦截后停止后续分发**：每次调用下一个处理器前都会检查 `event.stopped`；一旦某个处理器设置了拒绝或替换决策（`event.stopped == True`），后续处理器不再执行。
 
-| 操作 | 原工具执行吗 | 交给模型的结果 |
+## 在副作用发生前做出裁决 {#call-control}
+
+像 `ToolCallStarted` 和 `LLMCallStarted` 这类「调用前」事件，都暴露了当前请求内容以及一个 `decision` 属性。以一次工具调用为例，事件处理器可以做出四种选择：
+
+| 处理器操作 | 工具函数是否执行？ | 模型收到的结果 |
 | --- | --- | --- |
-| 不设置 `decision` | 是 | 实际结果 |
-| 替换 `event.call` | 是，用新调用 | 实际结果 |
-| `deny(message)` | 否 | 工具错误 |
-| `replace(result)` | 否 | 指定结果 |
+| 不设置 `decision`（默认放行） | **是** | 工具函数的返回值 |
+| 替换 `event.call` 的参数 | **是**（使用新参数） | 工具函数的返回值 |
+| 设置 `ToolCallDecision.deny(message)` | **否** | 包含拒绝原因的工具错误，供模型调整回复 |
+| 设置 `ToolCallDecision.replace(result)` | **否** | 你指定的替代结果（适合缓存命中或 Mock） |
 
-被拒绝或替换的调用仍会发出 `ToolCallFinished`，完成后的观察逻辑不会漏记。模型调用也遵循同样的调用前干预模型，例如 `LLMCallDecision.finish(text)` 可以跳过供应商直接产生文本。
+无论工具是正常执行完毕，还是被处理器拒绝（`deny`）或替换（`replace`），结束后都会照常触发 `ToolCallFinished` 事件。这样一来，负责记录日志或统计耗时的后置处理器永远不会漏掉任何一次调用。
 
-## 与 App Hooks 的分工 {#app-hooks}
+模型调用也遵循同样的机制：在 `LLMCallStarted` 中，你既可以替换 `event.request`（比如限制 `max_tokens`），也可以通过 `LLMCallDecision.finish(text)` 直接返回回复文本，跳过实际的模型 API 请求。
 
-Agent 事件介入核心循环中的模型、工具、Step 与 Run；App hooks 面向 Turn 阶段、工具供给、存储和渠道等应用生命周期，并承担插件分发。应用拦截 hooks 可以通过适配器接入同一组 Agent 事件，但两者的参数返回方式与异常策略不同，详见 [Hooks 参考](/zh-cn/docs/reference/hooks/#event-mapping)。具体写法分别见 [SDK：事件](/zh-cn/docs/sdk/events/)与[应用插件：拦截调用](/zh-cn/docs/app/plugins/#control-a-model-or-tool-call)。
+## Agent 事件与 App Hooks 的分工 {#app-hooks}
+
+如果你同时看过 SDK 文档和应用层插件文档，可能会好奇：`agent.events` 和插件里的 `@hookimpl` 有什么区别？
+
+- **Agent 事件**（`agent.events`）：位于核心层，专门覆盖模型调用、工具执行、Step 和 Run 这几个核心循环节点。
+- **App Hooks**（`@hookimpl`）：位于应用层，除支持拦截模型和工具调用外，还覆盖 Turn 的七个阶段、工具与渠道注册、存储替换及 CLI 扩展，支持通过 Python Entry Points 分发。
+
+应用层的 `before_tool_call`、`after_tool_call`、`before_llm_call` 和 `after_llm_call` 底层其实也是通过桥接器挂载到同一组 Agent 事件上的，不过两者在修改参数的方式和异常处理策略上有所不同（例如插件 Hook 抛异常会被记录日志并跳过，而不会直接把整次 Run 搞崩）。详细对比见 [Hooks 参考](/zh-cn/docs/reference/hooks/#event-mapping)。
+
+想动手在代码中监听和拦截事件，可以阅读 [SDK：事件](/zh-cn/docs/sdk/events/)；想在应用插件中使用拦截 Hook，请阅读[插件与 Hooks：拦截调用](/zh-cn/docs/app/plugins/#control-a-model-or-tool-call)。
