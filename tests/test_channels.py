@@ -2017,3 +2017,54 @@ async def test_cli_model_command_completes_available_or_typed_provider_models() 
     assert await complete(",model relay:o") == ["relay:o3"]
     assert await complete(",model openai:gpt-4o extra") == []
     assert fetched == ["available for openai:gpt-4o", "relay"]
+
+
+@pytest.mark.asyncio
+async def test_buffered_handler_recovers_if_processing_task_is_cancelled_or_fails() -> None:
+    handled: list[str] = []
+    received = asyncio.Event()
+
+    async def receive(message: ChannelMessage) -> None:
+        handled.append(message.content)
+        received.set()
+
+    handler = BufferedMessageHandler(receive, active_time_window=10, max_wait_seconds=10, debounce_seconds=0.05)
+    await handler(_message("first", is_active=True))
+    assert handler._in_processing is not None
+
+    handler._in_processing.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await handler._in_processing
+    assert handler._in_processing is None
+
+    await handler(_message("second", is_active=True))
+    await asyncio.wait_for(received.wait(), timeout=1)
+    assert handled == ["first\nsecond"]
+
+
+@pytest.mark.asyncio
+async def test_buffered_handler_recovers_after_batch_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    handled: list[str] = []
+    received = asyncio.Event()
+
+    async def receive(message: ChannelMessage) -> None:
+        handled.append(message.content)
+        received.set()
+
+    handler = BufferedMessageHandler(receive, active_time_window=10, max_wait_seconds=10, debounce_seconds=0.01)
+    original_from_batch = ChannelMessage.from_batch
+
+    def fail_once(messages: list[ChannelMessage]) -> ChannelMessage:
+        monkeypatch.setattr(ChannelMessage, "from_batch", original_from_batch)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ChannelMessage, "from_batch", fail_once)
+    await handler(_message("bad", is_active=True))
+    assert handler._in_processing is not None
+    with pytest.raises(RuntimeError, match="boom"):
+        await handler._in_processing
+    assert handler._in_processing is None
+
+    await handler(_message("ok", is_active=True))
+    await asyncio.wait_for(received.wait(), timeout=1)
+    assert handled == ["bad\nok"]
