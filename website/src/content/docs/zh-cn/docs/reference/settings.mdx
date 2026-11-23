@@ -150,7 +150,7 @@ class AgentSettings(Settings):
 
 | 键名 | 说明 |
 | --- | --- |
-| `headers` | 与默认 `User-Agent: bub/<version>` 合并（同名头显式传入优先） |
+| `headers` | 所有提供商共用的请求头，可覆盖默认的 `User-Agent: bub/<version>`；[提供商专属请求头](#custom-providers)优先。 |
 | `api_format` | 连接 OpenAI 兼容 `/v1/chat/completions` 端点时通常设为 `"chat"` |
 | `timeout` / `max_retries` | 底层 HTTP 客户端的单次请求超时与重试次数（整次调用总时限由 `model_timeout_seconds` 控制） |
 
@@ -189,6 +189,18 @@ providers:
 | `type` | 是 | 遵循的底层 Republic 提供商协议名（如 `openai`、`anthropic`） |
 | `api_base` | 否 | 服务 URL；省略时回退读取 `api_base` 映射或 `BUB_<NAME>_API_BASE` |
 | `api_key` | 否 | API Key；省略时回退读取 `api_key` 映射或 `BUB_<NAME>_API_KEY` |
+| `headers` | 否 | 仅发送给此名称对应的提供商。覆盖 `client_args.headers` 中的同名请求头和默认的 `User-Agent`，匹配时不区分大小写。 |
+
+为 `openrouter:` 前缀设置 [OpenRouter 应用归因](https://openrouter.ai/docs/app-attribution)：
+
+```yaml
+providers:
+  openrouter:
+    type: openrouter
+    headers:
+      HTTP-Referer: https://example.com
+      X-OpenRouter-Title: Example App
+```
 
 ## ChannelSettings {#channel-settings}
 
