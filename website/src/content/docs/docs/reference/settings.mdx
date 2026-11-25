@@ -150,7 +150,7 @@ Common `client_args` keys:
 
 | Key | Description |
 | --- | --- |
-| `headers` | Merged with the default `User-Agent: bub/<version>` header (explicit headers win) |
+| `headers` | Shared by all providers. Overrides the default `User-Agent: bub/<version>`; [provider-specific headers](#custom-providers) take precedence. |
 | `api_format` | Set to `"chat"` for OpenAI-compatible `/v1/chat/completions` endpoints |
 | `timeout` / `max_retries` | HTTP client request timeout and retry count (overall call timeout is controlled by `model_timeout_seconds`) |
 
@@ -189,6 +189,18 @@ providers:
 | `type` | Yes | Underlying Republic provider protocol name (e.g. `openai`, `anthropic`) |
 | `api_base` | No | Endpoint URL; falls back to `api_base` mapping or `BUB_<NAME>_API_BASE` |
 | `api_key` | No | Endpoint API key; falls back to `api_key` mapping or `BUB_<NAME>_API_KEY` |
+| `headers` | No | Request headers for this provider name only. Overrides matching `client_args.headers` and the default `User-Agent`, ignoring case. |
+
+Set [OpenRouter app attribution](https://openrouter.ai/docs/app-attribution) for the `openrouter:` prefix:
+
+```yaml
+providers:
+  openrouter:
+    type: openrouter
+    headers:
+      HTTP-Referer: https://example.com
+      X-OpenRouter-Title: Example App
+```
 
 ## ChannelSettings {#channel-settings}
 

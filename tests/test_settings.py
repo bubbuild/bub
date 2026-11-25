@@ -218,6 +218,55 @@ async def test_client_options_resolve_provider_names(
 
 
 @pytest.mark.asyncio
+async def test_provider_headers_are_scoped_and_override_global_headers(
+    load_config, tmp_path: Path, provider_transport: ProviderService
+) -> None:
+    load_config(
+        """
+api_key:
+  openrouter: sk-openrouter
+  openai: sk-openai
+  other: sk-other
+client_args:
+  api_format: chat
+  headers:
+    user-agent: GlobalAgent
+    X-Shared: global
+    X-Common: kept
+providers:
+  openrouter:
+    type: openrouter
+    headers:
+      HTTP-Referer: https://example.com
+      X-OpenRouter-Title: Example App
+      x-shared: scoped
+      USER-AGENT: ScopedAgent
+  other:
+    type: openrouter
+""".strip(),
+    )
+    settings = load_settings()
+    for provider in ("openrouter", "openai", "other"):
+        provider_transport.reply_chat()
+        settings.model = f"{provider}:model"
+        assert await _run(settings, tmp_path) == "done"
+
+    attributed, *unrelated = (request.headers for request in provider_transport.requests)
+    assert attributed["http-referer"] == "https://example.com"
+    assert attributed["x-openrouter-title"] == "Example App"
+    assert attributed.get_list("x-shared") == ["scoped"]
+    assert attributed.get_list("user-agent") == ["ScopedAgent"]
+    assert attributed["x-common"] == "kept"
+    assert attributed["authorization"] == "Bearer sk-openrouter"
+    for headers in unrelated:
+        assert "http-referer" not in headers
+        assert "x-openrouter-title" not in headers
+        assert headers.get_list("x-shared") == ["global"]
+        assert headers.get_list("user-agent") == ["GlobalAgent"]
+        assert headers["x-common"] == "kept"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "provider,header", [("google", "x-goog-api-key"), ("azure-openai", "api-key"), ("openrouter", "authorization")]
 )

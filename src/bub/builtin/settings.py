@@ -37,6 +37,7 @@ class CustomProvider(BaseModel):
     type: str
     api_key: str | None = None
     api_base: str | None = None
+    headers: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("type")
     @classmethod
@@ -161,8 +162,14 @@ class AgentSettings(Settings):
         custom = self.providers.get(provider)
         provider = provider if custom else provider.lower()
         options = dict(self.client_args)
-        # Headers from client_args, including a User-Agent, take precedence.
-        options["headers"] = {"User-Agent": USER_AGENT, **(options.get("headers") or {})}
+        headers = {"user-agent": ("User-Agent", USER_AGENT)}
+        for overrides in (options.get("headers") or {}, custom.headers if custom else {}):
+            for name, value in overrides.items():
+                key = name.lower()
+                # Keep the first spelling, in particular Republic's expected "User-Agent".
+                original_name = headers[key][0] if key in headers else name
+                headers[key] = (original_name, value)
+        options["headers"] = dict(headers.values())
         prefix = _provider_env_name(provider)
         options.setdefault("env_prefix", f"BUB_{prefix}")
         return {
