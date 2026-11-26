@@ -14,11 +14,10 @@ import pluggy
 import typer
 from loguru import logger
 
-from bub import configure
+from bub import configure, home
 from bub.application import CommandChanged, Outcome, cli_events
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import ChannelRouter, MessageHandler
-from bub.configure import DEFAULT_HOME
 from bub.core.events import Event, EventBus
 from bub.core.sidecars import TapeSidecar
 from bub.core.store import AsyncTapeStore, TapeStore
@@ -39,7 +38,7 @@ from bub.utils import maybe_context_manager
 if TYPE_CHECKING:
     from bub.channels.base import Channel
 
-DEFAULT_CONFIG_FILE = (DEFAULT_HOME / "config.yml").resolve()
+DEFAULT_CONFIG_FILE = (home / "config.yml").resolve()
 
 
 @dataclass(frozen=True)
@@ -87,14 +86,15 @@ def _invoke_subcommand(ctx: typer.Context, name: str) -> None:
 class BubFramework:
     """Minimal framework core. Everything grows from hook skills."""
 
-    def __init__(self, config_file: Path = DEFAULT_CONFIG_FILE) -> None:
+    def __init__(self, config_file: Path | None = None) -> None:
         """Create a hook runtime and load the process-wide configuration file.
 
         The workspace initially points to the current directory. Register plugins
         or load builtin hooks before executing turns; construction does not load them.
+        Without an explicit config file, read ``config.yml`` from ``bub.home``.
         """
         self.workspace = Path.cwd().resolve()
-        self.config_file = config_file.resolve()
+        self.config_file = (config_file if config_file is not None else DEFAULT_CONFIG_FILE).resolve()
         self._plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
         self._plugin_manager.add_hookspecs(BubHookSpecs)
         self._hook_runtime = HookRuntime(self._plugin_manager)

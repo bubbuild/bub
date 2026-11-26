@@ -13,7 +13,7 @@ Settings classes resolve fields in this order (highest priority first):
 | --- | --- | --- |
 | 1 | Environment variables | `BUB_*`; read when the settings class is instantiated |
 | 2 | `.env` in current directory | `find_dotenv(usecwd=True)`; does not override existing system environment variables |
-| 3 | YAML config file | Defaults to `~/.bub/config.yml`, loaded via `configure.load` |
+| 3 | YAML config file | `<BUB_HOME>/config.yml` (default `~/.bub/config.yml`), loaded via `configure.load` |
 | 4 | Field defaults | Default values declared in code |
 
 - `--workspace`, `--project`, and `--enable-channel` are **CLI flags**, not settings fields.
@@ -23,8 +23,8 @@ Settings classes resolve fields in this order (highest priority first):
 
 | Path / Variable | Default | Description |
 | --- | --- | --- |
-| `~/.bub/config.yml` | `DEFAULT_CONFIG_FILE` | Default YAML config file (override via `BubFramework(config_file=Path(...))`) |
-| `BUB_HOME` | `~/.bub` | Runtime data directory (stores session Tapes, managed plugin project, and temporary code-mode files). **Note: `BUB_HOME` does not move the default `~/.bub/config.yml` location** |
+| `<BUB_HOME>/config.yml` | `~/.bub/config.yml` | Default YAML config file (override via `BubFramework(config_file=Path(...))`) |
+| `BUB_HOME` | `~/.bub` | Configuration and runtime data directory (stores `config.yml`, session Tapes, managed plugin project, and temporary code-mode files) |
 | `BUB_PROJECT` | `<BUB_HOME>/bub-project` | Managed plugin project directory for `bub install` / `uninstall` / `update` (created automatically at the default path; custom paths must already exist) |
 
 ## Environment variable index {#env-index}
