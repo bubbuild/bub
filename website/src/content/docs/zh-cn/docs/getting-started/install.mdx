@@ -42,6 +42,11 @@ uv tool update-shell
 如果提示找不到 `bub` 命令，请检查环境变量是否包含了可执行文件所在路径，或手动将 `~/.local/bin` 加入 `PATH`。
 :::
 
+升级 Bub 时，可以选择以下方式管理插件：
+
+- 安装时包含所有插件：`uv tool install "bub[app]" --with <插件包名>`（多个插件重复传入 `--with`），之后通过 `uv tool upgrade bub` 升级。
+- 升级后运行 `bub update`，从已有托管项目恢复插件，并一起升级 Bub 和依赖；版本仍受插件依赖约束。
+
 ## 安装 SDK {#agent-install}
 
 自 0.6.0 起，`bub` 包默认只包含核心层。用你习惯的包管理器把它添加到项目中即可，这里以 `uv` 为例：

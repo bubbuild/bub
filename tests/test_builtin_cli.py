@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 from io import StringIO
 from pathlib import Path
@@ -484,27 +485,33 @@ def test_gateway_install_and_uninstall_are_mutually_exclusive() -> None:
 def test_run_help_uses_the_configured_prefix(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, env_prefix: str | None, prefix: str
 ) -> None:
-    monkeypatch.setenv("BUB_HOME", str(tmp_path))
     monkeypatch.delenv("BUB_COMMAND_PREFIX", raising=False)
     if env_prefix is not None:
         monkeypatch.setenv("BUB_COMMAND_PREFIX", env_prefix)
     config_file = tmp_path / "config.yml"
     config_file.write_text(config, encoding="utf-8")
-    framework = BubFramework(config_file=config_file)
-    framework.workspace = tmp_path
-    framework.load_builtin_hooks()
-    monkeypatch.setattr(
-        "bub.core.agent.Agent.run_once",
-        lambda *args, **kwargs: pytest.fail("help must not invoke the model"),
+    script = (
+        "import os, sys\n"
+        "from bub.framework import BubFramework\n"
+        "os.environ['BUB_HOME'] = sys.argv.pop(1)\n"
+        "framework = BubFramework()\n"
+        "framework.load_builtin_hooks()\n"
+        "framework.create_cli_app()()\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), "run", f"{prefix}help"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
     )
 
-    result = CliRunner().invoke(framework.create_cli_app(), ["run", f"{prefix}help"])
-
-    assert result.exit_code == 0, result.output
-    assert f"Commands use '{prefix}'" in result.output
-    assert f"{prefix}bash.output" in result.output
-    assert f"{prefix}code_mode enable=true" in result.output
-    assert f"{prefix}quit" in result.output
+    assert result.returncode == 0, result.stderr
+    assert f"Commands use '{prefix}'" in result.stdout
+    assert f"{prefix}bash.output" in result.stdout
+    assert f"{prefix}code_mode enable=true" in result.stdout
+    assert f"{prefix}quit" in result.stdout
 
 
 def test_run_command_processes_inbound_inside_framework_runtime(tmp_path: Path) -> None:

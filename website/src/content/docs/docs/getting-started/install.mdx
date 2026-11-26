@@ -42,6 +42,11 @@ When it finishes, run `bub --help` to verify the install, then run `bub onboard`
 If `bub` is not found, check that the install directory is on your `PATH`, or add `~/.local/bin` to `PATH` yourself.
 :::
 
+To manage plugins when upgrading Bub, choose one of these approaches:
+
+- Include every plugin when installing: `uv tool install "bub[app]" --with <plugin-package>` (repeat `--with` for each plugin), then upgrade with `uv tool upgrade bub`.
+- After upgrading, run `bub update` to restore plugins from an existing managed project and upgrade Bub and its dependencies together. Versions remain subject to the plugins' dependency constraints.
+
 ## Install the SDK {#agent-install}
 
 From 0.6.0 on, the base `bub` package ships the core kernel only. Add it to your project with your package manager—here is `uv`:
