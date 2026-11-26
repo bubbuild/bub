@@ -485,14 +485,21 @@ def test_gateway_install_and_uninstall_are_mutually_exclusive() -> None:
 def test_run_help_uses_the_configured_prefix(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, env_prefix: str | None, prefix: str
 ) -> None:
-    monkeypatch.setenv("BUB_HOME", str(tmp_path))
     monkeypatch.delenv("BUB_COMMAND_PREFIX", raising=False)
     if env_prefix is not None:
         monkeypatch.setenv("BUB_COMMAND_PREFIX", env_prefix)
     config_file = tmp_path / "config.yml"
     config_file.write_text(config, encoding="utf-8")
+    script = (
+        "import os, sys\n"
+        "from bub.framework import BubFramework\n"
+        "os.environ['BUB_HOME'] = sys.argv.pop(1)\n"
+        "framework = BubFramework()\n"
+        "framework.load_builtin_hooks()\n"
+        "framework.create_cli_app()()\n"
+    )
     result = subprocess.run(
-        [sys.executable, "-m", "bub", "run", f"{prefix}help"],
+        [sys.executable, "-c", script, str(tmp_path), "run", f"{prefix}help"],
         cwd=tmp_path,
         capture_output=True,
         text=True,

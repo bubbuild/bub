@@ -7,6 +7,7 @@ import contextlib
 import warnings
 from collections.abc import AsyncGenerator, Iterator
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,7 +15,7 @@ import pluggy
 import typer
 from loguru import logger
 
-from bub import configure, home
+from bub import configure
 from bub.application import CommandChanged, Outcome, cli_events
 from bub.channels.admission import AdmitDecision, SteeringInbox, TurnSnapshot
 from bub.channels.contracts import ChannelRouter, MessageHandler
@@ -38,7 +39,12 @@ from bub.utils import maybe_context_manager
 if TYPE_CHECKING:
     from bub.channels.base import Channel
 
-DEFAULT_CONFIG_FILE = (home / "config.yml").resolve()
+
+@cache
+def _default_config_file() -> Path:
+    from bub import home
+
+    return (home / "config.yml").resolve()
 
 
 @dataclass(frozen=True)
@@ -94,7 +100,7 @@ class BubFramework:
         Without an explicit config file, read ``config.yml`` from ``bub.home``.
         """
         self.workspace = Path.cwd().resolve()
-        self.config_file = (config_file if config_file is not None else DEFAULT_CONFIG_FILE).resolve()
+        self.config_file = (config_file if config_file is not None else _default_config_file()).resolve()
         self._plugin_manager = pluggy.PluginManager(BUB_HOOK_NAMESPACE)
         self._plugin_manager.add_hookspecs(BubHookSpecs)
         self._hook_runtime = HookRuntime(self._plugin_manager)
