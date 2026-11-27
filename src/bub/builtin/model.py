@@ -124,8 +124,7 @@ class BubModel:
     def chat_options(self, provider: str, options: Mapping[str, Any]) -> dict[str, Any]:
         """Merge this model's generation options with a call's for ``provider``."""
         merged = {**self.options, **options}
-        if provider == "anthropic":
-            merged["extra_body"] = {"cache_control": {"type": "ephemeral"}} | merged.get("extra_body", {})
+        merged.setdefault("cache_retention", "short")
         max_tokens = options.get("max_tokens", self.max_tokens)
         merged.pop("max_tokens", None)
         if provider != "codex" and max_tokens is not None:

@@ -6,6 +6,7 @@ import contextlib
 import hashlib
 import inspect
 import json
+import uuid
 from collections.abc import AsyncGenerator, Callable, Coroutine, Iterable, Mapping, MutableMapping
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
@@ -250,9 +251,13 @@ def _content_parts(content: object) -> list[dict[str, Any]]:
                 url.startswith("data:") and "data" not in block
             ):
                 # Older payloads keep inline media as data URLs.
-                media = {"image": republic.image, "audio": republic.audio, "video": republic.video}[kind](
-                    url, media_type=mime
-                )
+                media: republic.Image | republic.Audio | republic.Video
+                if kind == "image":
+                    media = republic.image(url, media_type=mime)
+                elif kind == "audio":
+                    media = republic.audio(url, media_type=mime)
+                else:
+                    media = republic.video(url, media_type=mime)
                 parts.append({"type": kind, "media_type": media.media_type, "data": media.base64_data})
             case {"type": "image" | "audio" | "video" as kind} if "url" not in block and "data" not in block:
                 raise BubError(ErrorKind.INVALID_INPUT, f"The {kind} content block needs a url or data.")
@@ -283,6 +288,10 @@ class AnchorSummary:
 
     name: str
     state: dict[str, object]
+
+
+def _new_session_id() -> str:
+    return uuid.uuid4().hex
 
 
 def session_tape_name(session_id: str, workspace: Path) -> str:
@@ -374,7 +383,23 @@ class Tape:
     async def ensure_bootstrap_anchor(self) -> None:
         anchors = list(await self.store.fetch_all(self.query().kinds("anchor")))
         if not anchors:
-            await self.handoff(name="session/start", state={"owner": "human"})
+            await self.handoff(name="session/start", state={"owner": "human", "session_id": _new_session_id()})
+
+    async def session_id(self) -> str:
+        """Return the opaque, persistent session affinity ID for this tape.
+
+        Reads the ``session_id`` recorded on the tape's ``session/start`` anchor so it
+        stays stable across turns, tool loops, restarts, and normal handoffs, and rotates
+        automatically on :meth:`reset`. Legacy tapes without a recorded ID fall back to a
+        deterministic digest of the tape name.
+        """
+        anchors = list(await self.store.fetch_all(self.query().kinds("anchor")))
+        for entry in anchors:
+            if entry.payload.get("name") == "session/start":
+                state = entry.payload.get("state")
+                if isinstance(state, Mapping) and isinstance(session_id := state.get("session_id"), str) and session_id:
+                    return session_id
+        return hashlib.sha256(f"bub:tape:{self.name}".encode()).hexdigest()[:32]
 
     async def anchors(self, limit: int = 20) -> list[AnchorSummary]:
         entries = list(await self.store.fetch_all(self.query().kinds("anchor")))
@@ -507,7 +532,10 @@ class Tape:
         """
         keep = set(keep_sidecars)
         await self.store.reset(self.name)
-        await self.handoff(name="session/start", state={"owner": "human", **(state or {})})
+        await self.handoff(
+            name="session/start",
+            state={"owner": "human", **(state or {}), "session_id": _new_session_id()},
+        )
         for sidecar in self.sidecars:
             if sidecar.name in keep:
                 continue
