@@ -2,12 +2,43 @@ from __future__ import annotations
 
 import base64
 import contextlib
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 type MessageKind = Literal["error", "normal", "command"]
 type MediaType = Literal["image", "audio", "video", "document"]
+
+
+def format_front_matter_message(metadata: Mapping[str, Any], body: str) -> str:
+    """Render message content as YAML front matter followed by the body.
+
+    Multi-line strings are emitted as ``|`` block scalars, so their lines stay inside the
+    front matter by indentation and cannot be mistaken for the body or for other keys.
+
+    >>> print(format_front_matter_message({"sender_id": "7", "reply_to": {"content": "a\\n\\nb"}}, "hi"))
+    ---
+    sender_id: '7'
+    reply_to:
+      content: |-
+        a
+    <BLANKLINE>
+        b
+    ---
+    hi
+    """
+    import yaml
+
+    class _Dumper(yaml.SafeDumper):
+        pass
+
+    def represent_str(dumper: yaml.SafeDumper, value: str) -> yaml.ScalarNode:
+        style = "|" if "\n" in value else None
+        return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
+
+    _Dumper.add_representer(str, represent_str)
+    front_matter = yaml.dump(dict(metadata), Dumper=_Dumper, allow_unicode=True, sort_keys=False)
+    return f"---\n{front_matter}---\n{body}"
 
 
 @dataclass
