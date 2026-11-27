@@ -608,7 +608,8 @@ def _optional_names(value: object) -> list[str] | None:
 def render_profiles_prompt(profiles: Collection[SubagentProfile]) -> str:
     if not profiles:
         return ""
-    lines = "\n".join(f"- {profile.name}: {profile.description}" for profile in profiles)
+    ordered = sorted(profiles, key=lambda profile: profile.name.casefold())
+    lines = "\n".join(f"- {profile.name}: {profile.description}" for profile in ordered)
     return f"<available_subagents>\nPass one as `agent` to the subagent tool.\n{lines}\n</available_subagents>"
 
 

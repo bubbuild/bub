@@ -114,7 +114,7 @@ def render_tools_prompt(tools: Iterable[Tool]) -> str:
 
 def render_deferred_tools_prompt(tools: Iterable[Tool]) -> str:
     """List deferred tools by model-facing name so the model knows what it can load."""
-    names = "\n".join(f"- {_to_model_name(tool_item.name)}" for tool_item in tools)
+    names = "\n".join(f"- {name}" for name in sorted(_to_model_name(tool_item.name) for tool_item in tools))
     if not names:
         return ""
     return (

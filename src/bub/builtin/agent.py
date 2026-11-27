@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from pathlib import Path
 
 import bub.core as core
@@ -11,10 +11,17 @@ from bub.builtin.settings import load_settings
 from bub.core.store import AsyncTapeStore, TapeStore
 from bub.core.tape import Tape, session_tape_name
 from bub.core.tools import Tool, model_tools
+from bub.errors import BubError, ErrorKind
 from bub.framework import BubFramework
 from bub.hooks.agent import AgentPlugins
 from bub.prompt import LegacyPrompt, UserContent, prompt_text, to_content
-from bub.skills import discover_skills, render_skills_prompt
+from bub.skills import (
+    SkillMetadata,
+    discover_skills,
+    expanded_skill_names,
+    render_expanded_skills,
+    render_skills_prompt,
+)
 from bub.streaming import AsyncStreamEvents
 from bub.turn import TurnState
 from bub.utils import workspace_from_state
@@ -140,9 +147,19 @@ class BubAgent(core.Agent):
         if reasoning_effort is not None:
             state["reasoning_effort"] = reasoning_effort
         state.setdefault("session_id", session_id)
+        tape_name = session_tape_name(session_id, workspace_from_state(state))
         metadata = None
         if self.command_line(content) is None:
             self._scope_turn(state, allowed_skills=allowed_skills, allowed_tools=allowed_tools)
+            target_tape = self.tape(tape_name, state=state) if fork_from is None else fork_from
+            already_expanded = await self._expanded_skills_in_context(target_tape)
+            if expanded := self._expand_skills_prompt(
+                content,
+                workspace_from_state(state),
+                state.get(ALLOWED_SKILLS_STATE_KEY),
+                already_expanded=already_expanded,
+            ):
+                content = [*content, expanded]
             metadata = {
                 "allowed_skills": list(allowed_skills) if allowed_skills else None,
                 "allowed_tools": list(allowed_tools) if allowed_tools else None,
@@ -153,7 +170,7 @@ class BubAgent(core.Agent):
             model=self.settings.chat_model(
                 state.get("model") if model is None else model, reasoning_effort=state.get("reasoning_effort")
             ),
-            tape=session_tape_name(session_id, workspace_from_state(state)) if fork_from is None else fork_from,
+            tape=tape_name if fork_from is None else fork_from,
             state=state,
             merge_back=fork_from is None and not session_id.startswith("temp/"),
             metadata=metadata,
@@ -184,9 +201,14 @@ class BubAgent(core.Agent):
         if code_tools is None:
             state.pop(CODE_TOOLS_STATE_KEY, None)
         else:
-            state[CODE_TOOLS_STATE_KEY] = model_tools(code_tools)
+            state[CODE_TOOLS_STATE_KEY] = sorted(model_tools(code_tools), key=lambda item: item.name)
         # ``tool.describe`` is exposed exactly when a deferred tool remains, since it is the only way to load one.
-        direct = [tool for tool in tools if not tool.deferred and tool.name != TOOL_DESCRIBE_TOOL_NAME]
+        # Sort base tools deterministically so plugin registration order never shifts the prompt prefix,
+        # and append loaded deferred tools in tape load order so loading more tools stays append-only.
+        direct = sorted(
+            (tool for tool in tools if not tool.deferred and tool.name != TOOL_DESCRIBE_TOOL_NAME),
+            key=lambda item: item.name.replace(".", "_"),
+        )
         deferred = {tool.name: tool for tool in _deferred_tools(tools)}
         if deferred:
             direct.append(self.tools.get(TOOL_DESCRIBE_TOOL_NAME, tool_describe))
@@ -247,18 +269,55 @@ class BubAgent(core.Agent):
 
     def _skills_prompt(self, context: core.PromptContext) -> str:
         allowed = context.state.get(ALLOWED_SKILLS_STATE_KEY)
-        return self._load_skills_prompt(
-            prompt_text(context.prompt), workspace_from_state(context.state), None if allowed is None else set(allowed)
-        )
+        skills = self._discover_turn_skills(workspace_from_state(context.state), allowed)
+        return render_skills_prompt(skills)
 
-    def _load_skills_prompt(self, prompt: str, workspace: Path, allowed_skills: set[str] | None = None) -> str:
-        skill_index = {
-            skill.name.casefold(): skill
+    def _discover_turn_skills(
+        self, workspace: Path, allowed_skills: Collection[str] | None = None
+    ) -> list[SkillMetadata]:
+        allowed = None if allowed_skills is None else {name.casefold() for name in allowed_skills}
+        return [
+            skill
             for skill in discover_skills(workspace, skill_dirs=self.skill_dirs)
-            if allowed_skills is None or skill.name.casefold() in allowed_skills
-        }
-        expanded_skills = set(HINT_RE.findall(prompt)) & set(skill_index.keys())
-        return render_skills_prompt(list(skill_index.values()), expanded_skills=expanded_skills)
+            if allowed is None or skill.name.casefold() in allowed
+        ]
+
+    @staticmethod
+    async def _expanded_skills_in_context(tape: Tape) -> set[str]:
+        try:
+            entries = await tape.search(tape.context.build_query(tape.query()).kinds("message"))
+        except BubError as exc:
+            if exc.kind == ErrorKind.NOT_FOUND:
+                return set()
+            raise
+        names: set[str] = set()
+        for entry in entries:
+            if entry.meta.get("context") is False or entry.payload.get("role") != "user":
+                continue
+            content = entry.payload.get("content")
+            if isinstance(content, str):
+                names.update(expanded_skill_names(content))
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, Mapping) and isinstance(text := part.get("text"), str):
+                        names.update(expanded_skill_names(text))
+        return names
+
+    def _expand_skills_prompt(
+        self,
+        content: list[UserContent],
+        workspace: Path,
+        allowed_skills: Collection[str] | None = None,
+        *,
+        already_expanded: Collection[str] = (),
+    ) -> str:
+        excluded = {name.casefold() for name in already_expanded}
+        hints = {name.casefold() for name in HINT_RE.findall(prompt_text(content))} - excluded
+        if not hints:
+            return ""
+        skills = self._discover_turn_skills(workspace, allowed_skills)
+        matched = [skill for skill in skills if skill.name.casefold() in hints]
+        return render_expanded_skills(matched)
 
 
 def _deferred_tools(tools: list[Tool]) -> list[Tool]:

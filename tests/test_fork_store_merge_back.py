@@ -99,3 +99,25 @@ async def test_reset_for_unbound_tape_resets_parent_immediately() -> None:
 
     entries = parent.read("test-tape")
     assert entries is None
+
+
+@pytest.mark.asyncio
+async def test_fork_store_preserves_multimodal_content_during_run_and_redacts_on_merge_back() -> None:
+    parent = InMemoryTapeStore()
+    store = ForkTapeStore(AsyncTapeStoreAdapter(parent), "test-tape")
+    media_content = [
+        {"type": "text", "text": "describe this"},
+        {"type": "image", "media_type": "image/png", "url": "data:image/png;base64,AAAA"},
+    ]
+
+    await store.append("test-tape", TapeEntry.message({"role": "user", "content": media_content}))
+
+    in_run = list(await store.fetch_all(TapeQuery(tape="test-tape", store=store)))
+    assert len(in_run) == 1
+    assert in_run[0].payload["content"] == media_content
+
+    await store.merge_back()
+
+    persisted = parent.read("test-tape")
+    assert persisted is not None
+    assert persisted[0].payload["content"] == [{"type": "text", "text": "describe this"}]

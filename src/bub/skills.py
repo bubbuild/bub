@@ -208,3 +208,24 @@ def render_skills_prompt(skills: list[SkillMetadata], expanded_skills: Collectio
         lines.append(line)
     lines.append("</available_skills>")
     return "\n".join(lines)
+
+
+_EXPANDED_SKILL_RE = re.compile(r'<skill name="([^"]+)">')
+
+
+def expanded_skill_names(text: str) -> set[str]:
+    """Return casefolded names of skills already expanded in ``text``."""
+    return {name.casefold() for name in _EXPANDED_SKILL_RE.findall(text)}
+
+
+def render_expanded_skills(skills: Iterable[SkillMetadata]) -> str:
+    """Render full skill bodies for skills referenced in a turn, to attach to turn input."""
+    blocks: list[str] = []
+    for skill in sorted(skills, key=lambda item: item.name.casefold()):
+        lines = [f'<skill name="{skill.name}">', f"Location: {skill.location}"]
+        body = skill.body()
+        if body:
+            lines.append(body)
+        lines.append("</skill>")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
