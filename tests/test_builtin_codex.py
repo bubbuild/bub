@@ -79,6 +79,7 @@ async def test_codex_sends_content_with_file_credentials(
         assert body["input"][-1]["content"][-1] == {
             "type": "input_image",
             "image_url": "https://example.test/image.png",
+            "detail": "auto",
         }
     if content_kind == "assistant-history":
         assert body["input"][1]["type"] == "function_call"

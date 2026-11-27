@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Collection
 from pathlib import Path
+from typing import Any
 
 import bub.core as core
 from bub.builtin.settings import load_settings
@@ -147,12 +149,20 @@ class BubAgent(core.Agent):
                 "allowed_skills": list(allowed_skills) if allowed_skills else None,
                 "allowed_tools": list(allowed_tools) if allowed_tools else None,
             }
+        options: dict[str, Any] | None = None
+        if fork_from is not None:
+            # Forked runs read the parent tape without merging back; isolate their upstream session affinity.
+            parent_session_id = await fork_from.session_id()
+            options = {
+                "session_id": hashlib.sha256(f"bub:fork:{parent_session_id}:{session_id}".encode()).hexdigest()[:32]
+            }
         return await self.start(
             content,
             # The turn's model and reasoning effort apply until the next turn.
             model=self.settings.chat_model(
                 state.get("model") if model is None else model, reasoning_effort=state.get("reasoning_effort")
             ),
+            options=options,
             tape=session_tape_name(session_id, workspace_from_state(state)) if fork_from is None else fork_from,
             state=state,
             merge_back=fork_from is None and not session_id.startswith("temp/"),

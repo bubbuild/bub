@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12, <4.0"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -376,7 +376,7 @@ requires-dist = [
     { name = "pyyaml", marker = "extra == 'logfire'", specifier = ">=6.0.3" },
     { name = "rapidfuzz", marker = "extra == 'app'", specifier = ">=3.14.5" },
     { name = "rapidfuzz", marker = "extra == 'logfire'", specifier = ">=3.14.5" },
-    { name = "republic", specifier = ">=0.6.0" },
+    { name = "republic", specifier = ">=0.6.4" },
     { name = "rich", marker = "extra == 'app'", specifier = ">=14.3.4" },
     { name = "rich", marker = "extra == 'logfire'", specifier = ">=14.3.4" },
     { name = "typer", marker = "extra == 'app'", specifier = ">=0.24.1" },
@@ -2035,7 +2035,7 @@ wheels = [
 
 [[package]]
 name = "republic"
-version = "0.6.0"
+version = "0.6.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
@@ -2043,9 +2043,9 @@ dependencies = [
     { name = "httpx2" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/40/ca/21b99f958e4830f586cfef480725f2a58937fda44a65ee0f50e36418d5ac/republic-0.6.0.tar.gz", hash = "sha256:3534cbad92e0a25c62d0fe2797031d8e574d3d2f2764d083470d585b163e60c4", size = 243309, upload-time = "2026-10-20T06:41:49.423Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e3/a4/ece8e118e06cf117d0e01755310c1c1828cd8a8ab80eba3ca3589fe8a90e/republic-0.6.4.tar.gz", hash = "sha256:316ff6898e1062850d3560e30cb7948bd55e1074d6510f9cbd0e90f42900a247", size = 283047, upload-time = "2026-11-27T10:10:47.733Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9e/6c/734a685c20d2dbe220cca811f989270cc8470db96cfaff645b0c231670d6/republic-0.6.0-py3-none-any.whl", hash = "sha256:78b186ca286c4ba0e7b5cfbd8c3a2a71ed36d20f2bb9292dcb18a652005fde9c", size = 82003, upload-time = "2026-10-20T06:41:48.105Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/c0/cba66c07272b7e72693a4ec51046a8c6ba24a31f53ceb187d62584cba617/republic-0.6.4-py3-none-any.whl", hash = "sha256:7401209a939a8dd78288489a8fd2f9d0cce10b2dcd3cfbdf1f6ad6b675454f0d", size = 87080, upload-time = "2026-11-27T10:10:46.461Z" },
 ]
 
 [[package]]

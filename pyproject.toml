@@ -22,7 +22,7 @@ classifiers = [
 
 # The agent kernel, bub.core. Everything else (framework, CLI, channels, builtin agent) is in the `app` extra.
 dependencies = [
-    "republic>=0.6.0",
+    "republic>=0.6.4",
     "pydantic>=2.12.5",
     "loguru>=0.7.3",
     "typing-extensions>=4.15.0",

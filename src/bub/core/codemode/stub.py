@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import dataclasses
 import keyword
 import re
 from collections.abc import Iterable
 from typing import Any
+
+import republic
 
 from bub.core.tools import Tool, model_tools
 
@@ -89,15 +92,21 @@ def _pascal(name: str) -> str:
     return "".join(part[:1].upper() + part[1:] for part in re.split(r"[^0-9A-Za-z]+", name))
 
 
-_MEDIA_FIELDS = {"media_type", "data", "url"}
+_MEDIA_TYPES = ("Image", "Audio", "Video")
 
 
 def _media_class(schema: dict[str, Any]) -> str | None:
     """Recognize the JSON schema of ``republic.Image``, ``Audio`` and ``Video`` parameters."""
     title = schema.get("title")
     properties = schema.get("properties")
-    if title in ("Image", "Audio", "Video") and isinstance(properties, dict) and set(properties) == _MEDIA_FIELDS:
-        return str(title)
+    if title in _MEDIA_TYPES and isinstance(properties, dict):
+        media_cls = getattr(republic, title, None)
+        if (
+            media_cls is not None
+            and dataclasses.is_dataclass(media_cls)
+            and set(properties) == {field.name for field in dataclasses.fields(media_cls)}
+        ):
+            return str(title)
     return None
 
 

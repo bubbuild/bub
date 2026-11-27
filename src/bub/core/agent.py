@@ -650,6 +650,8 @@ class Agent:
                     *self.builtin_tools,
                 ],
             }
+            if "session_id" not in call_options:
+                call_options["session_id"] = await tape.session_id()
             if request.max_tokens is not None:
                 call_options["max_tokens"] = request.max_tokens
             async with AsyncExitStack() as stack:
