@@ -17,7 +17,7 @@ from telegram.request import HTTPXRequest
 from bub import config
 from bub.channels.base import Channel
 from bub.channels.contracts import MessageHandler
-from bub.channels.message import ChannelMessage, MediaItem, MediaType
+from bub.channels.message import ChannelMessage, MediaItem, MediaType, format_front_matter_message
 from bub.configure import Settings, ensure_config
 from bub.core.commands import strip_command_prefix, validate_command_prefix
 from bub.utils import exclude_none
@@ -264,11 +264,11 @@ class TelegramChannel(Channel):
         media_items = _extract_media_items(metadata)
         reply_meta = await self._parser.get_reply(message)
         if reply_meta:
-            metadata["reply_to_message"] = reply_meta
             reply_media = _extract_media_items(reply_meta)
             media_items.extend(reply_media)
+            metadata["reply_to"] = reply_meta
         text = content
-        content = json.dumps({"message": text, **metadata}, ensure_ascii=False)
+        content = format_front_matter_message(metadata, text)
         is_active = MESSAGE_FILTER.filter(message) is not False
         return ChannelMessage(
             session_id=session_id,
@@ -327,7 +327,7 @@ class TelegramMessageParser:
             "full_name": message.from_user.full_name if message.from_user else "",
             "sender_id": str(message.from_user.id) if message.from_user else "",
             "sender_is_bot": message.from_user.is_bot if message.from_user else None,
-            "date": message.date.timestamp() if message.date else None,
+            "date": message.date.isoformat() if message.date else None,
             "links": self._extract_links(message),
             "media": media,
         })
@@ -338,7 +338,7 @@ class TelegramMessageParser:
         if reply_to is None or reply_to.from_user is None:
             return None
         content, metadata = await self.parse(reply_to)
-        return {"message": content, **metadata}
+        return {**metadata, "content": content}
 
     @staticmethod
     def _extract_links(message: Message) -> list[str] | None:
