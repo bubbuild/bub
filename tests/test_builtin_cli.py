@@ -692,7 +692,9 @@ def test_build_bub_requirement_uses_direct_url_json(monkeypatch) -> None:
 
     monkeypatch.setattr(cli.metadata, "distribution", lambda name: FakeDistribution())
 
-    assert cli._build_bub_requirement() == ["git+https://github.com/bubbuild/bub.git@main#subdirectory=python"]
+    assert cli._build_bub_requirement() == [
+        "bub[app] @ git+https://github.com/bubbuild/bub.git@main#subdirectory=python"
+    ]
 
 
 def test_build_bub_requirement_falls_back_to_installed_version(monkeypatch) -> None:
@@ -706,7 +708,7 @@ def test_build_bub_requirement_falls_back_to_installed_version(monkeypatch) -> N
 
     monkeypatch.setattr(cli.metadata, "distribution", lambda name: FakeDistribution())
 
-    assert cli._build_bub_requirement() == ["bub"]
+    assert cli._build_bub_requirement() == ["bub[app]"]
 
 
 def test_build_bub_requirement_uses_local_path_for_file_dist(monkeypatch) -> None:
@@ -719,7 +721,7 @@ def test_build_bub_requirement_uses_local_path_for_file_dist(monkeypatch) -> Non
 
     monkeypatch.setattr(cli.metadata, "distribution", lambda name: FakeDistribution())
 
-    assert cli._build_bub_requirement() == ["/tmp/worktrees/bub"]  # noqa: S108
+    assert cli._build_bub_requirement() == ["/tmp/worktrees/bub[app]"]  # noqa: S108
 
 
 def test_build_bub_requirement_marks_editable_local_dist(monkeypatch) -> None:
@@ -735,7 +737,7 @@ def test_build_bub_requirement_marks_editable_local_dist(monkeypatch) -> None:
 
     monkeypatch.setattr(cli.metadata, "distribution", lambda name: FakeDistribution())
 
-    assert cli._build_bub_requirement() == ["--editable", "/tmp/worktrees/bub"]  # noqa: S108
+    assert cli._build_bub_requirement() == ["--editable", "/tmp/worktrees/bub[app]"]  # noqa: S108
 
 
 def test_ensure_project_initializes_project_and_adds_bub_dependency(tmp_path: Path, monkeypatch) -> None:
@@ -743,14 +745,14 @@ def test_ensure_project_initializes_project_and_adds_bub_dependency(tmp_path: Pa
     project.mkdir()
     captured: list[tuple[tuple[str, ...], Path]] = []
 
-    monkeypatch.setattr(cli, "_build_bub_requirement", lambda: ["--editable", "/tmp/bub"])  # noqa: S108
+    monkeypatch.setattr(cli, "_build_bub_requirement", lambda: ["--editable", "/tmp/bub[app]"])  # noqa: S108
     monkeypatch.setattr(cli, "_uv", lambda *args, cwd: captured.append((args, cwd)))
 
     cli._ensure_project(project)
 
     assert captured == [
         (("init", "--bare", "--name", "bub-project", "--app"), project),
-        (("add", "--active", "--no-sync", "--extra", "app", "--editable", "/tmp/bub"), project),  # noqa: S108
+        (("add", "--active", "--no-sync", "--editable", "/tmp/bub[app]"), project),  # noqa: S108
     ]
 
 
