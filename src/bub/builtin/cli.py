@@ -316,8 +316,9 @@ def _build_local_requirement_path(url: str, subdirectory: str | None = None) -> 
 
 
 def _build_bub_requirement() -> list[str]:
+    """Build the requirement for the running Bub, keeping the `app` extra the CLI needs."""
     dist = metadata.distribution("bub")
-    dist_name = dist.name
+    dist_name = f"{dist.name}[app]"
     direct_url_text = dist.read_text("direct_url.json")
     if not direct_url_text:
         return [dist_name]
@@ -331,7 +332,8 @@ def _build_bub_requirement() -> list[str]:
     if local_path is not None:
         dir_info = direct_url.get("dir_info")
         editable = isinstance(dir_info, dict) and bool(dir_info.get("editable"))
-        return ["--editable", local_path] if editable else [local_path]
+        local_requirement = f"{local_path}[app]"
+        return ["--editable", local_requirement] if editable else [local_requirement]
 
     vcs_info = direct_url.get("vcs_info")
     if isinstance(vcs_info, dict):
@@ -345,7 +347,7 @@ def _build_bub_requirement() -> list[str]:
     if normalized_subdirectory:
         requirement_url = f"{requirement_url}#subdirectory={normalized_subdirectory}"
 
-    return [requirement_url]
+    return [f"{dist_name} @ {requirement_url}"]
 
 
 def _ensure_project(project: Path) -> None:
@@ -353,7 +355,7 @@ def _ensure_project(project: Path) -> None:
         return
     _uv("init", "--bare", "--name", "bub-project", "--app", cwd=project)
     bub_requirement = _build_bub_requirement()
-    _uv("add", "--active", "--no-sync", "--extra", "app", *bub_requirement, cwd=project)
+    _uv("add", "--active", "--no-sync", *bub_requirement, cwd=project)
 
 
 def install(
