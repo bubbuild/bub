@@ -333,9 +333,10 @@ class ForkTapeStore:
             payload["prompt"] = ForkTapeStore._redact_prompt(payload["prompt"])
 
     async def append(self, tape: str, entry: TapeEntry) -> None:
-        self._redact_payload(entry.payload)
         if tape not in self._managed_tapes:
-            await self._parent.append(tape, entry)
+            redacted = entry.copy()
+            self._redact_payload(redacted.payload)
+            await self._parent.append(tape, redacted)
             return
         self._store.append(tape, entry)
 
@@ -347,6 +348,7 @@ class ForkTapeStore:
                 if sidecar in self._reset_tapes:
                     await self._parent.reset(sidecar)
                 for entry in entries:
+                    self._redact_payload(entry.payload)
                     await self._parent.append(sidecar, entry)
             except Exception as exc:
                 logger.warning('Failed to merge sidecar "{}" into tape "{}": {}', sidecar, self._tape, exc)
@@ -365,6 +367,7 @@ class ForkTapeStore:
             await self._parent.reset(self._tape)
         entries = self._store.read(self._tape) or []
         for entry in entries:
+            self._redact_payload(entry.payload)
             await self._parent.append(self._tape, entry)
         total += len(entries)
         if total:

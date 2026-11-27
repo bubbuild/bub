@@ -481,3 +481,74 @@ async def test_agent_sections_and_handlers_apply_after_builtin_ones(model_provid
     assert system_prompt.endswith(f"<session>user/s1:{len(request['tools'])}</session>")
     assert system_prompt.startswith("<framework/>\n\n")
     assert statuses == ["ok"]
+
+
+@pytest.mark.asyncio
+async def test_skill_hint_expands_into_turn_message_without_mutating_system_prompt(
+    model_provider: ProviderService, tmp_path: Path
+) -> None:
+    model_provider.reply_chat()
+    model_provider.reply_chat()
+    skill_dir = tmp_path / "skills" / "demo-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: Demo skill\n---\nFollow these steps carefully.\n",
+        encoding="utf-8",
+    )
+
+    agent = _make_agent()
+    agent.skill_dirs = [tmp_path / "skills"]
+    state = {"_runtime_workspace": str(tmp_path)}
+
+    for prompt in ("hello", "please use $demo-skill here", "use $DEMO-SKILL again"):
+        stream = await agent.run_stream(session_id="user/s1", prompt=prompt, state=state)
+        _ = [event async for event in stream]
+
+    tape = agent.tape(session_tape_name("user/s1", tmp_path), state=state)
+    await tape.handoff(name="next")
+    stream = await agent.run_stream(session_id="user/s1", prompt="after handoff $demo-skill", state=state)
+    _ = [event async for event in stream]
+
+    turn1, turn2, turn3, turn4 = (
+        model_provider.body(0),
+        model_provider.body(1),
+        model_provider.body(2),
+        model_provider.body(3),
+    )
+    assert turn1["messages"][0] == turn2["messages"][0] == turn3["messages"][0] == turn4["messages"][0]
+    assert "Follow these steps carefully." not in turn2["messages"][0]["content"]
+    assert turn2["messages"][: len(turn1["messages"])] == turn1["messages"]
+    assert turn3["messages"][: len(turn2["messages"])] == turn2["messages"]
+    assert '<skill name="demo-skill">' in str(turn2["messages"][-1]["content"])
+    assert '<skill name="demo-skill">' not in str(turn3["messages"][-1]["content"])
+    assert '<skill name="demo-skill">' in str(turn4["messages"][-1]["content"])
+
+
+@pytest.mark.asyncio
+async def test_tools_and_deferred_prompt_order_are_independent_of_registration_order(
+    model_provider: ProviderService,
+) -> None:
+    alpha = Tool.from_callable(lambda: "a", name="alpha")
+    zeta = Tool.from_callable(lambda: "z", name="zeta")
+    d_alpha = Tool.from_callable(lambda: "da", name="ext.alpha", deferred=True)
+    d_zeta = Tool.from_callable(lambda: "dz", name="ext.zeta", deferred=True)
+
+    agent_a = _make_agent(zeta, alpha, d_zeta, d_alpha)
+    agent_b = _make_agent(alpha, zeta, d_alpha, d_zeta)
+    agent_a.skill_dirs = []
+    agent_b.skill_dirs = []
+
+    for agent in (agent_a, agent_b):
+        stream = await agent.run_stream(
+            session_id="user/order",
+            prompt="hi",
+            state={"_runtime_workspace": "/tmp"},  # noqa: S108
+            allowed_tools=["alpha", "zeta", "ext.alpha", "ext.zeta"],
+        )
+        _ = [event async for event in stream]
+
+    req_a, req_b = model_provider.body(0), model_provider.body(1)
+    assert [t["function"]["name"] for t in req_a["tools"]] == ["alpha", "zeta", "tool_describe"]
+    assert req_a["tools"] == req_b["tools"]
+    assert req_a["messages"][0] == req_b["messages"][0]
+    assert "- ext_alpha\n- ext_zeta" in req_a["messages"][0]["content"]
